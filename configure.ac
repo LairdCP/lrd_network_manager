@@ -16,7 +16,7 @@ AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_AUX_DIR([build-aux])
 AC_REQUIRE_AUX_FILE([tap-driver.sh])
 
-AM_INIT_AUTOMAKE(1.12 tar-ustar no-dist-gzip dist-xz -Wno-portability)  dnl NB: Do not [quote] this parameter.
+AM_INIT_AUTOMAKE(1.12 tar-ustar no-dist-gzip dist-xz -Wno-portability subdir-objects)  dnl NB: Do not [quote] this parameter.
 AM_MAINTAINER_MODE([enable])
 AM_SILENT_RULES([yes])
 
@@ -893,7 +893,7 @@ AC_DEFINE_UNQUOTED(DNSSEC_TRIGGER_SCRIPT, "$DNSSEC_TRIGGER_SCRIPT", [Define to p
 AC_SUBST(DNSSEC_TRIGGER_SCRIPT)
 
 # system CA certificates path
-AC_ARG_WITH(system-ca-path, AS_HELP_STRING([--with-system-ca-path=/path/to/ssl/certs], [path to system CA certificates])) 
+AC_ARG_WITH(system-ca-path, AS_HELP_STRING([--with-system-ca-path=/path/to/ssl/certs], [path to system CA certificates]))
 if test "x${with_system_ca_path}" = x; then
   SYSTEM_CA_PATH=/etc/ssl/certs
 else
