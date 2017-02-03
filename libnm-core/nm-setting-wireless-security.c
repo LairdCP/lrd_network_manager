@@ -829,7 +829,8 @@ need_secrets (NMSetting *setting)
 	}
 
 	if (   (strcmp (priv->key_mgmt, "ieee8021x") == 0)
-	    || (strcmp (priv->key_mgmt, "wpa-eap") == 0)) {
+	    || (strcmp (priv->key_mgmt, "wpa-eap") == 0)
+	    || (strcmp (priv->key_mgmt, "cckm") == 0)) {
 		/* Let caller check the 802.1x setting for secrets */
 		goto no_secrets;
 	}
@@ -848,7 +849,7 @@ verify (NMSetting *setting, NMConnection *connection, GError **error)
 {
 	NMSettingWirelessSecurity *self = NM_SETTING_WIRELESS_SECURITY (setting);
 	NMSettingWirelessSecurityPrivate *priv = NM_SETTING_WIRELESS_SECURITY_GET_PRIVATE (self);
-	const char *valid_key_mgmt[] = { "none", "ieee8021x", "wpa-none", "wpa-psk", "wpa-eap", NULL };
+	const char *valid_key_mgmt[] = { "none", "ieee8021x", "wpa-none", "wpa-psk", "wpa-eap", "cckm", NULL };
 	const char *valid_auth_algs[] = { "open", "shared", "leap", NULL };
 	const char *valid_protos[] = { "wpa", "rsn", NULL };
 	const char *valid_pairwise[] = { "tkip", "ccmp", NULL };
