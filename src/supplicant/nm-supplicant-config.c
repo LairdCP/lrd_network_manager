@@ -743,8 +743,9 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
 	/* Only WPA-specific things when using WPA */
 	if (   !strcmp (key_mgmt, "wpa-none")
 	    || !strcmp (key_mgmt, "wpa-psk")
-	    || !strcmp (key_mgmt, "wpa-eap")) {
-		if (!ADD_STRING_LIST_VAL (self, setting, wireless_security, proto, protos, "proto", ' ', TRUE, NULL, error))
+	    || !strcmp (key_mgmt, "wpa-eap")
+	    || !strcmp (key_mgmt, "cckm")){
+		if (!ADD_STRING_LIST_VAL (self, setting, wireless_security, proto, protos, "proto", ' ', TRUE, FALSE, error))
 			return FALSE;
 		if (!ADD_STRING_LIST_VAL (self, setting, wireless_security, pairwise, pairwise, "pairwise", ' ', TRUE, NULL, error))
 			return FALSE;
@@ -800,7 +801,7 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
 		}
 	} else {
 		/* 802.1x for Dynamic WEP and WPA-Enterprise */
-		if (!strcmp (key_mgmt, "ieee8021x") || !strcmp (key_mgmt, "wpa-eap")) {
+		if (!strcmp (key_mgmt, "ieee8021x") || !strcmp (key_mgmt, "wpa-eap") || !strcmp (key_mgmt, "cckm")) {
 			if (!setting_8021x) {
 				g_set_error (error, NM_SUPPLICANT_ERROR, NM_SUPPLICANT_ERROR_CONFIG,
 				             "Cannot set key-mgmt %s with missing 8021x setting", key_mgmt);
@@ -810,7 +811,7 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
 				return FALSE;
 		}
 
-		if (!strcmp (key_mgmt, "wpa-eap")) {
+		if (!strcmp (key_mgmt, "wpa-eap") || !strcmp (key_mgmt, "cckm")) {
 			/* If using WPA Enterprise, enable optimized background scanning
 			 * to ensure roaming within an ESS works well.
 			 */
