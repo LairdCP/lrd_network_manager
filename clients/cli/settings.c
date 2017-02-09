@@ -254,6 +254,7 @@ NmcOutputField nmc_fields_setting_wireless_security[] = {
 	SETTING_FIELD (NM_SETTING_WIRELESS_SECURITY_PSK_FLAGS),            /* 15 */
 	SETTING_FIELD (NM_SETTING_WIRELESS_SECURITY_LEAP_PASSWORD),        /* 16 */
 	SETTING_FIELD (NM_SETTING_WIRELESS_SECURITY_LEAP_PASSWORD_FLAGS),  /* 17 */
+	SETTING_FIELD (NM_SETTING_WIRELESS_SECURITY_PROACTIVE_KEY_CACHING),/* 18 */
 	{NULL, NULL, 0, NULL, FALSE, FALSE, 0}
 };
 #define NMC_FIELDS_SETTING_WIRELESS_SECURITY_ALL     "name"","\
@@ -5358,6 +5359,7 @@ DEFINE_GETTER (nmc_property_wifi_sec_get_psk, NM_SETTING_WIRELESS_SECURITY_PSK)
 DEFINE_SECRET_FLAGS_GETTER (nmc_property_wifi_sec_get_psk_flags, NM_SETTING_WIRELESS_SECURITY_PSK_FLAGS)
 DEFINE_GETTER (nmc_property_wifi_sec_get_leap_password, NM_SETTING_WIRELESS_SECURITY_LEAP_PASSWORD)
 DEFINE_SECRET_FLAGS_GETTER (nmc_property_wifi_sec_get_leap_password_flags, NM_SETTING_WIRELESS_SECURITY_LEAP_PASSWORD_FLAGS)
+DEFINE_GETTER (nmc_property_wifi_sec_get_proactive_key_caching, NM_SETTING_WIRELESS_SECURITY_PROACTIVE_KEY_CACHING)
 
 static char *
 nmc_property_wifi_sec_get_wep_key0 (NMSetting *setting, NmcPropertyGetType get_type)
@@ -5651,6 +5653,17 @@ nmc_property_wifi_set_psk (NMSetting *setting, const char *prop, const char *val
 	g_object_set (setting, prop, val, NULL);
 	return TRUE;
 }
+
+/* 'proactive_key_caching' */
+static const char *wifi_sec_valid_proactive_key_caching[] = { "0", "1", NULL };
+
+static gboolean
+nmc_property_wifi_sec_set_proactive_key_caching (NMSetting *setting, const char *prop, const char *val, GError **error)
+{
+	return check_and_set_string (setting, prop, val, wifi_sec_valid_proactive_key_caching, error);
+}
+
+DEFINE_ALLOWED_VAL_FUNC (nmc_property_wifi_sec_allowed_proactive_key_caching, wifi_sec_valid_proactive_key_caching)
 
 /*----------------------------------------------------------------------------*/
 
@@ -7817,6 +7830,13 @@ nmc_properties_init (void)
 	nmc_add_prop_funcs (GLUE (WIRELESS_SECURITY, LEAP_PASSWORD_FLAGS),
 	                    nmc_property_wifi_sec_get_leap_password_flags,
 	                    nmc_property_set_secret_flags,
+	                    NULL,
+	                    NULL,
+	                    NULL,
+	                    NULL);
+	nmc_add_prop_funcs (GLUE (WIRELESS_SECURITY, PROACTIVE_KEY_CACHING),
+	                    nmc_property_wifi_sec_get_proactive_key_caching,
+	                    nmc_property_wifi_sec_set_proactive_key_caching,
 	                    NULL,
 	                    NULL,
 	                    NULL,
