@@ -822,8 +822,11 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
 			 * called Opportunistic Key Caching) to avoid full EAP exchanges when
 			 * roaming between access points in the same mobility group.
 			 */
-			if (!nm_supplicant_config_add_option (self, "proactive_key_caching", "1", -1, NULL, error))
-				return FALSE;
+			const char* proactive_key_caching = nm_setting_wireless_security_get_proactive_key_caching (setting);
+			if (!add_string_val (self, proactive_key_caching, "proactive_key_caching", TRUE, FALSE, error)) {
+				if (!nm_supplicant_config_add_option (self, "proactive_key_caching", "1", -1, FALSE, error))
+					return FALSE;
+			}
 		}
 	}
 
