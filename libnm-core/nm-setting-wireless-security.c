@@ -83,6 +83,8 @@ typedef struct {
 	/* WPA-PSK */
 	char *psk;
 	NMSettingSecretFlags psk_flags;
+
+	char *proactive_key_caching;
 } NMSettingWirelessSecurityPrivate;
 
 enum {
@@ -104,6 +106,7 @@ enum {
 	PROP_PSK_FLAGS,
 	PROP_LEAP_PASSWORD,
 	PROP_LEAP_PASSWORD_FLAGS,
+	PROP_PROACTIVE_KEY_CACHING,
 
 	LAST_PROP
 };
@@ -775,6 +778,20 @@ nm_setting_wireless_security_get_wep_key_type (NMSettingWirelessSecurity *settin
 	return NM_SETTING_WIRELESS_SECURITY_GET_PRIVATE (setting)->wep_key_type;
 }
 
+/**
+ * nm_setting_wireless_security_get_proactive_key_caching:
+ * @setting: the #NMSettingWirelessSecurity
+ *
+ * Returns: the #NMSettingWirelessSecurity:proactive_key_caching property of the setting
+ **/
+const char *
+nm_setting_wireless_security_get_proactive_key_caching (NMSettingWirelessSecurity *setting)
+{
+	g_return_val_if_fail (NM_IS_SETTING_WIRELESS_SECURITY (setting), NULL);
+
+	return NM_SETTING_WIRELESS_SECURITY_GET_PRIVATE (setting)->proactive_key_caching;
+}
+
 static GPtrArray *
 need_secrets (NMSetting *setting)
 {
@@ -1148,6 +1165,7 @@ finalize (GObject *object)
 	g_free (priv->wep_key3);
 	g_free (priv->psk);
 	g_free (priv->leap_password);
+	g_free (priv->proactive_key_caching);
 
 	g_slist_free_full (priv->proto, g_free);
 	g_slist_free_full (priv->pairwise, g_free);
@@ -1239,6 +1257,11 @@ set_property (GObject *object, guint prop_id,
 	case PROP_WEP_KEY_TYPE:
 		priv->wep_key_type = g_value_get_enum (value);
 		break;
+	case PROP_PROACTIVE_KEY_CACHING:
+		g_free (priv->proactive_key_caching);
+		str = g_value_get_string (value);
+		priv->proactive_key_caching = str ? g_ascii_strdown (str, -1) : NULL;
+		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
 		break;
@@ -1303,6 +1326,9 @@ get_property (GObject *object, guint prop_id,
 		break;
 	case PROP_WEP_KEY_TYPE:
 		g_value_set_enum (value, priv->wep_key_type);
+		break;
+	case PROP_PROACTIVE_KEY_CACHING:
+		g_value_set_string (value, priv->proactive_key_caching);
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -1709,4 +1735,28 @@ nm_setting_wireless_security_class_init (NMSettingWirelessSecurityClass *setting
 	                                      G_VARIANT_TYPE_UINT32,
 	                                      wep_key_type_to_dbus,
 	                                      NULL);
+
+	/**
+	 * NMSettingWirelessSecurity:proactive-key-caching:
+	 *
+	 * Key management used for the connection.  One of "0" (Standard key caching), or "1"
+	 * (Opportunistic Key Caching). This property must be set for
+	 * any Wi-Fi connection that uses wpa-eap key-mgmt.
+	 **/
+	/* ---ifcfg-rh---
+	 * property: proactive-key-caching
+	 * variable: PROACTIVE_KEY_CACHING(+)
+	 * values: 0, 1
+	 * description: Key caching method.
+	 * ---end---
+	 */
+	g_object_class_install_property
+		(object_class, PROP_PROACTIVE_KEY_CACHING,
+		 g_param_spec_string (NM_SETTING_WIRELESS_SECURITY_PROACTIVE_KEY_CACHING, "", "",
+		                      NULL,
+		                      G_PARAM_READWRITE |
+		                      NM_SETTING_PARAM_REQUIRED |
+		                      G_PARAM_STATIC_STRINGS));
+
+
 }
