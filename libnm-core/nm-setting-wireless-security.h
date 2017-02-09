@@ -88,6 +88,7 @@ typedef enum {
 #define NM_SETTING_WIRELESS_SECURITY_PSK_FLAGS "psk-flags"
 #define NM_SETTING_WIRELESS_SECURITY_LEAP_PASSWORD "leap-password"
 #define NM_SETTING_WIRELESS_SECURITY_LEAP_PASSWORD_FLAGS "leap-password-flags"
+#define NM_SETTING_WIRELESS_SECURITY_PROACTIVE_KEY_CACHING "proactive-key-caching"
 
 /**
  * NMSettingWirelessSecurity:
@@ -147,6 +148,7 @@ const char *nm_setting_wireless_security_get_auth_alg      (NMSettingWirelessSec
 NMSettingSecretFlags nm_setting_wireless_security_get_wep_key_flags (NMSettingWirelessSecurity *setting);
 NMWepKeyType nm_setting_wireless_security_get_wep_key_type (NMSettingWirelessSecurity *setting);
 
+const char *nm_setting_wireless_security_get_proactive_key_caching	(NMSettingWirelessSecurity *setting);
 G_END_DECLS
 
 #endif /* __NM_SETTING_WIRELESS_SECURITY_H__ */
