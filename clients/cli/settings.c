@@ -157,6 +157,7 @@ NmcOutputField nmc_fields_setting_8021X[] = {
 	SETTING_FIELD (NM_SETTING_802_1X_PIN),                                /* 32 */
 	SETTING_FIELD (NM_SETTING_802_1X_PIN_FLAGS),                          /* 33 */
 	SETTING_FIELD (NM_SETTING_802_1X_SYSTEM_CA_CERTS),                    /* 34 */
+	SETTING_FIELD (NM_SETTING_802_1X_TLS_DISABLE_TIME_CHECKS),	      /* 35 */
 	{NULL, NULL, 0, NULL, FALSE, FALSE, 0}
 };
 #define NMC_FIELDS_SETTING_802_1X_ALL     "name"","\
@@ -193,7 +194,8 @@ NmcOutputField nmc_fields_setting_8021X[] = {
                                           NM_SETTING_802_1X_PHASE2_PRIVATE_KEY_PASSWORD_FLAGS","\
                                           NM_SETTING_802_1X_PIN","\
                                           NM_SETTING_802_1X_PIN_FLAGS","\
-                                          NM_SETTING_802_1X_SYSTEM_CA_CERTS
+                                          NM_SETTING_802_1X_SYSTEM_CA_CERTS","\
+					  NM_SETTING_802_1X_TLS_DISABLE_TIME_CHECKS
 
 /* Available fields for NM_SETTING_WIRELESS_SETTING_NAME */
 NmcOutputField nmc_fields_setting_wireless[] = {
@@ -1684,6 +1686,7 @@ DEFINE_SECRET_FLAGS_GETTER (nmc_property_802_1X_get_phase2_private_key_password_
 DEFINE_GETTER (nmc_property_802_1X_get_pin, NM_SETTING_802_1X_PIN)
 DEFINE_SECRET_FLAGS_GETTER (nmc_property_802_1X_get_pin_flags, NM_SETTING_802_1X_PIN_FLAGS)
 DEFINE_GETTER (nmc_property_802_1X_get_system_ca_certs, NM_SETTING_802_1X_SYSTEM_CA_CERTS)
+DEFINE_GETTER (nmc_property_802_1X_get_tls_disable_time_checks, NM_SETTING_802_1X_TLS_DISABLE_TIME_CHECKS)
 
 static char *
 nmc_property_802_1X_get_ca_cert (NMSetting *setting, NmcPropertyGetType get_type)
@@ -2158,6 +2161,17 @@ nmc_property_802_1X_describe_password_raw (NMSetting *setting, const char *prop)
 	         "Examples: ab0455a6ea3a74C2\n"
 	         "          ab 4 55 0xa6 ea 3a 74 C2\n");
 }
+
+/* 'tls-disable-time-checks' */
+static const char *_802_1X_valid_tls_disable_time_checks[] = { "0", "1", NULL };
+
+static gboolean
+nmc_property_802_1X_set_tls_disable_time_checks (NMSetting *setting, const char *prop, const char *val, GError **error)
+{
+	return check_and_set_string (setting, prop, val, _802_1X_valid_tls_disable_time_checks, error);
+}
+
+DEFINE_ALLOWED_VAL_FUNC (nmc_property_802_1X_allowed_tls_disable_time_checks, _802_1X_valid_tls_disable_time_checks)
 
 
 /* --- NM_SETTING_ADSL_SETTING_NAME property functions --- */
@@ -6345,6 +6359,14 @@ nmc_properties_init (void)
 	                    NULL,
 	                    NULL,
 	                    NULL);
+	nmc_add_prop_funcs (GLUE (802_1X, TLS_DISABLE_TIME_CHECKS),
+	                    nmc_property_802_1X_get_tls_disable_time_checks,
+	                    nmc_property_802_1X_set_tls_disable_time_checks,
+	                    NULL,
+	                    NULL,
+	                    NULL,
+	                    NULL);
+
 
 	/* Add editable properties for NM_SETTING_ADSL_SETTING_NAME */
 	nmc_add_prop_funcs (GLUE (ADSL, USERNAME),
