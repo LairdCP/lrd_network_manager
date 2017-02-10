@@ -116,6 +116,7 @@ typedef struct {
 	NMSettingSecretFlags phase2_private_key_password_flags;
 	gboolean system_ca_certs;
 	gint auth_timeout;
+	char *tls_disable_time_checks;
 } NMSetting8021xPrivate;
 
 enum {
@@ -164,6 +165,7 @@ enum {
 	PROP_PIN_FLAGS,
 	PROP_SYSTEM_CA_CERTS,
 	PROP_AUTH_TIMEOUT,
+	PROP_TLS_DISABLE_TIME_CHECKS,
 
 	LAST_PROP
 };
@@ -2172,6 +2174,21 @@ nm_setting_802_1x_get_private_key_uri (NMSetting8021x *setting)
 	return (const char *)data;
 }
 
+/**
+ * nm_setting_802_1x_get_tls_disable_time_checks:
+ * @setting: the #NMSetting8021x
+ *
+ * Returns: the value to be used for checking the datetime of certificates
+ *  during wpa-eap authentications. Valid values are "0" (enable), and "1" (disable).
+ **/
+const char *
+nm_setting_802_1x_get_tls_disable_time_checks (NMSetting8021x *setting)
+{
+	g_return_val_if_fail (NM_IS_SETTING_802_1X (setting), NULL);
+
+	return NM_SETTING_802_1X_GET_PRIVATE (setting)->tls_disable_time_checks;
+}
+
 static void
 free_secure_bytes (gpointer data)
 {
@@ -3613,6 +3630,9 @@ set_property (GObject *object, guint prop_id,
 		break;
 	case PROP_AUTH_TIMEOUT:
 		priv->auth_timeout = g_value_get_int (value);
+	case PROP_TLS_DISABLE_TIME_CHECKS:
+		g_free (priv->tls_disable_time_checks);
+		priv->tls_disable_time_checks = g_value_dup_string (value);
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -3759,6 +3779,8 @@ get_property (GObject *object, guint prop_id,
 		break;
 	case PROP_AUTH_TIMEOUT:
 		g_value_set_int (value, priv->auth_timeout);
+	case PROP_TLS_DISABLE_TIME_CHECKS:
+		g_value_set_string (value, priv->tls_disable_time_checks);
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -4813,5 +4835,27 @@ nm_setting_802_1x_class_init (NMSetting8021xClass *setting_class)
 		                   G_PARAM_READWRITE |
 		                   NM_SETTING_PARAM_FUZZY_IGNORE |
 		                   G_PARAM_STATIC_STRINGS));
+
+	/**
+	 * NMSetting8021x:tls-disable-time-checks:
+	 *
+	 * When set to "1", ignore certificate validity time (this requests the TLS
+	 * library to accept certificates even if they are not currently vaid, i.e.,
+	 * have expired or have not yet become valid; this should be used only for
+	 * testing purposes). This property may be set to "0" or "1".
+	 **/
+	/* ---ifcfg-rh---
+	 * property: phase1-peapver
+	 * variable: IEEE_8021X_PEAP_VERSION(+)
+	 * values: 0, 1
+	 * description: Use to ignore certificate validity time
+	 * ---end---
+	 */
+	g_object_class_install_property
+		(object_class, PROP_TLS_DISABLE_TIME_CHECKS,
+		 g_param_spec_string (NM_SETTING_802_1X_TLS_DISABLE_TIME_CHECKS, "", "",
+		                      NULL,
+		                      G_PARAM_READWRITE |
+		                      G_PARAM_STATIC_STRINGS));
 
 }
