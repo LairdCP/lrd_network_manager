@@ -81,12 +81,16 @@ const char * phase1_allowed[] =   {"peapver=0", "peapver=1", "peaplabel=1",
                                     "peap_outer_success=0", "include_tls_length=1",
                                     "sim_min_num_chal=3", "fast_provisioning=0",
                                     "fast_provisioning=1", "fast_provisioning=2",
-                                    "fast_provisioning=3", NULL };
+                                    "fast_provisioning=3", "tls_disable_time_checks=0",
+				    "tls_disable_time_checks=1", NULL };
 const char * phase2_allowed[] =   {"auth=PAP", "auth=CHAP", "auth=MSCHAP",
                                    "auth=MSCHAPV2", "auth=GTC", "auth=OTP",
                                    "auth=MD5", "auth=TLS", "autheap=MD5",
                                    "autheap=MSCHAPV2", "autheap=OTP",
-                                   "autheap=GTC", "autheap=TLS", NULL };
+                                   "autheap=GTC", "autheap=TLS",
+				   "tls_disable_time_checks=0",
+				   "tls_disable_time_checks=1",
+				   NULL };
 
 static const struct Opt opt_table[] = {
 	{ "ssid",               TYPE_BYTES,   0, 32,FALSE,  NULL },

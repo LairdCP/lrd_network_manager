@@ -938,12 +938,19 @@ nm_supplicant_config_add_setting_8021x (NMSupplicantConfig *self,
 			fast_provisoning_allowed = TRUE;
 	}
 
+	if (nm_setting_802_1x_get_tls_disable_time_checks (setting)) {
+		if (phase1->len)
+			g_string_append_c (phase1, ' ');
+		g_string_append_printf (phase1, "tls_disable_time_checks=%s", nm_setting_802_1x_get_tls_disable_time_checks (setting));
+	}
+
 	if (phase1->len) {
 		if (!add_string_val (self, phase1->str, "phase1", FALSE, NULL, error)) {
 			g_string_free (phase1, TRUE);
 			return FALSE;
 		}
 	}
+
 	g_string_free (phase1, TRUE);
 
 	phase2 = g_string_new (NULL);
@@ -961,12 +968,19 @@ nm_supplicant_config_add_setting_8021x (NMSupplicantConfig *self,
 		g_free (tmp);
 	}
 
+	if (nm_setting_802_1x_get_tls_disable_time_checks (setting)) {
+		if (phase2->len)
+			g_string_append_c (phase2, ' ');
+		g_string_append_printf (phase2, "tls_disable_time_checks=%s", nm_setting_802_1x_get_tls_disable_time_checks (setting));
+	}
+
 	if (phase2->len) {
 		if (!add_string_val (self, phase2->str, "phase2", FALSE, NULL, error)) {
 			g_string_free (phase2, TRUE);
 			return FALSE;
 		}
 	}
+
 	g_string_free (phase2, TRUE);
 
 	/* PAC file */
