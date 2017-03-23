@@ -2125,21 +2125,62 @@ DEFINE_ALLOWED_VAL_FUNC (nmc_property_802_1X_allowed_phase1_fast_provisioning, _
 static const char *_802_1X_valid_phase2_auths[] =
 	{ "pap", "chap", "mschap", "mschapv2", "gtc", "otp", "md5", "tls", NULL };
 
+DEFINE_SETTER_STR_LIST (nmc_property_802_1X_set_phase2_auth, nm_setting_802_1x_add_phase2_auth)
+
 static gboolean
-nmc_property_802_1X_set_phase2_auth (NMSetting *setting, const char *prop, const char *val, GError **error)
+_validate_and_remove_802_1X_phase2_auth (NMSetting8021x *setting,
+                                     const char *group,
+                                     GError **error)
 {
-	return check_and_set_string (setting, prop, val, _802_1X_valid_phase2_auths, error);
+	gboolean ret;
+	const char *valid;
+
+	valid = nmc_string_is_valid (group, _802_1X_valid_phase2_auths, error);
+	if (!valid)
+		return FALSE;
+
+	ret = nm_setting_802_1x_remove_phase2_auth_by_value (setting, group);
+	if (!ret)
+		g_set_error (error, 1, 0,
+		             _("the property doesn't contain protocol '%s'"), group);
+	return ret;
 }
+DEFINE_REMOVER_INDEX_OR_VALUE (nmc_property_802_1X_remove_phase2_auth,
+                               NM_SETTING_802_1X,
+                               nm_setting_802_1x_get_num_phase2_auths,
+                               nm_setting_802_1x_remove_phase2_auth,
+                               _validate_and_remove_802_1X_phase2_auth)
 
 DEFINE_ALLOWED_VAL_FUNC (nmc_property_802_1X_allowed_phase2_auth, _802_1X_valid_phase2_auths)
 
 /* 'phase2-autheap' */
 static const char *_802_1X_valid_phase2_autheaps[] = { "md5", "mschapv2", "otp", "gtc", "tls", NULL };
+
+DEFINE_SETTER_STR_LIST (nmc_property_802_1X_set_phase2_autheap, nm_setting_802_1x_add_phase2_autheap)
+
 static gboolean
-nmc_property_802_1X_set_phase2_autheap (NMSetting *setting, const char *prop, const char *val, GError **error)
+_validate_and_remove_802_1X_phase2_autheap (NMSetting8021x *setting,
+                                     const char *group,
+                                     GError **error)
 {
-	return check_and_set_string (setting, prop, val, _802_1X_valid_phase2_autheaps, error);
+	gboolean ret;
+	const char *valid;
+
+	valid = nmc_string_is_valid (group, _802_1X_valid_phase2_autheaps, error);
+	if (!valid)
+		return FALSE;
+
+	ret = nm_setting_802_1x_remove_phase2_autheap_by_value (setting, group);
+	if (!ret)
+		g_set_error (error, 1, 0,
+		             _("the property doesn't contain protocol '%s'"), group);
+	return ret;
 }
+DEFINE_REMOVER_INDEX_OR_VALUE (nmc_property_802_1X_remove_phase2_autheap,
+                               NM_SETTING_802_1X,
+                               nm_setting_802_1x_get_num_phase2_autheaps,
+                               nm_setting_802_1x_remove_phase2_autheap,
+                               _validate_and_remove_802_1X_phase2_autheap)
 
 DEFINE_ALLOWED_VAL_FUNC (nmc_property_802_1X_allowed_phase2_autheap, _802_1X_valid_phase2_autheaps)
 
@@ -6215,14 +6256,14 @@ nmc_properties_init (void)
 	nmc_add_prop_funcs (GLUE (802_1X, PHASE2_AUTH),
 	                    nmc_property_802_1X_get_phase2_auth,
 	                    nmc_property_802_1X_set_phase2_auth,
-	                    NULL,
+	                    nmc_property_802_1X_remove_phase2_auth,
 	                    NULL,
 	                    nmc_property_802_1X_allowed_phase2_auth,
 	                    NULL);
 	nmc_add_prop_funcs (GLUE (802_1X, PHASE2_AUTHEAP),
 	                    nmc_property_802_1X_get_phase2_autheap,
 	                    nmc_property_802_1X_set_phase2_autheap,
-	                    NULL,
+	                    nmc_property_802_1X_remove_phase2_autheap,
 	                    NULL,
 	                    nmc_property_802_1X_allowed_phase2_autheap,
 	                    NULL);
