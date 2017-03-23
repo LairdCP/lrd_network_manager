@@ -590,6 +590,38 @@ add_string_val (NMSupplicantConfig *self,
 		_success; \
 	})
 
+
+#define ADD_STRING_LIST_VAL_TO_STRING(_str, setting, setting_name, field, field_plural, name, separator, ucase, secret, error) \
+	({ \
+		typeof (*(setting)) *_setting = (setting); \
+		gboolean _success = TRUE; \
+		\
+		if (nm_setting_##setting_name##_get_num_##field_plural (_setting)) { \
+			const char _separator = (separator); \
+			guint _k, _n; \
+			\
+			_n = nm_setting_##setting_name##_get_num_##field_plural (_setting); \
+			for (_k = 0; _k < _n; _k++) { \
+				const char *item = nm_setting_##setting_name##_get_##field (_setting, _k); \
+				GString *temp = g_string_new (NULL); \
+				g_string_append_printf(temp,"%s",item); \
+				\
+				if ((ucase)) \
+					g_string_ascii_up (temp); \
+				\
+				if (!_str->len) { \
+					g_string_append_printf (_str, "%s=%s",name,temp->str); \
+				} else { \
+					g_string_append_c (_str, _separator); \
+					g_string_append_printf (_str, "%s=%s",name,temp->str); \
+				} \
+				g_string_free (temp, TRUE); \
+			} \
+		} \
+		_success; \
+	})
+
+
 static void
 wep128_passphrase_hash (const char *input,
                         size_t input_len,
@@ -1011,18 +1043,18 @@ nm_supplicant_config_add_setting_8021x (NMSupplicantConfig *self,
 	g_string_free (phase1, TRUE);
 
 	phase2 = g_string_new (NULL);
-	if (nm_setting_802_1x_get_phase2_auth (setting) && !fast_provisoning_allowed) {
-		tmp = g_ascii_strup (nm_setting_802_1x_get_phase2_auth (setting), -1);
-		g_string_append_printf (phase2, "auth=%s", tmp);
-		g_free (tmp);
+	if (nm_setting_802_1x_get_num_phase2_auths (setting) && !fast_provisoning_allowed) {
+	        if(!ADD_STRING_LIST_VAL_TO_STRING(phase2,setting,802_1x,phase2_auth,phase2_auths,"auth",' ', TRUE, FALSE, error)){
+			g_string_free(phase2, TRUE);
+			return FALSE;
+		}
 	}
 
-	if (nm_setting_802_1x_get_phase2_autheap (setting)) {
-		if (phase2->len)
-			g_string_append_c (phase2, ' ');
-		tmp = g_ascii_strup (nm_setting_802_1x_get_phase2_autheap (setting), -1);
-		g_string_append_printf (phase2, "autheap=%s", tmp);
-		g_free (tmp);
+	if (nm_setting_802_1x_get_num_phase2_autheaps (setting)) {
+	        if(!ADD_STRING_LIST_VAL_TO_STRING(phase2,setting,802_1x,phase2_autheap,phase2_autheaps,"autheap",' ', TRUE, FALSE, error)){
+			g_string_free(phase2, TRUE);
+			return FALSE;
+		}
 	}
 
 	if (nm_setting_802_1x_get_tls_disable_time_checks (setting)) {
