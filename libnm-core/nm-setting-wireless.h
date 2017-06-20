@@ -58,6 +58,7 @@ G_BEGIN_DECLS
 #define NM_SETTING_WIRELESS_POWERSAVE   "powersave"
 #define NM_SETTING_WIRELESS_MAC_ADDRESS_RANDOMIZATION   "mac-address-randomization"
 #define NM_SETTING_WIRELESS_CCX         "ccx"
+#define NM_SETTING_WIRELESS_CLIENT_NAME "client-name"
 
 /**
  * NM_SETTING_WIRELESS_MODE_ADHOC:
@@ -170,6 +171,7 @@ NM_AVAILABLE_IN_1_2
 NMSettingMacRandomization nm_setting_wireless_get_mac_address_randomization (NMSettingWireless *setting);
 
 NMSettingWirelessCcx nm_setting_wireless_get_ccx             (NMSettingWireless *setting);
+const char       *nm_setting_wireless_get_client_name        (NMSettingWireless *setting);
 
 gboolean          nm_setting_wireless_add_seen_bssid         (NMSettingWireless *setting,
                                                               const char *bssid);

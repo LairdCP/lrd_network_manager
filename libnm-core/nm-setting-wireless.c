@@ -64,6 +64,7 @@ typedef struct {
 	guint32 powersave;
 	NMSettingMacRandomization mac_address_randomization;
 	guint ccx;
+	char *client_name;
 } NMSettingWirelessPrivate;
 
 enum {
@@ -85,6 +86,7 @@ enum {
 	PROP_POWERSAVE,
 	PROP_MAC_ADDRESS_RANDOMIZATION,
 	PROP_CCX,
+	PROP_CLIENT_NAME,
 
 	LAST_PROP
 };
@@ -675,6 +677,21 @@ nm_setting_wireless_get_ccx (NMSettingWireless *setting)
 	return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->ccx;
 }
 
+/**
+ * nm_setting_wireless_get_client_name:
+ * @setting: the #NMSettingWireless
+ *
+ * Returns: the #NMSettingWireless:client name property of the
+ * setting
+ **/
+const char *
+nm_setting_wireless_get_client_name (NMSettingWireless *setting)
+{
+	g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), NULL);
+
+	return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->client_name;
+}
+
 
 /**
  * nm_setting_wireless_add_seen_bssid:
@@ -935,6 +952,18 @@ mac_addr_rand_ok:
 		return FALSE;
 	}
 
+	if (priv->client_name){
+		if (strlen (priv->client_name) > 16) {
+			g_set_error (error,
+			             NM_CONNECTION_ERROR,
+			             NM_CONNECTION_ERROR_INVALID_PROPERTY,
+			             _("'%s' client name length is out of range <1-16>"),
+			             priv->client_name);
+			g_prefix_error (error, "%s.%s: ", NM_SETTING_WIRELESS_SETTING_NAME, NM_SETTING_WIRELESS_MODE);
+			return FALSE;
+		}
+	}
+
 	return TRUE;
 }
 
@@ -1000,6 +1029,7 @@ finalize (GObject *object)
 	g_free (priv->generate_mac_address_mask);
 	g_array_unref (priv->mac_address_blacklist);
 	g_slist_free_full (priv->seen_bssids, g_free);
+	g_free (priv->client_name);
 
 	G_OBJECT_CLASS (nm_setting_wireless_parent_class)->finalize (object);
 }
@@ -1093,6 +1123,10 @@ set_property (GObject *object, guint prop_id,
 	case PROP_CCX:
 		priv->ccx = g_value_get_uint (value);
 		break;
+	case PROP_CLIENT_NAME:
+		g_free (priv->client_name);
+		priv->client_name = g_value_dup_string (value);
+		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
 		break;
@@ -1157,6 +1191,9 @@ get_property (GObject *object, guint prop_id,
 		break;
 	case PROP_CCX:
 		g_value_set_uint (value, nm_setting_wireless_get_ccx (setting));
+		break;
+	case PROP_CLIENT_NAME:
+		g_value_set_string (value, nm_setting_wireless_get_client_name (setting));
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -1673,6 +1710,22 @@ nm_setting_wireless_class_init (NMSettingWirelessClass *setting_wireless_class)
 		                    G_PARAM_CONSTRUCT |
 		                    NM_SETTING_PARAM_FUZZY_IGNORE |
 		                    G_PARAM_STATIC_STRINGS));
+
+	/**
+	 * NMSettingWireless:client_name:
+	 *
+	 * The device name assigned to the radio and the client device that uses
+	 * it. If CCX features are on then the client name is relayed and used for
+	 * association.
+	 *
+	 * Since: 1.8
+	 **/
+	g_object_class_install_property
+		(object_class, PROP_CLIENT_NAME,
+		 g_param_spec_string (NM_SETTING_WIRELESS_CLIENT_NAME, "", "",
+		                      NULL,
+		                      G_PARAM_READWRITE |
+		                      G_PARAM_STATIC_STRINGS));
 
 	/* Compatibility for deprecated property */
 	/* ---ifcfg-rh---
