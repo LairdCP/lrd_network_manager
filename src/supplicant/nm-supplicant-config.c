@@ -461,6 +461,7 @@ nm_supplicant_config_add_setting_wireless (NMSupplicantConfig * self,
 	guint32 channel;
 	GBytes *ssid;
 	const char *bssid;
+	const char *client_name;
 
 	g_return_val_if_fail (NM_IS_SUPPLICANT_CONFIG (self), FALSE);
 	g_return_val_if_fail (setting != NULL, FALSE);
@@ -543,6 +544,12 @@ nm_supplicant_config_add_setting_wireless (NMSupplicantConfig * self,
 			if (freqs && !nm_supplicant_config_add_option (self, "freq_list", freqs, strlen (freqs), NULL, error))
 				return FALSE;
 		}
+	}
+
+	if (priv->ccx) {
+		client_name = nm_setting_wireless_get_client_name (setting);
+		if (!nm_supplicant_config_add_option (self, "laird_ccx_client_name", client_name, strlen (client_name), NULL, error))
+			return FALSE;
 	}
 
 	return TRUE;
