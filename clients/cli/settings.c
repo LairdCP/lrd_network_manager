@@ -237,6 +237,7 @@ NmcOutputField nmc_fields_setting_wireless[] = {
 	SETTING_FIELD (NM_SETTING_WIRELESS_HIDDEN),                    /* 15 */
 	SETTING_FIELD (NM_SETTING_WIRELESS_POWERSAVE),                 /* 16 */
 	SETTING_FIELD (NM_SETTING_WIRELESS_CCX),                       /* 17 */
+	SETTING_FIELD (NM_SETTING_WIRELESS_CLIENT_NAME),               /* 18 */
 	{NULL, NULL, 0, NULL, FALSE, FALSE, 0}
 };
 #define NMC_FIELDS_SETTING_WIRELESS_ALL     "name"","\
@@ -256,7 +257,8 @@ NmcOutputField nmc_fields_setting_wireless[] = {
                                             NM_SETTING_WIRELESS_SEEN_BSSIDS","\
                                             NM_SETTING_WIRELESS_HIDDEN"," \
                                             NM_SETTING_WIRELESS_POWERSAVE"," \
-                                            NM_SETTING_WIRELESS_CCX
+                                            NM_SETTING_WIRELESS_CCX"," \
+                                            NM_SETTING_WIRELESS_CLIENT_NAME
 
 /* Available fields for NM_SETTING_WIRELESS_SECURITY_SETTING_NAME */
 NmcOutputField nmc_fields_setting_wireless_security[] = {
@@ -5285,6 +5287,7 @@ DEFINE_GETTER (nmc_property_wireless_get_generate_mac_address_mask, NM_SETTING_W
 DEFINE_GETTER (nmc_property_wireless_get_mac_address_blacklist, NM_SETTING_WIRELESS_MAC_ADDRESS_BLACKLIST)
 DEFINE_GETTER (nmc_property_wireless_get_seen_bssids, NM_SETTING_WIRELESS_SEEN_BSSIDS)
 DEFINE_GETTER (nmc_property_wireless_get_hidden, NM_SETTING_WIRELESS_HIDDEN)
+DEFINE_GETTER (nmc_property_wireless_get_client_name, NM_SETTING_WIRELESS_CLIENT_NAME)
 
 static char *
 nmc_property_wireless_get_ssid (NMSetting *setting, NmcPropertyGetType get_type)
@@ -8015,6 +8018,14 @@ nmc_properties_init (void)
 	                    NULL,
 	                    NULL);
 
+	nmc_add_prop_funcs (GLUE (WIRELESS, CLIENT_NAME),
+	                    nmc_property_wireless_get_client_name,
+	                    nmc_property_set_string,
+	                    NULL,
+	                    NULL,
+	                    NULL,
+	                    NULL);
+
 	/* Add editable properties for NM_SETTING_WIRELESS_SECURITY_SETTING_NAME */
 	nmc_add_prop_funcs (GLUE (WIRELESS_SECURITY, KEY_MGMT),
 	                    nmc_property_wifi_sec_get_key_mgmt,
@@ -8997,6 +9008,7 @@ setting_wireless_details (NMSetting *setting,
 	set_val_str (arr, 15, nmc_property_wireless_get_hidden (setting, type));
 	set_val_str (arr, 16, nmc_property_wireless_get_powersave (setting, type));
 	set_val_str (arr, 17, nmc_property_wireless_get_ccx (setting, type));
+	set_val_str (arr, 18, nmc_property_wireless_get_client_name (setting, type));
 	g_ptr_array_add (nmc->output_data, arr);
 
 	print_data (nmc);  /* Print all data */
