@@ -57,6 +57,7 @@ G_BEGIN_DECLS
 #define NM_SETTING_WIRELESS_HIDDEN      "hidden"
 #define NM_SETTING_WIRELESS_POWERSAVE   "powersave"
 #define NM_SETTING_WIRELESS_MAC_ADDRESS_RANDOMIZATION   "mac-address-randomization"
+#define NM_SETTING_WIRELESS_CCX         "ccx"
 
 /**
  * NM_SETTING_WIRELESS_MODE_ADHOC:
@@ -98,6 +99,22 @@ typedef enum {
 	_NM_SETTING_WIRELESS_POWERSAVE_NUM, /*< skip >*/
 	NM_SETTING_WIRELESS_POWERSAVE_LAST          =  _NM_SETTING_WIRELESS_POWERSAVE_NUM - 1, /*< skip >*/
 } NMSettingWirelessPowersave;
+
+/**
+ * NMSettingWirelessCcx:
+ * @NM_SETTING_WIRELESS_CCX_OPTIMIZED: enable support for all CCX features except
+ * AP-assisted roaming, AP-specified maximum transmit power, and radio management.
+ * @NM_SETTING_WIRELESS_CCX_FULL: enable CCX
+ * @NM_SETTING_WIRELESS_CCX_DISABLE: disable CCX
+ *
+ **/
+typedef enum {
+	NM_SETTING_WIRELESS_CCX_OPTIMIZED           = 0,
+	NM_SETTING_WIRELESS_CCX_FULL                = 1,
+	NM_SETTING_WIRELESS_CCX_DISABLE             = 2,
+	_NM_SETTING_WIRELESS_CCX_NUM, /*< skip >*/
+	NM_SETTING_WIRELESS_CCX_LAST                =  _NM_SETTING_WIRELESS_CCX_NUM - 1, /*< skip >*/
+} NMSettingWirelessCcx;
 
 /**
  * NMSettingWireless:
@@ -151,6 +168,8 @@ guint32           nm_setting_wireless_get_powersave          (NMSettingWireless 
 
 NM_AVAILABLE_IN_1_2
 NMSettingMacRandomization nm_setting_wireless_get_mac_address_randomization (NMSettingWireless *setting);
+
+NMSettingWirelessCcx nm_setting_wireless_get_ccx             (NMSettingWireless *setting);
 
 gboolean          nm_setting_wireless_add_seen_bssid         (NMSettingWireless *setting,
                                                               const char *bssid);

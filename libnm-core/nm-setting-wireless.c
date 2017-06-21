@@ -63,6 +63,7 @@ typedef struct {
 	gboolean hidden;
 	guint32 powersave;
 	NMSettingMacRandomization mac_address_randomization;
+	guint ccx;
 } NMSettingWirelessPrivate;
 
 enum {
@@ -83,6 +84,7 @@ enum {
 	PROP_HIDDEN,
 	PROP_POWERSAVE,
 	PROP_MAC_ADDRESS_RANDOMIZATION,
+	PROP_CCX,
 
 	LAST_PROP
 };
@@ -657,6 +659,24 @@ nm_setting_wireless_get_mac_address_randomization (NMSettingWireless *setting)
 }
 
 /**
+ * nm_setting_wireless_get_ccx:
+ * @setting: the #NMSettingWireless
+ *
+ * Returns: the #NMSettingWireless:ccx property of the
+ * setting
+ *
+ * Since: 1.8
+ **/
+NMSettingWirelessCcx
+nm_setting_wireless_get_ccx (NMSettingWireless *setting)
+{
+	g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), 0);
+
+	return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->ccx;
+}
+
+
+/**
  * nm_setting_wireless_add_seen_bssid:
  * @setting: the #NMSettingWireless
  * @bssid: the new BSSID to add to the list
@@ -906,6 +926,15 @@ verify (NMSetting *setting, NMConnection *connection, GError **error)
 	return NM_SETTING_VERIFY_NORMALIZABLE;
 mac_addr_rand_ok:
 
+	if (priv->ccx > NM_SETTING_WIRELESS_CCX_OPTIMIZED) {
+		g_set_error_literal (error,
+		                     NM_CONNECTION_ERROR,
+		                     NM_CONNECTION_ERROR_INVALID_PROPERTY,
+		                     _("property is invalid"));
+		g_prefix_error (error, "%s.%s: ", NM_SETTING_WIRELESS_SETTING_NAME, NM_SETTING_WIRELESS_CCX);
+		return FALSE;
+	}
+
 	return TRUE;
 }
 
@@ -1061,6 +1090,9 @@ set_property (GObject *object, guint prop_id,
 	case PROP_MAC_ADDRESS_RANDOMIZATION:
 		priv->mac_address_randomization = g_value_get_uint (value);
 		break;
+	case PROP_CCX:
+		priv->ccx = g_value_get_uint (value);
+		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
 		break;
@@ -1122,6 +1154,9 @@ get_property (GObject *object, guint prop_id,
 		break;
 	case PROP_MAC_ADDRESS_RANDOMIZATION:
 		g_value_set_uint (value, nm_setting_wireless_get_mac_address_randomization (setting));
+		break;
+	case PROP_CCX:
+		g_value_set_uint (value, nm_setting_wireless_get_ccx (setting));
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -1614,6 +1649,29 @@ nm_setting_wireless_class_init (NMSettingWirelessClass *setting_wireless_class)
 		 g_param_spec_uint (NM_SETTING_WIRELESS_MAC_ADDRESS_RANDOMIZATION, "", "",
 		                    0, G_MAXUINT32, NM_SETTING_MAC_RANDOMIZATION_DEFAULT,
 		                    G_PARAM_READWRITE |
+		                    G_PARAM_STATIC_STRINGS));
+
+	/**
+	 * NMSettingWireless:ccx:
+	 *
+	 * Indicates whether Cisco Compatible Extensions (ccx) are enabled
+	 * for the connection.  One of %NM_SETTING_WIRELESS_CCX_DISABLE
+	 * (Do not use Cisco IE and CCX version number.),
+	 * %NM_SETTING_WIRELESS_CCX_FULL (Use Cisco IE and CCX version number
+	 * and enable support for all CCX features.)
+	 * or %NM_SETTING_WIRELESS_CCX_OPTIONAL ( Use Cisco IE and
+	 * CCX version number and enable support for all CCX features
+	 * except AP-assisted roaming, AP-specified maximum transmit power, and radio management.)
+	 *
+	 * Since: 1.8
+	 **/
+	g_object_class_install_property
+		(object_class, PROP_CCX,
+		 g_param_spec_uint (NM_SETTING_WIRELESS_CCX, "", "",
+		                    0, G_MAXUINT32, 0,
+		                    G_PARAM_READWRITE |
+		                    G_PARAM_CONSTRUCT |
+		                    NM_SETTING_PARAM_FUZZY_IGNORE |
 		                    G_PARAM_STATIC_STRINGS));
 
 	/* Compatibility for deprecated property */
