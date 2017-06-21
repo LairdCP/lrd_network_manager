@@ -44,6 +44,7 @@ typedef struct {
 	GHashTable *config;
 	GHashTable *blobs;
 	guint32    ap_scan;
+	guint32    ccx;
 	gboolean   fast_required;
 	gboolean   dispose_has_run;
 } NMSupplicantConfigPrivate;
@@ -280,6 +281,14 @@ nm_supplicant_config_get_ap_scan (NMSupplicantConfig * self)
 	return NM_SUPPLICANT_CONFIG_GET_PRIVATE (self)->ap_scan;
 }
 
+guint32
+nm_supplicant_config_get_ccx (NMSupplicantConfig * self)
+{
+	g_return_val_if_fail (NM_IS_SUPPLICANT_CONFIG (self), NM_SETTING_WIRELESS_CCX_DISABLE);
+
+	return NM_SUPPLICANT_CONFIG_GET_PRIVATE (self)->ccx;
+}
+
 gboolean
 nm_supplicant_config_fast_required (NMSupplicantConfig *self)
 {
@@ -466,6 +475,8 @@ nm_supplicant_config_add_setting_wireless (NMSupplicantConfig * self,
 		priv->ap_scan = 2;
 	else
 		priv->ap_scan = 1;
+
+	priv->ccx = nm_setting_wireless_get_ccx (setting);
 
 	ssid = nm_setting_wireless_get_ssid (setting);
 	if (!nm_supplicant_config_add_option (self, "ssid",

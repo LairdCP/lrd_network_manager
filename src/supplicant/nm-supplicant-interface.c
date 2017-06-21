@@ -1352,6 +1352,38 @@ assoc_fail_on_idle_cb (gpointer user_data)
 	return G_SOURCE_REMOVE;
 }
 
+static void
+set_ccx_cb (GDBusProxy *proxy, GAsyncResult *result, gpointer user_data)
+{
+	NMSupplicantInterface *self;
+	NMSupplicantInterfacePrivate *priv;
+	gs_unref_variant GVariant *reply = NULL;
+	gs_free_error GError *error = NULL;
+
+	reply = g_dbus_proxy_call_finish (proxy, result, &error);
+	if (g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+		return;
+
+	self = NM_SUPPLICANT_INTERFACE (user_data);
+	priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
+
+	if (error) {
+		assoc_return (self, error, "failure to set CCX mode");
+		return;
+	}
+
+	if (!reply) {
+		g_dbus_error_strip_remote_error (error);
+		_LOGW ("couldn't send CCX mode to the supplicant interface: %s",
+		       error->message);
+		return;
+	}
+
+	_LOGI ("config: set interface ccx to %d",
+	       nm_supplicant_config_get_ccx (priv->assoc_data->cfg));
+
+}
+
 /**
  * nm_supplicant_interface_assoc:
  * @self: the supplicant interface instance
@@ -1374,6 +1406,7 @@ nm_supplicant_interface_assoc (NMSupplicantInterface *self,
 {
 	NMSupplicantInterfacePrivate *priv;
 	AssocData *assoc_data;
+	char ccx[2];
 
 	g_return_if_fail (NM_IS_SUPPLICANT_INTERFACE (self));
 	g_return_if_fail (NM_IS_SUPPLICANT_CONFIG (cfg));
@@ -1413,6 +1446,21 @@ nm_supplicant_interface_assoc (NMSupplicantInterface *self,
 	                   priv->assoc_data->cancellable,
 	                   (GAsyncReadyCallback) assoc_set_ap_scan_cb,
 	                   self);
+
+	g_snprintf (ccx, 2, "%d", nm_supplicant_config_get_ccx (priv->assoc_data->cfg));
+
+	g_dbus_proxy_call (priv->iface_proxy,
+	                   DBUS_INTERFACE_PROPERTIES ".Set",
+	                   g_variant_new ("(ssv)",
+	                                  WPAS_DBUS_IFACE_INTERFACE,
+	                                  "LairdCcxEnable",
+	                                  g_variant_new_string (ccx)),
+	                   G_DBUS_CALL_FLAGS_NONE,
+	                   -1,
+	                   priv->assoc_data->cancellable,
+	                   (GAsyncReadyCallback) set_ccx_cb,
+	                   self);
+
 }
 
 /*****************************************************************************/
