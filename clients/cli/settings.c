@@ -236,6 +236,7 @@ NmcOutputField nmc_fields_setting_wireless[] = {
 	SETTING_FIELD (NM_SETTING_WIRELESS_SEEN_BSSIDS),               /* 14 */
 	SETTING_FIELD (NM_SETTING_WIRELESS_HIDDEN),                    /* 15 */
 	SETTING_FIELD (NM_SETTING_WIRELESS_POWERSAVE),                 /* 16 */
+	SETTING_FIELD (NM_SETTING_WIRELESS_CCX),                       /* 17 */
 	{NULL, NULL, 0, NULL, FALSE, FALSE, 0}
 };
 #define NMC_FIELDS_SETTING_WIRELESS_ALL     "name"","\
@@ -254,7 +255,8 @@ NmcOutputField nmc_fields_setting_wireless[] = {
                                             NM_SETTING_WIRELESS_MTU","\
                                             NM_SETTING_WIRELESS_SEEN_BSSIDS","\
                                             NM_SETTING_WIRELESS_HIDDEN"," \
-                                            NM_SETTING_WIRELESS_POWERSAVE
+                                            NM_SETTING_WIRELESS_POWERSAVE"," \
+                                            NM_SETTING_WIRELESS_CCX
 
 /* Available fields for NM_SETTING_WIRELESS_SECURITY_SETTING_NAME */
 NmcOutputField nmc_fields_setting_wireless_security[] = {
@@ -5333,6 +5335,23 @@ nmc_property_wireless_get_powersave (NMSetting *setting, NmcPropertyGetType get_
 }
 
 static char *
+nmc_property_wireless_get_ccx (NMSetting *setting, NmcPropertyGetType get_type)
+{
+	NMSettingWireless *s_wireless = NM_SETTING_WIRELESS (setting);
+	NMSettingWirelessCcx ccx;
+
+	ccx = nm_setting_wireless_get_ccx (s_wireless);
+	if (ccx == NM_SETTING_WIRELESS_CCX_OPTIMIZED)
+		return g_strdup_printf (_("optimized"));
+	else if (ccx == NM_SETTING_WIRELESS_CCX_FULL)
+		return g_strdup_printf (_("full"));
+	else if (ccx == NM_SETTING_WIRELESS_CCX_DISABLE)
+		return g_strdup_printf (_("disable"));
+	else
+		return g_strdup_printf (_("unknown"));
+}
+
+static char *
 nmc_property_wireless_get_mac_address_randomization (NMSetting *setting, NmcPropertyGetType get_type)
 {
 	NMSettingWireless *s_wifi = NM_SETTING_WIRELESS (setting);
@@ -5458,6 +5477,40 @@ nmc_property_wireless_set_powersave (NMSetting *setting, const char *prop, const
 	}
 
 	g_object_set (setting, prop, (guint) powersave, NULL);
+	return TRUE;
+}
+
+/* 'ccx' */
+static gboolean
+nmc_property_wireless_set_ccx (NMSetting *setting, const char *prop, const char *val, GError **error)
+{
+	NMSettingWirelessCcx ccx;
+	gs_free const char **options = NULL;
+	gs_free char *options_str = NULL;
+	long int t;
+	gboolean ret;
+
+	if (nmc_string_to_int_base (val, 0, TRUE,
+	                            NM_SETTING_WIRELESS_CCX_OPTIMIZED,
+	                            NM_SETTING_WIRELESS_CCX_LAST,
+	                            &t))
+		ccx = (NMSettingWirelessCcx) t;
+	else {
+		ret = nm_utils_enum_from_str (nm_setting_wireless_ccx_get_type (),
+		                              val,
+		                              (int *) &ccx,
+		                              NULL);
+		if (!ret) {
+			options = nm_utils_enum_get_values (nm_setting_wireless_ccx_get_type (),
+			                                    NM_SETTING_WIRELESS_CCX_OPTIMIZED,
+			                                    NM_SETTING_WIRELESS_CCX_LAST);
+			options_str = g_strjoinv (",", (char **) options);
+			g_set_error (error, 1, 0, _("invalid option '%s', use one of [%s]"), val, options_str);
+			return FALSE;
+		}
+	}
+
+	g_object_set (setting, prop, (guint) ccx, NULL);
 	return TRUE;
 }
 
@@ -7954,6 +8007,14 @@ nmc_properties_init (void)
 	                    NULL,
 	                    NULL);
 
+	nmc_add_prop_funcs (GLUE (WIRELESS, CCX),
+	                    nmc_property_wireless_get_ccx,
+	                    nmc_property_wireless_set_ccx,
+	                    NULL,
+	                    NULL,
+	                    NULL,
+	                    NULL);
+
 	/* Add editable properties for NM_SETTING_WIRELESS_SECURITY_SETTING_NAME */
 	nmc_add_prop_funcs (GLUE (WIRELESS_SECURITY, KEY_MGMT),
 	                    nmc_property_wifi_sec_get_key_mgmt,
@@ -8935,6 +8996,7 @@ setting_wireless_details (NMSetting *setting,
 	set_val_str (arr, 14, nmc_property_wireless_get_seen_bssids (setting, type));
 	set_val_str (arr, 15, nmc_property_wireless_get_hidden (setting, type));
 	set_val_str (arr, 16, nmc_property_wireless_get_powersave (setting, type));
+	set_val_str (arr, 17, nmc_property_wireless_get_ccx (setting, type));
 	g_ptr_array_add (nmc->output_data, arr);
 
 	print_data (nmc);  /* Print all data */
