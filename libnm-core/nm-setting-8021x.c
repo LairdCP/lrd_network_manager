@@ -3881,6 +3881,7 @@ set_property (GObject *object, guint prop_id,
 		break;
 	case PROP_AUTH_TIMEOUT:
 		priv->auth_timeout = g_value_get_int (value);
+		break;
 	case PROP_TLS_DISABLE_TIME_CHECKS:
 		g_free (priv->tls_disable_time_checks);
 		priv->tls_disable_time_checks = g_value_dup_string (value);
@@ -4030,6 +4031,7 @@ get_property (GObject *object, guint prop_id,
 		break;
 	case PROP_AUTH_TIMEOUT:
 		g_value_set_int (value, priv->auth_timeout);
+		break;
 	case PROP_TLS_DISABLE_TIME_CHECKS:
 		g_value_set_string (value, priv->tls_disable_time_checks);
 		break;
