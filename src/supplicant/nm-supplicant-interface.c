@@ -1368,7 +1368,11 @@ set_ccx_cb (GDBusProxy *proxy, GAsyncResult *result, gpointer user_data)
 	priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
 
 	if (error) {
-		assoc_return (self, error, "failure to set CCX mode");
+		if (_nm_dbus_error_has_name (error, "org.freedesktop.DBus.Error.InvalidArgs")) {
+			_LOGD ("CCX mode is not supported");
+		} else {
+			assoc_return (self, error, "failure to set CCX mode");
+		}
 		return;
 	}
 
