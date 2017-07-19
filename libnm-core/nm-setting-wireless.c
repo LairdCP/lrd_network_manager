@@ -943,7 +943,7 @@ verify (NMSetting *setting, NMConnection *connection, GError **error)
 	return NM_SETTING_VERIFY_NORMALIZABLE;
 mac_addr_rand_ok:
 
-	if (priv->ccx > NM_SETTING_WIRELESS_CCX_OPTIMIZED) {
+	if (priv->ccx > NM_SETTING_WIRELESS_CCX_FULL) {
 		g_set_error_literal (error,
 		                     NM_CONNECTION_ERROR,
 		                     NM_CONNECTION_ERROR_INVALID_PROPERTY,
@@ -1694,11 +1694,11 @@ nm_setting_wireless_class_init (NMSettingWirelessClass *setting_wireless_class)
 	 * Indicates whether Cisco Compatible Extensions (ccx) are enabled
 	 * for the connection.  One of %NM_SETTING_WIRELESS_CCX_DISABLE
 	 * (Do not use Cisco IE and CCX version number.),
-	 * %NM_SETTING_WIRELESS_CCX_FULL (Use Cisco IE and CCX version number
-	 * and enable support for all CCX features.)
-	 * or %NM_SETTING_WIRELESS_CCX_OPTIONAL ( Use Cisco IE and
+	 * %NM_SETTING_WIRELESS_CCX_OPTIMIZED ( Use Cisco IE and
 	 * CCX version number and enable support for all CCX features
 	 * except AP-assisted roaming, AP-specified maximum transmit power, and radio management.)
+	 * or %NM_SETTING_WIRELESS_CCX_FULL (Use Cisco IE and CCX version number
+	 * and enable support for all CCX features.)
 	 *
 	 * Since: 1.8
 	 **/
