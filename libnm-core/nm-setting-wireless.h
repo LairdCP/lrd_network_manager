@@ -103,16 +103,16 @@ typedef enum {
 
 /**
  * NMSettingWirelessCcx:
+ * @NM_SETTING_WIRELESS_CCX_DISABLE: disable CCX
  * @NM_SETTING_WIRELESS_CCX_OPTIMIZED: enable support for all CCX features except
  * AP-assisted roaming, AP-specified maximum transmit power, and radio management.
  * @NM_SETTING_WIRELESS_CCX_FULL: enable CCX
- * @NM_SETTING_WIRELESS_CCX_DISABLE: disable CCX
  *
  **/
 typedef enum {
-	NM_SETTING_WIRELESS_CCX_OPTIMIZED           = 0,
-	NM_SETTING_WIRELESS_CCX_FULL                = 1,
-	NM_SETTING_WIRELESS_CCX_DISABLE             = 2,
+	NM_SETTING_WIRELESS_CCX_DISABLE             = 0,
+	NM_SETTING_WIRELESS_CCX_OPTIMIZED           = 1,
+	NM_SETTING_WIRELESS_CCX_FULL                = 2,
 	_NM_SETTING_WIRELESS_CCX_NUM, /*< skip >*/
 	NM_SETTING_WIRELESS_CCX_LAST                =  _NM_SETTING_WIRELESS_CCX_NUM - 1, /*< skip >*/
 } NMSettingWirelessCcx;
