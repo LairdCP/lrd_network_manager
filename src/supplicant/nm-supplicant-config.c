@@ -548,8 +548,9 @@ nm_supplicant_config_add_setting_wireless (NMSupplicantConfig * self,
 
 	if (priv->ccx) {
 		client_name = nm_setting_wireless_get_client_name (setting);
-		if (!nm_supplicant_config_add_option (self, "laird_ccx_client_name", client_name, strlen (client_name), NULL, error))
-			return FALSE;
+		if (client_name)
+			if (!nm_supplicant_config_add_option (self, "laird_ccx_client_name", client_name, strlen (client_name), NULL, error))
+				return FALSE;
 	}
 
 	return TRUE;
