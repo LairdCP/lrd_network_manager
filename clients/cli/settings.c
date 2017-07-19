@@ -5344,12 +5344,12 @@ nmc_property_wireless_get_ccx (NMSetting *setting, NmcPropertyGetType get_type)
 	NMSettingWirelessCcx ccx;
 
 	ccx = nm_setting_wireless_get_ccx (s_wireless);
-	if (ccx == NM_SETTING_WIRELESS_CCX_OPTIMIZED)
+	if (ccx == NM_SETTING_WIRELESS_CCX_DISABLE)
+		return g_strdup_printf (_("disable"));
+	else if (ccx == NM_SETTING_WIRELESS_CCX_OPTIMIZED)
 		return g_strdup_printf (_("optimized"));
 	else if (ccx == NM_SETTING_WIRELESS_CCX_FULL)
 		return g_strdup_printf (_("full"));
-	else if (ccx == NM_SETTING_WIRELESS_CCX_DISABLE)
-		return g_strdup_printf (_("disable"));
 	else
 		return g_strdup_printf (_("unknown"));
 }
@@ -5494,7 +5494,7 @@ nmc_property_wireless_set_ccx (NMSetting *setting, const char *prop, const char 
 	gboolean ret;
 
 	if (nmc_string_to_int_base (val, 0, TRUE,
-	                            NM_SETTING_WIRELESS_CCX_OPTIMIZED,
+	                            NM_SETTING_WIRELESS_CCX_DISABLE,
 	                            NM_SETTING_WIRELESS_CCX_LAST,
 	                            &t))
 		ccx = (NMSettingWirelessCcx) t;
@@ -5505,7 +5505,7 @@ nmc_property_wireless_set_ccx (NMSetting *setting, const char *prop, const char 
 		                              NULL);
 		if (!ret) {
 			options = nm_utils_enum_get_values (nm_setting_wireless_ccx_get_type (),
-			                                    NM_SETTING_WIRELESS_CCX_OPTIMIZED,
+			                                    NM_SETTING_WIRELESS_CCX_DISABLE,
 			                                    NM_SETTING_WIRELESS_CCX_LAST);
 			options_str = g_strjoinv (",", (char **) options);
 			g_set_error (error, 1, 0, _("invalid option '%s', use one of [%s]"), val, options_str);
