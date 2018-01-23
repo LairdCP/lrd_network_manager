@@ -45,6 +45,11 @@ NMSupplicantConfig *nm_supplicant_config_new (void);
 guint32 nm_supplicant_config_get_ap_scan (NMSupplicantConfig *self);
 
 guint32 nm_supplicant_config_get_ccx (NMSupplicantConfig *self);
+guint32 nm_supplicant_config_get_scan_delay (NMSupplicantConfig *self);
+guint32 nm_supplicant_config_get_scan_dwell (NMSupplicantConfig *self);
+guint32 nm_supplicant_config_get_scan_passive_dwell (NMSupplicantConfig *self);
+guint32 nm_supplicant_config_get_scan_suspend_time (NMSupplicantConfig *self);
+guint32 nm_supplicant_config_get_scan_roam_delta (NMSupplicantConfig *self);
 
 gboolean nm_supplicant_config_fast_required (NMSupplicantConfig *self);
 

@@ -238,6 +238,11 @@ NmcOutputField nmc_fields_setting_wireless[] = {
 	SETTING_FIELD (NM_SETTING_WIRELESS_POWERSAVE),                 /* 16 */
 	SETTING_FIELD (NM_SETTING_WIRELESS_CCX),                       /* 17 */
 	SETTING_FIELD (NM_SETTING_WIRELESS_CLIENT_NAME),               /* 18 */
+	SETTING_FIELD (NM_SETTING_WIRELESS_SCAN_DELAY),                /* 19 */
+	SETTING_FIELD (NM_SETTING_WIRELESS_SCAN_DWELL),                /* 20 */
+	SETTING_FIELD (NM_SETTING_WIRELESS_SCAN_PASSIVE_DWELL),        /* 21 */
+	SETTING_FIELD (NM_SETTING_WIRELESS_SCAN_SUSPEND_TIME),         /* 22 */
+	SETTING_FIELD (NM_SETTING_WIRELESS_SCAN_ROAM_DELTA),           /* 23 */
 	{NULL, NULL, 0, NULL, FALSE, FALSE, 0}
 };
 #define NMC_FIELDS_SETTING_WIRELESS_ALL     "name"","\
@@ -258,7 +263,12 @@ NmcOutputField nmc_fields_setting_wireless[] = {
                                             NM_SETTING_WIRELESS_HIDDEN"," \
                                             NM_SETTING_WIRELESS_POWERSAVE"," \
                                             NM_SETTING_WIRELESS_CCX"," \
-                                            NM_SETTING_WIRELESS_CLIENT_NAME
+                                            NM_SETTING_WIRELESS_CLIENT_NAME"," \
+                                            NM_SETTING_WIRELESS_SCAN_DELAY"," \
+                                            NM_SETTING_WIRELESS_SCAN_DWELL"," \
+                                            NM_SETTING_WIRELESS_SCAN_PASSIVE_DWELL"," \
+                                            NM_SETTING_WIRELESS_SCAN_SUSPEND_TIME"," \
+                                            NM_SETTING_WIRELESS_SCAN_ROAM_DELTA
 
 /* Available fields for NM_SETTING_WIRELESS_SECURITY_SETTING_NAME */
 NmcOutputField nmc_fields_setting_wireless_security[] = {
@@ -5288,6 +5298,11 @@ DEFINE_GETTER (nmc_property_wireless_get_mac_address_blacklist, NM_SETTING_WIREL
 DEFINE_GETTER (nmc_property_wireless_get_seen_bssids, NM_SETTING_WIRELESS_SEEN_BSSIDS)
 DEFINE_GETTER (nmc_property_wireless_get_hidden, NM_SETTING_WIRELESS_HIDDEN)
 DEFINE_GETTER (nmc_property_wireless_get_client_name, NM_SETTING_WIRELESS_CLIENT_NAME)
+DEFINE_GETTER (nmc_property_wireless_get_scan_delay, NM_SETTING_WIRELESS_SCAN_DELAY)
+DEFINE_GETTER (nmc_property_wireless_get_scan_dwell, NM_SETTING_WIRELESS_SCAN_DWELL)
+DEFINE_GETTER (nmc_property_wireless_get_scan_passive_dwell, NM_SETTING_WIRELESS_SCAN_PASSIVE_DWELL)
+DEFINE_GETTER (nmc_property_wireless_get_scan_suspend_time, NM_SETTING_WIRELESS_SCAN_SUSPEND_TIME)
+DEFINE_GETTER (nmc_property_wireless_get_scan_roam_delta, NM_SETTING_WIRELESS_SCAN_ROAM_DELTA)
 
 static char *
 nmc_property_wireless_get_ssid (NMSetting *setting, NmcPropertyGetType get_type)
@@ -8026,6 +8041,46 @@ nmc_properties_init (void)
 	                    NULL,
 	                    NULL);
 
+	nmc_add_prop_funcs (GLUE (WIRELESS, SCAN_DELAY),
+	                    nmc_property_wireless_get_scan_delay,
+	                    nmc_property_set_uint,
+	                    NULL,
+	                    NULL,
+	                    NULL,
+	                    NULL);
+
+	nmc_add_prop_funcs (GLUE (WIRELESS, SCAN_DWELL),
+	                    nmc_property_wireless_get_scan_dwell,
+	                    nmc_property_set_uint,
+	                    NULL,
+	                    NULL,
+	                    NULL,
+	                    NULL);
+
+	nmc_add_prop_funcs (GLUE (WIRELESS, SCAN_PASSIVE_DWELL),
+	                    nmc_property_wireless_get_scan_passive_dwell,
+	                    nmc_property_set_uint,
+	                    NULL,
+	                    NULL,
+	                    NULL,
+	                    NULL);
+
+	nmc_add_prop_funcs (GLUE (WIRELESS, SCAN_SUSPEND_TIME),
+	                    nmc_property_wireless_get_scan_suspend_time,
+	                    nmc_property_set_uint,
+	                    NULL,
+	                    NULL,
+	                    NULL,
+	                    NULL);
+
+	nmc_add_prop_funcs (GLUE (WIRELESS, SCAN_ROAM_DELTA),
+	                    nmc_property_wireless_get_scan_roam_delta,
+	                    nmc_property_set_uint,
+	                    NULL,
+	                    NULL,
+	                    NULL,
+	                    NULL);
+
 	/* Add editable properties for NM_SETTING_WIRELESS_SECURITY_SETTING_NAME */
 	nmc_add_prop_funcs (GLUE (WIRELESS_SECURITY, KEY_MGMT),
 	                    nmc_property_wifi_sec_get_key_mgmt,
@@ -9009,6 +9064,11 @@ setting_wireless_details (NMSetting *setting,
 	set_val_str (arr, 16, nmc_property_wireless_get_powersave (setting, type));
 	set_val_str (arr, 17, nmc_property_wireless_get_ccx (setting, type));
 	set_val_str (arr, 18, nmc_property_wireless_get_client_name (setting, type));
+	set_val_str (arr, 19, nmc_property_wireless_get_scan_delay (setting, type));
+	set_val_str (arr, 20, nmc_property_wireless_get_scan_dwell (setting, type));
+	set_val_str (arr, 21, nmc_property_wireless_get_scan_passive_dwell (setting, type));
+	set_val_str (arr, 22, nmc_property_wireless_get_scan_suspend_time (setting, type));
+	set_val_str (arr, 23, nmc_property_wireless_get_scan_roam_delta (setting, type));
 	g_ptr_array_add (nmc->output_data, arr);
 
 	print_data (nmc);  /* Print all data */

@@ -60,6 +60,12 @@ G_BEGIN_DECLS
 #define NM_SETTING_WIRELESS_CCX         "ccx"
 #define NM_SETTING_WIRELESS_CLIENT_NAME "client-name"
 
+#define NM_SETTING_WIRELESS_SCAN_DELAY  "scan-delay"
+#define NM_SETTING_WIRELESS_SCAN_DWELL  "scan-dwell"
+#define NM_SETTING_WIRELESS_SCAN_PASSIVE_DWELL  "scan-passive-dwell"
+#define NM_SETTING_WIRELESS_SCAN_SUSPEND_TIME  "scan-suspend-time"
+#define NM_SETTING_WIRELESS_SCAN_ROAM_DELTA  "scan-roam-delta"
+
 /**
  * NM_SETTING_WIRELESS_MODE_ADHOC:
  *
@@ -172,6 +178,12 @@ NMSettingMacRandomization nm_setting_wireless_get_mac_address_randomization (NMS
 
 NMSettingWirelessCcx nm_setting_wireless_get_ccx             (NMSettingWireless *setting);
 const char       *nm_setting_wireless_get_client_name        (NMSettingWireless *setting);
+
+guint32           nm_setting_wireless_get_scan_delay         (NMSettingWireless *setting);
+guint32           nm_setting_wireless_get_scan_dwell         (NMSettingWireless *setting);
+guint32           nm_setting_wireless_get_scan_passive_dwell (NMSettingWireless *setting);
+guint32           nm_setting_wireless_get_scan_suspend_time  (NMSettingWireless *setting);
+guint32           nm_setting_wireless_get_scan_roam_delta    (NMSettingWireless *setting);
 
 gboolean          nm_setting_wireless_add_seen_bssid         (NMSettingWireless *setting,
                                                               const char *bssid);

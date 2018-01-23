@@ -47,6 +47,12 @@ typedef struct {
 	guint32    ccx;
 	gboolean   fast_required;
 	gboolean   dispose_has_run;
+
+	guint32    scan_delay;
+	guint32    scan_dwell;
+	guint32    scan_passive_dwell;
+	guint32    scan_suspend_time;
+	guint32    scan_roam_delta;
 } NMSupplicantConfigPrivate;
 
 struct _NMSupplicantConfig {
@@ -289,6 +295,46 @@ nm_supplicant_config_get_ccx (NMSupplicantConfig * self)
 	return NM_SUPPLICANT_CONFIG_GET_PRIVATE (self)->ccx;
 }
 
+guint32
+nm_supplicant_config_get_scan_delay (NMSupplicantConfig * self)
+{
+	g_return_val_if_fail (NM_IS_SUPPLICANT_CONFIG (self), 0);
+
+	return NM_SUPPLICANT_CONFIG_GET_PRIVATE (self)->scan_delay;
+}
+
+guint32
+nm_supplicant_config_get_scan_dwell (NMSupplicantConfig * self)
+{
+	g_return_val_if_fail (NM_IS_SUPPLICANT_CONFIG (self), 0);
+
+	return NM_SUPPLICANT_CONFIG_GET_PRIVATE (self)->scan_dwell;
+}
+
+guint32
+nm_supplicant_config_get_scan_passive_dwell (NMSupplicantConfig * self)
+{
+	g_return_val_if_fail (NM_IS_SUPPLICANT_CONFIG (self), 0);
+
+	return NM_SUPPLICANT_CONFIG_GET_PRIVATE (self)->scan_passive_dwell;
+}
+
+guint32
+nm_supplicant_config_get_scan_suspend_time (NMSupplicantConfig * self)
+{
+	g_return_val_if_fail (NM_IS_SUPPLICANT_CONFIG (self), 0);
+
+	return NM_SUPPLICANT_CONFIG_GET_PRIVATE (self)->scan_suspend_time;
+}
+
+guint32
+nm_supplicant_config_get_scan_roam_delta (NMSupplicantConfig * self)
+{
+	g_return_val_if_fail (NM_IS_SUPPLICANT_CONFIG (self), 0);
+
+	return NM_SUPPLICANT_CONFIG_GET_PRIVATE (self)->scan_roam_delta;
+}
+
 gboolean
 nm_supplicant_config_fast_required (NMSupplicantConfig *self)
 {
@@ -478,6 +524,11 @@ nm_supplicant_config_add_setting_wireless (NMSupplicantConfig * self,
 		priv->ap_scan = 1;
 
 	priv->ccx = nm_setting_wireless_get_ccx (setting);
+	priv->scan_delay = nm_setting_wireless_get_scan_delay (setting);
+	priv->scan_dwell = nm_setting_wireless_get_scan_dwell (setting);
+	priv->scan_passive_dwell = nm_setting_wireless_get_scan_passive_dwell (setting);
+	priv->scan_suspend_time = nm_setting_wireless_get_scan_suspend_time (setting);
+	priv->scan_roam_delta = nm_setting_wireless_get_scan_roam_delta (setting);
 
 	ssid = nm_setting_wireless_get_ssid (setting);
 	if (!nm_supplicant_config_add_option (self, "ssid",

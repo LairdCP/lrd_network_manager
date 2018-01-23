@@ -1388,6 +1388,136 @@ set_ccx_cb (GDBusProxy *proxy, GAsyncResult *result, gpointer user_data)
 
 }
 
+static void
+set_laird_guint32_cb (GDBusProxy *proxy, GAsyncResult *result, gpointer user_data,
+					  const char *key, guint32 value, const char *message)
+{
+	NMSupplicantInterface *self;
+	NMSupplicantInterfacePrivate *priv;
+	gs_unref_variant GVariant *reply = NULL;
+	gs_free_error GError *error = NULL;
+
+	reply = g_dbus_proxy_call_finish (proxy, result, &error);
+	if (g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+		return;
+
+	self = NM_SUPPLICANT_INTERFACE (user_data);
+	priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
+
+	if (error) {
+		if (_nm_dbus_error_has_name (error, "org.freedesktop.DBus.Error.InvalidArgs")) {
+			_LOGD ("%s is not supported", key);
+		} else {
+			assoc_return (self, error, message);
+		}
+		return;
+	}
+
+	if (!reply) {
+		g_dbus_error_strip_remote_error (error);
+		_LOGW ("couldn't send %s to the supplicant interface: %s",
+		       key, error->message);
+		return;
+	}
+
+	_LOGI ("config: set interface %s to %d", key, value);
+
+}
+
+static void
+set_scan_delay_cb (GDBusProxy *proxy, GAsyncResult *result, gpointer user_data)
+{
+	NMSupplicantInterface *self;
+	NMSupplicantInterfacePrivate *priv;
+	self = NM_SUPPLICANT_INTERFACE (user_data);
+	priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
+	set_laird_guint32_cb(
+		proxy, result, user_data,
+		"scan delay",
+		nm_supplicant_config_get_scan_delay (priv->assoc_data->cfg),
+		"failure to set scan delay");
+}
+
+static void
+set_scan_dwell_cb (GDBusProxy *proxy, GAsyncResult *result, gpointer user_data)
+{
+	NMSupplicantInterface *self;
+	NMSupplicantInterfacePrivate *priv;
+	self = NM_SUPPLICANT_INTERFACE (user_data);
+	priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
+	set_laird_guint32_cb(
+		proxy, result, user_data,
+		"scan dwell",
+		nm_supplicant_config_get_scan_dwell (priv->assoc_data->cfg),
+		"failure to set scan dwell");
+}
+
+static void
+set_scan_passive_dwell_cb (GDBusProxy *proxy, GAsyncResult *result, gpointer user_data)
+{
+	NMSupplicantInterface *self;
+	NMSupplicantInterfacePrivate *priv;
+	self = NM_SUPPLICANT_INTERFACE (user_data);
+	priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
+	set_laird_guint32_cb(
+		proxy, result, user_data,
+		"scan passive dwell",
+		nm_supplicant_config_get_scan_passive_dwell (priv->assoc_data->cfg),
+		"failure to set scan passive dwell");
+}
+
+static void
+set_scan_suspend_time_cb (GDBusProxy *proxy, GAsyncResult *result, gpointer user_data)
+{
+	NMSupplicantInterface *self;
+	NMSupplicantInterfacePrivate *priv;
+	self = NM_SUPPLICANT_INTERFACE (user_data);
+	priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
+	set_laird_guint32_cb(
+		proxy, result, user_data,
+		"scan suspend time",
+		nm_supplicant_config_get_scan_suspend_time (priv->assoc_data->cfg),
+		"failure to set scan suspend time");
+}
+
+static void
+set_scan_roam_delta_cb (GDBusProxy *proxy, GAsyncResult *result, gpointer user_data)
+{
+	NMSupplicantInterface *self;
+	NMSupplicantInterfacePrivate *priv;
+	self = NM_SUPPLICANT_INTERFACE (user_data);
+	priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
+	set_laird_guint32_cb(
+		proxy, result, user_data,
+		"scan roam delta",
+		nm_supplicant_config_get_scan_roam_delta (priv->assoc_data->cfg),
+		"failure to set scan roam delta");
+}
+
+static void
+laird_proxy_guint32(NMSupplicantInterface *self,
+					const char *key,
+					guint32 value,
+					GAsyncReadyCallback cb)
+{
+	NMSupplicantInterfacePrivate *priv;
+	char buf[32];
+
+	priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
+	g_snprintf (buf, sizeof(buf), "%d", value);
+	g_dbus_proxy_call (priv->iface_proxy,
+	                   DBUS_INTERFACE_PROPERTIES ".Set",
+	                   g_variant_new ("(ssv)",
+	                                  WPAS_DBUS_IFACE_INTERFACE,
+	                                  key,
+	                                  g_variant_new_string (buf)),
+	                   G_DBUS_CALL_FLAGS_NONE,
+	                   -1,
+	                   priv->assoc_data->cancellable,
+	                   cb,
+	                   self);
+}
+
 /**
  * nm_supplicant_interface_assoc:
  * @self: the supplicant interface instance
@@ -1465,6 +1595,34 @@ nm_supplicant_interface_assoc (NMSupplicantInterface *self,
 	                   (GAsyncReadyCallback) set_ccx_cb,
 	                   self);
 
+	{
+		guint32 value;
+		value = nm_supplicant_config_get_scan_delay (priv->assoc_data->cfg);
+		if (value) {
+			laird_proxy_guint32(self, "LairdScanDelay", value,
+								(GAsyncReadyCallback) set_scan_delay_cb);
+		}
+		value = nm_supplicant_config_get_scan_dwell (priv->assoc_data->cfg);
+		if (value) {
+			laird_proxy_guint32(self, "LairdScanDwell", value,
+								(GAsyncReadyCallback) set_scan_dwell_cb);
+		}
+		value = nm_supplicant_config_get_scan_passive_dwell (priv->assoc_data->cfg);
+		if (value) {
+			laird_proxy_guint32(self, "LairdPassiveDwell", value,
+								(GAsyncReadyCallback) set_scan_passive_dwell_cb);
+		}
+		value = nm_supplicant_config_get_scan_suspend_time (priv->assoc_data->cfg);
+		if (value) {
+			laird_proxy_guint32(self, "LairdScanSuspendTime", value,
+								(GAsyncReadyCallback) set_scan_suspend_time_cb);
+		}
+		value = nm_supplicant_config_get_scan_roam_delta (priv->assoc_data->cfg);
+		if (value) {
+			laird_proxy_guint32(self, "LairdRoamDelta", value,
+								(GAsyncReadyCallback) set_scan_roam_delta_cb);
+		}
+	}
 }
 
 /*****************************************************************************/

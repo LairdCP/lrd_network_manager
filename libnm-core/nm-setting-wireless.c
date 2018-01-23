@@ -65,6 +65,12 @@ typedef struct {
 	NMSettingMacRandomization mac_address_randomization;
 	guint ccx;
 	char *client_name;
+
+	guint32 scan_delay;
+	guint32 scan_dwell;
+	guint32 scan_passive_dwell;
+	guint32 scan_suspend_time;
+	guint32 scan_roam_delta;
 } NMSettingWirelessPrivate;
 
 enum {
@@ -87,6 +93,12 @@ enum {
 	PROP_MAC_ADDRESS_RANDOMIZATION,
 	PROP_CCX,
 	PROP_CLIENT_NAME,
+
+	PROP_SCAN_DELAY,
+	PROP_SCAN_DWELL,
+	PROP_SCAN_PASSIVE_DWELL,
+	PROP_SCAN_SUSPEND_TIME,
+	PROP_SCAN_ROAM_DELTA,
 
 	LAST_PROP
 };
@@ -694,6 +706,81 @@ nm_setting_wireless_get_client_name (NMSettingWireless *setting)
 
 
 /**
+ * nm_setting_wireless_get_scan_delay:
+ * @setting: the #NMSettingWireless
+ *
+ * Returns: the #NMSettingWireless:scan delay property of the
+ * setting
+ **/
+guint32
+nm_setting_wireless_get_scan_delay (NMSettingWireless *setting)
+{
+	g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), 0);
+
+	return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->scan_delay;
+}
+
+/**
+ * nm_setting_wireless_get_scan_dwell:
+ * @setting: the #NMSettingWireless
+ *
+ * Returns: the #NMSettingWireless:scan dwell property of the
+ * setting
+ **/
+guint32
+nm_setting_wireless_get_scan_dwell (NMSettingWireless *setting)
+{
+	g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), 0);
+
+	return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->scan_dwell;
+}
+
+/**
+ * nm_setting_wireless_get_scan_passive_dwell:
+ * @setting: the #NMSettingWireless
+ *
+ * Returns: the #NMSettingWireless:scan passive dwell property of the
+ * setting
+ **/
+guint32
+nm_setting_wireless_get_scan_passive_dwell (NMSettingWireless *setting)
+{
+	g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), 0);
+
+	return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->scan_passive_dwell;
+}
+
+/**
+ * nm_setting_wireless_get_scan_suspend_time:
+ * @setting: the #NMSettingWireless
+ *
+ * Returns: the #NMSettingWireless:scan suspend time property of the
+ * setting
+ **/
+guint32
+nm_setting_wireless_get_scan_suspend_time (NMSettingWireless *setting)
+{
+	g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), 0);
+
+	return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->scan_suspend_time;
+}
+
+/**
+ * nm_setting_wireless_get_scan_roam_delta:
+ * @setting: the #NMSettingWireless
+ *
+ * Returns: the #NMSettingWireless:scan roam delta property of the
+ * setting
+ **/
+guint32
+nm_setting_wireless_get_scan_roam_delta (NMSettingWireless *setting)
+{
+	g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), 0);
+
+	return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->scan_roam_delta;
+}
+
+/**
  * nm_setting_wireless_add_seen_bssid:
  * @setting: the #NMSettingWireless
  * @bssid: the new BSSID to add to the list
@@ -952,6 +1039,8 @@ mac_addr_rand_ok:
 		return FALSE;
 	}
 
+	// TBD: add error laird scan parameter checking here
+
 	if (priv->client_name){
 		if (strlen (priv->client_name) > 16) {
 			g_set_error (error,
@@ -1127,6 +1216,21 @@ set_property (GObject *object, guint prop_id,
 		g_free (priv->client_name);
 		priv->client_name = g_value_dup_string (value);
 		break;
+	case PROP_SCAN_DELAY:
+		priv->scan_delay = g_value_get_uint (value);
+		break;
+	case PROP_SCAN_DWELL:
+		priv->scan_dwell = g_value_get_uint (value);
+		break;
+	case PROP_SCAN_PASSIVE_DWELL:
+		priv->scan_passive_dwell = g_value_get_uint (value);
+		break;
+	case PROP_SCAN_SUSPEND_TIME:
+		priv->scan_suspend_time = g_value_get_uint (value);
+		break;
+	case PROP_SCAN_ROAM_DELTA:
+		priv->scan_roam_delta = g_value_get_uint (value);
+		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
 		break;
@@ -1194,6 +1298,21 @@ get_property (GObject *object, guint prop_id,
 		break;
 	case PROP_CLIENT_NAME:
 		g_value_set_string (value, nm_setting_wireless_get_client_name (setting));
+		break;
+	case PROP_SCAN_DELAY:
+		g_value_set_uint (value, nm_setting_wireless_get_scan_delay (setting));
+		break;
+	case PROP_SCAN_DWELL:
+		g_value_set_uint (value, nm_setting_wireless_get_scan_dwell (setting));
+		break;
+	case PROP_SCAN_PASSIVE_DWELL:
+		g_value_set_uint (value, nm_setting_wireless_get_scan_passive_dwell (setting));
+		break;
+	case PROP_SCAN_SUSPEND_TIME:
+		g_value_set_uint (value, nm_setting_wireless_get_scan_suspend_time (setting));
+		break;
+	case PROP_SCAN_ROAM_DELTA:
+		g_value_set_uint (value, nm_setting_wireless_get_scan_roam_delta (setting));
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -1726,6 +1845,90 @@ nm_setting_wireless_class_init (NMSettingWirelessClass *setting_wireless_class)
 		                      NULL,
 		                      G_PARAM_READWRITE |
 		                      G_PARAM_STATIC_STRINGS));
+
+	/**
+	 * NMSettingWireless:scan_delay:
+	 *
+	 * For active scanning, the time to wait after tuning to a new channel
+	 * before transmitting a probe request.
+	 *
+	 * Since: 1.8
+	 **/
+	g_object_class_install_property
+		(object_class, PROP_SCAN_DELAY,
+		 g_param_spec_uint (NM_SETTING_WIRELESS_SCAN_DELAY, "", "",
+		                    0, G_MAXUINT32, 0,
+		                    G_PARAM_READWRITE |
+		                    G_PARAM_CONSTRUCT |
+		                    NM_SETTING_PARAM_FUZZY_IGNORE |
+		                    G_PARAM_STATIC_STRINGS));
+
+	/**
+	 * NMSettingWireless:scan_dwell:
+	 *
+	 * For active scanning, the time to wait for probe responses after
+	 * transmitting a probe request.
+	 *
+	 * Since: 1.8
+	 **/
+	g_object_class_install_property
+		(object_class, PROP_SCAN_DWELL,
+		 g_param_spec_uint (NM_SETTING_WIRELESS_SCAN_DWELL, "", "",
+		                    0, G_MAXUINT32, 0,
+		                    G_PARAM_READWRITE |
+		                    G_PARAM_CONSTRUCT |
+		                    NM_SETTING_PARAM_FUZZY_IGNORE |
+		                    G_PARAM_STATIC_STRINGS));
+
+	/**
+	 * NMSettingWireless:scan_passive_dwell:
+	 *
+	 * For passive scanning, the time to wait for probe responses.
+	 *
+	 * Since: 1.8
+	 **/
+	g_object_class_install_property
+		(object_class, PROP_SCAN_PASSIVE_DWELL,
+		 g_param_spec_uint (NM_SETTING_WIRELESS_SCAN_PASSIVE_DWELL, "", "",
+		                    0, G_MAXUINT32, 0,
+		                    G_PARAM_READWRITE |
+		                    G_PARAM_CONSTRUCT |
+		                    NM_SETTING_PARAM_FUZZY_IGNORE |
+		                    G_PARAM_STATIC_STRINGS));
+
+	/**
+	 * NMSettingWireless:scan_suspend_time:
+	 *
+	 * For background scanning, the duration to periodically suspend
+	 * background scanning to service the active connection.
+	 *
+	 * Since: 1.8
+	 **/
+	g_object_class_install_property
+		(object_class, PROP_SCAN_SUSPEND_TIME,
+		 g_param_spec_uint (NM_SETTING_WIRELESS_SCAN_SUSPEND_TIME, "", "",
+		                    0, G_MAXUINT32, 0,
+		                    G_PARAM_READWRITE |
+		                    G_PARAM_CONSTRUCT |
+		                    NM_SETTING_PARAM_FUZZY_IGNORE |
+		                    G_PARAM_STATIC_STRINGS));
+
+	/**
+	 * NMSettingWireless:scan_roam_delta:
+	 *
+	 * For roaming, limits the number of dB better required for
+	 * a roam.
+	 *
+	 * Since: 1.8
+	 **/
+	g_object_class_install_property
+		(object_class, PROP_SCAN_ROAM_DELTA,
+		 g_param_spec_uint (NM_SETTING_WIRELESS_SCAN_ROAM_DELTA, "", "",
+		                    0, G_MAXUINT32, 0,
+		                    G_PARAM_READWRITE |
+		                    G_PARAM_CONSTRUCT |
+		                    NM_SETTING_PARAM_FUZZY_IGNORE |
+		                    G_PARAM_STATIC_STRINGS));
 
 	/* Compatibility for deprecated property */
 	/* ---ifcfg-rh---

@@ -1023,6 +1023,11 @@ global:
 	nm_setting_wireless_get_client_name;
 	nm_setting_wireless_powersave_get_type;
 	nm_setting_wireless_ccx_get_type;
+	nm_setting_wireless_get_scan_delay;
+	nm_setting_wireless_get_scan_dwell;
+	nm_setting_wireless_get_scan_passive_dwell;
+	nm_setting_wireless_get_scan_suspend_time;
+	nm_setting_wireless_get_scan_roam_delta;
 	nm_utils_bond_mode_int_to_string;
 	nm_utils_bond_mode_string_to_int;
 	nm_utils_enum_from_str;
