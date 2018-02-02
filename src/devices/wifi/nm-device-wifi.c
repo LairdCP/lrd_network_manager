@@ -599,6 +599,42 @@ is_adhoc_wpa (NMConnection *connection)
 }
 
 static gboolean
+warn_wireless_requires_laird_support(NMDeviceWifi *self, NMSettingWireless *s_wireless)
+{
+	gboolean rv = FALSE;
+	// note, logging macros require self
+	if (nm_setting_wireless_get_ccx(s_wireless) != NM_SETTING_WIRELESS_CCX_DISABLE) {
+		_LOGW (LOGD_WIFI, "Supplicant does not support CCX.");
+		rv = TRUE;
+	}
+	if (nm_setting_wireless_get_client_name(s_wireless)) {
+		_LOGW (LOGD_WIFI, "Supplicant does not support client name.");
+		rv = TRUE;
+	}
+	if (nm_setting_wireless_get_scan_delay (s_wireless) != 0) {
+		_LOGW (LOGD_WIFI, "Supplicant does not support scan-delay.");
+		rv = TRUE;
+	}
+	if (nm_setting_wireless_get_scan_dwell (s_wireless) != 0) {
+		_LOGW (LOGD_WIFI, "Supplicant does not support scan-dwell.");
+		rv = TRUE;
+	}
+	if (nm_setting_wireless_get_scan_passive_dwell (s_wireless) != 0) {
+		_LOGW (LOGD_WIFI, "Supplicant does not support scan-passive-dwell.");
+		rv = TRUE;
+	}
+	if (nm_setting_wireless_get_scan_suspend_time (s_wireless) != 0) {
+		_LOGW (LOGD_WIFI, "Supplicant does not support scan-suspend-time.");
+		rv = TRUE;
+	}
+	if (nm_setting_wireless_get_scan_roam_delta (s_wireless) != 0) {
+		_LOGW (LOGD_WIFI, "Supplicant does not support scan-roam-delta.");
+		rv = TRUE;
+	}
+	return rv;
+}
+
+static gboolean
 check_connection_compatible (NMDevice *device, NMConnection *connection)
 {
 	NMDeviceWifi *self = NM_DEVICE_WIFI (device);
@@ -2360,6 +2396,20 @@ build_supplicant_config (NMDeviceWifi *self,
 	if (   g_strcmp0 (nm_setting_wireless_get_mode (s_wireless), NM_SETTING_WIRELESS_MODE_AP) == 0
 	    && nm_supplicant_interface_get_ap_support (priv->sup_iface) == NM_SUPPLICANT_FEATURE_UNKNOWN) {
 		_LOGW (LOGD_WIFI, "Supplicant may not support AP mode; connection may time out.");
+	}
+
+	/* Warn if Laird features are not supported */
+	{
+		NMSupplicantFeature laird_support = NM_SUPPLICANT_FEATURE_NO;
+		if (priv->sup_iface)
+			laird_support = nm_supplicant_interface_get_laird_support (priv->sup_iface);
+		if (laird_support != NM_SUPPLICANT_FEATURE_YES) {
+			// warnings if Laird features are configured
+			if (warn_wireless_requires_laird_support (self, s_wireless)) {
+				_LOGW (LOGD_WIFI, "Laird features will be excluded from config.");
+			}
+		}
+		nm_supplicant_config_set_laird_support (config, laird_support);
 	}
 
 	if (!nm_supplicant_config_add_setting_wireless (config,

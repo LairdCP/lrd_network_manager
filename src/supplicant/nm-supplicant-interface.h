@@ -60,6 +60,7 @@ typedef enum {
 #define NM_SUPPLICANT_INTERFACE_DRIVER           "driver"
 #define NM_SUPPLICANT_INTERFACE_FAST_SUPPORT     "fast-support"
 #define NM_SUPPLICANT_INTERFACE_AP_SUPPORT       "ap-support"
+#define NM_SUPPLICANT_INTERFACE_LAIRD_SUPPORT    "laird-support"
 
 /* Signals */
 #define NM_SUPPLICANT_INTERFACE_STATE            "state"
@@ -125,5 +126,10 @@ void nm_supplicant_interface_set_ap_support (NMSupplicantInterface *self,
 
 void nm_supplicant_interface_set_fast_support (NMSupplicantInterface *self,
                                                NMSupplicantFeature fast_support);
+
+NMSupplicantFeature nm_supplicant_interface_get_laird_support (NMSupplicantInterface *self);
+
+void nm_supplicant_interface_set_laird_support (NMSupplicantInterface *self,
+                                               NMSupplicantFeature laird_support);
 
 #endif /* __NM_SUPPLICANT_INTERFACE_H__ */

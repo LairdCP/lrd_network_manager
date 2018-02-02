@@ -39,6 +39,7 @@ typedef struct {
 	GSList          *ifaces;
 	NMSupplicantFeature fast_support;
 	NMSupplicantFeature ap_support;
+	NMSupplicantFeature laird_support;
 	guint             die_count_reset_id;
 	guint             die_count;
 } NMSupplicantManagerPrivate;
@@ -161,6 +162,10 @@ nm_supplicant_manager_create_interface (NMSupplicantManager *self,
 	                                     priv->fast_support,
 	                                     priv->ap_support);
 
+	if (iface) {
+		nm_supplicant_interface_set_laird_support(iface, priv->laird_support);
+	}
+
 	priv->ifaces = g_slist_prepend (priv->ifaces, iface);
 	g_object_add_toggle_ref ((GObject *) iface, _sup_iface_last_ref, self);
 
@@ -193,15 +198,19 @@ update_capabilities (NMSupplicantManager *self)
 	 * dbus: Add global capabilities property
 	 */
 	priv->ap_support = NM_SUPPLICANT_FEATURE_UNKNOWN;
+	priv->laird_support = NM_SUPPLICANT_FEATURE_UNKNOWN;
 
 	value = g_dbus_proxy_get_cached_property (priv->proxy, "Capabilities");
 	if (value) {
 		if (g_variant_is_of_type (value, G_VARIANT_TYPE_STRING_ARRAY)) {
 			array = g_variant_get_strv (value, NULL);
 			priv->ap_support = NM_SUPPLICANT_FEATURE_NO;
+			priv->laird_support = NM_SUPPLICANT_FEATURE_NO;
 			if (array) {
 				if (g_strv_contains (array, "ap"))
 					priv->ap_support = NM_SUPPLICANT_FEATURE_YES;
+				if (g_strv_contains (array, "laird-features"))
+					priv->laird_support = NM_SUPPLICANT_FEATURE_YES;
 				g_free (array);
 			}
 		}
@@ -209,12 +218,19 @@ update_capabilities (NMSupplicantManager *self)
 	}
 
 	/* Tell all interfaces about results of the AP check */
-	for (ifaces = priv->ifaces; ifaces; ifaces = ifaces->next)
+	/* Tell all interfaces about results of the Laird features check */
+	for (ifaces = priv->ifaces; ifaces; ifaces = ifaces->next) {
 		nm_supplicant_interface_set_ap_support (ifaces->data, priv->ap_support);
+		nm_supplicant_interface_set_laird_support (ifaces->data, priv->laird_support);
+	}
 
 	_LOGD ("AP mode is %ssupported",
 	       (priv->ap_support == NM_SUPPLICANT_FEATURE_YES) ? "" :
 	           (priv->ap_support == NM_SUPPLICANT_FEATURE_NO) ? "not " : "possibly ");
+
+	_LOGD ("Laird features are %ssupported",
+	       (priv->laird_support == NM_SUPPLICANT_FEATURE_YES) ? "" :
+	           (priv->laird_support == NM_SUPPLICANT_FEATURE_NO) ? "not " : "possibly ");
 
 	/* EAP-FAST */
 	priv->fast_support = NM_SUPPLICANT_FEATURE_NO;
@@ -337,6 +353,7 @@ name_owner_cb (GDBusProxy *proxy, GParamSpec *pspec, gpointer user_data)
 
 		priv->ap_support = NM_SUPPLICANT_FEATURE_UNKNOWN;
 		priv->fast_support = NM_SUPPLICANT_FEATURE_UNKNOWN;
+		priv->laird_support = NM_SUPPLICANT_FEATURE_UNKNOWN;
 
 		set_running (self, FALSE);
 	}

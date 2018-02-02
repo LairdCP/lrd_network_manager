@@ -80,6 +80,7 @@ NM_GOBJECT_PROPERTIES_DEFINE (NMSupplicantInterface,
 	PROP_DRIVER,
 	PROP_FAST_SUPPORT,
 	PROP_AP_SUPPORT,
+	PROP_LAIRD_SUPPORT,
 );
 
 typedef struct {
@@ -88,6 +89,7 @@ typedef struct {
 	gboolean       has_credreq;  /* Whether querying 802.1x credentials is supported */
 	NMSupplicantFeature fast_support;
 	NMSupplicantFeature ap_support;   /* Lightweight AP mode support */
+	NMSupplicantFeature laird_support;
 	guint32        max_scan_ssids;
 	guint32        ready_count;
 
@@ -554,6 +556,12 @@ nm_supplicant_interface_set_ap_support (NMSupplicantInterface *self,
 		priv->ap_support = ap_support;
 }
 
+NMSupplicantFeature
+nm_supplicant_interface_get_laird_support (NMSupplicantInterface *self)
+{
+	return NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self)->laird_support;
+}
+
 void
 nm_supplicant_interface_set_fast_support (NMSupplicantInterface *self,
                                           NMSupplicantFeature fast_support)
@@ -561,6 +569,15 @@ nm_supplicant_interface_set_fast_support (NMSupplicantInterface *self,
 	NMSupplicantInterfacePrivate *priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
 
 	priv->fast_support = fast_support;
+}
+
+void
+nm_supplicant_interface_set_laird_support (NMSupplicantInterface *self,
+                                          NMSupplicantFeature laird_support)
+{
+	NMSupplicantInterfacePrivate *priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
+
+	priv->laird_support = laird_support;
 }
 
 static void
@@ -1583,6 +1600,7 @@ nm_supplicant_interface_assoc (NMSupplicantInterface *self,
 
 	g_snprintf (ccx, 2, "%d", nm_supplicant_config_get_ccx (priv->assoc_data->cfg));
 
+	if (priv->laird_support == NM_SUPPLICANT_FEATURE_YES) {
 	g_dbus_proxy_call (priv->iface_proxy,
 	                   DBUS_INTERFACE_PROPERTIES ".Set",
 	                   g_variant_new ("(ssv)",
@@ -1594,8 +1612,9 @@ nm_supplicant_interface_assoc (NMSupplicantInterface *self,
 	                   priv->assoc_data->cancellable,
 	                   (GAsyncReadyCallback) set_ccx_cb,
 	                   self);
+	}
 
-	{
+	if (priv->laird_support == NM_SUPPLICANT_FEATURE_YES) {
 		guint32 value;
 		value = nm_supplicant_config_get_scan_delay (priv->assoc_data->cfg);
 		if (value) {
@@ -1769,6 +1788,10 @@ set_property (GObject *object,
 		/* construct-only */
 		priv->ap_support = g_value_get_int (value);
 		break;
+	case PROP_LAIRD_SUPPORT:
+		/* construct-only */
+		priv->laird_support = g_value_get_int (value);
+		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
 		break;
@@ -1872,6 +1895,14 @@ nm_supplicant_interface_class_init (NMSupplicantInterfaceClass *klass)
 	                      G_PARAM_STATIC_STRINGS);
 	obj_properties[PROP_AP_SUPPORT] =
 	    g_param_spec_int (NM_SUPPLICANT_INTERFACE_AP_SUPPORT, "", "",
+	                      NM_SUPPLICANT_FEATURE_UNKNOWN,
+	                      NM_SUPPLICANT_FEATURE_YES,
+	                      NM_SUPPLICANT_FEATURE_UNKNOWN,
+	                      G_PARAM_WRITABLE |
+	                      G_PARAM_CONSTRUCT_ONLY |
+	                      G_PARAM_STATIC_STRINGS);
+	obj_properties[PROP_LAIRD_SUPPORT] =
+	    g_param_spec_int (NM_SUPPLICANT_INTERFACE_LAIRD_SUPPORT, "", "",
 	                      NM_SUPPLICANT_FEATURE_UNKNOWN,
 	                      NM_SUPPLICANT_FEATURE_YES,
 	                      NM_SUPPLICANT_FEATURE_UNKNOWN,
