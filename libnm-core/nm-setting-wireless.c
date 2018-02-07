@@ -71,6 +71,7 @@ typedef struct {
 	guint32 scan_passive_dwell;
 	guint32 scan_suspend_time;
 	guint32 scan_roam_delta;
+	char *bgscan;
 } NMSettingWirelessPrivate;
 
 enum {
@@ -99,6 +100,8 @@ enum {
 	PROP_SCAN_PASSIVE_DWELL,
 	PROP_SCAN_SUSPEND_TIME,
 	PROP_SCAN_ROAM_DELTA,
+
+	PROP_BGSCAN,
 
 	LAST_PROP
 };
@@ -781,6 +784,21 @@ nm_setting_wireless_get_scan_roam_delta (NMSettingWireless *setting)
 }
 
 /**
+ * nm_setting_wireless_get_bgscan:
+ * @setting: the #NMSettingWireless
+ *
+ * Returns: the #NMSettingWireless:background scan property of the
+ * setting
+ **/
+const char *
+nm_setting_wireless_get_bgscan (NMSettingWireless *setting)
+{
+	g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), NULL);
+
+	return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->bgscan;
+}
+
+/**
  * nm_setting_wireless_add_seen_bssid:
  * @setting: the #NMSettingWireless
  * @bssid: the new BSSID to add to the list
@@ -1119,6 +1137,7 @@ finalize (GObject *object)
 	g_array_unref (priv->mac_address_blacklist);
 	g_slist_free_full (priv->seen_bssids, g_free);
 	g_free (priv->client_name);
+	g_free (priv->bgscan);
 
 	G_OBJECT_CLASS (nm_setting_wireless_parent_class)->finalize (object);
 }
@@ -1231,6 +1250,10 @@ set_property (GObject *object, guint prop_id,
 	case PROP_SCAN_ROAM_DELTA:
 		priv->scan_roam_delta = g_value_get_uint (value);
 		break;
+	case PROP_BGSCAN:
+		g_free (priv->bgscan);
+		priv->bgscan = g_value_dup_string (value);
+		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
 		break;
@@ -1313,6 +1336,9 @@ get_property (GObject *object, guint prop_id,
 		break;
 	case PROP_SCAN_ROAM_DELTA:
 		g_value_set_uint (value, nm_setting_wireless_get_scan_roam_delta (setting));
+		break;
+	case PROP_BGSCAN:
+		g_value_set_string (value, nm_setting_wireless_get_bgscan (setting));
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -1929,6 +1955,21 @@ nm_setting_wireless_class_init (NMSettingWirelessClass *setting_wireless_class)
 		                    G_PARAM_CONSTRUCT |
 		                    NM_SETTING_PARAM_FUZZY_IGNORE |
 		                    G_PARAM_STATIC_STRINGS));
+
+	/**
+	 * NMSettingWireless:bgscan:
+	 *
+	 * The background scan configuration.  See wpa_supplicant for details
+	 * on valid configuration.
+	 *
+	 * Since: 1.8
+	 **/
+	g_object_class_install_property
+		(object_class, PROP_BGSCAN,
+		 g_param_spec_string (NM_SETTING_WIRELESS_BGSCAN, "", "",
+		                      NULL,
+		                      G_PARAM_READWRITE |
+		                      G_PARAM_STATIC_STRINGS));
 
 	/* Compatibility for deprecated property */
 	/* ---ifcfg-rh---

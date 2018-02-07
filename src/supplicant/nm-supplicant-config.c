@@ -55,6 +55,7 @@ typedef struct {
 	guint32    scan_roam_delta;
 
 	NMSupplicantFeature laird_support;
+	gboolean   bgscan_is_set; /* used to prevent setting twice */
 } NMSupplicantConfigPrivate;
 
 struct _NMSupplicantConfig {
@@ -617,6 +618,19 @@ nm_supplicant_config_add_setting_wireless (NMSupplicantConfig * self,
 				return FALSE;
 	}
 
+	{
+		const char *bgscan;
+		bgscan = nm_setting_wireless_get_bgscan (setting);
+		if (bgscan) {
+			if (!nm_supplicant_config_add_option (self, "bgscan", bgscan, strlen (bgscan), NULL, error))
+				return FALSE;
+			priv->bgscan_is_set = TRUE;
+		} else {
+			// allow setting of bgscan when configuring wireless_security
+			priv->bgscan_is_set = FALSE;
+		}
+	}
+
 	return TRUE;
 }
 
@@ -801,6 +815,7 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
                                                     guint32 mtu,
                                                     GError **error)
 {
+	NMSupplicantConfigPrivate *priv;
 	const char *key_mgmt, *auth_alg;
 	const char *psk;
 
@@ -808,6 +823,8 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
 	g_return_val_if_fail (setting != NULL, FALSE);
 	g_return_val_if_fail (con_uuid != NULL, FALSE);
 	g_return_val_if_fail (!error || !*error, FALSE);
+
+	priv = NM_SUPPLICANT_CONFIG_GET_PRIVATE (self);
 
 	key_mgmt = nm_setting_wireless_security_get_key_mgmt (setting);
 	if (!add_string_val (self, key_mgmt, "key_mgmt", TRUE, NULL, error))
@@ -930,7 +947,8 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
 			/* If using WPA Enterprise, enable optimized background scanning
 			 * to ensure roaming within an ESS works well.
 			 */
-			if (!nm_supplicant_config_add_option (self, "bgscan", "simple:30:-65:300", -1, NULL, error))
+			if (!priv->bgscan_is_set &&
+				!nm_supplicant_config_add_option (self, "bgscan", "simple:30:-65:300", -1, NULL, error))
 				return FALSE;
 
 			/* When using WPA-Enterprise, we want to use Proactive Key Caching (also

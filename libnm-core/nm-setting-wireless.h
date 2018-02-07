@@ -66,6 +66,8 @@ G_BEGIN_DECLS
 #define NM_SETTING_WIRELESS_SCAN_SUSPEND_TIME  "scan-suspend-time"
 #define NM_SETTING_WIRELESS_SCAN_ROAM_DELTA  "scan-roam-delta"
 
+#define NM_SETTING_WIRELESS_BGSCAN      "bgscan"
+
 /**
  * NM_SETTING_WIRELESS_MODE_ADHOC:
  *
@@ -184,6 +186,8 @@ guint32           nm_setting_wireless_get_scan_dwell         (NMSettingWireless 
 guint32           nm_setting_wireless_get_scan_passive_dwell (NMSettingWireless *setting);
 guint32           nm_setting_wireless_get_scan_suspend_time  (NMSettingWireless *setting);
 guint32           nm_setting_wireless_get_scan_roam_delta    (NMSettingWireless *setting);
+
+const char       *nm_setting_wireless_get_bgscan             (NMSettingWireless *setting);
 
 gboolean          nm_setting_wireless_add_seen_bssid         (NMSettingWireless *setting,
                                                               const char *bssid);
