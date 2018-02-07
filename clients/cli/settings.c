@@ -312,7 +312,9 @@ NmcOutputField nmc_fields_setting_wireless_security[] = {
                                                      NM_SETTING_WIRELESS_SECURITY_PSK","\
                                                      NM_SETTING_WIRELESS_SECURITY_PSK_FLAGS","\
                                                      NM_SETTING_WIRELESS_SECURITY_LEAP_PASSWORD","\
-                                                     NM_SETTING_WIRELESS_SECURITY_LEAP_PASSWORD_FLAGS
+                                                     NM_SETTING_WIRELESS_SECURITY_LEAP_PASSWORD_FLAGS","\
+                                                     NM_SETTING_WIRELESS_SECURITY_PROACTIVE_KEY_CACHING
+
 
 /* Available fields for NM_SETTING_IP4_CONFIG_SETTING_NAME */
 NmcOutputField nmc_fields_setting_ip4_config[] = {
@@ -9127,6 +9129,7 @@ setting_wireless_security_details (NMSetting *setting,
 	set_val_str (arr, 15, nmc_property_wifi_sec_get_psk_flags (setting, type));
 	set_val_str (arr, 16, GET_SECRET (secrets, setting, nmc_property_wifi_sec_get_leap_password, type));
 	set_val_str (arr, 17, nmc_property_wifi_sec_get_leap_password_flags (setting, type));
+	set_val_str (arr, 18, nmc_property_wifi_sec_get_proactive_key_caching (setting, type));
 	g_ptr_array_add (nmc->output_data, arr);
 
 	print_data (nmc);  /* Print all data */
