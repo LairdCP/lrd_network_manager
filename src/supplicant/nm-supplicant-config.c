@@ -631,6 +631,17 @@ nm_supplicant_config_add_setting_wireless (NMSupplicantConfig * self,
 		}
 	}
 
+	if (priv->laird_support == NM_SUPPLICANT_FEATURE_YES) {
+		guint32 auth_timeout;
+		auth_timeout = nm_setting_wireless_get_auth_timeout (setting);
+		if (auth_timeout) {
+			char buf[32];
+			snprintf (buf, sizeof (buf), "%d", auth_timeout);
+			if (!nm_supplicant_config_add_option (self, "laird_auth_timeout", buf, -1, NULL, error))
+				return FALSE;
+		}
+	}
+
 	return TRUE;
 }
 

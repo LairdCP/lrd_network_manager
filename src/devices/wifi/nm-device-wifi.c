@@ -631,6 +631,10 @@ warn_wireless_requires_laird_support(NMDeviceWifi *self, NMSettingWireless *s_wi
 		_LOGW (LOGD_WIFI, "Supplicant does not support scan-roam-delta.");
 		rv = TRUE;
 	}
+	if (nm_setting_wireless_get_auth_timeout (s_wireless) != 0) {
+		_LOGW (LOGD_WIFI, "Supplicant does not support auth-timeout.");
+		rv = TRUE;
+	}
 	return rv;
 }
 

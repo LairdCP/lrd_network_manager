@@ -72,6 +72,7 @@ typedef struct {
 	guint32 scan_suspend_time;
 	guint32 scan_roam_delta;
 	char *bgscan;
+	guint32 auth_timeout;
 } NMSettingWirelessPrivate;
 
 enum {
@@ -102,6 +103,7 @@ enum {
 	PROP_SCAN_ROAM_DELTA,
 
 	PROP_BGSCAN,
+	PROP_AUTH_TIMEOUT,
 
 	LAST_PROP
 };
@@ -799,6 +801,21 @@ nm_setting_wireless_get_bgscan (NMSettingWireless *setting)
 }
 
 /**
+ * nm_setting_wireless_get_auth_timeout:
+ * @setting: the #NMSettingWireless
+ *
+ * Returns: the #NMSettingWireless:authentication timeout property of the
+ * setting
+ **/
+guint32
+nm_setting_wireless_get_auth_timeout (NMSettingWireless *setting)
+{
+	g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), 0);
+
+	return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->auth_timeout;
+}
+
+/**
  * nm_setting_wireless_add_seen_bssid:
  * @setting: the #NMSettingWireless
  * @bssid: the new BSSID to add to the list
@@ -1254,6 +1271,9 @@ set_property (GObject *object, guint prop_id,
 		g_free (priv->bgscan);
 		priv->bgscan = g_value_dup_string (value);
 		break;
+	case PROP_AUTH_TIMEOUT:
+		priv->auth_timeout = g_value_get_uint (value);
+		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
 		break;
@@ -1339,6 +1359,9 @@ get_property (GObject *object, guint prop_id,
 		break;
 	case PROP_BGSCAN:
 		g_value_set_string (value, nm_setting_wireless_get_bgscan (setting));
+		break;
+	case PROP_AUTH_TIMEOUT:
+		g_value_set_uint (value, nm_setting_wireless_get_auth_timeout (setting));
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -1970,6 +1993,23 @@ nm_setting_wireless_class_init (NMSettingWirelessClass *setting_wireless_class)
 		                      NULL,
 		                      G_PARAM_READWRITE |
 		                      G_PARAM_STATIC_STRINGS));
+
+	/**
+	 * NMSettingWireless:auth_timeout:
+	 *
+	 * Will restart association if authentication does not complete
+	 * within the configured auth_timeout.
+	 *
+	 * Since: 1.8
+	 **/
+	g_object_class_install_property
+		(object_class, PROP_AUTH_TIMEOUT,
+		 g_param_spec_uint (NM_SETTING_WIRELESS_AUTH_TIMEOUT, "", "",
+		                    0, 60, 0,
+		                    G_PARAM_READWRITE |
+		                    G_PARAM_CONSTRUCT |
+		                    NM_SETTING_PARAM_FUZZY_IGNORE |
+		                    G_PARAM_STATIC_STRINGS));
 
 	/* Compatibility for deprecated property */
 	/* ---ifcfg-rh---
