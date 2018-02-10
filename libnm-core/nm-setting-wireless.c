@@ -73,6 +73,7 @@ typedef struct {
 	guint32 scan_roam_delta;
 	char *bgscan;
 	guint32 auth_timeout;
+	char *frequency_list;
 } NMSettingWirelessPrivate;
 
 enum {
@@ -104,6 +105,7 @@ enum {
 
 	PROP_BGSCAN,
 	PROP_AUTH_TIMEOUT,
+	PROP_FREQUENCY_LIST,
 
 	LAST_PROP
 };
@@ -816,6 +818,21 @@ nm_setting_wireless_get_auth_timeout (NMSettingWireless *setting)
 }
 
 /**
+ * nm_setting_wireless_get_frequency_list:
+ * @setting: the #NMSettingWireless
+ *
+ * Returns: the #NMSettingWireless:frequency  list of the
+ * setting
+ **/
+const char *
+nm_setting_wireless_get_frequency_list (NMSettingWireless *setting)
+{
+	g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), NULL);
+
+	return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->frequency_list;
+}
+
+/**
  * nm_setting_wireless_add_seen_bssid:
  * @setting: the #NMSettingWireless
  * @bssid: the new BSSID to add to the list
@@ -1274,6 +1291,10 @@ set_property (GObject *object, guint prop_id,
 	case PROP_AUTH_TIMEOUT:
 		priv->auth_timeout = g_value_get_uint (value);
 		break;
+	case PROP_FREQUENCY_LIST:
+		g_free (priv->frequency_list);
+		priv->frequency_list = g_value_dup_string (value);
+		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
 		break;
@@ -1362,6 +1383,9 @@ get_property (GObject *object, guint prop_id,
 		break;
 	case PROP_AUTH_TIMEOUT:
 		g_value_set_uint (value, nm_setting_wireless_get_auth_timeout (setting));
+		break;
+	case PROP_FREQUENCY_LIST:
+		g_value_set_string (value, nm_setting_wireless_get_frequency_list (setting));
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -2010,6 +2034,20 @@ nm_setting_wireless_class_init (NMSettingWirelessClass *setting_wireless_class)
 		                    G_PARAM_CONSTRUCT |
 		                    NM_SETTING_PARAM_FUZZY_IGNORE |
 		                    G_PARAM_STATIC_STRINGS));
+
+	/**
+	 * NMSettingWireless:frequency_list:
+	 *
+	 * The allowed frequencies for connecting.  A space separated list of frequencies.
+	 *
+	 * Since: 1.8
+	 **/
+	g_object_class_install_property
+		(object_class, PROP_FREQUENCY_LIST,
+		 g_param_spec_string (NM_SETTING_WIRELESS_FREQUENCY_LIST, "", "",
+		                      NULL,
+		                      G_PARAM_READWRITE |
+		                      G_PARAM_STATIC_STRINGS));
 
 	/* Compatibility for deprecated property */
 	/* ---ifcfg-rh---

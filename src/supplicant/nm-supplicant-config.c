@@ -517,6 +517,7 @@ nm_supplicant_config_add_setting_wireless (NMSupplicantConfig * self,
 	gboolean is_adhoc, is_ap;
 	const char *mode, *band;
 	guint32 channel;
+	const char *frequency_list;
 	GBytes *ssid;
 	const char *bssid;
 	const char *client_name;
@@ -589,6 +590,13 @@ nm_supplicant_config_add_setting_wireless (NMSupplicantConfig * self,
 
 	band = nm_setting_wireless_get_band (setting);
 	channel = nm_setting_wireless_get_channel (setting);
+	frequency_list = nm_setting_wireless_get_frequency_list (setting);
+	if (frequency_list) {
+		if (!nm_supplicant_config_add_option (self, "freq_list", frequency_list, -1, NULL, error))
+				return FALSE;
+		if (!nm_supplicant_config_add_option (self, "scan_freq", frequency_list, -1, NULL, error))
+				return FALSE;
+	} else
 	if (band) {
 		if (channel) {
 			guint32 freq;
