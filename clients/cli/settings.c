@@ -167,7 +167,7 @@ NmcOutputField nmc_fields_setting_8021X[] = {
 	SETTING_FIELD (NM_SETTING_802_1X_PIN_FLAGS),                          /* 42 */
 	SETTING_FIELD (NM_SETTING_802_1X_SYSTEM_CA_CERTS),                    /* 43 */
 	SETTING_FIELD (NM_SETTING_802_1X_AUTH_TIMEOUT),                       /* 44 */
-	SETTING_FIELD (NM_SETTING_802_1X_TLS_DISABLE_TIME_CHECKS),	          /* 36 */
+	SETTING_FIELD (NM_SETTING_802_1X_TLS_DISABLE_TIME_CHECKS),	          /* 45 */
 	{NULL, NULL, 0, NULL, FALSE, FALSE, 0}
 };
 #define NMC_FIELDS_SETTING_802_1X_ALL     "name"","\
@@ -9030,6 +9030,7 @@ setting_802_1X_details (NMSetting *setting,
 	set_val_str (arr, 42, nmc_property_802_1X_get_pin_flags (setting, type));
 	set_val_str (arr, 43, nmc_property_802_1X_get_system_ca_certs (setting, type));
 	set_val_str (arr, 44, nmc_property_802_1X_get_auth_timeout (setting, type));
+	set_val_str (arr, 45, nmc_property_802_1X_get_tls_disable_time_checks (setting, type));
 	g_ptr_array_add (nmc->output_data, arr);
 
 	print_data (nmc);  /* Print all data */
