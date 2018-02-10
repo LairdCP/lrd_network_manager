@@ -156,6 +156,7 @@ static const struct Opt opt_table[] = {
 	{ "laird_ccx_client_name", TYPE_BYTES,   0, 16, FALSE,  NULL },
 	{ "bgscan",             TYPE_BYTES,   0, 0, FALSE,  NULL },
 	{ "laird_auth_timeout", TYPE_INT,     0, 60, FALSE, NULL },
+	{ "pac_file_password",  TYPE_BYTES,   0, 1024, FALSE,  NULL },
 };
 
 

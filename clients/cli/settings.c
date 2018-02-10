@@ -168,6 +168,7 @@ NmcOutputField nmc_fields_setting_8021X[] = {
 	SETTING_FIELD (NM_SETTING_802_1X_SYSTEM_CA_CERTS),                    /* 43 */
 	SETTING_FIELD (NM_SETTING_802_1X_AUTH_TIMEOUT),                       /* 44 */
 	SETTING_FIELD (NM_SETTING_802_1X_TLS_DISABLE_TIME_CHECKS),	          /* 45 */
+	SETTING_FIELD (NM_SETTING_802_1X_PAC_FILE_PASSWORD),                  /* 46 */
 	{NULL, NULL, 0, NULL, FALSE, FALSE, 0}
 };
 #define NMC_FIELDS_SETTING_802_1X_ALL     "name"","\
@@ -215,7 +216,8 @@ NmcOutputField nmc_fields_setting_8021X[] = {
                                           NM_SETTING_802_1X_PIN_FLAGS","\
                                           NM_SETTING_802_1X_SYSTEM_CA_CERTS","\
                                           NM_SETTING_802_1X_AUTH_TIMEOUT","\
-                                          NM_SETTING_802_1X_TLS_DISABLE_TIME_CHECKS
+                                          NM_SETTING_802_1X_TLS_DISABLE_TIME_CHECKS","\
+                                          NM_SETTING_802_1X_PAC_FILE_PASSWORD
 
 /* Available fields for NM_SETTING_WIRELESS_SETTING_NAME */
 NmcOutputField nmc_fields_setting_wireless[] = {
@@ -1750,6 +1752,7 @@ DEFINE_SECRET_FLAGS_GETTER (nmc_property_802_1X_get_pin_flags, NM_SETTING_802_1X
 DEFINE_GETTER (nmc_property_802_1X_get_system_ca_certs, NM_SETTING_802_1X_SYSTEM_CA_CERTS)
 DEFINE_GETTER (nmc_property_802_1X_get_auth_timeout, NM_SETTING_802_1X_AUTH_TIMEOUT)
 DEFINE_GETTER (nmc_property_802_1X_get_tls_disable_time_checks, NM_SETTING_802_1X_TLS_DISABLE_TIME_CHECKS)
+DEFINE_GETTER (nmc_property_802_1X_get_pac_file_password, NM_SETTING_802_1X_PAC_FILE_PASSWORD)
 
 static char *
 nmc_property_802_1X_get_ca_cert (NMSetting *setting, NmcPropertyGetType get_type)
@@ -6651,6 +6654,14 @@ nmc_properties_init (void)
 	                    NULL,
 	                    NULL);
 
+	nmc_add_prop_funcs (GLUE (802_1X, PAC_FILE_PASSWORD),
+	                    nmc_property_802_1X_get_pac_file_password,
+	                    nmc_property_set_string,
+	                    NULL,
+	                    NULL,
+	                    NULL,
+	                    NULL);
+
 	/* Add editable properties for NM_SETTING_ADSL_SETTING_NAME */
 	nmc_add_prop_funcs (GLUE (ADSL, USERNAME),
 	                    nmc_property_adsl_get_username,
@@ -9042,6 +9053,7 @@ setting_802_1X_details (NMSetting *setting,
 	set_val_str (arr, 43, nmc_property_802_1X_get_system_ca_certs (setting, type));
 	set_val_str (arr, 44, nmc_property_802_1X_get_auth_timeout (setting, type));
 	set_val_str (arr, 45, nmc_property_802_1X_get_tls_disable_time_checks (setting, type));
+	set_val_str (arr, 46, GET_SECRET (secrets, setting, nmc_property_802_1X_get_pac_file_password, type));
 	g_ptr_array_add (nmc->output_data, arr);
 
 	print_data (nmc);  /* Print all data */

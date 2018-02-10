@@ -599,7 +599,7 @@ is_adhoc_wpa (NMConnection *connection)
 }
 
 static gboolean
-warn_wireless_requires_laird_support(NMDeviceWifi *self, NMSettingWireless *s_wireless)
+warn_wireless_requires_laird_support(NMDeviceWifi *self, NMSettingWireless *s_wireless, NMSetting8021x *s_8021x)
 {
 	gboolean rv = FALSE;
 	// note, logging macros require self
@@ -633,6 +633,10 @@ warn_wireless_requires_laird_support(NMDeviceWifi *self, NMSettingWireless *s_wi
 	}
 	if (nm_setting_wireless_get_auth_timeout (s_wireless) != 0) {
 		_LOGW (LOGD_WIFI, "Supplicant does not support auth-timeout.");
+		rv = TRUE;
+	}
+	if (nm_setting_802_1x_get_pac_file_password (s_8021x) != 0) {
+		_LOGW (LOGD_WIFI, "Supplicant does not support pac-file-password.");
 		rv = TRUE;
 	}
 	return rv;
@@ -2408,8 +2412,10 @@ build_supplicant_config (NMDeviceWifi *self,
 		if (priv->sup_iface)
 			laird_support = nm_supplicant_interface_get_laird_support (priv->sup_iface);
 		if (laird_support != NM_SUPPLICANT_FEATURE_YES) {
+			NMSetting8021x *s_8021x;
+			s_8021x = nm_connection_get_setting_802_1x (connection);
 			// warnings if Laird features are configured
-			if (warn_wireless_requires_laird_support (self, s_wireless)) {
+			if (warn_wireless_requires_laird_support (self, s_wireless, s_8021x)) {
 				_LOGW (LOGD_WIFI, "Laird features will be excluded from config.");
 			}
 		}

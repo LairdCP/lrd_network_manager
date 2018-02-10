@@ -117,6 +117,7 @@ typedef struct {
 	gboolean system_ca_certs;
 	gint auth_timeout;
 	char *tls_disable_time_checks;
+	char *pac_file_password;
 } NMSetting8021xPrivate;
 
 enum {
@@ -166,6 +167,7 @@ enum {
 	PROP_SYSTEM_CA_CERTS,
 	PROP_AUTH_TIMEOUT,
 	PROP_TLS_DISABLE_TIME_CHECKS,
+	PROP_PAC_FILE_PASSWORD,
 
 	LAST_PROP
 };
@@ -2447,6 +2449,20 @@ nm_setting_802_1x_get_tls_disable_time_checks (NMSetting8021x *setting)
 	return NM_SETTING_802_1X_GET_PRIVATE (setting)->tls_disable_time_checks;
 }
 
+/**
+ * nm_setting_802_1x_get_pac_file_password:
+ * @setting: the #NMSetting8021x
+ *
+ * Returns: the value to be used to decrypt a manually provisioned pac file.
+ **/
+const char *
+nm_setting_802_1x_get_pac_file_password (NMSetting8021x *setting)
+{
+	g_return_val_if_fail (NM_IS_SETTING_802_1X (setting), NULL);
+
+	return NM_SETTING_802_1X_GET_PRIVATE (setting)->pac_file_password;
+}
+
 static void
 free_secure_bytes (gpointer data)
 {
@@ -3886,6 +3902,10 @@ set_property (GObject *object, guint prop_id,
 		g_free (priv->tls_disable_time_checks);
 		priv->tls_disable_time_checks = g_value_dup_string (value);
 		break;
+	case PROP_PAC_FILE_PASSWORD:
+		g_free (priv->pac_file_password);
+		priv->pac_file_password = g_value_dup_string (value);
+		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
 		break;
@@ -4034,6 +4054,9 @@ get_property (GObject *object, guint prop_id,
 		break;
 	case PROP_TLS_DISABLE_TIME_CHECKS:
 		g_value_set_string (value, priv->tls_disable_time_checks);
+		break;
+	case PROP_PAC_FILE_PASSWORD:
+		g_value_set_string (value, priv->pac_file_password);
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -5107,6 +5130,24 @@ nm_setting_802_1x_class_init (NMSetting8021xClass *setting_class)
 	g_object_class_install_property
 		(object_class, PROP_TLS_DISABLE_TIME_CHECKS,
 		 g_param_spec_string (NM_SETTING_802_1X_TLS_DISABLE_TIME_CHECKS, "", "",
+		                      NULL,
+		                      G_PARAM_READWRITE |
+		                      G_PARAM_STATIC_STRINGS));
+
+	/**
+	 * NMSetting8021x:pac-file-password:
+	 *
+	 * The password used to decrypt a manually provisioned PAC file.
+	 **/
+	/* ---ifcfg-rh---
+	 * property: pac-file-password
+	 * variable: ?? IEEE_8021X_INNER_PRIVATE_KEY_PASSWORD(+)
+	 * description: Password for decrypting a manually provisioned PAC file.
+	 * ---end---
+	 */
+	g_object_class_install_property
+		(object_class, PROP_PAC_FILE_PASSWORD,
+		 g_param_spec_string (NM_SETTING_802_1X_PAC_FILE_PASSWORD, "", "",
 		                      NULL,
 		                      G_PARAM_READWRITE |
 		                      G_PARAM_STATIC_STRINGS));

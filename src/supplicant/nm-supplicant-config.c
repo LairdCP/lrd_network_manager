@@ -1187,6 +1187,14 @@ nm_supplicant_config_add_setting_8021x (NMSupplicantConfig *self,
 	if (path) {
 		if (!add_string_val (self, path, "pac_file", FALSE, NULL, error))
 			return FALSE;
+
+		if (priv->laird_support == NM_SUPPLICANT_FEATURE_YES) {
+			/* PAC file password for manually provisioned PAC files */
+			const char *pwd = nm_setting_802_1x_get_pac_file_password (setting);
+			if (pwd && !add_string_val (self, pwd, "pac_file_password", FALSE, "<hidden>", error))
+				return FALSE;
+		}
+
 	} else {
 		/* PAC file is not specified.
 		 * If provisioning is allowed, use an blob format.
