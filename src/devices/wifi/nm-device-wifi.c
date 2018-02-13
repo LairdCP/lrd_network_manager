@@ -1399,6 +1399,11 @@ hidden_filter_func (NMSettings *settings,
 	if (!nm_connection_is_type (NM_CONNECTION (connection), NM_SETTING_WIRELESS_SETTING_NAME))
 		return FALSE;
 	s_wifi = (NMSettingWireless *) nm_connection_get_setting_wireless (NM_CONNECTION (connection));
+	if (s_wifi) {
+		int *pdata = (int *)user_data;
+		if (!nm_setting_wireless_get_hidden (s_wifi))
+			*pdata = 1;
+	}
 	return s_wifi ? nm_setting_wireless_get_hidden (s_wifi) : FALSE;
 }
 
@@ -1411,6 +1416,7 @@ build_hidden_probe_list (NMDeviceWifi *self)
 	guint i, len;
 	GPtrArray *ssids = NULL;
 	static GByteArray *nullssid = NULL;
+	int have_non_hidden = 0;
 
 	/* Need at least two: wildcard SSID and one or more hidden SSIDs */
 	if (max_scan_ssids < 2)
@@ -1419,7 +1425,7 @@ build_hidden_probe_list (NMDeviceWifi *self)
 	connections = nm_settings_get_connections_clone (nm_device_get_settings ((NMDevice *) self),
 	                                                 &len,
 	                                                 hidden_filter_func,
-	                                                 NULL);
+	                                                 (gpointer)(&have_non_hidden));
 	if (!connections[0])
 		return NULL;
 
@@ -1430,7 +1436,10 @@ build_hidden_probe_list (NMDeviceWifi *self)
 	/* Add wildcard SSID using a static wildcard SSID used for every scan */
 	if (G_UNLIKELY (nullssid == NULL))
 		nullssid = g_byte_array_new ();
-	g_ptr_array_add (ssids, g_byte_array_ref (nullssid));
+
+	/* Laird: only add wildcard SSID if non-hidden connections exist */
+	if (have_non_hidden)
+		g_ptr_array_add (ssids, g_byte_array_ref (nullssid));
 
 	for (i = 0; connections[i]; i++) {
 		NMSettingWireless *s_wifi;
