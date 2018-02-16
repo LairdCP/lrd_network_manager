@@ -53,6 +53,7 @@ typedef struct {
 	guint32    scan_passive_dwell;
 	guint32    scan_suspend_time;
 	guint32    scan_roam_delta;
+	guint32    frequency_dfs;
 
 	NMSupplicantFeature laird_support;
 	gboolean   bgscan_is_set; /* used to prevent setting twice */
@@ -338,6 +339,14 @@ nm_supplicant_config_get_scan_roam_delta (NMSupplicantConfig * self)
 	return NM_SUPPLICANT_CONFIG_GET_PRIVATE (self)->scan_roam_delta;
 }
 
+guint32
+nm_supplicant_config_get_frequency_dfs (NMSupplicantConfig * self)
+{
+	g_return_val_if_fail (NM_IS_SUPPLICANT_CONFIG (self), 0);
+
+	return NM_SUPPLICANT_CONFIG_GET_PRIVATE (self)->frequency_dfs;
+}
+
 /* set laird_support before building config to allow exclusion of laird features */
 gboolean
 nm_supplicant_config_set_laird_support (NMSupplicantConfig * self,
@@ -543,6 +552,7 @@ nm_supplicant_config_add_setting_wireless (NMSupplicantConfig * self,
 		priv->scan_passive_dwell = nm_setting_wireless_get_scan_passive_dwell (setting);
 		priv->scan_suspend_time = nm_setting_wireless_get_scan_suspend_time (setting);
 		priv->scan_roam_delta = nm_setting_wireless_get_scan_roam_delta (setting);
+		priv->frequency_dfs = nm_setting_wireless_get_frequency_dfs (setting);
 	}
 
 	ssid = nm_setting_wireless_get_ssid (setting);

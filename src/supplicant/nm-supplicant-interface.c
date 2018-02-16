@@ -1512,6 +1512,20 @@ set_scan_roam_delta_cb (GDBusProxy *proxy, GAsyncResult *result, gpointer user_d
 }
 
 static void
+set_frequency_dfs_cb (GDBusProxy *proxy, GAsyncResult *result, gpointer user_data)
+{
+	NMSupplicantInterface *self;
+	NMSupplicantInterfacePrivate *priv;
+	self = NM_SUPPLICANT_INTERFACE (user_data);
+	priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
+	set_laird_guint32_cb(
+		proxy, result, user_data,
+		"frequency dfs",
+		nm_supplicant_config_get_frequency_dfs (priv->assoc_data->cfg),
+		"failure to set frequency dfs");
+}
+
+static void
 laird_proxy_guint32(NMSupplicantInterface *self,
 					const char *key,
 					guint32 value,
@@ -1640,6 +1654,11 @@ nm_supplicant_interface_assoc (NMSupplicantInterface *self,
 		if (value) {
 			laird_proxy_guint32(self, "LairdRoamDelta", value,
 								(GAsyncReadyCallback) set_scan_roam_delta_cb);
+		}
+		value = nm_supplicant_config_get_frequency_dfs (priv->assoc_data->cfg);
+		if (!value) {
+			laird_proxy_guint32(self, "DisableDfs", value ? 0 : 1,
+								(GAsyncReadyCallback) set_frequency_dfs_cb);
 		}
 	}
 }

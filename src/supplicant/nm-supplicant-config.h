@@ -50,6 +50,7 @@ guint32 nm_supplicant_config_get_scan_dwell (NMSupplicantConfig *self);
 guint32 nm_supplicant_config_get_scan_passive_dwell (NMSupplicantConfig *self);
 guint32 nm_supplicant_config_get_scan_suspend_time (NMSupplicantConfig *self);
 guint32 nm_supplicant_config_get_scan_roam_delta (NMSupplicantConfig *self);
+guint32 nm_supplicant_config_get_frequency_dfs (NMSupplicantConfig *self);
 gboolean nm_supplicant_config_set_laird_support (NMSupplicantConfig *self,
 												 NMSupplicantFeature laird_support);
 

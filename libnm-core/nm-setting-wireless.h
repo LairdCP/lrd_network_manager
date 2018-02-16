@@ -69,6 +69,8 @@ G_BEGIN_DECLS
 #define NM_SETTING_WIRELESS_BGSCAN      "bgscan"
 #define NM_SETTING_WIRELESS_AUTH_TIMEOUT "auth-timeout"
 #define NM_SETTING_WIRELESS_FREQUENCY_LIST "frequency-list"
+#define NM_SETTING_WIRELESS_FREQUENCY_DFS "frequency-dfs"
+#define NM_SETTING_WIRELESS_FREQUENCY_DFS_DEFAULT 1
 
 /**
  * NM_SETTING_WIRELESS_MODE_ADHOC:
@@ -192,6 +194,7 @@ guint32           nm_setting_wireless_get_scan_roam_delta    (NMSettingWireless 
 const char       *nm_setting_wireless_get_bgscan             (NMSettingWireless *setting);
 guint32           nm_setting_wireless_get_auth_timeout       (NMSettingWireless *setting);
 const char       *nm_setting_wireless_get_frequency_list     (NMSettingWireless *setting);
+guint32           nm_setting_wireless_get_frequency_dfs      (NMSettingWireless *setting);
 
 gboolean          nm_setting_wireless_add_seen_bssid         (NMSettingWireless *setting,
                                                               const char *bssid);

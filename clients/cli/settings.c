@@ -248,6 +248,7 @@ NmcOutputField nmc_fields_setting_wireless[] = {
 	SETTING_FIELD (NM_SETTING_WIRELESS_BGSCAN),                    /* 24 */
 	SETTING_FIELD (NM_SETTING_WIRELESS_AUTH_TIMEOUT),              /* 25 */
 	SETTING_FIELD (NM_SETTING_WIRELESS_FREQUENCY_LIST),            /* 26 */
+	SETTING_FIELD (NM_SETTING_WIRELESS_FREQUENCY_DFS),             /* 27 */
 	{NULL, NULL, 0, NULL, FALSE, FALSE, 0}
 };
 #define NMC_FIELDS_SETTING_WIRELESS_ALL     "name"","\
@@ -276,7 +277,8 @@ NmcOutputField nmc_fields_setting_wireless[] = {
                                             NM_SETTING_WIRELESS_SCAN_ROAM_DELTA"," \
                                             NM_SETTING_WIRELESS_BGSCAN"," \
                                             NM_SETTING_WIRELESS_AUTH_TIMEOUT"," \
-                                            NM_SETTING_WIRELESS_FREQUENCY_LIST
+                                            NM_SETTING_WIRELESS_FREQUENCY_LIST"," \
+                                            NM_SETTING_WIRELESS_FREQUENCY_DFS
 
 /* Available fields for NM_SETTING_WIRELESS_SECURITY_SETTING_NAME */
 NmcOutputField nmc_fields_setting_wireless_security[] = {
@@ -5384,6 +5386,21 @@ nmc_property_wireless_get_ccx (NMSetting *setting, NmcPropertyGetType get_type)
 }
 
 static char *
+nmc_property_wireless_get_frequency_dfs (NMSetting *setting, NmcPropertyGetType get_type)
+{
+	NMSettingWireless *s_wireless = NM_SETTING_WIRELESS (setting);
+	guint32 dfs;
+
+	dfs = nm_setting_wireless_get_frequency_dfs (s_wireless);
+	if (dfs == 0)
+		return g_strdup_printf (_("disable"));
+	else if (dfs == 1)
+		return g_strdup_printf (_("enable"));
+	else
+		return g_strdup_printf (_("unknown"));
+}
+
+static char *
 nmc_property_wireless_get_mac_address_randomization (NMSetting *setting, NmcPropertyGetType get_type)
 {
 	NMSettingWireless *s_wifi = NM_SETTING_WIRELESS (setting);
@@ -5591,6 +5608,26 @@ nmc_property_wireless_set_ccx (NMSetting *setting, const char *prop, const char 
 	g_object_set (setting, prop, (guint) ccx, NULL);
 	return TRUE;
 }
+
+/* 'frequency-dfs' */
+/* generic disable(0)/enable(1) */
+static gboolean
+nmc_property_set_disable_enable (NMSetting *setting, const char *prop, const char *val, GError **error)
+{
+	const char *setval;
+
+	if (strcmp (val, "disable") == 0)
+		setval = "0";
+	else if (strcmp (val, "enable") == 0)
+		setval = "1";
+	else {
+		g_set_error (error, 1, 0, _("invalid option '%s', use one of [%s]"),
+					 val, "disable,enable");
+		return FALSE;
+	}
+	return nmc_property_set_uint (setting, prop, setval, error);
+}
+
 
 static gboolean
 nmc_property_wireless_set_mac_address_randomization (NMSetting *setting,
@@ -8173,6 +8210,14 @@ nmc_properties_init (void)
 	                    NULL,
 	                    NULL);
 
+	nmc_add_prop_funcs (GLUE (WIRELESS, FREQUENCY_DFS),
+	                    nmc_property_wireless_get_frequency_dfs,
+	                    nmc_property_set_disable_enable,
+	                    NULL,
+	                    NULL,
+	                    NULL,
+	                    NULL);
+
 	/* Add editable properties for NM_SETTING_WIRELESS_SECURITY_SETTING_NAME */
 	nmc_add_prop_funcs (GLUE (WIRELESS_SECURITY, KEY_MGMT),
 	                    nmc_property_wifi_sec_get_key_mgmt,
@@ -9166,6 +9211,7 @@ setting_wireless_details (NMSetting *setting,
 	set_val_str (arr, 24, nmc_property_wireless_get_bgscan (setting, type));
 	set_val_str (arr, 25, nmc_property_wireless_get_auth_timeout (setting, type));
 	set_val_str (arr, 26, nmc_property_wireless_get_frequency_list (setting, type));
+	set_val_str (arr, 27, nmc_property_wireless_get_frequency_dfs (setting, type));
 	g_ptr_array_add (nmc->output_data, arr);
 
 	print_data (nmc);  /* Print all data */
