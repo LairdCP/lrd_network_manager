@@ -6,7 +6,7 @@ m4_define([LRD_BUILD_NUMBER], [3.5.5.66])
 dnl The NM version number
 m4_define([nm_major_version], [1])
 m4_define([nm_minor_version], [8])
-m4_define([nm_micro_version], [0])
+m4_define([nm_micro_version], [6])
 m4_define([nm_version],
           [LRD_BUILD_NUMBER-nm_major_version.nm_minor_version.nm_micro_version])
 

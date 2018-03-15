@@ -63,6 +63,7 @@
 #define NM_CONFIG_KEYFILE_KEY_MAIN_DHCP                     "dhcp"
 #define NM_CONFIG_KEYFILE_KEY_MAIN_DEBUG                    "debug"
 #define NM_CONFIG_KEYFILE_KEY_MAIN_HOSTNAME_MODE            "hostname-mode"
+#define NM_CONFIG_KEYFILE_KEY_MAIN_SLAVES_ORDER             "slaves-order"
 #define NM_CONFIG_KEYFILE_KEY_LOGGING_BACKEND               "backend"
 #define NM_CONFIG_KEYFILE_KEY_CONFIG_ENABLE                 "enable"
 #define NM_CONFIG_KEYFILE_KEY_ATOMIC_SECTION_WAS            ".was"
@@ -204,13 +205,18 @@ struct _NMConfigDeviceStateData {
 	const char *connection_uuid;
 
 	const char *perm_hw_addr_fake;
+
+	/* whether the device was nm-owned (0/1) or -1 for
+	 * non-software devices. */
+	gint nm_owned;
 };
 
 NMConfigDeviceStateData *nm_config_device_state_load (int ifindex);
 gboolean nm_config_device_state_write (int ifindex,
                                        NMConfigDeviceStateManagedType managed,
                                        const char *perm_hw_addr_fake,
-                                       const char *connection_uuid);
+                                       const char *connection_uuid,
+                                       gint nm_owned);
 void nm_config_device_state_prune_unseen (GHashTable *seen_ifindexes);
 
 /*****************************************************************************/

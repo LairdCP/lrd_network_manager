@@ -1,3 +1,66 @@
+==============================================
+NetworkManager-1.8.6
+Overview of changes since NetworkManager-1.8.4
+==============================================
+
+This is a new stable release of NetworkManager.  Notable changes include:
+
+* Fix a daemon crash on permission check (bgo#787897)
+* Fix a daemon crash on VPN state change (bgo#787893)
+* Fix a nmcli crash in interactive mode's describe command (bgo#788104)
+* Fix termination of the nmcli interactive mode (rh#1517401)
+* Properly handle route metric of zero in keyfiles
+* Add support for DSA switch devices (rh#1371289)
+* Fix a memory leak of connection D-Bus objects (rh#1461643)
+* A double close that could potentially race with the D-Bus thread
+  reusing the same file descriptor (rh#1451236)
+* Connectivity check fixes (bgo#785281) (bgo#784629)
+* Fix the metered properties handling in libnm
+* Avoid dropping agent secrets unnecessarily (bgo#789383)
+* Fix the asynchronous initialization of a secret agent in libnm
+
+==============================================
+NetworkManager-1.8.4
+Overview of changes since NetworkManager-1.8.2
+==============================================
+
+This is a new stable release of NetworkManager.  Notable changes include:
+
+* No longer install NetworkManager-wait-online.service in
+  network-online.target.wants directory (rh#1455704).
+* Fix nmcli device connect wifi for APs that support both
+  WPA-PSK and WPA-EAP (rh#1492064).
+* Fix crash unregistering object manager in libnm on restart
+  of NetworkManager.
+* Improve handling externally managed slaves devices.
+* Don't reset MAC address of software devices to fake permanent
+  address.
+* For dhclient use "timeout" option in configuration file, instead
+  of the command line option which is only supported by downstream.
+* Perform the public-suffix check only for the hostname-derived
+  domain.
+* Fix memory leak in connectivity check.
+* Better restore device managed state on rollback of checkpoint.
+* Skip addition of default-route if it already exists.
+* Bug fix detecting error condition when deleting route in platform.
+
+==============================================
+NetworkManager-1.8.2
+Overview of changes since NetworkManager-1.8.0
+==============================================
+
+This is a new stable release of NetworkManager.  Notable changes include:
+
+* Fix bug blocking startup wrongly waiting for carrier.
+* Fix handling of non UTF-8 strings in libnm and fix non NUL
+  terminated string.
+* Handle DNS priority for systemd-resolved DNS plugin.
+* Fix assuming master devices as they wait for slaves to activate.
+* Fix reading managed state from device state file.
+* Fix crash activating bluetooth or WWAN connection.
+* No longer add a direct route to the DHCP server.
+* Several bug fixes and improvements.
+
 ============================================
 NetworkManager-1.8
 Overview of changes since NetworkManager-1.6

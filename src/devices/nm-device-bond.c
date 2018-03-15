@@ -137,17 +137,22 @@ set_bond_attr (NMDevice *device, NMBondMode mode, const char *attr, const char *
 	return ret;
 }
 
-/* Ignore certain bond options if they are zero (off/disabled) */
 static gboolean
-ignore_if_zero (const char *option, const char *value)
+ignore_option (NMSettingBond *s_bond, const char *option, const char *value)
 {
-	if (!NM_IN_STRSET (option, NM_SETTING_BOND_OPTION_ARP_INTERVAL,
-	                           NM_SETTING_BOND_OPTION_DOWNDELAY,
-	                           NM_SETTING_BOND_OPTION_MIIMON,
-	                           NM_SETTING_BOND_OPTION_UPDELAY))
-		return FALSE;
+	const char *defvalue;
 
-	return g_strcmp0 (value, "0") == 0 ? TRUE : FALSE;
+	if (nm_streq0 (option, NM_SETTING_BOND_OPTION_MIIMON)) {
+		/* The default value for miimon, when missing in the setting, is
+		 * 0 if arp_interval is != 0, and 100 otherwise. So, let's ignore
+		 * miimon=0 (which means that miimon is disabled) and accept any
+		 * other value. Adding miimon=100 does not cause any harm.
+		 */
+		defvalue = "0";
+	} else
+		defvalue = nm_setting_bond_get_option_default (s_bond, option);
+
+	return nm_streq0 (value, defvalue);
 }
 
 static void
@@ -155,6 +160,7 @@ update_connection (NMDevice *device, NMConnection *connection)
 {
 	NMSettingBond *s_bond = nm_connection_get_setting_bond (connection);
 	int ifindex = nm_device_get_ifindex (device);
+	NMBondMode mode = NM_BOND_MODE_UNKNOWN;
 	const char **options;
 
 	if (!s_bond) {
@@ -164,9 +170,8 @@ update_connection (NMDevice *device, NMConnection *connection)
 
 	/* Read bond options from sysfs and update the Bond setting to match */
 	options = nm_setting_bond_get_valid_options (s_bond);
-	while (options && *options) {
+	for (; *options; options++) {
 		gs_free char *value = nm_platform_sysctl_master_get_option (nm_device_get_platform (device), ifindex, *options);
-		const char *defvalue = nm_setting_bond_get_option_default (s_bond, *options);
 		char *p;
 
 		if (   value
@@ -176,10 +181,15 @@ update_connection (NMDevice *device, NMConnection *connection)
 				*p = '\0';
 		}
 
+		if (value && nm_streq (*options, NM_SETTING_BOND_OPTION_MODE))
+			mode = _nm_setting_bond_mode_from_string (value);
+
+		if (!_nm_setting_bond_option_supported (*options, mode))
+			continue;
+
 		if (   value
 		    && value[0]
-		    && !ignore_if_zero (*options, value)
-		    && !nm_streq0 (value, defvalue)) {
+		    && !ignore_option (s_bond, *options, value)) {
 			/* Replace " " with "," for arp_ip_targets from the kernel */
 			if (strcmp (*options, NM_SETTING_BOND_OPTION_ARP_IP_TARGET) == 0) {
 				for (p = value; *p; p++) {
@@ -190,7 +200,6 @@ update_connection (NMDevice *device, NMConnection *connection)
 
 			nm_setting_bond_add_option (s_bond, *options, value);
 		}
-		options++;
 	}
 }
 

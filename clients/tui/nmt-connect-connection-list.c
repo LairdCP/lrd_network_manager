@@ -639,11 +639,13 @@ nmt_connect_connection_list_get_connection (NmtConnectConnectionList  *list,
 			if (conn) {
 				if (conn == nmtconn->conn)
 					goto found;
-			} else if (nmtconn->ssid && !strcmp (identifier, nmtconn->ssid))
+			} else if (nm_streq0 (identifier, nmtconn->ssid))
 				goto found;
 		}
 
-		if (!conn && nmtdev->device && !strcmp (identifier, nm_device_get_ip_iface (nmtdev->device))) {
+		if (   !conn
+		    && nmtdev->device
+		    && nm_streq0 (identifier, nm_device_get_ip_iface (nmtdev->device))) {
 			nmtconn = nmtdev->conns->data;
 			goto found;
 		}
@@ -651,7 +653,7 @@ nmt_connect_connection_list_get_connection (NmtConnectConnectionList  *list,
 
 	return FALSE;
 
- found:
+found:
 	if (connection)
 		*connection = nmtconn->conn;
 	if (device)

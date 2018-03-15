@@ -67,8 +67,9 @@ nm_udev_utils_property_decode (const char *uproperty, char **to_free)
 		if (   p[0] == '\\'
 		    && p[1] == 'x'
 		    && (a = g_ascii_xdigit_value (p[2])) >= 0
-		    && (b = g_ascii_xdigit_value (p[3])) >= 0) {
-			if (!unescaped) {
+		    && (b = g_ascii_xdigit_value (p[3])) >= 0
+		    && (a || b)) {
+			if (!n) {
 				gssize l = p - uproperty;
 
 				unescaped = g_malloc (l + strlen (p) + 1 - 3);
@@ -84,11 +85,12 @@ nm_udev_utils_property_decode (const char *uproperty, char **to_free)
 		}
 	}
 
-	if (!unescaped) {
+	if (!n) {
 		*to_free = NULL;
 		return uproperty;
 	}
 
+	*n++ = '\0';
 	return (*to_free = unescaped);
 }
 
@@ -144,7 +146,7 @@ nm_udev_utils_enumerate (struct udev *uclient,
 		for (n = 0; subsystems[n]; n++) {
 			const char *subsystem;
 			const char *devtype;
-			gs_free char *to_free;
+			gs_free char *to_free = NULL;
 
 			_subsystem_split (subsystems[n], &subsystem, &devtype, &to_free);
 
@@ -240,7 +242,7 @@ nm_udev_client_new (const char *const*subsystems,
 			/* install subsystem filters to only wake up for certain events */
 			for (n = 0; self->subsystems[n]; n++) {
 				if (self->monitor) {
-					gs_free char *to_free;
+					gs_free char *to_free = NULL;
 					const char *subsystem;
 					const char *devtype;
 

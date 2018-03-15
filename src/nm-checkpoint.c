@@ -46,7 +46,7 @@ typedef struct {
 	guint64 ac_version_id;
 	NMDeviceState state;
 	bool realized:1;
-	bool unmanaged_explicit:1;
+	NMUnmanFlagOp unmanaged_explicit;
 } DeviceCheckpoint;
 
 NM_GOBJECT_PROPERTIES_DEFINE_BASE (
@@ -224,9 +224,19 @@ nm_checkpoint_rollback (NMCheckpoint *self)
 		}
 
 activate:
+		/* Manage the device again if needed */
+		if (   nm_device_get_unmanaged_flags (device, NM_UNMANAGED_USER_EXPLICIT)
+		    && dev_checkpoint->unmanaged_explicit != NM_UNMAN_FLAG_OP_SET_UNMANAGED) {
+			_LOGD ("rollback: restore unmanaged user-explicit");
+			nm_device_set_unmanaged_by_flags_queue (device,
+			                                        NM_UNMANAGED_USER_EXPLICIT,
+			                                        dev_checkpoint->unmanaged_explicit,
+			                                        NM_DEVICE_STATE_REASON_NOW_MANAGED);
+		}
+
 		if (dev_checkpoint->state == NM_DEVICE_STATE_UNMANAGED) {
 			if (   nm_device_get_state (device) != NM_DEVICE_STATE_UNMANAGED
-			    || dev_checkpoint->unmanaged_explicit) {
+			    || dev_checkpoint->unmanaged_explicit == NM_UNMAN_FLAG_OP_SET_UNMANAGED) {
 				_LOGD ("rollback: explicitly unmanage device");
 				nm_device_set_unmanaged_by_flags_queue (device,
 				                                        NM_UNMANAGED_USER_EXPLICIT,
@@ -275,6 +285,17 @@ activate:
 				_LOGD ("rollback: reactivating connection %s",
 				       nm_settings_connection_get_uuid (connection));
 				subject = nm_auth_subject_new_internal ();
+
+				/* Disconnect the device if needed. This necessary because now
+				 * the manager prevents the reactivation of the same connection by
+				 * an internal subject. */
+				if (   nm_device_get_state (device) > NM_DEVICE_STATE_DISCONNECTED
+				    && nm_device_get_state (device) < NM_DEVICE_STATE_DEACTIVATING) {
+					nm_device_state_changed (device,
+					                         NM_DEVICE_STATE_DEACTIVATING,
+					                         NM_DEVICE_STATE_REASON_NEW_ACTIVATION);
+				}
+
 				if (!nm_manager_activate_connection (priv->manager,
 				                                     connection,
 				                                     dev_checkpoint->applied_connection,
@@ -359,19 +380,21 @@ device_checkpoint_create (NMDevice *device,
 	NMConnection *applied_connection;
 	NMSettingsConnection *settings_connection;
 	const char *path;
-	gboolean unmanaged_explicit;
 	NMActRequest *act_request;
 
 	path = nm_exported_object_get_path (NM_EXPORTED_OBJECT (device));
-	unmanaged_explicit = !!nm_device_get_unmanaged_flags (device,
-	                                                      NM_UNMANAGED_USER_EXPLICIT);
 
 	dev_checkpoint = g_slice_new0 (DeviceCheckpoint);
 	dev_checkpoint->device = g_object_ref (device);
 	dev_checkpoint->original_dev_path = g_strdup (path);
 	dev_checkpoint->state = nm_device_get_state (device);
 	dev_checkpoint->realized = nm_device_is_real (device);
-	dev_checkpoint->unmanaged_explicit = unmanaged_explicit;
+
+	if (nm_device_get_unmanaged_mask (device, NM_UNMANAGED_USER_EXPLICIT)) {
+		dev_checkpoint->unmanaged_explicit =
+			!!nm_device_get_unmanaged_flags (device, NM_UNMANAGED_USER_EXPLICIT);
+	} else
+		dev_checkpoint->unmanaged_explicit = NM_UNMAN_FLAG_OP_FORGET;
 
 	applied_connection = nm_device_get_applied_connection (device);
 	if (applied_connection) {

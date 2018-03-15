@@ -40,6 +40,7 @@ test_config (const char *orig,
              const char *expected,
              gboolean ipv6,
              const char *hostname,
+             guint32 timeout,
              gboolean use_fqdn,
              const char *dhcp_client_id,
              GBytes *expected_new_client_id,
@@ -60,23 +61,23 @@ test_config (const char *orig,
 	                                      client_id,
 	                                      anycast_addr,
 	                                      hostname,
+	                                      timeout,
 	                                      use_fqdn,
 	                                      "/path/to/dhclient.conf",
 	                                      orig,
 	                                      &new_client_id);
 	g_assert (new != NULL);
 
-#if DEBUG
-	if (   strlen (new) != strlen (expected)
-	    || strcmp (new, expected)) {
-		g_message ("\n- NEW ---------------------------------\n"
+	if (!nm_streq (new, expected)) {
+		g_message ("\n* OLD ---------------------------------\n"
 		           "%s"
-		           "+ EXPECTED ++++++++++++++++++++++++++++++\n"
+		           "\n- NEW -----------------------------------\n"
 		           "%s"
-		           "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n",
-		           new, expected);
+		           "\n+ EXPECTED ++++++++++++++++++++++++++++++\n"
+		           "%s"
+		           "\n^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n",
+		           orig, new, expected);
 	}
-#endif
 	g_assert_cmpstr (new, ==, expected);
 
 	if (expected_new_client_id) {
@@ -105,7 +106,7 @@ static const char *orig_missing_expected = \
 static void
 test_orig_missing (void)
 {
-	test_config (NULL, orig_missing_expected, FALSE, NULL, FALSE, NULL, NULL, "eth0", NULL);
+	test_config (NULL, orig_missing_expected, FALSE, NULL, 0, FALSE, NULL, NULL, "eth0", NULL);
 }
 
 /*****************************************************************************/
@@ -134,7 +135,7 @@ static void
 test_override_client_id (void)
 {
 	test_config (override_client_id_orig, override_client_id_expected,
-	             FALSE, NULL, FALSE,
+	             FALSE, NULL, 0, FALSE,
 	             "11:22:33:44:55:66",
 	             NULL,
 	             "eth0",
@@ -163,7 +164,7 @@ static void
 test_quote_client_id (void)
 {
 	test_config (NULL, quote_client_id_expected,
-	             FALSE, NULL, FALSE,
+	             FALSE, NULL, 0, FALSE,
 	             "1234",
 	             NULL,
 	             "eth0",
@@ -192,7 +193,7 @@ static void
 test_ascii_client_id (void)
 {
 	test_config (NULL, ascii_client_id_expected,
-	             FALSE, NULL, FALSE,
+	             FALSE, NULL, 0, FALSE,
 	             "qb:cd:ef:12:34:56",
 	             NULL,
 	             "eth0",
@@ -221,7 +222,7 @@ static void
 test_hex_single_client_id (void)
 {
 	test_config (NULL, hex_single_client_id_expected,
-	             FALSE, NULL, FALSE,
+	             FALSE, NULL, 0, FALSE,
 	             "ab:cd:e:12:34:56",
 	             NULL,
 	             "eth0",
@@ -258,7 +259,7 @@ test_existing_hex_client_id (void)
 
 	new_client_id = g_bytes_new (bytes, sizeof (bytes));
 	test_config (existing_hex_client_id_orig, existing_hex_client_id_expected,
-	             FALSE, NULL, FALSE,
+	             FALSE, NULL, 0, FALSE,
 	             NULL,
 	             new_client_id,
 	             "eth0",
@@ -298,7 +299,7 @@ test_existing_ascii_client_id (void)
 	memcpy (buf + 1, EACID, NM_STRLEN (EACID));
 	new_client_id = g_bytes_new (buf, sizeof (buf));
 	test_config (existing_ascii_client_id_orig, existing_ascii_client_id_expected,
-	             FALSE, NULL, FALSE,
+	             FALSE, NULL, 0, FALSE,
 	             NULL,
 	             new_client_id,
 	             "eth0",
@@ -327,7 +328,7 @@ static void
 test_fqdn (void)
 {
 	test_config (NULL, fqdn_expected,
-	             FALSE, "foo.bar.com",
+	             FALSE, "foo.bar.com", 0,
 	             TRUE, NULL,
 	             NULL,
 	             "eth0",
@@ -367,7 +368,7 @@ test_fqdn_options_override (void)
 {
 	test_config (fqdn_options_override_orig,
 	             fqdn_options_override_expected,
-	             FALSE, "example2.com",
+	             FALSE, "example2.com", 0,
 	             TRUE, NULL,
 	             NULL,
 	             "eth0",
@@ -400,7 +401,7 @@ static void
 test_override_hostname (void)
 {
 	test_config (override_hostname_orig, override_hostname_expected,
-	             FALSE, "blahblah", FALSE,
+	             FALSE, "blahblah", 0, FALSE,
 	             NULL,
 	             NULL,
 	             "eth0",
@@ -429,7 +430,7 @@ static void
 test_override_hostname6 (void)
 {
 	test_config (override_hostname6_orig, override_hostname6_expected,
-	             TRUE, "blahblah.local", TRUE,
+	             TRUE, "blahblah.local", 0, TRUE,
 	             NULL,
 	             NULL,
 	             "eth0",
@@ -451,8 +452,8 @@ test_nonfqdn_hostname6 (void)
 {
 	/* Non-FQDN hostname can't be used with dhclient */
 	test_config (NULL, nonfqdn_hostname6_expected,
-	             TRUE, "blahblah",
-	             TRUE, NULL,
+	             TRUE, "blahblah", 0, TRUE,
+	             NULL,
 	             NULL,
 	             "eth0",
 	             NULL);
@@ -486,8 +487,7 @@ static void
 test_existing_alsoreq (void)
 {
 	test_config (existing_alsoreq_orig, existing_alsoreq_expected,
-	             FALSE, NULL,
-	             FALSE,
+	             FALSE, NULL, 0, FALSE,
 	             NULL,
 	             NULL,
 	             "eth0",
@@ -525,8 +525,7 @@ static void
 test_existing_req (void)
 {
 	test_config (existing_req_orig, existing_req_expected,
-	             FALSE, NULL,
-	             FALSE,
+	             FALSE, NULL, 0, FALSE,
 	             NULL,
 	             NULL,
 	             "eth0",
@@ -565,7 +564,7 @@ static void
 test_existing_multiline_alsoreq (void)
 {
 	test_config (existing_multiline_alsoreq_orig, existing_multiline_alsoreq_expected,
-	             FALSE, NULL, FALSE,
+	             FALSE, NULL, 0, FALSE,
 	             NULL,
 	             NULL,
 	             "eth0",
@@ -779,7 +778,7 @@ static void
 test_interface1 (void)
 {
 	test_config (interface1_orig, interface1_expected,
-	             FALSE, NULL, FALSE,
+	             FALSE, NULL, 0, FALSE,
 	             NULL,
 	             NULL,
 	             "eth0",
@@ -824,10 +823,64 @@ static void
 test_interface2 (void)
 {
 	test_config (interface2_orig, interface2_expected,
-	             FALSE, NULL, FALSE,
+	             FALSE, NULL, 0, FALSE,
 	             NULL,
 	             NULL,
 	             "eth1",
+	             NULL);
+}
+
+static void
+test_config_req_intf (void)
+{
+	static const char *const orig = \
+		"request subnet-mask, broadcast-address, routers,\n"
+		"	rfc3442-classless-static-routes,\n"
+		"	interface-mtu, host-name, domain-name, domain-search,\n"
+		"	domain-name-servers, nis-domain, nis-servers,\n"
+		"	nds-context, nds-servers, nds-tree-name,\n"
+		"	netbios-name-servers, netbios-dd-server,\n"
+		"	netbios-node-type, netbios-scope, ntp-servers;\n"
+		"";
+	static const char *const expected = \
+		"# Created by NetworkManager\n"
+		"# Merged from /path/to/dhclient.conf\n"
+		"\n"
+		"\n"
+		"option rfc3442-classless-static-routes code 121 = array of unsigned integer 8;\n"
+		"option ms-classless-static-routes code 249 = array of unsigned integer 8;\n"
+		"option wpad code 252 = string;\n"
+		"\n"
+		"request; # override dhclient defaults\n"
+		"also request subnet-mask;\n"
+		"also request broadcast-address;\n"
+		"also request routers;\n"
+		"also request rfc3442-classless-static-routes;\n"
+		"also request interface-mtu;\n"
+		"also request host-name;\n"
+		"also request domain-name;\n"
+		"also request domain-search;\n"
+		"also request domain-name-servers;\n"
+		"also request nis-domain;\n"
+		"also request nis-servers;\n"
+		"also request nds-context;\n"
+		"also request nds-servers;\n"
+		"also request nds-tree-name;\n"
+		"also request netbios-name-servers;\n"
+		"also request netbios-dd-server;\n"
+		"also request netbios-node-type;\n"
+		"also request netbios-scope;\n"
+		"also request ntp-servers;\n"
+		"also request ms-classless-static-routes;\n"
+		"also request static-routes;\n"
+		"also request wpad;\n"
+		"\n";
+
+	test_config (orig, expected,
+	             FALSE, NULL, 0, FALSE,
+	             NULL,
+	             NULL,
+	             "eth0",
 	             NULL);
 }
 
@@ -982,6 +1035,7 @@ main (int argc, char **argv)
 	g_test_add_func ("/dhcp/dhclient/duids", test_duids);
 	g_test_add_func ("/dhcp/dhclient/interface/1", test_interface1);
 	g_test_add_func ("/dhcp/dhclient/interface/2", test_interface2);
+	g_test_add_func ("/dhcp/dhclient/config/req_intf", test_config_req_intf);
 
 	g_test_add_func ("/dhcp/dhclient/read_duid_from_leasefile", test_read_duid_from_leasefile);
 	g_test_add_func ("/dhcp/dhclient/read_commented_duid_from_leasefile", test_read_commented_duid_from_leasefile);

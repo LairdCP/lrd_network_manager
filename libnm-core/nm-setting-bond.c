@@ -85,8 +85,8 @@ static const BondDefault defaults[] = {
 	{ NM_SETTING_BOND_OPTION_USE_CARRIER,      "1",          NM_BOND_OPTION_TYPE_INT, 0, 1 },
 	{ NM_SETTING_BOND_OPTION_AD_SELECT,        "stable",     NM_BOND_OPTION_TYPE_BOTH, 0, 2,
 	  { "stable", "bandwidth", "count", NULL } },
-	{ NM_SETTING_BOND_OPTION_XMIT_HASH_POLICY, "layer2",     NM_BOND_OPTION_TYPE_BOTH, 0, 2,
-	  { "layer2", "layer3+4", "layer2+3", NULL } },
+	{ NM_SETTING_BOND_OPTION_XMIT_HASH_POLICY, "layer2",     NM_BOND_OPTION_TYPE_BOTH, 0, 4,
+	  { "layer2", "layer3+4", "layer2+3", "encap2+3", "encap3+4", NULL } },
 	{ NM_SETTING_BOND_OPTION_RESEND_IGMP,      "1",          NM_BOND_OPTION_TYPE_INT, 0, 255 },
 	{ NM_SETTING_BOND_OPTION_LACP_RATE,        "slow",       NM_BOND_OPTION_TYPE_BOTH, 0, 1,
 	  { "slow", "fast", NULL } },
@@ -542,6 +542,7 @@ verify (NMSetting *setting, NMConnection *connection, GError **error)
 	const char *arp_ip_target = NULL;
 	const char *lacp_rate;
 	const char *primary;
+	NMBondMode bond_mode;
 
 	g_hash_table_iter_init (&iter, priv->options);
 	while (g_hash_table_iter_next (&iter, (gpointer) &key, (gpointer) &value)) {
@@ -774,6 +775,23 @@ verify (NMSetting *setting, NMConnection *connection, GError **error)
 		             NM_SETTING_BOND_OPTION_MODE);
 		g_prefix_error (error, "%s.%s: ", NM_SETTING_BOND_SETTING_NAME, NM_SETTING_BOND_OPTIONS);
 		return NM_SETTING_VERIFY_NORMALIZABLE;
+	}
+
+	/* normalize unsupported options for the current mode */
+	bond_mode = _nm_setting_bond_mode_from_string (mode_new);
+	g_hash_table_iter_init (&iter, priv->options);
+	while (g_hash_table_iter_next (&iter, (gpointer) &key, NULL)) {
+		if (nm_streq (key, "mode"))
+			continue;
+		if (!_nm_setting_bond_option_supported (key, bond_mode)) {
+			g_set_error (error,
+			             NM_CONNECTION_ERROR,
+			             NM_CONNECTION_ERROR_INVALID_PROPERTY,
+			             _("'%s' option is not valid with mode '%s'"),
+			             key, mode_new);
+			g_prefix_error (error, "%s.%s: ", NM_SETTING_BOND_SETTING_NAME, NM_SETTING_BOND_OPTIONS);
+			return NM_SETTING_VERIFY_NORMALIZABLE;
+		}
 	}
 
 	return TRUE;
