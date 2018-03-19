@@ -15,7 +15,7 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
- * Copyright (C) 2004 - 2011 Red Hat, Inc.
+ * Copyright (C) 2004 - 2017 Red Hat, Inc.
  * Copyright (C) 2006 - 2008 Novell, Inc.
  */
 
@@ -376,6 +376,14 @@ nm_wifi_ap_set_fake (NMWifiAP *ap, gboolean fake)
 	return FALSE;
 }
 
+NM80211ApFlags
+nm_wifi_ap_get_flags (const NMWifiAP *ap)
+{
+	g_return_val_if_fail (NM_IS_WIFI_AP (ap), NM_802_11_AP_FLAGS_NONE);
+
+	return NM_WIFI_AP_GET_PRIVATE (ap)->flags;
+}
+
 static gboolean
 nm_wifi_ap_set_last_seen (NMWifiAP *ap, gint32 last_seen)
 {
@@ -628,36 +636,40 @@ get_max_rate_vht_160_ss3 (int mcs)
 static gboolean
 get_max_rate_ht (const guint8 *bytes, guint len, guint32 *out_maxrate)
 {
-	guint32 mcs, i, m;
+	guint32 mcs, i;
 	guint8 ht_cap_info;
 	const guint8 *supported_mcs_set;
+	guint32 rate;
 
-	/* https://mrncciew.com/2014/10/19/cwap-ht-capabilities-ie/
-	   http://luci.subsignal.org/~jow/802.11n-2009.pdf */
+	/* http://standards.ieee.org/getieee802/download/802.11-2012.pdf
+	 * https://mrncciew.com/2014/10/19/cwap-ht-capabilities-ie/
+	 */
 
 	if (len != 26)
 		return FALSE;
 
 	ht_cap_info = bytes[0];
 	supported_mcs_set = &bytes[3];
+	*out_maxrate = 0;
 
 	/* Find the maximum supported mcs rate */
 	mcs = -1;
 	for (i = 0; i <= 76; i++) {
-		unsigned int mcs_octet = i/8;
+		unsigned int mcs_octet = i / 8;
 		unsigned int MCS_RATE_BIT = 1 << i % 8;
 
-		if (supported_mcs_set[mcs_octet] & MCS_RATE_BIT)
-			mcs = i;
+		if (supported_mcs_set[mcs_octet] & MCS_RATE_BIT) {
+			/* Check for 40Mhz wide channel support */
+			if (ht_cap_info & (1 << 1))
+				rate = get_max_rate_ht_40 (i);
+			else
+				rate = get_max_rate_ht_20 (i);
+
+			if (rate > *out_maxrate)
+				*out_maxrate = rate;
+		}
 	}
 
-	/* Check for 40Mhz wide channel support */
-	if (ht_cap_info & (1 << 1))
-		m = get_max_rate_ht_40 (mcs);
-	else
-		m = get_max_rate_ht_20 (mcs);
-
-	*out_maxrate = m;
 	return TRUE;
 }
 
@@ -777,6 +789,18 @@ nm_wifi_ap_update_from_properties (NMWifiAP *ap,
 
 	if (g_variant_lookup (properties, "Privacy", "b", &b) && b)
 		changed |= nm_wifi_ap_set_flags (ap, priv->flags | NM_802_11_AP_FLAGS_PRIVACY);
+
+	v = g_variant_lookup_value (properties, "WPS", G_VARIANT_TYPE_VARDICT);
+	if (v) {
+		if (g_variant_lookup (v, "Type", "&s", &s)) {
+			changed |= nm_wifi_ap_set_flags (ap, priv->flags | NM_802_11_AP_FLAGS_WPS);
+			if (strcmp (s, "pbc") == 0)
+				changed |= nm_wifi_ap_set_flags (ap, priv->flags | NM_802_11_AP_FLAGS_WPS_PBC);
+			else if (strcmp (s, "pin") == 0)
+				changed |= nm_wifi_ap_set_flags (ap, priv->flags | NM_802_11_AP_FLAGS_WPS_PIN);
+		}
+		g_variant_unref (v);
+	}
 
 	if (g_variant_lookup (properties, "Mode", "&s", &s)) {
 		if (!g_strcmp0 (s, "infrastructure"))

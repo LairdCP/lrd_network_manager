@@ -71,8 +71,11 @@ static const struct validate_entry validate_table[] = {
 const char * pairwise_allowed[] = { "CCMP", "TKIP", "NONE", NULL };
 const char * group_allowed[] =    { "CCMP", "TKIP", "WEP104", "WEP40", NULL };
 const char * proto_allowed[] =    { "WPA", "RSN", NULL };
-const char * key_mgmt_allowed[] = { "WPA-PSK", "WPA-EAP", "IEEE8021X", "WPA-NONE",
-                                    "NONE", "CCKM", NULL };
+const char * key_mgmt_allowed[] = { "WPA-PSK", "WPA-PSK-SHA256",
+                                    "WPA-EAP", "WPA-EAP-SHA256",
+                                    "CCKM",
+                                    "IEEE8021X", "WPA-NONE",
+                                    "NONE", NULL };
 const char * auth_alg_allowed[] = { "OPEN", "SHARED", "LEAP", NULL };
 const char * eap_allowed[] =      { "LEAP", "MD5", "TLS", "PEAP", "TTLS", "SIM",
                                     "PSK", "FAST", "PWD", NULL };
@@ -154,6 +157,7 @@ static const struct Opt opt_table[] = {
 	{ "mka_cak",            TYPE_BYTES,   0, 65536, FALSE, NULL },
 	{ "mka_ckn",            TYPE_BYTES,   0, 65536, FALSE, NULL },
 	{ "macsec_port",        TYPE_INT,     1, 65534, FALSE, NULL },
+	{ "ieee80211w",         TYPE_INT,     0, 2, FALSE, NULL },
 	{ "laird_ccx_client_name", TYPE_BYTES,   0, 16, FALSE,  NULL },
 	{ "bgscan",             TYPE_BYTES,   0, 0, FALSE,  NULL },
 	{ "laird_auth_timeout", TYPE_INT,     0, 60, FALSE, NULL },

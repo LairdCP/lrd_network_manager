@@ -132,8 +132,7 @@ modem_prepare_result (NMModem *modem,
 			 * the device to be auto-activated anymore, which would risk locking
 			 * the SIM if the incorrect PIN continues to be used.
 			 */
-			nm_device_set_autoconnect_intern (device, FALSE);
-			_LOGI (LOGD_MB, "disabling autoconnect due to failed SIM PIN");
+			nm_device_autoconnect_blocked_set (device, NM_DEVICE_AUTOCONNECT_BLOCKED_WRONG_PIN);
 		}
 
 		nm_device_state_changed (device, NM_DEVICE_STATE_FAILED, reason);
@@ -364,9 +363,8 @@ device_state_changed (NMDevice *device,
 {
 	NMDeviceModem *self = NM_DEVICE_MODEM (device);
 	NMDeviceModemPrivate *priv = NM_DEVICE_MODEM_GET_PRIVATE (self);
-	NMSettingsConnection *connection = nm_device_get_settings_connection (device);
 
-	g_assert (priv->modem);
+	g_return_if_fail (priv->modem);
 
 	if (new_state == NM_DEVICE_STATE_UNAVAILABLE &&
 	    old_state < NM_DEVICE_STATE_UNAVAILABLE) {
@@ -374,30 +372,7 @@ device_state_changed (NMDevice *device,
 		_LOGI (LOGD_MB, "modem state '%s'",
 		       nm_modem_state_to_string (nm_modem_get_state (priv->modem)));
 	}
-
 	nm_modem_device_state_changed (priv->modem, new_state, old_state);
-
-	switch (nm_device_state_reason_check (reason)) {
-	case NM_DEVICE_STATE_REASON_GSM_REGISTRATION_DENIED:
-	case NM_DEVICE_STATE_REASON_GSM_REGISTRATION_NOT_SEARCHING:
-	case NM_DEVICE_STATE_REASON_GSM_SIM_NOT_INSERTED:
-	case NM_DEVICE_STATE_REASON_GSM_SIM_PIN_REQUIRED:
-	case NM_DEVICE_STATE_REASON_GSM_SIM_PUK_REQUIRED:
-	case NM_DEVICE_STATE_REASON_GSM_SIM_WRONG:
-	case NM_DEVICE_STATE_REASON_SIM_PIN_INCORRECT:
-	case NM_DEVICE_STATE_REASON_MODEM_INIT_FAILED:
-	case NM_DEVICE_STATE_REASON_GSM_APN_FAILED:
-		/* Block autoconnect of the just-failed connection for situations
-		 * where a retry attempt would just fail again.
-		 */
-		if (connection) {
-			nm_settings_connection_set_autoconnect_blocked_reason (connection,
-			                                                       NM_SETTINGS_AUTO_CONNECT_BLOCKED_REASON_BLOCKED);
-		}
-		break;
-	default:
-		break;
-	}
 }
 
 static NMDeviceCapabilities
@@ -664,6 +639,16 @@ set_modem (NMDeviceModem *self, NMModem *modem)
 	g_signal_connect (modem, "notify::" NM_MODEM_SIM_OPERATOR_ID, G_CALLBACK (ids_changed_cb), self);
 }
 
+static guint32
+get_dhcp_timeout (NMDevice *device, int addr_family)
+{
+	/* DHCP is always done by the modem firmware, not by the network, and
+	 * by the time we get around to DHCP the firmware should already know
+	 * the IP addressing details.  So the DHCP timeout can be much shorter.
+	 */
+	return 15;
+}
+
 /*****************************************************************************/
 
 static void
@@ -716,18 +701,6 @@ set_property (GObject *object, guint prop_id,
 static void
 nm_device_modem_init (NMDeviceModem *self)
 {
-}
-
-static void
-constructed (GObject *object)
-{
-	G_OBJECT_CLASS (nm_device_modem_parent_class)->constructed (object);
-
-	/* DHCP is always done by the modem firmware, not by the network, and
-	 * by the time we get around to DHCP the firmware should already know
-	 * the IP addressing details.  So the DHCP timeout can be much shorter.
-	 */
-	nm_device_set_dhcp_timeout (NM_DEVICE (object), 15);
 }
 
 NMDevice *
@@ -786,7 +759,6 @@ nm_device_modem_class_init (NMDeviceModemClass *mclass)
 	object_class->dispose = dispose;
 	object_class->get_property = get_property;
 	object_class->set_property = set_property;
-	object_class->constructed = constructed;
 
 	device_class->get_generic_capabilities = get_generic_capabilities;
 	device_class->get_type_description = get_type_description;
@@ -807,6 +779,7 @@ nm_device_modem_class_init (NMDeviceModemClass *mclass)
 	device_class->is_available = is_available;
 	device_class->get_ip_iface_identifier = get_ip_iface_identifier;
 	device_class->get_configured_mtu = nm_modem_get_configured_mtu;
+	device_class->get_dhcp_timeout = get_dhcp_timeout;
 
 	device_class->state_changed = device_state_changed;
 

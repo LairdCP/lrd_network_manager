@@ -33,6 +33,8 @@
 
 #include <string.h>
 
+#include "nm-utils/nm-hash-utils.h"
+
 #include "NetworkManager.h"
 #include "nm-vpn-service-plugin.h"
 
@@ -86,7 +88,7 @@ nm_secret_agent_simple_init (NMSecretAgentSimple *agent)
 {
 	NMSecretAgentSimplePrivate *priv = NM_SECRET_AGENT_SIMPLE_GET_PRIVATE (agent);
 
-	priv->requests = g_hash_table_new_full (g_str_hash, g_str_equal,
+	priv->requests = g_hash_table_new_full (nm_str_hash, g_str_equal,
 	                                        g_free, nm_secret_agent_simple_request_free);
 }
 
@@ -399,20 +401,20 @@ add_vpn_secrets (NMSecretAgentSimpleRequest *request,
 {
 	NMSettingVpn *s_vpn = nm_connection_get_setting_vpn (request->connection);
 	const VpnPasswordName *secret_names, *p;
-	char *tmp = NULL;
+	const char *vpn_msg = NULL;
 	char **iter;
 
 	/* If hints are given, then always ask for what the hints require */
-	if (request->hints && g_strv_length (request->hints)) {
-		for (iter = request->hints; iter && *iter; iter++) {
-			if (!tmp && g_str_has_prefix (*iter, VPN_MSG_TAG))
-				tmp = g_strdup (*iter + strlen (VPN_MSG_TAG));
+	if (request->hints) {
+		for (iter = request->hints; *iter; iter++) {
+			if (!vpn_msg && g_str_has_prefix (*iter, VPN_MSG_TAG))
+				vpn_msg = &(*iter)[NM_STRLEN (VPN_MSG_TAG)];
 			else
 				add_vpn_secret_helper (secrets, s_vpn, *iter, *iter);
 		}
 	}
-	if (msg)
-		*msg = g_strdup (tmp);
+
+	NM_SET_OUT (msg, g_strdup (vpn_msg));
 
 	/* Now add what client thinks might be required, because hints may be empty or incomplete */
 	p = secret_names = nm_vpn_get_secret_names (nm_setting_vpn_get_service_type (s_vpn));
@@ -543,23 +545,30 @@ request_secrets_from_ui (NMSecretAgentSimpleRequest *request)
 		                                            TRUE);
 		g_ptr_array_add (secrets, secret);
 	} else if (nm_connection_is_type (request->connection, NM_SETTING_BLUETOOTH_SETTING_NAME)) {
-		NMSetting *setting;
+		NMSetting *setting = NULL;
 
-		setting = nm_connection_get_setting_by_name (request->connection, NM_SETTING_GSM_SETTING_NAME);
-		if (!setting)
-			setting = nm_connection_get_setting_by_name (request->connection, NM_SETTING_CDMA_SETTING_NAME);
+		setting = nm_connection_get_setting_by_name (request->connection, NM_SETTING_BLUETOOTH_SETTING_NAME);
+		if (   setting
+		    && !nm_streq0 (nm_setting_bluetooth_get_connection_type (NM_SETTING_BLUETOOTH (setting)), NM_SETTING_BLUETOOTH_TYPE_NAP)) {
+			setting = nm_connection_get_setting_by_name (request->connection, NM_SETTING_GSM_SETTING_NAME);
+			if (!setting)
+				setting = nm_connection_get_setting_by_name (request->connection, NM_SETTING_CDMA_SETTING_NAME);
+		}
 
-		title = _("Mobile broadband network password");
-		msg = g_strdup_printf (_("A password is required to connect to '%s'."),
-		                       nm_connection_get_id (request->connection));
+		if (setting) {
+			title = _("Mobile broadband network password");
+			msg = g_strdup_printf (_("A password is required to connect to '%s'."),
+			                       nm_connection_get_id (request->connection));
 
-		secret = nm_secret_agent_simple_secret_new (_("Password"),
-		                                            setting,
-		                                            "password",
-		                                            NULL,
-		                                            NULL,
-		                                            TRUE);
-		g_ptr_array_add (secrets, secret);
+			secret = nm_secret_agent_simple_secret_new (_("Password"),
+			                                            setting,
+			                                            "password",
+			                                            NULL,
+			                                            NULL,
+			                                            TRUE);
+			g_ptr_array_add (secrets, secret);
+		} else
+			ok = FALSE;
 	} else if (nm_connection_is_type (request->connection, NM_SETTING_VPN_SETTING_NAME)) {
 		NMSettingConnection *s_con;
 
@@ -576,6 +585,15 @@ request_secrets_from_ui (NMSecretAgentSimpleRequest *request)
 		ok = FALSE;
 
 	if (!ok) {
+		gs_free_error GError *error = NULL;
+
+		error = g_error_new (NM_SECRET_AGENT_ERROR, NM_SECRET_AGENT_ERROR_FAILED,
+		                     "Cannot service a secrets request %s for a %s connection",
+		                     request->request_id,
+		                     nm_connection_get_connection_type (request->connection));
+		request->callback (NM_SECRET_AGENT_OLD (request->self), request->connection,
+		                   NULL, error, request->callback_data);
+		g_hash_table_remove (priv->requests, request->request_id);
 		g_ptr_array_unref (secrets);
 		return;
 	}
@@ -678,7 +696,7 @@ nm_secret_agent_simple_response (NMSecretAgentSimple *self,
 
 		g_variant_builder_init (&vpn_secrets_builder, G_VARIANT_TYPE ("a{ss}"));
 
-		settings = g_hash_table_new (g_str_hash, g_str_equal);
+		settings = g_hash_table_new (nm_str_hash, g_str_equal);
 		for (i = 0; i < secrets->len; i++) {
 			NMSecretAgentSimpleSecretReal *secret = secrets->pdata[i];
 
@@ -730,7 +748,12 @@ nm_secret_agent_simple_cancel_get_secrets (NMSecretAgentOld *agent,
                                            const gchar      *connection_path,
                                            const gchar      *setting_name)
 {
-	/* We don't support cancellation. Sorry! */
+	NMSecretAgentSimple *self = NM_SECRET_AGENT_SIMPLE (agent);
+	NMSecretAgentSimplePrivate *priv = NM_SECRET_AGENT_SIMPLE_GET_PRIVATE (self);
+	gs_free char *request_id = NULL;
+
+	request_id = g_strdup_printf ("%s/%s", connection_path, setting_name);
+	g_hash_table_remove (priv->requests, request_id);
 }
 
 static void

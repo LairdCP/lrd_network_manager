@@ -15,7 +15,7 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
- * Copyright (C) 2006 - 2012 Red Hat, Inc.
+ * Copyright (C) 2006 - 2017 Red Hat, Inc.
  * Copyright (C) 2006 - 2008 Novell, Inc.
  */
 
@@ -31,11 +31,12 @@
 #include "nm-core-internal.h"
 #include "nm-dbus-compat.h"
 
-#define WPAS_DBUS_IFACE_INTERFACE   WPAS_DBUS_INTERFACE ".Interface"
-#define WPAS_DBUS_IFACE_BSS         WPAS_DBUS_INTERFACE ".BSS"
-#define WPAS_DBUS_IFACE_NETWORK	    WPAS_DBUS_INTERFACE ".Network"
-#define WPAS_ERROR_INVALID_IFACE    WPAS_DBUS_INTERFACE ".InvalidInterface"
-#define WPAS_ERROR_EXISTS_ERROR     WPAS_DBUS_INTERFACE ".InterfaceExists"
+#define WPAS_DBUS_IFACE_INTERFACE       WPAS_DBUS_INTERFACE ".Interface"
+#define WPAS_DBUS_IFACE_INTERFACE_WPS   WPAS_DBUS_INTERFACE ".Interface.WPS"
+#define WPAS_DBUS_IFACE_BSS             WPAS_DBUS_INTERFACE ".BSS"
+#define WPAS_DBUS_IFACE_NETWORK         WPAS_DBUS_INTERFACE ".Network"
+#define WPAS_ERROR_INVALID_IFACE        WPAS_DBUS_INTERFACE ".InvalidInterface"
+#define WPAS_ERROR_EXISTS_ERROR         WPAS_DBUS_INTERFACE ".InterfaceExists"
 
 /*****************************************************************************/
 
@@ -45,6 +46,16 @@ typedef struct {
 } BssData;
 
 struct _AddNetworkData;
+
+typedef struct {
+	NMSupplicantInterface *self;
+	char *type;
+	char *bssid;
+	char *pin;
+	GDBusProxy *proxy;
+	GCancellable *cancellable;
+	bool is_cancelling;
+} WpsData;
 
 typedef struct {
 	NMSupplicantInterface *self;
@@ -69,6 +80,7 @@ enum {
 	BSS_REMOVED,         /* supplicant removed BSS from its scan list */
 	SCAN_DONE,           /* wifi scan is complete */
 	CREDENTIALS_REQUEST, /* 802.1x identity or password requested */
+	WPS_CREDENTIALS,     /* WPS credentials received */
 	LAST_SIGNAL
 };
 static guint signals[LAST_SIGNAL] = { 0 };
@@ -80,6 +92,7 @@ NM_GOBJECT_PROPERTIES_DEFINE (NMSupplicantInterface,
 	PROP_DRIVER,
 	PROP_FAST_SUPPORT,
 	PROP_AP_SUPPORT,
+	PROP_PMF_SUPPORT,
 	PROP_LAIRD_SUPPORT,
 );
 
@@ -89,6 +102,7 @@ typedef struct {
 	gboolean       has_credreq;  /* Whether querying 802.1x credentials is supported */
 	NMSupplicantFeature fast_support;
 	NMSupplicantFeature ap_support;   /* Lightweight AP mode support */
+	NMSupplicantFeature pmf_support;
 	NMSupplicantFeature laird_support;
 	guint32        max_scan_ssids;
 	guint32        ready_count;
@@ -106,6 +120,8 @@ typedef struct {
 	GCancellable * init_cancellable;
 	GDBusProxy *   iface_proxy;
 	GCancellable * other_cancellable;
+
+	WpsData *wps_data;
 
 	AssocData *    assoc_data;
 
@@ -230,15 +246,17 @@ bss_proxy_acquired_cb (GDBusProxy *proxy, GAsyncResult *result, gpointer user_da
 	GVariant *props = NULL;
 	const char *object_path;
 	BssData *bss_data;
+	gboolean success;
 
-	g_async_initable_init_finish (G_ASYNC_INITABLE (proxy), result, &error);
-	if (g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+	success = g_async_initable_init_finish (G_ASYNC_INITABLE (proxy), result, &error);
+	if (   !success
+	    && g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
 		return;
 
 	self = NM_SUPPLICANT_INTERFACE (user_data);
 	priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
 
-	if (error) {
+	if (!success) {
 		_LOGD ("failed to acquire BSS proxy: (%s)", error->message);
 		g_hash_table_remove (priv->bss_proxies,
 		                     g_dbus_proxy_get_object_path (proxy));
@@ -543,6 +561,12 @@ nm_supplicant_interface_get_ap_support (NMSupplicantInterface *self)
 	return NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self)->ap_support;
 }
 
+NMSupplicantFeature
+nm_supplicant_interface_get_pmf_support (NMSupplicantInterface *self)
+{
+	return NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self)->pmf_support;
+}
+
 void
 nm_supplicant_interface_set_ap_support (NMSupplicantInterface *self,
                                         NMSupplicantFeature ap_support)
@@ -572,6 +596,15 @@ nm_supplicant_interface_set_fast_support (NMSupplicantInterface *self,
 }
 
 void
+nm_supplicant_interface_set_pmf_support (NMSupplicantInterface *self,
+                                         NMSupplicantFeature pmf_support)
+{
+	NMSupplicantInterfacePrivate *priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
+
+	priv->pmf_support = pmf_support;
+}
+
+void
 nm_supplicant_interface_set_laird_support (NMSupplicantInterface *self,
                                           NMSupplicantFeature laird_support)
 {
@@ -579,6 +612,306 @@ nm_supplicant_interface_set_laird_support (NMSupplicantInterface *self,
 
 	priv->laird_support = laird_support;
 }
+
+/*****************************************************************************/
+
+static void
+_wps_data_free (WpsData *data)
+{
+	g_free (data->type);
+	g_free (data->pin);
+	g_free (data->bssid);
+	g_clear_object (&data->cancellable);
+	if (data->proxy && data->self)
+		g_signal_handlers_disconnect_by_data (data->proxy, data->self);
+	g_clear_object (&data->proxy);
+	g_slice_free (WpsData, data);
+}
+
+static void
+_wps_credentials_changed_cb (GDBusProxy *proxy,
+                             GVariant *props,
+                             gpointer user_data)
+{
+	NMSupplicantInterface *self = NM_SUPPLICANT_INTERFACE (user_data);
+
+	_LOGT ("wps: new credentials");
+	g_signal_emit (self, signals[WPS_CREDENTIALS], 0, props);
+}
+
+static void
+_wps_handle_start_cb (GObject *source_object,
+                      GAsyncResult *res,
+                      gpointer user_data)
+{
+	NMSupplicantInterface *self;
+	WpsData *data;
+	gs_unref_variant GVariant *result = NULL;
+	gs_free_error GError *error = NULL;
+
+	result = g_dbus_proxy_call_finish (G_DBUS_PROXY (source_object), res, &error);
+	if (   !result
+	    && g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+		return;
+
+	data = user_data;
+	self = data->self;
+
+	if (result)
+		_LOGT ("wps: started with success");
+	else
+		_LOGW ("wps: start failed with %s", error->message);
+
+	g_clear_object (&data->cancellable);
+	nm_clear_g_free (&data->type);
+	nm_clear_g_free (&data->pin);
+	nm_clear_g_free (&data->bssid);
+}
+
+static void
+_wps_handle_set_pc_cb (GObject *source_object,
+                       GAsyncResult *res,
+                       gpointer user_data)
+{
+	WpsData *data;
+	NMSupplicantInterface *self;
+	gs_unref_variant GVariant *result = NULL;
+	gs_free_error GError *error = NULL;
+	GVariantBuilder start_args;
+	guint8 bssid_buf[ETH_ALEN];
+
+	result = g_dbus_proxy_call_finish (G_DBUS_PROXY (source_object), res, &error);
+	if (   !result
+	    && g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+		return;
+
+	data = user_data;
+	self = data->self;
+
+	if (result)
+		_LOGT ("wps: ProcessCredentials successfully set, starting...");
+	else
+		_LOGW ("wps: ProcessCredentials failed to set (%s), starting...", error->message);
+
+	_nm_dbus_signal_connect (data->proxy, "Credentials", G_VARIANT_TYPE ("(a{sv})"),
+	                         G_CALLBACK (_wps_credentials_changed_cb), self);
+
+	g_variant_builder_init (&start_args, G_VARIANT_TYPE_VARDICT);
+	g_variant_builder_add (&start_args, "{sv}", "Role", g_variant_new_string ("enrollee"));
+	g_variant_builder_add (&start_args, "{sv}", "Type", g_variant_new_string (data->type));
+	if (data->pin)
+		g_variant_builder_add (&start_args, "{sv}", "Pin", g_variant_new_string (data->pin));
+
+	if (data->bssid) {
+		/* The BSSID is in fact not mandatory. If it is not set the supplicant would
+		 * enroll with any BSS in range. */
+		if (!nm_utils_hwaddr_aton (data->bssid, bssid_buf, sizeof (bssid_buf)))
+			nm_assert_not_reached ();
+		g_variant_builder_add (&start_args, "{sv}", "Bssid",
+		                       g_variant_new_fixed_array (G_VARIANT_TYPE_BYTE, bssid_buf,
+		                                                  ETH_ALEN, sizeof (guint8)));
+	}
+
+	g_dbus_proxy_call (data->proxy,
+	                   "Start",
+	                   g_variant_new ("(a{sv})", &start_args),
+	                   G_DBUS_CALL_FLAGS_NONE,
+	                   -1,
+	                   data->cancellable,
+	                   _wps_handle_start_cb,
+	                   data);
+}
+
+static void
+_wps_call_set_pc (WpsData *data)
+{
+	g_dbus_proxy_call (data->proxy,
+	                   "org.freedesktop.DBus.Properties.Set",
+	                   g_variant_new ("(ssv)",
+	                                  WPAS_DBUS_IFACE_INTERFACE_WPS,
+	                                  "ProcessCredentials",
+	                                  g_variant_new_boolean (TRUE)),
+	                   G_DBUS_CALL_FLAGS_NONE,
+	                   -1,
+	                   data->cancellable,
+	                   _wps_handle_set_pc_cb,
+	                   data);
+}
+
+static void
+_wps_handle_proxy_cb (GObject *source_object,
+                      GAsyncResult *res,
+                      gpointer user_data)
+{
+	NMSupplicantInterface *self;
+	NMSupplicantInterfacePrivate *priv;
+	WpsData *data;
+	gs_free_error GError *error = NULL;
+	GDBusProxy *proxy;
+
+	proxy = g_dbus_proxy_new_for_bus_finish (res, &error);
+	if (   !proxy
+	    && g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+		return;
+
+	data = user_data;
+	self = data->self;
+	priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
+
+	if (!proxy) {
+		_LOGW ("wps: failure to create D-Bus proxy: %s", error->message);
+		_wps_data_free (data);
+		priv->wps_data = NULL;
+		return;
+	}
+
+	data->proxy = proxy;
+	_LOGT ("wps: D-Bus proxy created. set ProcessCredentials...");
+	_wps_call_set_pc (data);
+}
+
+static void
+_wps_handle_cancel_cb (GObject *source_object,
+                       GAsyncResult *res,
+                       gpointer user_data)
+{
+	NMSupplicantInterface *self;
+	NMSupplicantInterfacePrivate *priv;
+	WpsData *data;
+	gs_unref_variant GVariant *result = NULL;
+	gs_free_error GError *error = NULL;
+
+	result = g_dbus_proxy_call_finish (G_DBUS_PROXY (source_object), res, &error);
+	if (   !result
+	    && g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+		return;
+
+	data = user_data;
+	self = data->self;
+
+	if (!self) {
+		_wps_data_free (data);
+		if (result)
+			_LOGT ("wps: cancel completed successfully, after supplicant interface is gone");
+		else
+			_LOGW ("wps: cancel failed (%s), after supplicant interface is gone", error->message);
+		return;
+	}
+
+	priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
+
+	data->is_cancelling = FALSE;
+
+	if (!data->type) {
+		priv->wps_data = NULL;
+		_wps_data_free (data);
+		if (result)
+			_LOGT ("wps: cancel completed successfully");
+		else
+			_LOGW ("wps: cancel failed (%s)", error->message);
+		return;
+	}
+
+	if (result)
+		_LOGT ("wps: cancel completed successfully, setting ProcessCredentials now...");
+	else
+		_LOGW ("wps: cancel failed (%s), setting ProcessCredentials now...", error->message);
+	_wps_call_set_pc (data);
+}
+
+static void
+_wps_start (NMSupplicantInterface *self,
+            const char *type,
+            const char *bssid,
+            const char *pin)
+{
+	NMSupplicantInterfacePrivate *priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
+	WpsData *data = priv->wps_data;
+
+	if (type)
+		_LOGI ("wps: type %s start...", type);
+
+	if (!data) {
+		if (!type)
+			return;
+
+		data = g_slice_new0 (WpsData);
+		data->self = self;
+		data->type = g_strdup (type);
+		data->bssid = g_strdup (bssid);
+		data->pin = g_strdup (pin);
+		data->cancellable = g_cancellable_new ();
+
+		priv->wps_data = data;
+
+		_LOGT ("wps: create D-Bus proxy...");
+
+		g_dbus_proxy_new_for_bus (G_BUS_TYPE_SYSTEM,
+		                          G_DBUS_PROXY_FLAGS_DO_NOT_LOAD_PROPERTIES,
+		                          NULL,
+		                          WPAS_DBUS_SERVICE,
+		                          priv->object_path,
+		                          WPAS_DBUS_IFACE_INTERFACE_WPS,
+		                          data->cancellable,
+		                          _wps_handle_proxy_cb,
+		                          data);
+		return;
+	}
+
+	g_free (data->type);
+	g_free (data->bssid);
+	g_free (data->pin);
+	data->type = g_strdup (type);
+	data->bssid = g_strdup (bssid);
+	data->pin = g_strdup (pin);
+
+	if (!data->proxy) {
+		if (!type) {
+			nm_clear_g_cancellable (&data->cancellable);
+			priv->wps_data = NULL;
+			_wps_data_free (data);
+
+			_LOGT ("wps: abort creation of D-Bus proxy");
+		} else
+			_LOGT ("wps: new enrollment. Wait for D-Bus proxy...");
+		return;
+	}
+
+	if (data->is_cancelling)
+		return;
+
+	_LOGT ("wps: cancel previous enrollment...");
+
+	data->is_cancelling = TRUE;
+	nm_clear_g_cancellable (&data->cancellable);
+	data->cancellable = g_cancellable_new ();
+	g_signal_handlers_disconnect_by_data (data->proxy, self);
+	g_dbus_proxy_call (data->proxy,
+	                   "Cancel",
+	                   NULL,
+	                   G_DBUS_CALL_FLAGS_NONE,
+	                   -1,
+	                   data->cancellable,
+	                   _wps_handle_cancel_cb,
+	                   data);
+}
+
+void
+nm_supplicant_interface_enroll_wps (NMSupplicantInterface *self,
+                                    const char *type,
+                                    const char *bssid,
+                                    const char *pin)
+{
+	_wps_start (self, type, bssid, pin);
+}
+
+void
+nm_supplicant_interface_cancel_wps (NMSupplicantInterface *self)
+{
+	_wps_start (self, NULL, NULL, NULL);
+}
+
+/*****************************************************************************/
 
 static void
 iface_introspect_cb (GDBusProxy *proxy, GAsyncResult *result, gpointer user_data)
@@ -801,7 +1134,7 @@ on_iface_proxy_acquired (GDBusProxy *proxy, GAsyncResult *result, gpointer user_
 
 	/* Scan result aging parameters */
 	g_dbus_proxy_call (priv->iface_proxy,
-	                   "org.freedesktop.DBus.Properties.Set",
+	                   DBUS_INTERFACE_PROPERTIES ".Set",
 	                   g_variant_new ("(ssv)",
 	                                  WPAS_DBUS_IFACE_INTERFACE,
 	                                  "BSSExpireAge",
@@ -812,7 +1145,7 @@ on_iface_proxy_acquired (GDBusProxy *proxy, GAsyncResult *result, gpointer user_
 	                   NULL,
 	                   NULL);
 	g_dbus_proxy_call (priv->iface_proxy,
-	                   "org.freedesktop.DBus.Properties.Set",
+	                   DBUS_INTERFACE_PROPERTIES ".Set",
 	                   g_variant_new ("(ssv)",
 	                                  WPAS_DBUS_IFACE_INTERFACE,
 	                                  "BSSExpireCount",
@@ -1137,7 +1470,7 @@ nm_supplicant_interface_disconnect (NMSupplicantInterface * self)
 
 	/* Cancel all pending calls related to a prior connection attempt */
 	if (priv->assoc_data) {
-		gs_free GError *error = NULL;
+		gs_free_error GError *error = NULL;
 
 		nm_utils_error_set_cancelled (&error, FALSE, "NMSupplicantInterface");
 		assoc_return (self, error, "abort due to disconnect");
@@ -1173,6 +1506,9 @@ nm_supplicant_interface_disconnect (NMSupplicantInterface * self)
 		g_free (priv->net_path);
 		priv->net_path = NULL;
 	}
+
+	/* Cancel any WPS enrollment, if any */
+	nm_supplicant_interface_cancel_wps (self);
 }
 
 static void
@@ -1701,6 +2037,7 @@ nm_supplicant_interface_request_scan (NMSupplicantInterface *self, const GPtrArr
 	/* Scan parameters */
 	g_variant_builder_init (&builder, G_VARIANT_TYPE_VARDICT);
 	g_variant_builder_add (&builder, "{sv}", "Type", g_variant_new_string ("active"));
+	g_variant_builder_add (&builder, "{sv}", "AllowRoam", g_variant_new_boolean (FALSE));
 	if (ssids) {
 		GVariantBuilder ssids_builder;
 
@@ -1807,6 +2144,10 @@ set_property (GObject *object,
 		/* construct-only */
 		priv->ap_support = g_value_get_int (value);
 		break;
+	case PROP_PMF_SUPPORT:
+		/* construct-only */
+		priv->pmf_support = g_value_get_int (value);
+		break;
 	case PROP_LAIRD_SUPPORT:
 		/* construct-only */
 		priv->laird_support = g_value_get_int (value);
@@ -1823,14 +2164,15 @@ nm_supplicant_interface_init (NMSupplicantInterface * self)
 	NMSupplicantInterfacePrivate *priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
 
 	priv->state = NM_SUPPLICANT_INTERFACE_STATE_INIT;
-	priv->bss_proxies = g_hash_table_new_full (g_str_hash, g_str_equal, NULL, bss_data_destroy);
+	priv->bss_proxies = g_hash_table_new_full (nm_str_hash, g_str_equal, NULL, bss_data_destroy);
 }
 
 NMSupplicantInterface *
 nm_supplicant_interface_new (const char *ifname,
                              NMSupplicantDriver driver,
                              NMSupplicantFeature fast_support,
-                             NMSupplicantFeature ap_support)
+                             NMSupplicantFeature ap_support,
+                             NMSupplicantFeature pmf_support)
 {
 	g_return_val_if_fail (ifname != NULL, NULL);
 
@@ -1839,6 +2181,7 @@ nm_supplicant_interface_new (const char *ifname,
 	                     NM_SUPPLICANT_INTERFACE_DRIVER, (guint) driver,
 	                     NM_SUPPLICANT_INTERFACE_FAST_SUPPORT, (int) fast_support,
 	                     NM_SUPPLICANT_INTERFACE_AP_SUPPORT, (int) ap_support,
+	                     NM_SUPPLICANT_INTERFACE_PMF_SUPPORT, (int) pmf_support,
 	                     NULL);
 }
 
@@ -1848,8 +2191,18 @@ dispose (GObject *object)
 	NMSupplicantInterface *self = NM_SUPPLICANT_INTERFACE (object);
 	NMSupplicantInterfacePrivate *priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
 
+	nm_supplicant_interface_cancel_wps (self);
+	if (priv->wps_data) {
+		/* we shut down, but an asynchronous Cancel request is pending.
+		 * We don't want to cancel it, so mark wps-data that @self is gone.
+		 * This way, _wps_handle_cancel_cb() knows it must no longer touch
+		 * @self */
+		priv->wps_data->self = NULL;
+		priv->wps_data = NULL;
+	}
+
 	if (priv->assoc_data) {
-		gs_free GError *error = NULL;
+		gs_free_error GError *error = NULL;
 
 		nm_utils_error_set_cancelled (&error, TRUE, "NMSupplicantInterface");
 		assoc_return (self, error, "cancelled due to dispose of supplicant interface");
@@ -1920,6 +2273,14 @@ nm_supplicant_interface_class_init (NMSupplicantInterfaceClass *klass)
 	                      G_PARAM_WRITABLE |
 	                      G_PARAM_CONSTRUCT_ONLY |
 	                      G_PARAM_STATIC_STRINGS);
+	obj_properties[PROP_PMF_SUPPORT] =
+	    g_param_spec_int (NM_SUPPLICANT_INTERFACE_PMF_SUPPORT, "", "",
+	                      NM_SUPPLICANT_FEATURE_UNKNOWN,
+	                      NM_SUPPLICANT_FEATURE_YES,
+	                      NM_SUPPLICANT_FEATURE_UNKNOWN,
+	                      G_PARAM_WRITABLE |
+	                      G_PARAM_CONSTRUCT_ONLY |
+	                      G_PARAM_STATIC_STRINGS);
 	obj_properties[PROP_LAIRD_SUPPORT] =
 	    g_param_spec_int (NM_SUPPLICANT_INTERFACE_LAIRD_SUPPORT, "", "",
 	                      NM_SUPPLICANT_FEATURE_UNKNOWN,
@@ -1978,5 +2339,12 @@ nm_supplicant_interface_class_init (NMSupplicantInterfaceClass *klass)
 	                  0,
 	                  NULL, NULL, NULL,
 	                  G_TYPE_NONE, 2, G_TYPE_STRING, G_TYPE_STRING);
-}
 
+	signals[WPS_CREDENTIALS] =
+	    g_signal_new (NM_SUPPLICANT_INTERFACE_WPS_CREDENTIALS,
+	                  G_OBJECT_CLASS_TYPE (object_class),
+	                  G_SIGNAL_RUN_LAST,
+	                  0,
+	                  NULL, NULL, NULL,
+	                  G_TYPE_NONE, 1, G_TYPE_VARIANT);
+}

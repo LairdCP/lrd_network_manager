@@ -39,6 +39,7 @@
 #define NM_BLUEZ_DEVICE_CONNECTED    "connected"
 
 /* Signals */
+#define NM_BLUEZ_DEVICE_INITIALIZED  "initialized"
 #define NM_BLUEZ_DEVICE_REMOVED      "removed"
 
 typedef struct _NMBluezDevice NMBluezDevice;
@@ -60,8 +61,6 @@ gboolean nm_bluez_device_get_usable (NMBluezDevice *self);
 const char *nm_bluez_device_get_address (NMBluezDevice *self);
 
 const char *nm_bluez_device_get_name (NMBluezDevice *self);
-
-guint32 nm_bluez_device_get_class (NMBluezDevice *self);
 
 guint32 nm_bluez_device_get_capabilities (NMBluezDevice *self);
 

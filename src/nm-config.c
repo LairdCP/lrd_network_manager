@@ -483,20 +483,20 @@ nm_config_cmd_line_options_add_to_entries (NMConfigCmdLineOptions *cli,
 
 	{
 		GOptionEntry config_options[] = {
-			{ "config", 0, 0, G_OPTION_ARG_FILENAME, &cli->config_main_file, N_("Config file location"), N_(DEFAULT_CONFIG_MAIN_FILE) },
-			{ "config-dir", 0, 0, G_OPTION_ARG_FILENAME, &cli->config_dir, N_("Config directory location"), N_(DEFAULT_CONFIG_DIR) },
-			{ "system-config-dir", 0, 0, G_OPTION_ARG_FILENAME, &cli->system_config_dir, N_("System config directory location"), N_(DEFAULT_SYSTEM_CONFIG_DIR) },
-			{ "intern-config", 0, 0, G_OPTION_ARG_FILENAME, &cli->intern_config_file, N_("Internal config file location"), N_(DEFAULT_INTERN_CONFIG_FILE) },
-			{ "state-file", 0, 0, G_OPTION_ARG_FILENAME, &cli->state_file, N_("State file location"), N_(DEFAULT_STATE_FILE) },
-			{ "no-auto-default", 0, G_OPTION_FLAG_HIDDEN, G_OPTION_ARG_FILENAME, &cli->no_auto_default_file, N_("State file for no-auto-default devices"), N_(DEFAULT_NO_AUTO_DEFAULT_FILE) },
-			{ "plugins", 0, 0, G_OPTION_ARG_STRING, &cli->plugins, N_("List of plugins separated by ','"), N_(NM_CONFIG_DEFAULT_MAIN_PLUGINS) },
+			{ "config", 0, 0, G_OPTION_ARG_FILENAME, &cli->config_main_file, N_("Config file location"), DEFAULT_CONFIG_MAIN_FILE },
+			{ "config-dir", 0, 0, G_OPTION_ARG_FILENAME, &cli->config_dir, N_("Config directory location"), DEFAULT_CONFIG_DIR },
+			{ "system-config-dir", 0, 0, G_OPTION_ARG_FILENAME, &cli->system_config_dir, N_("System config directory location"), DEFAULT_SYSTEM_CONFIG_DIR },
+			{ "intern-config", 0, 0, G_OPTION_ARG_FILENAME, &cli->intern_config_file, N_("Internal config file location"), DEFAULT_INTERN_CONFIG_FILE },
+			{ "state-file", 0, 0, G_OPTION_ARG_FILENAME, &cli->state_file, N_("State file location"), DEFAULT_STATE_FILE },
+			{ "no-auto-default", 0, G_OPTION_FLAG_HIDDEN, G_OPTION_ARG_FILENAME, &cli->no_auto_default_file, N_("State file for no-auto-default devices"), DEFAULT_NO_AUTO_DEFAULT_FILE },
+			{ "plugins", 0, 0, G_OPTION_ARG_STRING, &cli->plugins, N_("List of plugins separated by ','"), NM_CONFIG_DEFAULT_MAIN_PLUGINS },
 			{ "configure-and-quit", 0, 0, G_OPTION_ARG_NONE, &cli->configure_and_quit, N_("Quit after initial configuration"), NULL },
 			{ "debug", 'd', 0, G_OPTION_ARG_NONE, &cli->is_debug, N_("Don't become a daemon, and log to stderr"), NULL },
 
 				/* These three are hidden for now, and should eventually just go away. */
 			{ "connectivity-uri", 0, G_OPTION_FLAG_HIDDEN, G_OPTION_ARG_STRING, &cli->connectivity_uri, N_("An http(s) address for checking internet connectivity"), "http://example.com" },
 			{ "connectivity-interval", 0, G_OPTION_FLAG_HIDDEN, G_OPTION_ARG_INT, &cli->connectivity_interval, N_("The interval between connectivity checks (in seconds)"), G_STRINGIFY (NM_CONFIG_DEFAULT_CONNECTIVITY_INTERVAL) },
-			{ "connectivity-response", 0, G_OPTION_FLAG_HIDDEN, G_OPTION_ARG_STRING, &cli->connectivity_response, N_("The expected start of the response"), N_(NM_CONFIG_DEFAULT_CONNECTIVITY_RESPONSE) },
+			{ "connectivity-response", 0, G_OPTION_FLAG_HIDDEN, G_OPTION_ARG_STRING, &cli->connectivity_response, N_("The expected start of the response"), NM_CONFIG_DEFAULT_CONNECTIVITY_RESPONSE },
 			{ 0 },
 		};
 
@@ -1590,6 +1590,31 @@ done:
 	return TRUE;
 }
 
+/*****************************************************************************/
+
+void nm_config_set_connectivity_check_enabled (NMConfig *self,
+                                               gboolean enabled)
+{
+	NMConfigPrivate *priv;
+	GKeyFile *keyfile;
+
+	g_return_if_fail (NM_IS_CONFIG (self));
+
+	priv = NM_CONFIG_GET_PRIVATE (self);
+	g_return_if_fail (priv->config_data);
+
+	keyfile = nm_config_data_clone_keyfile_intern (priv->config_data);
+
+	/* Remove existing groups */
+	g_key_file_remove_group (keyfile, NM_CONFIG_KEYFILE_GROUP_CONNECTIVITY, NULL);
+
+	g_key_file_set_value (keyfile, NM_CONFIG_KEYFILE_GROUP_CONNECTIVITY,
+	                      "enabled", enabled ? "true" : "false");
+
+	nm_config_set_values (self, keyfile, TRUE, FALSE);
+	g_key_file_unref (keyfile);
+}
+
 /**
  * nm_config_set_values:
  * @self: the NMConfig instance
@@ -1872,6 +1897,14 @@ _nm_config_state_set (NMConfig *self,
 #define DEVICE_RUN_STATE_KEYFILE_KEY_DEVICE_MANAGED             "managed"
 #define DEVICE_RUN_STATE_KEYFILE_KEY_DEVICE_PERM_HW_ADDR_FAKE   "perm-hw-addr-fake"
 #define DEVICE_RUN_STATE_KEYFILE_KEY_DEVICE_CONNECTION_UUID     "connection-uuid"
+#define DEVICE_RUN_STATE_KEYFILE_KEY_DEVICE_NM_OWNED            "nm-owned"
+
+NM_UTILS_LOOKUP_STR_DEFINE_STATIC (_device_state_managed_type_to_str, NMConfigDeviceStateManagedType,
+	NM_UTILS_LOOKUP_DEFAULT_NM_ASSERT ("unknown"),
+	NM_UTILS_LOOKUP_STR_ITEM (NM_CONFIG_DEVICE_STATE_MANAGED_TYPE_UNKNOWN,   "unknown"),
+	NM_UTILS_LOOKUP_STR_ITEM (NM_CONFIG_DEVICE_STATE_MANAGED_TYPE_UNMANAGED, "unmanaged"),
+	NM_UTILS_LOOKUP_STR_ITEM (NM_CONFIG_DEVICE_STATE_MANAGED_TYPE_MANAGED,   "managed"),
+);
 
 static NMConfigDeviceStateData *
 _config_device_state_data_new (int ifindex, GKeyFile *kf)
@@ -1882,26 +1915,29 @@ _config_device_state_data_new (int ifindex, GKeyFile *kf)
 	gs_free char *perm_hw_addr_fake = NULL;
 	gsize connection_uuid_len;
 	gsize perm_hw_addr_fake_len;
+	gint nm_owned = -1;
 	char *p;
 
 	nm_assert (ifindex > 0);
 
 	if (kf) {
-		gboolean managed;
-
-		managed = nm_config_keyfile_get_boolean (kf,
-		                                         DEVICE_RUN_STATE_KEYFILE_GROUP_DEVICE,
-		                                         DEVICE_RUN_STATE_KEYFILE_KEY_DEVICE_MANAGED,
-		                                         FALSE);
-		managed_type = managed
-		               ? NM_CONFIG_DEVICE_STATE_MANAGED_TYPE_MANAGED
-		               : NM_CONFIG_DEVICE_STATE_MANAGED_TYPE_UNMANAGED;
-
-		if (managed) {
+		switch (nm_config_keyfile_get_boolean (kf,
+		                                       DEVICE_RUN_STATE_KEYFILE_GROUP_DEVICE,
+		                                       DEVICE_RUN_STATE_KEYFILE_KEY_DEVICE_MANAGED,
+		                                       -1)) {
+		case TRUE:
+			managed_type = NM_CONFIG_DEVICE_STATE_MANAGED_TYPE_MANAGED;
 			connection_uuid = nm_config_keyfile_get_value (kf,
 			                                               DEVICE_RUN_STATE_KEYFILE_GROUP_DEVICE,
 			                                               DEVICE_RUN_STATE_KEYFILE_KEY_DEVICE_CONNECTION_UUID,
 			                                               NM_CONFIG_GET_VALUE_STRIP | NM_CONFIG_GET_VALUE_NO_EMPTY);
+			break;
+		case FALSE:
+			managed_type = NM_CONFIG_DEVICE_STATE_MANAGED_TYPE_UNMANAGED;
+			break;
+		case -1:
+			/* missing property in keyfile. */
+			break;
 		}
 
 		perm_hw_addr_fake = nm_config_keyfile_get_value (kf,
@@ -1915,6 +1951,11 @@ _config_device_state_data_new (int ifindex, GKeyFile *kf)
 			g_free (perm_hw_addr_fake);
 			perm_hw_addr_fake = normalized;
 		}
+
+		nm_owned = nm_config_keyfile_get_boolean (kf,
+		                                          DEVICE_RUN_STATE_KEYFILE_GROUP_DEVICE,
+		                                          DEVICE_RUN_STATE_KEYFILE_KEY_DEVICE_NM_OWNED,
+		                                          -1);
 	}
 
 	connection_uuid_len = connection_uuid ? strlen (connection_uuid) + 1 : 0;
@@ -1928,6 +1969,7 @@ _config_device_state_data_new (int ifindex, GKeyFile *kf)
 	device_state->managed = managed_type;
 	device_state->connection_uuid = NULL;
 	device_state->perm_hw_addr_fake = NULL;
+	device_state->nm_owned = nm_owned;
 
 	p = (char *) (&device_state[1]);
 	if (connection_uuid) {
@@ -1957,6 +1999,7 @@ nm_config_device_state_load (int ifindex)
 	NMConfigDeviceStateData *device_state;
 	char path[NM_STRLEN (NM_CONFIG_DEVICE_STATE_DIR) + 60];
 	gs_unref_keyfile GKeyFile *kf = NULL;
+	const char *nm_owned_str;
 
 	g_return_val_if_fail (ifindex > 0, NULL);
 
@@ -1967,33 +2010,28 @@ nm_config_device_state_load (int ifindex)
 		g_clear_pointer (&kf, g_key_file_unref);
 
 	device_state = _config_device_state_data_new (ifindex, kf);
+	nm_owned_str = device_state->nm_owned == TRUE ?
+	               ", nm-owned=1" :
+	               (device_state->nm_owned == FALSE ? ", nm-owned=0" : "");
 
-	if (kf) {
-		_LOGT ("device-state: read #%d (%s); managed=%d%s%s%s%s%s%s",
-		       ifindex, path,
-		       device_state->managed,
-		       NM_PRINT_FMT_QUOTED (device_state->connection_uuid, ", connection-uuid=", device_state->connection_uuid, "", ""),
-		       NM_PRINT_FMT_QUOTED (device_state->perm_hw_addr_fake, ", perm-hw-addr-fake=", device_state->perm_hw_addr_fake, "", ""));
-	} else {
-		_LOGT ("device-state: read #%d (%s); no persistent state",
-		       ifindex, path);
-	}
+
+	_LOGT ("device-state: %s #%d (%s); managed=%s%s%s%s%s%s%s%s",
+	       kf ? "read" : "miss",
+	       ifindex, path,
+	       _device_state_managed_type_to_str (device_state->managed),
+	       NM_PRINT_FMT_QUOTED (device_state->connection_uuid, ", connection-uuid=", device_state->connection_uuid, "", ""),
+	       NM_PRINT_FMT_QUOTED (device_state->perm_hw_addr_fake, ", perm-hw-addr-fake=", device_state->perm_hw_addr_fake, "", ""),
+	       nm_owned_str);
 
 	return device_state;
 }
-
-NM_UTILS_LOOKUP_STR_DEFINE_STATIC (_device_state_managed_type_to_str, NMConfigDeviceStateManagedType,
-	NM_UTILS_LOOKUP_DEFAULT_NM_ASSERT ("unknown"),
-	NM_UTILS_LOOKUP_STR_ITEM (NM_CONFIG_DEVICE_STATE_MANAGED_TYPE_UNKNOWN,   "unknown"),
-	NM_UTILS_LOOKUP_STR_ITEM (NM_CONFIG_DEVICE_STATE_MANAGED_TYPE_UNMANAGED, "unmanaged"),
-	NM_UTILS_LOOKUP_STR_ITEM (NM_CONFIG_DEVICE_STATE_MANAGED_TYPE_MANAGED,   "managed"),
-);
 
 gboolean
 nm_config_device_state_write (int ifindex,
                               NMConfigDeviceStateManagedType managed,
                               const char *perm_hw_addr_fake,
-                              const char *connection_uuid)
+                              const char *connection_uuid,
+                              gint nm_owned)
 {
 	char path[NM_STRLEN (NM_CONFIG_DEVICE_STATE_DIR) + 60];
 	GError *local = NULL;
@@ -2028,6 +2066,13 @@ nm_config_device_state_write (int ifindex,
 		                       DEVICE_RUN_STATE_KEYFILE_KEY_DEVICE_CONNECTION_UUID,
 		                       connection_uuid);
 	}
+	if (nm_owned >= 0) {
+		g_key_file_set_boolean (kf,
+		                        DEVICE_RUN_STATE_KEYFILE_GROUP_DEVICE,
+		                        DEVICE_RUN_STATE_KEYFILE_KEY_DEVICE_NM_OWNED,
+		                        nm_owned);
+	}
+
 
 	if (!g_key_file_save_to_file (kf, path, &local)) {
 		_LOGW ("device-state: write #%d (%s) failed: %s", ifindex, path, local->message);

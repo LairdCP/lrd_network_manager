@@ -63,6 +63,10 @@
 #include "nm-device-macvlan.h"
 #include "nm-device-modem.h"
 #include "nm-device-olpc-mesh.h"
+#include "nm-device-ovs-interface.h"
+#include "nm-device-ovs-port.h"
+#include "nm-device-ovs-bridge.h"
+#include "nm-device-ppp.h"
 #include "nm-device-team.h"
 #include "nm-device-tun.h"
 #include "nm-device-vlan.h"
@@ -92,6 +96,13 @@ G_DEFINE_TYPE_WITH_CODE (NMClient, nm_client, G_TYPE_OBJECT,
 #define NM_CLIENT_GET_PRIVATE(o) (G_TYPE_INSTANCE_GET_PRIVATE ((o), NM_TYPE_CLIENT, NMClientPrivate))
 
 typedef struct {
+	NMClient *client;
+	GCancellable *cancellable;
+	GSimpleAsyncResult *result;
+	int pending_init;
+} NMClientInitData;
+
+typedef struct {
 	NMManager *manager;
 	NMRemoteSettings *settings;
 	NMDnsManager *dns_manager;
@@ -115,6 +126,8 @@ enum {
 	PROP_WIMAX_HARDWARE_ENABLED,
 	PROP_ACTIVE_CONNECTIONS,
 	PROP_CONNECTIVITY,
+	PROP_CONNECTIVITY_CHECK_AVAILABLE,
+	PROP_CONNECTIVITY_CHECK_ENABLED,
 	PROP_PRIMARY_CONNECTION,
 	PROP_ACTIVATING_CONNECTION,
 	PROP_DEVICES,
@@ -463,6 +476,72 @@ nm_client_wimax_hardware_get_enabled (NMClient *client)
 		return FALSE;
 
 	return nm_manager_wimax_hardware_get_enabled (NM_CLIENT_GET_PRIVATE (client)->manager);
+}
+
+/**
+ * nm_client_connectivity_check_get_available:
+ * @client: a #NMClient
+ *
+ * Determine whether connectivity checking is available.  This
+ * requires that the URI of a connectivity service has been set in the
+ * configuration file.
+ *
+ * Returns: %TRUE if connectivity checking is available.
+ *
+ * Since: 1.10
+ */
+gboolean
+nm_client_connectivity_check_get_available (NMClient *client)
+{
+	g_return_val_if_fail (NM_IS_CLIENT (client), FALSE);
+
+	if (!nm_client_get_nm_running (client))
+		return FALSE;
+
+	return nm_manager_connectivity_check_get_available (NM_CLIENT_GET_PRIVATE (client)->manager);
+}
+
+/**
+ * nm_client_connectivity_check_get_enabled:
+ * @client: a #NMClient
+ *
+ * Determine whether connectivity checking is enabled.
+ *
+ * Returns: %TRUE if connectivity checking is enabled.
+ *
+ * Since: 1.10
+ */
+gboolean
+nm_client_connectivity_check_get_enabled (NMClient *client)
+{
+	g_return_val_if_fail (NM_IS_CLIENT (client), FALSE);
+
+	if (!nm_client_get_nm_running (client))
+		return FALSE;
+
+	return nm_manager_connectivity_check_get_enabled (NM_CLIENT_GET_PRIVATE (client)->manager);
+}
+
+/**
+ * nm_client_connectivity_check_set_enabled:
+ * @client: a #NMClient
+ * @enabled: %TRUE to enable connectivity checking
+ *
+ * Enable or disable connectivity checking.  Note that if a
+ * connectivity checking URI has not been configured, this will not
+ * have any effect.
+ *
+ * Since: 1.10
+ */
+void
+nm_client_connectivity_check_set_enabled (NMClient *client, gboolean enabled)
+{
+	g_return_if_fail (NM_IS_CLIENT (client));
+
+	if (!nm_client_get_nm_running (client))
+		return;
+
+	nm_manager_connectivity_check_set_enabled (NM_CLIENT_GET_PRIVATE (client)->manager, enabled);
 }
 
 /**
@@ -1006,7 +1085,7 @@ activate_cb (GObject *object,
  * picks the best available connection for the device and activates it.
  *
  * Note that the callback is invoked when NetworkManager has started activating
- * the new connection, not when it finishes. You can used the returned
+ * the new connection, not when it finishes. You can use the returned
  * #NMActiveConnection object (in particular, #NMActiveConnection:state) to
  * track the activation to its completion.
  **/
@@ -2071,6 +2150,14 @@ obj_nm_for_gdbus_object (NMClient *self, GDBusObject *object, GDBusObjectManager
 			type = NM_TYPE_DEVICE_MODEM;
 		else if (strcmp (ifname, NM_DBUS_INTERFACE_DEVICE_OLPC_MESH) == 0)
 			type = NM_TYPE_DEVICE_OLPC_MESH;
+		else if (strcmp (ifname, NM_DBUS_INTERFACE_DEVICE_OVS_INTERFACE) == 0)
+			type = NM_TYPE_DEVICE_OVS_INTERFACE;
+		else if (strcmp (ifname, NM_DBUS_INTERFACE_DEVICE_OVS_PORT) == 0)
+			type = NM_TYPE_DEVICE_OVS_PORT;
+		else if (strcmp (ifname, NM_DBUS_INTERFACE_DEVICE_OVS_BRIDGE) == 0)
+			type = NM_TYPE_DEVICE_OVS_BRIDGE;
+		else if (strcmp (ifname, NM_DBUS_INTERFACE_DEVICE_PPP) == 0)
+			type = NM_TYPE_DEVICE_PPP;
 		else if (strcmp (ifname, NM_DBUS_INTERFACE_DEVICE_TEAM) == 0)
 			type = NM_TYPE_DEVICE_TEAM;
 		else if (strcmp (ifname, NM_DBUS_INTERFACE_DEVICE_TUN) == 0)
@@ -2268,12 +2355,22 @@ objects_created (NMClient *client, GDBusObjectManager *object_manager, GError **
 static void name_owner_changed (GObject *object, GParamSpec *pspec, gpointer user_data);
 
 static gboolean
+_om_has_name_owner (GDBusObjectManager *object_manager)
+{
+	gs_free char *name_owner = NULL;
+
+	nm_assert (G_IS_DBUS_OBJECT_MANAGER_CLIENT (object_manager));
+
+	name_owner = g_dbus_object_manager_client_get_name_owner (G_DBUS_OBJECT_MANAGER_CLIENT (object_manager));
+	return !!name_owner;
+}
+
+static gboolean
 init_sync (GInitable *initable, GCancellable *cancellable, GError **error)
 {
 	NMClient *client = NM_CLIENT (initable);
 	NMClientPrivate *priv = NM_CLIENT_GET_PRIVATE (client);
 	GList *objects, *iter;
-	gchar *name_owner;
 
 	priv->object_manager = g_dbus_object_manager_client_new_for_bus_sync (_nm_dbus_bus_type (),
 	                                                                      G_DBUS_OBJECT_MANAGER_CLIENT_FLAGS_DO_NOT_AUTO_START,
@@ -2285,9 +2382,7 @@ init_sync (GInitable *initable, GCancellable *cancellable, GError **error)
 	if (!priv->object_manager)
 		return FALSE;
 
-	name_owner = g_dbus_object_manager_client_get_name_owner (G_DBUS_OBJECT_MANAGER_CLIENT (priv->object_manager));
-	if (name_owner) {
-		g_free (name_owner);
+	if (_om_has_name_owner (priv->object_manager)) {
 		if (!objects_created (client, priv->object_manager, error))
 			return FALSE;
 
@@ -2316,16 +2411,11 @@ init_sync (GInitable *initable, GCancellable *cancellable, GError **error)
 
 /* Asynchronous initialization. */
 
-typedef struct {
-	NMClient *client;
-	GCancellable *cancellable;
-	GSimpleAsyncResult *result;
-	int pending_init;
-} NMClientInitData;
-
 static void
 init_async_complete (NMClientInitData *init_data)
 {
+	if (init_data->pending_init > 0)
+		return;
 	g_simple_async_result_complete (init_data->result);
 	g_object_unref (init_data->result);
 	g_clear_object (&init_data->cancellable);
@@ -2338,14 +2428,13 @@ async_inited_obj_nm (GObject *object, GAsyncResult *result, gpointer user_data)
 	NMClientInitData *init_data = user_data;
 	GError *error = NULL;
 
+	nm_assert (init_data && init_data->pending_init > 0);
+
 	if (!g_async_initable_init_finish (G_ASYNC_INITABLE (object), result, &error))
 		g_simple_async_result_take_error (init_data->result, error);
 
-	if (init_data) {
-		init_data->pending_init--;
-		if (init_data->pending_init == 0)
-			init_async_complete (init_data);
-	}
+	init_data->pending_init--;
+	init_async_complete (init_data);
 }
 
 static void
@@ -2405,10 +2494,11 @@ unhook_om (NMClient *self)
 static void
 new_object_manager (GObject *source_object, GAsyncResult *res, gpointer user_data)
 {
-	NMClientPrivate *priv = NM_CLIENT_GET_PRIVATE (source_object);
+	NMClient *self = NM_CLIENT (user_data);
+	NMClientPrivate *priv = NM_CLIENT_GET_PRIVATE (self);
 
-	g_object_notify (G_OBJECT (user_data), NM_CLIENT_NM_RUNNING);
 	g_clear_object (&priv->new_object_manager_cancellable);
+	g_object_notify (G_OBJECT (user_data), NM_CLIENT_NM_RUNNING);
 }
 
 static void
@@ -2418,16 +2508,13 @@ got_object_manager (GObject *object, GAsyncResult *result, gpointer user_data)
 	NMClient *client;
 	NMClientPrivate *priv;
 	GList *objects, *iter;
-	gchar *name_owner;
 	GError *error = NULL;
 	GDBusObjectManager *object_manager;
 
 	object_manager = g_dbus_object_manager_client_new_for_bus_finish (result, &error);
 	if (object_manager == NULL) {
-		if (!g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED)) {
-			g_simple_async_result_take_error (init_data->result, error);
-			init_async_complete (init_data);
-		}
+		g_simple_async_result_take_error (init_data->result, error);
+		init_async_complete (init_data);
 		return;
 	}
 
@@ -2435,9 +2522,7 @@ got_object_manager (GObject *object, GAsyncResult *result, gpointer user_data)
 	priv = NM_CLIENT_GET_PRIVATE (client);
 	priv->object_manager = object_manager;
 
-	name_owner = g_dbus_object_manager_client_get_name_owner (G_DBUS_OBJECT_MANAGER_CLIENT (priv->object_manager));
-	if (name_owner) {
-		g_free (name_owner);
+	if (_om_has_name_owner (priv->object_manager)) {
 		if (!objects_created (client, priv->object_manager, &error)) {
 			g_simple_async_result_take_error (init_data->result, error);
 			init_async_complete (init_data);
@@ -2458,9 +2543,9 @@ got_object_manager (GObject *object, GAsyncResult *result, gpointer user_data)
 			                             async_inited_obj_nm, init_data);
 		}
 		g_list_free_full (objects, g_object_unref);
+	}
 
-	} else
-		init_async_complete (init_data);
+	init_async_complete (init_data);
 
 	g_signal_connect (priv->object_manager, "notify::name-owner",
 	                  G_CALLBACK (name_owner_changed), client);
@@ -2497,17 +2582,16 @@ name_owner_changed (GObject *object, GParamSpec *pspec, gpointer user_data)
 	NMClient *self = user_data;
 	NMClientPrivate *priv = NM_CLIENT_GET_PRIVATE (self);
 	GDBusObjectManager *object_manager = G_DBUS_OBJECT_MANAGER (object);
-	gchar *name_owner;
 
-	name_owner = g_dbus_object_manager_client_get_name_owner (G_DBUS_OBJECT_MANAGER_CLIENT (object));
-	if (name_owner) {
-		g_free (name_owner);
-		g_object_unref (object_manager);
-		if (priv->new_object_manager_cancellable)
-			g_cancellable_cancel (priv->new_object_manager_cancellable);
+	nm_assert (object_manager == priv->object_manager);
+
+	if (_om_has_name_owner (object_manager)) {
+		g_signal_handlers_disconnect_by_data (priv->object_manager, self);
+		g_clear_object (&priv->object_manager);
+		nm_clear_g_cancellable (&priv->new_object_manager_cancellable);
 		priv->new_object_manager_cancellable = g_cancellable_new ();
 		prepare_object_manager (self, priv->new_object_manager_cancellable,
-		                        new_object_manager, user_data);
+		                        new_object_manager, self);
 	} else {
 		g_signal_handlers_disconnect_by_func (object_manager, object_added, self);
 		unhook_om (self);
@@ -2587,6 +2671,7 @@ set_property (GObject *object, guint prop_id,
 	case PROP_WIRELESS_ENABLED:
 	case PROP_WWAN_ENABLED:
 	case PROP_WIMAX_ENABLED:
+	case PROP_CONNECTIVITY_CHECK_ENABLED:
 		if (priv->manager)
 			g_object_set_property (G_OBJECT (priv->manager), pspec->name, value);
 		break;
@@ -2626,7 +2711,7 @@ get_property (GObject *object, guint prop_id,
 		break;
 	case PROP_WIRELESS_HARDWARE_ENABLED:
 		if (priv->manager)
-			g_object_get_property (G_OBJECT (priv->settings), pspec->name, value);
+			g_object_get_property (G_OBJECT (priv->manager), pspec->name, value);
 		else
 			g_value_set_boolean (value, FALSE);
 		break;
@@ -2635,7 +2720,7 @@ get_property (GObject *object, guint prop_id,
 		break;
 	case PROP_WWAN_HARDWARE_ENABLED:
 		if (priv->manager)
-			g_object_get_property (G_OBJECT (priv->settings), pspec->name, value);
+			g_object_get_property (G_OBJECT (priv->manager), pspec->name, value);
 		else
 			g_value_set_boolean (value, FALSE);
 		break;
@@ -2644,7 +2729,7 @@ get_property (GObject *object, guint prop_id,
 		break;
 	case PROP_WIMAX_HARDWARE_ENABLED:
 		if (priv->manager)
-			g_object_get_property (G_OBJECT (priv->settings), pspec->name, value);
+			g_object_get_property (G_OBJECT (priv->manager), pspec->name, value);
 		else
 			g_value_set_boolean (value, FALSE);
 		break;
@@ -2653,6 +2738,12 @@ get_property (GObject *object, guint prop_id,
 		break;
 	case PROP_CONNECTIVITY:
 		g_value_set_enum (value, nm_client_get_connectivity (self));
+		break;
+	case PROP_CONNECTIVITY_CHECK_AVAILABLE:
+		g_value_set_boolean (value, nm_client_connectivity_check_get_available (self));
+		break;
+	case PROP_CONNECTIVITY_CHECK_ENABLED:
+		g_value_set_boolean (value, nm_client_connectivity_check_get_enabled (self));
 		break;
 	case PROP_PRIMARY_CONNECTION:
 		g_value_set_object (value, nm_client_get_primary_connection (self));
@@ -2665,7 +2756,7 @@ get_property (GObject *object, guint prop_id,
 		break;
 	case PROP_METERED:
 		if (priv->manager)
-			g_object_get_property (G_OBJECT (priv->settings), pspec->name, value);
+			g_object_get_property (G_OBJECT (priv->manager), pspec->name, value);
 		else
 			g_value_set_uint (value, NM_METERED_UNKNOWN);
 		break;
@@ -2890,6 +2981,34 @@ nm_client_class_init (NMClientClass *client_class)
 		                    NM_CONNECTIVITY_UNKNOWN,
 		                    G_PARAM_READABLE |
 		                    G_PARAM_STATIC_STRINGS));
+
+	/**
+	 * NMClient::connectivity-check-available
+	 *
+	 * Whether a connectivity checking service has been configured.
+	 *
+	 * Since: 1.10
+	 */
+	g_object_class_install_property
+		(object_class, PROP_CONNECTIVITY_CHECK_AVAILABLE,
+		 g_param_spec_boolean (NM_CLIENT_CONNECTIVITY_CHECK_AVAILABLE, "", "",
+		                       FALSE,
+		                       G_PARAM_READABLE |
+		                       G_PARAM_STATIC_STRINGS));
+
+	/**
+	 * NMClient::connectivity-check-enabled
+	 *
+	 * Whether a connectivity checking service has been enabled.
+	 *
+	 * Since: 1.10
+	 */
+	g_object_class_install_property
+		(object_class, PROP_CONNECTIVITY_CHECK_ENABLED,
+		 g_param_spec_boolean (NM_CLIENT_CONNECTIVITY_CHECK_ENABLED, "", "",
+		                       FALSE,
+		                       G_PARAM_READWRITE |
+		                       G_PARAM_STATIC_STRINGS));
 
 	/**
 	 * NMClient:primary-connection:

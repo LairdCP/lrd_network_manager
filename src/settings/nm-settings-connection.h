@@ -83,23 +83,16 @@ typedef enum { /*< skip >*/
 } NMSettingsConnectionCommitReason;
 
 typedef enum {
-	NM_SETTINGS_AUTO_CONNECT_BLOCKED_REASON_UNBLOCKED               = 0,
-	NM_SETTINGS_AUTO_CONNECT_BLOCKED_REASON_BLOCKED                 = 1,
-	NM_SETTINGS_AUTO_CONNECT_BLOCKED_REASON_NO_SECRETS              = 2,
+	NM_SETTINGS_AUTO_CONNECT_BLOCKED_REASON_NONE                    = 0,
+	NM_SETTINGS_AUTO_CONNECT_BLOCKED_REASON_USER_REQUEST            = 1,
+	NM_SETTINGS_AUTO_CONNECT_BLOCKED_REASON_FAILED                  = 2,
+	NM_SETTINGS_AUTO_CONNECT_BLOCKED_REASON_NO_SECRETS              = 3,
 } NMSettingsAutoconnectBlockedReason;
 
 struct _NMSettingsConnectionCallId;
 typedef struct _NMSettingsConnectionCallId *NMSettingsConnectionCallId;
 
 typedef struct _NMSettingsConnectionClass NMSettingsConnectionClass;
-
-typedef void (*NMSettingsConnectionCommitFunc) (NMSettingsConnection *self,
-                                                GError *error,
-                                                gpointer user_data);
-
-typedef void (*NMSettingsConnectionDeleteFunc) (NMSettingsConnection *self,
-                                                GError *error,
-                                                gpointer user_data);
 
 struct _NMSettingsConnectionPrivate;
 
@@ -111,20 +104,15 @@ struct _NMSettingsConnection {
 struct _NMSettingsConnectionClass {
 	NMExportedObjectClass parent;
 
-	/* virtual methods */
-	void (*replace_and_commit) (NMSettingsConnection *self,
+	gboolean (*commit_changes) (NMSettingsConnection *self,
 	                            NMConnection *new_connection,
-	                            NMSettingsConnectionCommitFunc callback,
-	                            gpointer user_data);
+	                            NMSettingsConnectionCommitReason commit_reason,
+	                            NMConnection **out_reread_connection,
+	                            char **out_logmsg_change,
+	                            GError **error);
 
-	void (*commit_changes) (NMSettingsConnection *self,
-	                        NMSettingsConnectionCommitReason commit_reason,
-	                        NMSettingsConnectionCommitFunc callback,
-	                        gpointer user_data);
-
-	void (*delete) (NMSettingsConnection *self,
-	                NMSettingsConnectionDeleteFunc callback,
-	                gpointer user_data);
+	gboolean (*delete) (NMSettingsConnection *self,
+	                    GError **error);
 
 	gboolean (*supports_secrets) (NMSettingsConnection *self,
 	                              const char *setting_name);
@@ -136,10 +124,14 @@ gboolean nm_settings_connection_has_unmodified_applied_connection (NMSettingsCon
                                                                    NMConnection *applied_connection,
                                                                    NMSettingCompareFlags compare_flage);
 
-void nm_settings_connection_commit_changes (NMSettingsConnection *self,
-                                            NMSettingsConnectionCommitReason commit_reason,
-                                            NMSettingsConnectionCommitFunc callback,
-                                            gpointer user_data);
+gboolean  nm_settings_connection_commit_changes (NMSettingsConnection *self,
+                                                 NMConnection *new_connection,
+                                                 NMSettingsConnectionCommitReason commit_reason,
+                                                 GError **error);
+
+gboolean nm_settings_connection_replace_settings_prepare (NMSettingsConnection *self,
+                                                          NMConnection *new_connection,
+                                                          GError **error);
 
 gboolean nm_settings_connection_replace_settings (NMSettingsConnection *self,
                                                   NMConnection *new_connection,
@@ -147,14 +139,15 @@ gboolean nm_settings_connection_replace_settings (NMSettingsConnection *self,
                                                   const char *log_diff_name,
                                                   GError **error);
 
-void nm_settings_connection_replace_and_commit (NMSettingsConnection *self,
-                                                NMConnection *new_connection,
-                                                NMSettingsConnectionCommitFunc callback,
-                                                gpointer user_data);
+gboolean nm_settings_connection_replace_settings_full (NMSettingsConnection *self,
+                                                       NMConnection *new_connection,
+                                                       gboolean prepare_new_connection,
+                                                       gboolean update_unsaved,
+                                                       const char *log_diff_name,
+                                                       GError **error);
 
-void nm_settings_connection_delete (NMSettingsConnection *self,
-                                    NMSettingsConnectionDeleteFunc callback,
-                                    gpointer user_data);
+gboolean nm_settings_connection_delete (NMSettingsConnection *self,
+                                        GError **error);
 
 typedef void (*NMSettingsConnectionSecretsFunc) (NMSettingsConnection *self,
                                                  NMSettingsConnectionCallId call_id,
@@ -162,6 +155,12 @@ typedef void (*NMSettingsConnectionSecretsFunc) (NMSettingsConnection *self,
                                                  const char *setting_name,
                                                  GError *error,
                                                  gpointer user_data);
+
+gboolean nm_settings_connection_new_secrets (NMSettingsConnection *self,
+                                             NMConnection *applied_connection,
+                                             const char *setting_name,
+                                             GVariant *secrets,
+                                             GError **error);
 
 NMSettingsConnectionCallId nm_settings_connection_get_secrets (NMSettingsConnection *self,
                                                                NMConnection *applied_connection,
@@ -214,18 +213,16 @@ void nm_settings_connection_add_seen_bssid (NMSettingsConnection *self,
 
 void nm_settings_connection_read_and_fill_seen_bssids (NMSettingsConnection *self);
 
-int nm_settings_connection_get_autoconnect_retries (NMSettingsConnection *self);
-void nm_settings_connection_set_autoconnect_retries (NMSettingsConnection *self,
+int nm_settings_connection_autoconnect_retries_get (NMSettingsConnection *self);
+void nm_settings_connection_autoconnect_retries_set (NMSettingsConnection *self,
                                                      int retries);
-void nm_settings_connection_reset_autoconnect_retries (NMSettingsConnection *self);
+void nm_settings_connection_autoconnect_retries_reset (NMSettingsConnection *self);
 
-gint32 nm_settings_connection_get_autoconnect_retry_time (NMSettingsConnection *self);
+gint32 nm_settings_connection_autoconnect_blocked_until_get (NMSettingsConnection *self);
 
-NMSettingsAutoconnectBlockedReason nm_settings_connection_get_autoconnect_blocked_reason (NMSettingsConnection *self);
-void                               nm_settings_connection_set_autoconnect_blocked_reason (NMSettingsConnection *self,
+NMSettingsAutoconnectBlockedReason nm_settings_connection_autoconnect_blocked_reason_get (NMSettingsConnection *self);
+void                               nm_settings_connection_autoconnect_blocked_reason_set (NMSettingsConnection *self,
                                                                                           NMSettingsAutoconnectBlockedReason reason);
-
-gboolean nm_settings_connection_can_autoconnect (NMSettingsConnection *self);
 
 gboolean nm_settings_connection_get_nm_generated (NMSettingsConnection *self);
 gboolean nm_settings_connection_get_volatile (NMSettingsConnection *self);

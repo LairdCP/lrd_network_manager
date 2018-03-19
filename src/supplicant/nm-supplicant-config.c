@@ -31,6 +31,7 @@
 #include "nm-auth-subject.h"
 #include "NetworkManagerUtils.h"
 #include "nm-utils.h"
+#include "nm-setting-ip4-config.h"
 
 typedef struct {
 	char *value;
@@ -56,7 +57,6 @@ typedef struct {
 	guint32    frequency_dfs;
 
 	NMSupplicantFeature laird_support;
-	gboolean   bgscan_is_set; /* used to prevent setting twice */
 } NMSupplicantConfigPrivate;
 
 struct _NMSupplicantConfig {
@@ -98,11 +98,11 @@ nm_supplicant_config_init (NMSupplicantConfig * self)
 {
 	NMSupplicantConfigPrivate *priv = NM_SUPPLICANT_CONFIG_GET_PRIVATE (self);
 
-	priv->config = g_hash_table_new_full (g_str_hash, g_str_equal,
+	priv->config = g_hash_table_new_full (nm_str_hash, g_str_equal,
 	                                      (GDestroyNotify) g_free,
 	                                      (GDestroyNotify) config_option_free);
 
-	priv->blobs = g_hash_table_new_full (g_str_hash, g_str_equal,
+	priv->blobs = g_hash_table_new_full (nm_str_hash, g_str_equal,
 	                                     (GDestroyNotify) g_free,
 	                                     (GDestroyNotify) blob_free);
 
@@ -636,19 +636,6 @@ nm_supplicant_config_add_setting_wireless (NMSupplicantConfig * self,
 				return FALSE;
 	}
 
-	{
-		const char *bgscan;
-		bgscan = nm_setting_wireless_get_bgscan (setting);
-		if (bgscan) {
-			if (!nm_supplicant_config_add_option (self, "bgscan", bgscan, strlen (bgscan), NULL, error))
-				return FALSE;
-			priv->bgscan_is_set = TRUE;
-		} else {
-			// allow setting of bgscan when configuring wireless_security
-			priv->bgscan_is_set = FALSE;
-		}
-	}
-
 	if (priv->laird_support == NM_SUPPLICANT_FEATURE_YES) {
 		guint32 auth_timeout;
 		auth_timeout = nm_setting_wireless_get_auth_timeout (setting);
@@ -661,6 +648,64 @@ nm_supplicant_config_add_setting_wireless (NMSupplicantConfig * self,
 	}
 
 	return TRUE;
+}
+
+gboolean
+nm_supplicant_config_add_bgscan (NMSupplicantConfig *self,
+                                 NMConnection *connection,
+                                 GError **error)
+{
+	NMSettingWireless *s_wifi;
+	NMSettingWirelessSecurity *s_wsec;
+	const char *bgscan;
+
+	s_wifi = nm_connection_get_setting_wireless (connection);
+	g_assert (s_wifi);
+
+	/* Don't scan when a shared connection (either AP or Ad-Hoc) is active;
+	 * it will disrupt connected clients.
+	 */
+	if (NM_IN_STRSET (nm_setting_wireless_get_mode (s_wifi),
+	                  NM_SETTING_WIRELESS_MODE_AP,
+	                  NM_SETTING_WIRELESS_MODE_ADHOC))
+		return TRUE;
+
+	/* Don't scan when the connection is locked to a specifc AP, since
+	 * intra-ESS roaming (which requires periodic scanning) isn't being
+	 * used due to the specific AP lock. (bgo #513820)
+	 */
+	if (nm_setting_wireless_get_bssid (s_wifi))
+		return TRUE;
+
+	/* Laird: bgscan from configuration */
+	{
+		bgscan = nm_setting_wireless_get_bgscan (s_wifi);
+		if (bgscan) {
+			return nm_supplicant_config_add_option (self, "bgscan", bgscan, -1, FALSE, error);
+		}
+	}
+
+	/* Default to a very long bgscan interval when signal is OK on the assumption
+	 * that either (a) there aren't multiple APs and we don't need roaming, or
+	 * (b) since EAP/802.1x isn't used and thus there are fewer steps to fail
+	 * during a roam, we can wait longer before scanning for roam candidates.
+	 */
+	bgscan = "simple:30:-80:86400";
+
+	/* If using WPA Enterprise or Dynamic WEP use a shorter bgscan interval on
+	 * the assumption that this is a multi-AP ESS in which we want more reliable
+	 * roaming between APs.  Thus trigger scans when the signal is still somewhat
+	 * OK so we have an up-to-date roam candidate list when the signal gets bad.
+	 */
+	s_wsec = nm_connection_get_setting_wireless_security (connection);
+	if (s_wsec) {
+		if (NM_IN_STRSET (nm_setting_wireless_security_get_key_mgmt (s_wsec),
+		                  "ieee8021x",
+		                  "wpa-eap"))
+			bgscan = "simple:30:-65:300";
+	}
+
+	return nm_supplicant_config_add_option (self, "bgscan", bgscan, -1, FALSE, error);
 }
 
 static gboolean
@@ -842,10 +887,11 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
                                                     NMSetting8021x *setting_8021x,
                                                     const char *con_uuid,
                                                     guint32 mtu,
+                                                    NMSettingWirelessSecurityPmf pmf,
                                                     GError **error)
 {
 	NMSupplicantConfigPrivate *priv;
-	const char *key_mgmt, *auth_alg;
+	const char *key_mgmt, *key_mgmt_conf, *auth_alg;
 	const char *psk;
 
 	g_return_val_if_fail (NM_IS_SUPPLICANT_CONFIG (self), FALSE);
@@ -855,8 +901,19 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
 
 	priv = NM_SUPPLICANT_CONFIG_GET_PRIVATE (self);
 
-	key_mgmt = nm_setting_wireless_security_get_key_mgmt (setting);
-	if (!add_string_val (self, key_mgmt, "key_mgmt", TRUE, NULL, error))
+	key_mgmt = key_mgmt_conf = nm_setting_wireless_security_get_key_mgmt (setting);
+	if (pmf == NM_SETTING_WIRELESS_SECURITY_PMF_OPTIONAL) {
+		if (nm_streq (key_mgmt_conf, "wpa-psk"))
+			key_mgmt_conf = "wpa-psk wpa-psk-sha256";
+		else if (nm_streq (key_mgmt_conf, "wpa-eap"))
+			key_mgmt_conf = "wpa-eap wpa-eap-sha256";
+	} else if (pmf == NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED) {
+		if (nm_streq (key_mgmt_conf, "wpa-psk"))
+			key_mgmt_conf = "wpa-psk-sha256";
+		else if (nm_streq (key_mgmt_conf, "wpa-eap"))
+			key_mgmt_conf = "wpa-eap-sha256";
+	}
+	if (!add_string_val (self, key_mgmt_conf, "key_mgmt", TRUE, NULL, error))
 		return FALSE;
 
 	auth_alg = nm_setting_wireless_security_get_auth_alg (setting);
@@ -912,6 +969,19 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
 			return FALSE;
 		if (!ADD_STRING_LIST_VAL (self, setting, wireless_security, group, groups, "group", ' ', TRUE, NULL, error))
 			return FALSE;
+
+		if (   !nm_streq (key_mgmt, "wpa-none")
+		    && NM_IN_SET (pmf,
+		                  NM_SETTING_WIRELESS_SECURITY_PMF_OPTIONAL,
+		                  NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED)) {
+			if (!nm_supplicant_config_add_option (self,
+			                                      "ieee80211w",
+			                                      pmf == NM_SETTING_WIRELESS_SECURITY_PMF_OPTIONAL ? "1" : "2",
+			                                      -1,
+			                                      NULL,
+			                                      error))
+				return FALSE;
+		}
 	}
 
 	/* WEP keys if required */
@@ -973,13 +1043,6 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
 		}
 
 		if (!strcmp (key_mgmt, "wpa-eap") || !strcmp (key_mgmt, "cckm")) {
-			/* If using WPA Enterprise, enable optimized background scanning
-			 * to ensure roaming within an ESS works well.
-			 */
-			if (!priv->bgscan_is_set &&
-				!nm_supplicant_config_add_option (self, "bgscan", "simple:30:-65:300", -1, NULL, error))
-				return FALSE;
-
 			/* When using WPA-Enterprise, we want to use Proactive Key Caching (also
 			 * called Opportunistic Key Caching) to avoid full EAP exchanges when
 			 * roaming between access points in the same mobility group.
@@ -1032,11 +1095,11 @@ add_pkcs11_uri_with_pin (NMSupplicantConfig *self,
 	}
 
 	tmp = g_strdup_printf ("%s%s%s", split[0],
-	                       (pin_qattr ? "&" : ""),
+	                       (pin_qattr ? "?" : ""),
 	                       (pin_qattr ? pin_qattr : ""));
 
 	tmp_log = g_strdup_printf ("%s%s%s", split[0],
-	                           (pin_qattr ? "&" : ""),
+	                           (pin_qattr ? "?" : ""),
 	                           (pin_qattr ? "pin-value=<hidden>" : ""));
 
 	return add_string_val (self, tmp, name, FALSE, tmp_log, error);

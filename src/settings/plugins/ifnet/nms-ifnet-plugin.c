@@ -138,9 +138,9 @@ monitor_file_changes (const char *filename,
 		info->callback = callback;
 		info->user_data = user_data;
 		g_object_weak_ref (G_OBJECT (monitor), (GWeakNotify) g_free,
-				   info);
+		                   info);
 		g_signal_connect (monitor, "changed", G_CALLBACK (file_changed),
-				  info);
+		                  info);
 	} else {
 		nm_log_warn (LOGD_SETTINGS, "Monitoring %s failed, error: %s", filename,
 		             error == NULL ? "nothing" : (*error)->message);
@@ -150,34 +150,38 @@ monitor_file_changes (const char *filename,
 }
 
 static void
-setup_monitors (NMIfnetConnection * connection, gpointer user_data)
+setup_monitors (NMIfnetConnection *connection, gpointer user_data)
 {
 	SettingsPluginIfnet *self = SETTINGS_PLUGIN_IFNET (user_data);
 	SettingsPluginIfnetPrivate *priv = SETTINGS_PLUGIN_IFNET_GET_PRIVATE (self);
 
-	if (nm_config_get_monitor_connection_files (nm_config_get ())) {
-		priv->net_monitor =
-			monitor_file_changes (CONF_NET_FILE, (FileChangedFn) reload_connections,
-			                      user_data);
-		priv->wpa_monitor =
-			monitor_file_changes (WPA_SUPPLICANT_CONF, (FileChangedFn) reload_connections,
-			                      user_data);
-	}
+	if (!nm_config_get_monitor_connection_files (nm_config_get ()))
+		return;
+
+	if (priv->net_monitor || priv->wpa_monitor)
+		return;
+
+	priv->net_monitor = monitor_file_changes (CONF_NET_FILE,
+	                                          (FileChangedFn) reload_connections,
+	                                          user_data);
+	priv->wpa_monitor = monitor_file_changes (WPA_SUPPLICANT_CONF,
+	                                          (FileChangedFn) reload_connections,
+	                                          user_data);
 }
 
 static void
-cancel_monitors (NMIfnetConnection * connection, gpointer user_data)
+cancel_monitors (NMIfnetConnection *connection, gpointer user_data)
 {
 	SettingsPluginIfnet *self = SETTINGS_PLUGIN_IFNET (user_data);
 	SettingsPluginIfnetPrivate *priv = SETTINGS_PLUGIN_IFNET_GET_PRIVATE (self);
 
 	if (priv->net_monitor) {
 		g_file_monitor_cancel (priv->net_monitor);
-		g_object_unref (priv->net_monitor);
+		g_clear_object (&priv->net_monitor);
 	}
 	if (priv->wpa_monitor) {
 		g_file_monitor_cancel (priv->wpa_monitor);
-		g_object_unref (priv->wpa_monitor);
+		g_clear_object (&priv->wpa_monitor);
 	}
 }
 
@@ -226,7 +230,7 @@ reload_connections (NMSettingsPlugin *config)
 	                                                 NM_CONFIG_KEYFILE_GROUP_IFNET, NM_CONFIG_KEYFILE_KEY_IFNET_AUTO_REFRESH,
 	                                                 FALSE);
 
-	new_connections = g_hash_table_new_full (g_str_hash, g_str_equal, NULL, g_object_unref);
+	new_connections = g_hash_table_new_full (nm_str_hash, g_str_equal, NULL, g_object_unref);
 
 	/* Reread on-disk data and refresh in-memory connections from it */
 	conn_names = ifnet_get_connection_names ();
@@ -321,11 +325,11 @@ add_connection (NMSettingsPlugin *config,
 	 * asked to write it to disk.
 	 */
 	if (!ifnet_can_write_connection (source, error))
-		return NULL;
+		goto out;
 
 	if (save_to_disk) {
 		if (!ifnet_add_new_connection (source, CONF_NET_FILE, WPA_SUPPLICANT_CONF, NULL, NULL, error))
-			return NULL;
+			goto out;
 		reload_connections (config);
 		new = g_hash_table_lookup (priv->connections, nm_connection_get_uuid (source));
 	} else {
@@ -337,6 +341,11 @@ add_connection (NMSettingsPlugin *config,
 		}
 	}
 
+out:
+	if (!new && error && !*error) {
+		g_set_error_literal (error, NM_SETTINGS_ERROR, NM_SETTINGS_ERROR_FAILED,
+		                     "The ifnet plugin cannot add the connection (unknown error).");
+	}
 	return (NMSettingsConnection *) new;
 }
 
@@ -439,7 +448,7 @@ init (NMSettingsPlugin *config)
 
 	nm_log_info (LOGD_SETTINGS, "Initializing!");
 
-	priv->connections = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_object_unref);
+	priv->connections = g_hash_table_new_full (nm_str_hash, g_str_equal, g_free, g_object_unref);
 	priv->unmanaged_well_known = !is_managed_plugin ();
 	nm_log_info (LOGD_SETTINGS, "management mode: %s",
 	             priv->unmanaged_well_known ? "unmanaged" : "managed");

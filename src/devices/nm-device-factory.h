@@ -72,11 +72,19 @@ typedef struct {
 	void (*start)                 (NMDeviceFactory *factory);
 
 	/**
+	 * match_connection:
+	 * @connection: the #NMConnection
+	 *
+	 * Check if the factory supports the given connection.
+	 */
+	gboolean (*match_connection)  (NMDeviceFactory *factory, NMConnection *connection);
+
+	/**
 	 * get_connection_parent:
 	 * @factory: the #NMDeviceFactory
 	 * @connection: the #NMConnection to return the parent name for, if supported
 	 *
-	 * Given a connection, returns the a parent interface name, parent connection
+	 * Given a connection, returns the parent interface name, parent connection
 	 * UUID, or parent device permanent hardware address for @connection.
 	 *
 	 * Returns: the parent interface name, parent connection UUID, parent
@@ -140,11 +148,15 @@ typedef struct {
 	 * @factory: the #NMDeviceFactory
 	 * @component: a new component which existing devices may wish to claim
 	 *
-	 * The factory emits this signal when it finds a new component.  For example,
-	 * the WWAN factory may indicate that a new modem is available, which an
-	 * existing Bluetooth device may wish to claim.  If no device claims the
-	 * component, the plugin is allowed to create a new #NMDevice instance for
-	 * that component and emit the "device-added" signal.
+	 * The factory emits this signal when an appearance of some component
+	 * native to it could be interesting to some of the already existing devices.
+	 * The devices then indicate if they took interest in claiming the component.
+	 *
+	 * For example, the WWAN factory may indicate that a new modem is available,
+	 * which an existing Bluetooth device may wish to claim. It emits a signal
+	 * passing the modem instance around to see if any device claims it.
+	 * If no device claims the component, the plugin is allowed to create a new
+	 * #NMDevice instance for that component and emit the "device-added" signal.
 	 *
 	 * Returns: %TRUE if the component was claimed by a device, %FALSE if not
 	 */
@@ -173,10 +185,6 @@ NMDeviceFactory *nm_device_factory_create (GError **error);
 typedef NMDeviceFactory * (*NMDeviceFactoryCreateFunc) (GError **error);
 
 /*****************************************************************************/
-
-void       nm_device_factory_get_supported_types (NMDeviceFactory *factory,
-                                                  const NMLinkType **out_link_types,
-                                                  const char *const**out_setting_types);
 
 const char *nm_device_factory_get_connection_parent (NMDeviceFactory *factory,
                                                      NMConnection *connection);

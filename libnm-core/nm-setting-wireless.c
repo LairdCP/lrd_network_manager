@@ -41,7 +41,7 @@
  **/
 
 G_DEFINE_TYPE_WITH_CODE (NMSettingWireless, nm_setting_wireless, NM_TYPE_SETTING,
-                         _nm_register_setting (WIRELESS, 1))
+                         _nm_register_setting (WIRELESS, NM_SETTING_PRIORITY_HW_BASE))
 NM_SETTING_REGISTER_TYPE (NM_TYPE_SETTING_WIRELESS)
 
 #define NM_SETTING_WIRELESS_GET_PRIVATE(o) (G_TYPE_INSTANCE_GET_PRIVATE ((o), NM_TYPE_SETTING_WIRELESS, NMSettingWirelessPrivate))
@@ -1640,7 +1640,7 @@ nm_setting_wireless_class_init (NMSettingWirelessClass *setting_wireless_class)
 	 * If specified, request that the device use this MAC address instead.
 	 * This is known as MAC cloning or spoofing.
 	 *
-	 * Beside explicitly specifing a MAC address, the special values "preserve", "permanent",
+	 * Beside explicitly specifying a MAC address, the special values "preserve", "permanent",
 	 * "random" and "stable" are supported.
 	 * "preserve" means not to touch the MAC address on activation.
 	 * "permanent" means to use the permanent hardware address of the device.
@@ -1734,7 +1734,7 @@ nm_setting_wireless_class_init (NMSettingWirelessClass *setting_wireless_class)
 	 * "02:00:00:00:00:00 00:00:00:00:00:00" will create a fully scrambled
 	 * globally-administered, burned-in MAC address.
 	 *
-	 * If the value contains more then one additional MAC addresses, one of
+	 * If the value contains more than one additional MAC addresses, one of
 	 * them is chosen randomly. For example, "02:00:00:00:00:00 00:00:00:00:00:00 02:00:00:00:00:00"
 	 * will create a fully scrambled MAC address, randomly locally or globally
 	 * administered.

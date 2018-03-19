@@ -31,6 +31,7 @@
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <signal.h>
+#include <linux/rtnetlink.h>
 
 #include "main-utils.h"
 #include "NetworkManagerUtils.h"
@@ -42,7 +43,6 @@
 #include "nm-utils.h"
 #include "nm-setting-ip6-config.h"
 #include "systemd/nm-sd.h"
-#include "nm-route-manager.h"
 
 #if !defined(NM_DIST_VERSION)
 # define NM_DIST_VERSION VERSION
@@ -98,12 +98,6 @@ static struct {
 
 /*****************************************************************************/
 
-NMRouteManager *route_manager_get (void);
-
-NM_DEFINE_SINGLETON_GETTER (NMRouteManager, route_manager_get, NM_TYPE_ROUTE_MANAGER);
-
-/*****************************************************************************/
-
 static void
 dhcp4_state_changed (NMDhcpClient *client,
                      NMDhcpState state,
@@ -114,6 +108,7 @@ dhcp4_state_changed (NMDhcpClient *client,
 {
 	static NMIP4Config *last_config = NULL;
 	NMIP4Config *existing;
+	gs_unref_ptrarray GPtrArray *ip4_dev_route_blacklist = NULL;
 
 	g_return_if_fail (!ip4_config || NM_IS_IP4_CONFIG (ip4_config));
 
@@ -122,17 +117,31 @@ dhcp4_state_changed (NMDhcpClient *client,
 	switch (state) {
 	case NM_DHCP_STATE_BOUND:
 		g_assert (ip4_config);
-		existing = nm_ip4_config_capture (NM_PLATFORM_GET, gl.ifindex, FALSE);
-		if (last_config)
-			nm_ip4_config_subtract (existing, last_config);
+		g_assert (nm_ip4_config_get_ifindex (ip4_config) == gl.ifindex);
 
-		nm_ip4_config_merge (existing, ip4_config, NM_IP_CONFIG_MERGE_DEFAULT);
-		if (!nm_ip4_config_commit (existing, NM_PLATFORM_GET, route_manager_get (), gl.ifindex, TRUE, global_opt.priority_v4))
+		existing = nm_ip4_config_capture (nm_platform_get_multi_idx (NM_PLATFORM_GET),
+		                                  NM_PLATFORM_GET, gl.ifindex, FALSE);
+		if (last_config)
+			nm_ip4_config_subtract (existing, last_config, 0);
+
+		nm_ip4_config_merge (existing, ip4_config, NM_IP_CONFIG_MERGE_DEFAULT, 0);
+		nm_ip4_config_add_dependent_routes (existing,
+		                                    RT_TABLE_MAIN,
+		                                    global_opt.priority_v4,
+		                                    &ip4_dev_route_blacklist);
+		if (!nm_ip4_config_commit (existing,
+		                           NM_PLATFORM_GET,
+		                           NM_IP_ROUTE_TABLE_SYNC_MODE_MAIN))
 			_LOGW (LOGD_DHCP4, "failed to apply DHCPv4 config");
+
+		nm_platform_ip4_dev_route_blacklist_set (NM_PLATFORM_GET,
+		                                         gl.ifindex,
+		                                         ip4_dev_route_blacklist);
 
 		if (last_config)
 			g_object_unref (last_config);
-		last_config = nm_ip4_config_new (nm_dhcp_client_get_ifindex (client));
+		last_config = nm_ip4_config_new (nm_platform_get_multi_idx (NM_PLATFORM_GET),
+		                                 nm_dhcp_client_get_ifindex (client));
 		nm_ip4_config_replace (last_config, ip4_config, NULL);
 		break;
 	case NM_DHCP_STATE_TIMEOUT:
@@ -155,86 +164,53 @@ ndisc_config_changed (NMNDisc *ndisc, const NMNDiscData *rdata, guint changed_in
 	NMNDiscConfigMap changed = changed_int;
 	static NMIP6Config *ndisc_config = NULL;
 	NMIP6Config *existing;
-	int system_support;
-	guint32 ifa_flags = 0x00;
-	int i;
 
-	/*
-	 * Check, whether kernel is recent enough, to help user space handling RA.
-	 * If it's not supported, we have no ipv6-privacy and must add autoconf
-	 * addresses as /128.
-	 * The reason for the /128 is to prevent the kernel
-	 * from adding a prefix route for this address.
-	 **/
-	system_support = nm_platform_check_support_kernel_extended_ifa_flags (NM_PLATFORM_GET);
-
-	if (system_support)
-		ifa_flags = IFA_F_NOPREFIXROUTE;
-	if (global_opt.tempaddr == NM_SETTING_IP6_CONFIG_PRIVACY_PREFER_TEMP_ADDR
-	    || global_opt.tempaddr == NM_SETTING_IP6_CONFIG_PRIVACY_PREFER_PUBLIC_ADDR)
-	{
-		/* without system_support, this flag will be ignored. Still set it, doesn't seem to do any harm. */
-		ifa_flags |= IFA_F_MANAGETEMPADDR;
-	}
-
-	existing = nm_ip6_config_capture (NM_PLATFORM_GET, gl.ifindex, FALSE, global_opt.tempaddr);
+	existing = nm_ip6_config_capture (nm_platform_get_multi_idx (NM_PLATFORM_GET),
+	                                  NM_PLATFORM_GET, gl.ifindex, FALSE, global_opt.tempaddr);
 	if (ndisc_config)
-		nm_ip6_config_subtract (existing, ndisc_config);
-	else
-		ndisc_config = nm_ip6_config_new (gl.ifindex);
-
-	if (changed & NM_NDISC_CONFIG_GATEWAYS) {
-		/* Use the first gateway as ordered in neighbor discovery cache. */
-		if (rdata->gateways_n)
-			nm_ip6_config_set_gateway (ndisc_config, &rdata->gateways[0].address);
-		else
-			nm_ip6_config_set_gateway (ndisc_config, NULL);
+		nm_ip6_config_subtract (existing, ndisc_config, 0);
+	else {
+		ndisc_config = nm_ip6_config_new (nm_platform_get_multi_idx (NM_PLATFORM_GET),
+		                                  gl.ifindex);
 	}
 
 	if (changed & NM_NDISC_CONFIG_ADDRESSES) {
-		/* Rebuild address list from neighbor discovery cache. */
-		nm_ip6_config_reset_addresses (ndisc_config);
+		guint8 plen;
+		guint32 ifa_flags;
 
-		/* ndisc->addresses contains at most max_addresses entries.
-		 * This is different from what the kernel does, which
-		 * also counts static and temporary addresses when checking
-		 * max_addresses.
-		 **/
-		for (i = 0; i < rdata->addresses_n; i++) {
-			const NMNDiscAddress *discovered_address = &rdata->addresses[i];
-			NMPlatformIP6Address address;
+		/* Check, whether kernel is recent enough to help user space handling RA.
+		 * If it's not supported, we have no ipv6-privacy and must add autoconf
+		 * addresses as /128. The reason for the /128 is to prevent the kernel
+		 * from adding a prefix route for this address. */
+		ifa_flags = 0;
+		if (nm_platform_check_kernel_support (NM_PLATFORM_GET,
+		                                      NM_PLATFORM_KERNEL_SUPPORT_EXTENDED_IFA_FLAGS)) {
+			ifa_flags |= IFA_F_NOPREFIXROUTE;
+			if (NM_IN_SET (global_opt.tempaddr, NM_SETTING_IP6_CONFIG_PRIVACY_PREFER_TEMP_ADDR,
+			                                    NM_SETTING_IP6_CONFIG_PRIVACY_PREFER_PUBLIC_ADDR))
+				ifa_flags |= IFA_F_MANAGETEMPADDR;
+			plen = 64;
+		} else
+			plen = 128;
 
-			memset (&address, 0, sizeof (address));
-			address.address = discovered_address->address;
-			address.plen = system_support ? 64 : 128;
-			address.timestamp = discovered_address->timestamp;
-			address.lifetime = discovered_address->lifetime;
-			address.preferred = discovered_address->preferred;
-			if (address.preferred > address.lifetime)
-				address.preferred = address.lifetime;
-			address.addr_source = NM_IP_CONFIG_SOURCE_NDISC;
-			address.n_ifa_flags = ifa_flags;
-
-			nm_ip6_config_add_address (ndisc_config, &address);
-		}
+		nm_ip6_config_reset_addresses_ndisc (ndisc_config,
+		                                     rdata->addresses,
+		                                     rdata->addresses_n,
+		                                     plen,
+		                                     ifa_flags);
 	}
 
-	if (changed & NM_NDISC_CONFIG_ROUTES) {
-		/* Rebuild route list from neighbor discovery cache. */
-		nm_ip6_config_reset_routes (ndisc_config);
-
-		for (i = 0; i < rdata->routes_n; i++) {
-			const NMNDiscRoute *discovered_route = &rdata->routes[i];
-			const NMPlatformIP6Route route = {
-				.network    = discovered_route->network,
-				.plen       = discovered_route->plen,
-				.gateway    = discovered_route->gateway,
-				.rt_source  = NM_IP_CONFIG_SOURCE_NDISC,
-				.metric     = global_opt.priority_v6,
-			};
-
-			nm_ip6_config_add_route (ndisc_config, &route);
-		}
+	if (NM_FLAGS_ANY (changed,  NM_NDISC_CONFIG_ROUTES
+	                          | NM_NDISC_CONFIG_GATEWAYS)) {
+		nm_ip6_config_reset_routes_ndisc (ndisc_config,
+		                                  rdata->gateways,
+		                                  rdata->gateways_n,
+		                                  rdata->routes,
+		                                  rdata->routes_n,
+		                                  RT_TABLE_MAIN,
+		                                  global_opt.priority_v6,
+		                                  nm_platform_check_kernel_support (NM_PLATFORM_GET,
+		                                                                    NM_PLATFORM_KERNEL_SUPPORT_RTA_PREF));
 	}
 
 	if (changed & NM_NDISC_CONFIG_DHCP_LEVEL) {
@@ -246,13 +222,20 @@ ndisc_config_changed (NMNDisc *ndisc, const NMNDiscData *rdata, guint changed_in
 
 	if (changed & NM_NDISC_CONFIG_MTU) {
 		char val[16];
+		char sysctl_path_buf[NM_UTILS_SYSCTL_IP_CONF_PATH_BUFSIZE];
 
 		g_snprintf (val, sizeof (val), "%d", rdata->mtu);
-		nm_platform_sysctl_set (NM_PLATFORM_GET, NMP_SYSCTL_PATHID_ABSOLUTE (nm_utils_ip6_property_path (global_opt.ifname, "mtu")), val);
+		nm_platform_sysctl_set (NM_PLATFORM_GET, NMP_SYSCTL_PATHID_ABSOLUTE (nm_utils_sysctl_ip_conf_path (AF_INET6, sysctl_path_buf, global_opt.ifname, "mtu")), val);
 	}
 
-	nm_ip6_config_merge (existing, ndisc_config, NM_IP_CONFIG_MERGE_DEFAULT);
-	if (!nm_ip6_config_commit (existing, NM_PLATFORM_GET, route_manager_get (), gl.ifindex, TRUE))
+	nm_ip6_config_merge (existing, ndisc_config, NM_IP_CONFIG_MERGE_DEFAULT, 0);
+	nm_ip6_config_add_dependent_routes (existing,
+	                                    RT_TABLE_MAIN,
+	                                    global_opt.priority_v6);
+	if (!nm_ip6_config_commit (existing,
+	                           NM_PLATFORM_GET,
+	                           NM_IP_ROUTE_TABLE_SYNC_MODE_MAIN,
+	                           NULL))
 		_LOGW (LOGD_IP6, "failed to apply IPv6 config");
 }
 
@@ -362,6 +345,7 @@ main (int argc, char *argv[])
 	gconstpointer tmp;
 	gs_free NMUtilsIPv6IfaceId *iid = NULL;
 	guint sd_id;
+	char sysctl_path_buf[NM_UTILS_SYSCTL_IP_CONF_PATH_BUFSIZE];
 
 	nm_g_type_init ();
 
@@ -466,19 +450,21 @@ main (int argc, char *argv[])
 	}
 
 	if (global_opt.dhcp4_address) {
-		nm_platform_sysctl_set (NM_PLATFORM_GET, NMP_SYSCTL_PATHID_ABSOLUTE (nm_utils_ip4_property_path (global_opt.ifname, "promote_secondaries")), "1");
+		nm_platform_sysctl_set (NM_PLATFORM_GET, NMP_SYSCTL_PATHID_ABSOLUTE (nm_utils_sysctl_ip_conf_path (AF_INET, sysctl_path_buf, global_opt.ifname, "promote_secondaries")), "1");
 
 		dhcp4_client = nm_dhcp_manager_start_ip4 (nm_dhcp_manager_get (),
+		                                          nm_platform_get_multi_idx (NM_PLATFORM_GET),
 		                                          global_opt.ifname,
 		                                          gl.ifindex,
 		                                          hwaddr,
 		                                          global_opt.uuid,
+		                                          RT_TABLE_MAIN,
 		                                          global_opt.priority_v4,
 		                                          !!global_opt.dhcp4_hostname,
 		                                          global_opt.dhcp4_hostname,
 		                                          global_opt.dhcp4_fqdn,
 		                                          global_opt.dhcp4_clientid,
-		                                          45,
+		                                          NM_DHCP_TIMEOUT_DEFAULT,
 		                                          NULL,
 		                                          global_opt.dhcp4_address);
 		g_assert (dhcp4_client);
@@ -513,10 +499,10 @@ main (int argc, char *argv[])
 		if (iid)
 			nm_ndisc_set_iid (ndisc, *iid);
 
-		nm_platform_sysctl_set (NM_PLATFORM_GET, NMP_SYSCTL_PATHID_ABSOLUTE (nm_utils_ip6_property_path (global_opt.ifname, "accept_ra")), "1");
-		nm_platform_sysctl_set (NM_PLATFORM_GET, NMP_SYSCTL_PATHID_ABSOLUTE (nm_utils_ip6_property_path (global_opt.ifname, "accept_ra_defrtr")), "0");
-		nm_platform_sysctl_set (NM_PLATFORM_GET, NMP_SYSCTL_PATHID_ABSOLUTE (nm_utils_ip6_property_path (global_opt.ifname, "accept_ra_pinfo")), "0");
-		nm_platform_sysctl_set (NM_PLATFORM_GET, NMP_SYSCTL_PATHID_ABSOLUTE (nm_utils_ip6_property_path (global_opt.ifname, "accept_ra_rtr_pref")), "0");
+		nm_platform_sysctl_set (NM_PLATFORM_GET, NMP_SYSCTL_PATHID_ABSOLUTE (nm_utils_sysctl_ip_conf_path (AF_INET6, sysctl_path_buf, global_opt.ifname, "accept_ra")), "1");
+		nm_platform_sysctl_set (NM_PLATFORM_GET, NMP_SYSCTL_PATHID_ABSOLUTE (nm_utils_sysctl_ip_conf_path (AF_INET6, sysctl_path_buf, global_opt.ifname, "accept_ra_defrtr")), "0");
+		nm_platform_sysctl_set (NM_PLATFORM_GET, NMP_SYSCTL_PATHID_ABSOLUTE (nm_utils_sysctl_ip_conf_path (AF_INET6, sysctl_path_buf, global_opt.ifname, "accept_ra_pinfo")), "0");
+		nm_platform_sysctl_set (NM_PLATFORM_GET, NMP_SYSCTL_PATHID_ABSOLUTE (nm_utils_sysctl_ip_conf_path (AF_INET6, sysctl_path_buf, global_opt.ifname, "accept_ra_rtr_pref")), "0");
 
 		g_signal_connect (NM_PLATFORM_GET,
 		                  NM_PLATFORM_SIGNAL_IP6_ADDRESS_CHANGED,
@@ -551,7 +537,7 @@ main (int argc, char *argv[])
 
 /*****************************************************************************/
 
-const NMDhcpClientFactory *const _nm_dhcp_manager_factories[3] = {
+const NMDhcpClientFactory *const _nm_dhcp_manager_factories[4] = {
 	&_nm_dhcp_client_factory_internal,
 };
 

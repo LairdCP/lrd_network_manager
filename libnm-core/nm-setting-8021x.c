@@ -61,7 +61,7 @@
  **/
 
 G_DEFINE_TYPE_WITH_CODE (NMSetting8021x, nm_setting_802_1x, NM_TYPE_SETTING,
-                         _nm_register_setting (802_1X, 2))
+                         _nm_register_setting (802_1X, NM_SETTING_PRIORITY_HW_AUX))
 NM_SETTING_REGISTER_TYPE (NM_TYPE_SETTING_802_1X)
 
 #define NM_SETTING_802_1X_GET_PRIVATE(o) (G_TYPE_INSTANCE_GET_PRIVATE ((o), NM_TYPE_SETTING_802_1X, NMSetting8021xPrivate))
@@ -3063,6 +3063,7 @@ need_secrets_sim (NMSetting8021x *self,
 
 static gboolean
 need_private_key_password (GBytes *blob,
+                           NMSetting8021xCKScheme scheme,
                            const char *path,
                            const char *password,
                            NMSettingSecretFlags flags)
@@ -3070,6 +3071,10 @@ need_private_key_password (GBytes *blob,
 	NMCryptoFileFormat format = NM_CRYPTO_FILE_FORMAT_UNKNOWN;
 
 	if (flags & NM_SETTING_SECRET_FLAG_NOT_REQUIRED)
+		return FALSE;
+
+	if (   scheme == NM_SETTING_802_1X_CK_SCHEME_PKCS11
+	    && flags == NM_SETTING_SECRET_FLAG_NONE)
 		return FALSE;
 
 	/* Private key password is required */
@@ -3106,20 +3111,22 @@ need_secrets_tls (NMSetting8021x *self,
 		else if (scheme != NM_SETTING_802_1X_CK_SCHEME_PKCS11)
 			g_warning ("%s: unknown phase2 private key scheme %d", __func__, scheme);
 
-		if (need_private_key_password (blob, path,
+		if (need_private_key_password (blob, scheme, path,
 		                               priv->phase2_private_key_password,
 		                               priv->phase2_private_key_password_flags))
 			g_ptr_array_add (secrets, NM_SETTING_802_1X_PHASE2_PRIVATE_KEY_PASSWORD);
 
 		scheme = nm_setting_802_1x_get_phase2_ca_cert_scheme (self);
 		if (    scheme == NM_SETTING_802_1X_CK_SCHEME_PKCS11
-		    && !(priv->phase2_ca_cert_password_flags & NM_SETTING_SECRET_FLAG_NOT_REQUIRED)
+		    && !(   priv->phase2_ca_cert_password_flags == NM_SETTING_SECRET_FLAG_NONE
+		         || priv->phase2_ca_cert_password_flags & NM_SETTING_SECRET_FLAG_NOT_REQUIRED)
 		    && !priv->phase2_ca_cert_password)
 			g_ptr_array_add (secrets, NM_SETTING_802_1X_PHASE2_CA_CERT_PASSWORD);
 
 		scheme = nm_setting_802_1x_get_phase2_client_cert_scheme (self);
 		if (    scheme == NM_SETTING_802_1X_CK_SCHEME_PKCS11
-		    && !(priv->phase2_client_cert_password_flags & NM_SETTING_SECRET_FLAG_NOT_REQUIRED)
+		    && !(   priv->phase2_client_cert_password_flags & NM_SETTING_SECRET_FLAG_NOT_REQUIRED
+		         || priv->phase2_client_cert_password_flags == NM_SETTING_SECRET_FLAG_NONE)
 		    && !priv->phase2_client_cert_password)
 			g_ptr_array_add (secrets, NM_SETTING_802_1X_PHASE2_CLIENT_CERT_PASSWORD);
 	} else {
@@ -3131,20 +3138,22 @@ need_secrets_tls (NMSetting8021x *self,
 		else if (scheme != NM_SETTING_802_1X_CK_SCHEME_PKCS11)
 			g_warning ("%s: unknown private key scheme %d", __func__, scheme);
 
-		if (need_private_key_password (blob, path,
+		if (need_private_key_password (blob, scheme, path,
 		                               priv->private_key_password,
 		                               priv->private_key_password_flags))
 			g_ptr_array_add (secrets, NM_SETTING_802_1X_PRIVATE_KEY_PASSWORD);
 
 		scheme = nm_setting_802_1x_get_ca_cert_scheme (self);
 		if (    scheme == NM_SETTING_802_1X_CK_SCHEME_PKCS11
-		    && !(priv->ca_cert_password_flags & NM_SETTING_SECRET_FLAG_NOT_REQUIRED)
+		    && !(   priv->ca_cert_password_flags & NM_SETTING_SECRET_FLAG_NOT_REQUIRED
+		         || priv->ca_cert_password_flags == NM_SETTING_SECRET_FLAG_NONE)
 		    && !priv->ca_cert_password)
 			g_ptr_array_add (secrets, NM_SETTING_802_1X_CA_CERT_PASSWORD);
 
 		scheme = nm_setting_802_1x_get_client_cert_scheme (self);
 		if (    scheme == NM_SETTING_802_1X_CK_SCHEME_PKCS11
-		    && !(priv->client_cert_password_flags & NM_SETTING_SECRET_FLAG_NOT_REQUIRED)
+		    && !(   priv->client_cert_password_flags == NM_SETTING_SECRET_FLAG_NONE
+		         || priv->client_cert_password_flags & NM_SETTING_SECRET_FLAG_NOT_REQUIRED)
 		    && !priv->client_cert_password)
 			g_ptr_array_add (secrets, NM_SETTING_802_1X_CLIENT_CERT_PASSWORD);
 	}
@@ -4468,7 +4477,7 @@ nm_setting_802_1x_class_init (NMSetting8021xClass *setting_class)
 	 *
 	 * Specifies authentication flags to use in "phase 1" outer
 	 * authentication using #NMSetting8021xAuthFlags options.
-	 * The invidual TLS versions can be explicitly disabled. If a certain
+	 * The individual TLS versions can be explicitly disabled. If a certain
 	 * TLS disable flag is not set, it is up to the supplicant to allow
 	 * or forbid it. The TLS options map to tls_disable_tlsv1_x settings.
 	 * See the wpa_supplicant documentation for more details.
@@ -4816,8 +4825,10 @@ nm_setting_802_1x_class_init (NMSetting8021xClass *setting_class)
 	 **/
 	/* ---ifcfg-rh---
 	 * property: password-raw
-	 * variable: (none)
-	 * description: The property is not handled by ifcfg-rh plugin.
+	 * variable: IEEE_8021X_PASSWORD_RAW(+)
+	 * description: password used for EAP, encoded as a hexadecimal string. It
+	 *   can also go to "key-" lookaside file.
+	 * example: IEEE_8021X_PASSWORD_RAW=041c8320083aa4bf
 	 * ---end---
 	 */
 	g_object_class_install_property

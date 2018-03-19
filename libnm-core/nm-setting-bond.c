@@ -43,7 +43,7 @@
  **/
 
 G_DEFINE_TYPE_WITH_CODE (NMSettingBond, nm_setting_bond, NM_TYPE_SETTING,
-                         _nm_register_setting (BOND, 1))
+                         _nm_register_setting (BOND, NM_SETTING_PRIORITY_HW_BASE))
 NM_SETTING_REGISTER_TYPE (NM_TYPE_SETTING_BOND)
 
 #define NM_SETTING_BOND_GET_PRIVATE(o) (G_TYPE_INSTANCE_GET_PRIVATE ((o), NM_TYPE_SETTING_BOND, NMSettingBondPrivate))
@@ -85,8 +85,8 @@ static const BondDefault defaults[] = {
 	{ NM_SETTING_BOND_OPTION_USE_CARRIER,      "1",          NM_BOND_OPTION_TYPE_INT, 0, 1 },
 	{ NM_SETTING_BOND_OPTION_AD_SELECT,        "stable",     NM_BOND_OPTION_TYPE_BOTH, 0, 2,
 	  { "stable", "bandwidth", "count", NULL } },
-	{ NM_SETTING_BOND_OPTION_XMIT_HASH_POLICY, "layer2",     NM_BOND_OPTION_TYPE_BOTH, 0, 2,
-	  { "layer2", "layer3+4", "layer2+3", NULL } },
+	{ NM_SETTING_BOND_OPTION_XMIT_HASH_POLICY, "layer2",     NM_BOND_OPTION_TYPE_BOTH, 0, 4,
+	  { "layer2", "layer3+4", "layer2+3", "encap2+3", "encap3+4", NULL } },
 	{ NM_SETTING_BOND_OPTION_RESEND_IGMP,      "1",          NM_BOND_OPTION_TYPE_INT, 0, 255 },
 	{ NM_SETTING_BOND_OPTION_LACP_RATE,        "slow",       NM_BOND_OPTION_TYPE_BOTH, 0, 1,
 	  { "slow", "fast", NULL } },
@@ -224,19 +224,34 @@ validate_list (const char *name, const char *value, const BondDefault *def)
 static gboolean
 validate_ip (const char *name, const char *value)
 {
-	char **ips, **iter;
-	gboolean success = TRUE;
+	gs_free char *value_clone = NULL;
 	struct in_addr addr;
 
 	if (!value || !value[0])
 		return FALSE;
 
-	ips = g_strsplit_set (value, ",", 0);
-	for (iter = ips; iter && *iter && success; iter++)
-		success = !!inet_aton (*iter, &addr);
-	g_strfreev (ips);
+	value_clone = g_strdup (value);
+	value = value_clone;
+	for (;;) {
+		char *eow;
 
-	return success;
+		/* we do not skip over empty words. E.g
+		 * "192.168.1.1," is an error.
+		 *
+		 * ... for no particular reason. */
+
+		eow = strchr (value, ',');
+		if (eow)
+			*eow = '\0';
+
+		if (inet_pton (AF_INET, value, &addr) != 1)
+			return FALSE;
+
+		if (!eow)
+			break;
+		value = eow + 1;
+	}
+	return TRUE;
 }
 
 static gboolean
@@ -542,6 +557,7 @@ verify (NMSetting *setting, NMConnection *connection, GError **error)
 	const char *arp_ip_target = NULL;
 	const char *lacp_rate;
 	const char *primary;
+	NMBondMode bond_mode;
 
 	g_hash_table_iter_init (&iter, priv->options);
 	while (g_hash_table_iter_next (&iter, (gpointer) &key, (gpointer) &value)) {
@@ -626,7 +642,7 @@ verify (NMSetting *setting, NMConnection *connection, GError **error)
 			g_set_error (error,
 			             NM_CONNECTION_ERROR,
 			             NM_CONNECTION_ERROR_INVALID_PROPERTY,
-			             _("'%s' is not a valid for '%s' option: %s"),
+			             _("'%s' is not valid for the '%s' option: %s"),
 			             primary, NM_SETTING_BOND_OPTION_PRIMARY, tmp_error->message);
 			g_prefix_error (error, "%s.%s: ", NM_SETTING_BOND_SETTING_NAME, NM_SETTING_BOND_OPTIONS);
 			g_error_free (tmp_error);
@@ -645,7 +661,7 @@ verify (NMSetting *setting, NMConnection *connection, GError **error)
 		}
 	}
 
-	if (nm_connection_get_setting_infiniband (connection)) {
+	if (connection && nm_connection_get_setting_infiniband (connection)) {
 		if (strcmp (mode_new, "active-backup") != 0) {
 			g_set_error (error,
 			             NM_CONNECTION_ERROR,
@@ -774,6 +790,23 @@ verify (NMSetting *setting, NMConnection *connection, GError **error)
 		             NM_SETTING_BOND_OPTION_MODE);
 		g_prefix_error (error, "%s.%s: ", NM_SETTING_BOND_SETTING_NAME, NM_SETTING_BOND_OPTIONS);
 		return NM_SETTING_VERIFY_NORMALIZABLE;
+	}
+
+	/* normalize unsupported options for the current mode */
+	bond_mode = _nm_setting_bond_mode_from_string (mode_new);
+	g_hash_table_iter_init (&iter, priv->options);
+	while (g_hash_table_iter_next (&iter, (gpointer) &key, NULL)) {
+		if (nm_streq (key, "mode"))
+			continue;
+		if (!_nm_setting_bond_option_supported (key, bond_mode)) {
+			g_set_error (error,
+			             NM_CONNECTION_ERROR,
+			             NM_CONNECTION_ERROR_INVALID_PROPERTY,
+			             _("'%s' option is not valid with mode '%s'"),
+			             key, mode_new);
+			g_prefix_error (error, "%s.%s: ", NM_SETTING_BOND_SETTING_NAME, NM_SETTING_BOND_OPTIONS);
+			return NM_SETTING_VERIFY_NORMALIZABLE;
+		}
 	}
 
 	return TRUE;
