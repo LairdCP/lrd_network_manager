@@ -2061,6 +2061,71 @@ DEFINE_REMOVER_INDEX_OR_VALUE (_remove_fcn_802_1x_eap,
                                nm_setting_802_1x_remove_eap_method,
                                _validate_and_remove_eap_method)
 
+DEFINE_SETTER_STR_LIST_MULTI (check_and_add_phase2_auth,
+                              NM_SETTING_802_1X,
+                              nm_setting_802_1x_add_phase2_auth)
+
+static gboolean
+_set_fcn_802_1x_phase2_auth (ARGS_SET_FCN)
+{
+	return check_and_add_phase2_auth (setting,
+	                                 property_info->property_name,
+	                                 value,
+	                                 (const char **) property_info->property_typ_data->values_static,
+	                                 error);
+}
+
+static gboolean
+_validate_and_remove_phase2_auth (NMSetting8021x *setting,
+                                 const char *eap,
+                                 GError **error)
+{
+	gboolean ret;
+
+	ret = nm_setting_802_1x_remove_phase2_auth_by_value (setting, eap);
+	if (!ret)
+		g_set_error (error, 1, 0, _("the property doesn't contain EAP method '%s'"), eap);
+	return ret;
+}
+DEFINE_REMOVER_INDEX_OR_VALUE (_remove_fcn_802_1x_phase2_auth,
+                               NM_SETTING_802_1X,
+                               nm_setting_802_1x_get_num_phase2_auths,
+                               nm_setting_802_1x_remove_phase2_auth,
+                               _validate_and_remove_phase2_auth)
+
+DEFINE_SETTER_STR_LIST_MULTI (check_and_add_phase2_autheap,
+                              NM_SETTING_802_1X,
+                              nm_setting_802_1x_add_phase2_autheap)
+
+static gboolean
+_set_fcn_802_1x_phase2_autheap (ARGS_SET_FCN)
+{
+	return check_and_add_phase2_autheap (setting,
+	                                 property_info->property_name,
+	                                 value,
+	                                 (const char **) property_info->property_typ_data->values_static,
+	                                 error);
+}
+
+static gboolean
+_validate_and_remove_phase2_autheap (NMSetting8021x *setting,
+                                 const char *eap,
+                                 GError **error)
+{
+	gboolean ret;
+
+	ret = nm_setting_802_1x_remove_phase2_autheap_by_value (setting, eap);
+	if (!ret)
+		g_set_error (error, 1, 0, _("the property doesn't contain EAP method '%s'"), eap);
+	return ret;
+}
+DEFINE_REMOVER_INDEX_OR_VALUE (_remove_fcn_802_1x_phase2_autheap,
+                               NM_SETTING_802_1X,
+                               nm_setting_802_1x_get_num_phase2_autheaps,
+                               nm_setting_802_1x_remove_phase2_autheap,
+                               _validate_and_remove_phase2_autheap)
+
+
 DEFINE_SETTER_CERT (_set_fcn_802_1x_ca_cert, nm_setting_802_1x_set_ca_cert)
 
 DEFINE_SETTER_STR_LIST (_set_fcn_802_1x_altsubject_matches, nm_setting_802_1x_add_altsubject_match)
@@ -4239,6 +4304,53 @@ _validate_fcn_wireless_security_psk (const char *value, char **out_to_free, GErr
 	return value;
 }
 
+static const char *
+_validate_fcn_frequency_list (const char *value, char **out_to_free, GError **error)
+{
+	int numchan;
+	int len1;
+	const char *v;
+
+	if (!value) {
+		// should never get called with null; but, better safe than sorry
+		return NULL;
+	}
+
+	len1 = strspn(value, "1234567890 ");
+	if (len1 != strlen(value)) {
+		g_set_error (error, 1, 0, _("frequency-list '%s' has invalid characters"), value);
+		return NULL;
+	}
+
+	// Loop through the string checking the frequencies
+	v = value;
+	numchan = 0;
+	while (*v) {
+		if (*v == ' ') {
+			v++;
+		} else {
+			guint32 freq_int;
+			char *end;
+			freq_int = strtoul (v, &end, 10);
+			if (*end != '\0' && *end != ' ') {
+				g_set_error (error, 1, 0, _("frequency-list '%s' is invalid"), value);
+				return NULL;
+			}
+			v = end;
+			if (0 == nm_utils_wifi_freq_to_channel (freq_int)) {
+				g_set_error (error, 1, 0, _("'%ld' is not a valid frequency"), freq_int);
+				return NULL;
+			}
+			numchan++;
+		}
+	}
+	if (!numchan) {
+		g_set_error (error, 1, 0, _("frequency-list is empty"));
+		return NULL;
+	}
+	return value;
+}
+
 /*****************************************************************************/
 
 static const NMMetaPropertyInfo property_info_BOND_OPTIONS;
@@ -4399,6 +4511,7 @@ static const NMMetaPropertyType _pt_gobject_devices = {
 /*****************************************************************************/
 
 #include "settings-docs.c"
+#include "settings-docs-laird.c"
 
 /*****************************************************************************/
 
@@ -4552,13 +4665,21 @@ static const NMMetaPropertyInfo *const property_infos_802_1X[] = {
 		),
 	),
 	PROPERTY_INFO_WITH_DESC (NM_SETTING_802_1X_PHASE2_AUTH,
-		.property_type =                &_pt_gobject_string,
+		.property_type = DEFINE_PROPERTY_TYPE (
+			.get_fcn =                  _get_fcn_gobject,
+			.set_fcn =                  _set_fcn_802_1x_phase2_auth,
+			.remove_fcn =               _remove_fcn_802_1x_phase2_auth,
+		),
 		.property_typ_data = DEFINE_PROPERTY_TYP_DATA (
 			.values_static =            VALUES_STATIC ("pap", "chap", "mschap", "mschapv2", "gtc", "otp", "md5", "tls"),
 		),
 	),
 	PROPERTY_INFO_WITH_DESC (NM_SETTING_802_1X_PHASE2_AUTHEAP,
-		.property_type =                &_pt_gobject_string,
+		.property_type = DEFINE_PROPERTY_TYPE (
+			.get_fcn =                  _get_fcn_gobject,
+			.set_fcn =                  _set_fcn_802_1x_phase2_autheap,
+			.remove_fcn =               _remove_fcn_802_1x_phase2_autheap,
+		),
 		.property_typ_data = DEFINE_PROPERTY_TYP_DATA (
 			.values_static =            VALUES_STATIC ("md5", "mschapv2", "otp", "gtc", "tls"),
 		),
@@ -4690,6 +4811,15 @@ static const NMMetaPropertyInfo *const property_infos_802_1X[] = {
 	),
 	PROPERTY_INFO_WITH_DESC (NM_SETTING_802_1X_AUTH_TIMEOUT,
 		.property_type =                &_pt_gobject_int,
+	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_802_1X_TLS_DISABLE_TIME_CHECKS,
+		.property_type =                &_pt_gobject_string,
+		.property_typ_data = DEFINE_PROPERTY_TYP_DATA (
+			.values_static =            VALUES_STATIC ("0", "1"),
+		),
+	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_802_1X_PAC_FILE_PASSWORD,
+		.property_type =                &_pt_gobject_string,
 	),
 	NULL
 };
@@ -6528,6 +6658,48 @@ static const NMMetaPropertyInfo *const property_infos_WIRELESS[] = {
 			.typ_flags =                NM_META_PROPERTY_TYP_FLAG_ENUM_GET_PARSABLE_TEXT,
 		),
 	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_WIRELESS_CCX,
+		.property_type =                &_pt_gobject_enum,
+		.property_typ_data = DEFINE_PROPERTY_TYP_DATA (
+			PROPERTY_TYP_DATA_SUBTYPE (gobject_enum,
+				.get_gtype =            nm_setting_wireless_ccx_get_type,
+			),
+			.typ_flags =                NM_META_PROPERTY_TYP_FLAG_ENUM_GET_PARSABLE_TEXT,
+		),
+	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_WIRELESS_CLIENT_NAME,
+		.property_type =                &_pt_gobject_string,
+	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_WIRELESS_SCAN_DELAY,
+		.property_type =                &_pt_gobject_int,
+	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_WIRELESS_SCAN_DWELL,
+		.property_type =                &_pt_gobject_int,
+	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_WIRELESS_SCAN_PASSIVE_DWELL,
+		.property_type =                &_pt_gobject_int,
+	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_WIRELESS_SCAN_SUSPEND_TIME,
+		.property_type =                &_pt_gobject_int,
+	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_WIRELESS_SCAN_ROAM_DELTA,
+		.property_type =                &_pt_gobject_int,
+	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_WIRELESS_BGSCAN,
+		.property_type =                &_pt_gobject_string,
+	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_WIRELESS_AUTH_TIMEOUT,
+		.property_type =                &_pt_gobject_int,
+	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_WIRELESS_FREQUENCY_LIST,
+		.property_type =                &_pt_gobject_string,
+		.property_typ_data = DEFINE_PROPERTY_TYP_DATA_SUBTYPE (gobject_string,
+			.validate_fcn =             _validate_fcn_frequency_list,
+		),
+	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_WIRELESS_FREQUENCY_DFS,
+		.property_type =                &_pt_gobject_bool,
+	),
 	NULL
 };
 
@@ -6537,7 +6709,7 @@ static const NMMetaPropertyInfo *const property_infos_WIRELESS_SECURITY[] = {
 	PROPERTY_INFO_WITH_DESC (NM_SETTING_WIRELESS_SECURITY_KEY_MGMT,
 		.property_type =                &_pt_gobject_string,
 		.property_typ_data = DEFINE_PROPERTY_TYP_DATA (
-			.values_static =            VALUES_STATIC ("none", "ieee8021x", "wpa-none", "wpa-psk", "wpa-eap"),
+			.values_static =            VALUES_STATIC ("none", "ieee8021x", "wpa-none", "wpa-psk", "wpa-eap", "cckm"),
 		),
 	),
 	PROPERTY_INFO_WITH_DESC (NM_SETTING_WIRELESS_SECURITY_WEP_TX_KEYIDX,
@@ -6657,6 +6829,12 @@ static const NMMetaPropertyInfo *const property_infos_WIRELESS_SECURITY[] = {
 			PROPERTY_TYP_DATA_SUBTYPE (gobject_enum,
 				.get_gtype =            nm_setting_wireless_security_wps_method_get_type,
 			),
+		),
+	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_WIRELESS_SECURITY_PROACTIVE_KEY_CACHING,
+		.property_type =                &_pt_gobject_string,
+		.property_typ_data = DEFINE_PROPERTY_TYP_DATA (
+			.values_static =            VALUES_STATIC ("0", "1"),
 		),
 	),
 	NULL
