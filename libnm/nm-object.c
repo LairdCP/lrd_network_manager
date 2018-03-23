@@ -161,7 +161,7 @@ typedef struct {
 static void
 notify_item_free (NotifyItem *item)
 {
-	c_list_unlink (&item->lst);
+	c_list_unlink_stale (&item->lst);
 	g_clear_object (&item->changed);
 	g_slice_free (NotifyItem, item);
 }
@@ -187,7 +187,7 @@ deferred_notify_cb (gpointer data)
 	 * list we're iterating.
 	 */
 	c_list_link_after (&priv->notify_items, &props);
-	c_list_unlink_init (&priv->notify_items);
+	c_list_unlink (&priv->notify_items);
 
 	g_object_ref (object);
 
@@ -344,7 +344,7 @@ odata_free (gpointer data)
 {
 	ObjectCreatedData *odata = data;
 
-	c_list_unlink (&odata->lst_pending);
+	c_list_unlink_stale (&odata->lst_pending);
 	g_object_unref (odata->self);
 	g_free (odata->objects);
 	g_slice_free (ObjectCreatedData, odata);
@@ -608,8 +608,9 @@ handle_object_property (NMObject *self, const char *property_name, GVariant *val
 	object = g_dbus_object_manager_get_object (priv->object_manager, path);
 	if (!object) {
 		/* This is a server bug -- a dangling object path for an object
-		 * that does not exist. */
-		/* XXX: We've ignored this before and the server hits the condition
+		 * that does not exist.
+		 *
+		 * NOTE: We've ignored this before and the server hits the condition
 		 * more often that it should. Given we're able to recover from
 		 * ther error, let's lower the severity of the log message to
 		 * avoid unnecessarily bothering the user. This can be removed
@@ -955,7 +956,7 @@ _nm_object_register_properties (NMObject *object,
 	                  G_CALLBACK (properties_changed), object);
 	g_ptr_array_add (priv->proxies, proxy);
 
-	instance = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
+	instance = g_hash_table_new_full (nm_str_hash, g_str_equal, g_free, g_free);
 	priv->property_tables = g_slist_prepend (priv->property_tables, instance);
 
 	for (tmp = (NMPropertiesInfo *) info; tmp->name; tmp++) {
@@ -1131,6 +1132,8 @@ init_async (GAsyncInitable *initable, int io_priority,
 	init_data = g_slice_new0 (NMObjectInitData);
 	init_data->object = self;
 	init_data->simple = g_simple_async_result_new (G_OBJECT (initable), callback, user_data, init_async);
+	if (cancellable)
+		g_simple_async_result_set_check_cancellable (init_data->simple, cancellable);
 	init_data->cancellable = cancellable ? g_object_ref (cancellable) : NULL;
 
 	interfaces = g_dbus_object_get_interfaces (priv->object);

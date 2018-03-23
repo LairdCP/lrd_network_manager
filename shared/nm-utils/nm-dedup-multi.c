@@ -272,13 +272,13 @@ _add (NMDedupMultiIndex *self,
 			if (entry_order) {
 				if (   entry_order != entry
 				    && entry->lst_entries.next != &entry_order->lst_entries) {
-					c_list_unlink (&entry->lst_entries);
+					c_list_unlink_stale (&entry->lst_entries);
 					c_list_link_before ((CList *) &entry_order->lst_entries, &entry->lst_entries);
 					changed = TRUE;
 				}
 			} else {
 				if (entry->lst_entries.prev != &entry->head->lst_entries_head) {
-					c_list_unlink (&entry->lst_entries);
+					c_list_unlink_stale (&entry->lst_entries);
 					c_list_link_front ((CList *) &entry->head->lst_entries_head, &entry->lst_entries);
 					changed = TRUE;
 				}
@@ -288,13 +288,13 @@ _add (NMDedupMultiIndex *self,
 			if (entry_order) {
 				if (   entry_order != entry
 				    && entry->lst_entries.prev != &entry_order->lst_entries) {
-					c_list_unlink (&entry->lst_entries);
+					c_list_unlink_stale (&entry->lst_entries);
 					c_list_link_after ((CList *) &entry_order->lst_entries, &entry->lst_entries);
 					changed = TRUE;
 				}
 			} else {
 				if (entry->lst_entries.next != &entry->head->lst_entries_head) {
-					c_list_unlink (&entry->lst_entries);
+					c_list_unlink_stale (&entry->lst_entries);
 					c_list_link_tail ((CList *) &entry->head->lst_entries_head, &entry->lst_entries);
 					changed = TRUE;
 				}
@@ -386,10 +386,10 @@ _add (NMDedupMultiIndex *self,
 	head_entry->len++;
 
 	if (   add_head_entry
-	    && !nm_g_hash_table_add (self->idx_entries, head_entry))
+	    && !g_hash_table_add (self->idx_entries, head_entry))
 		nm_assert_not_reached ();
 
-	if (!nm_g_hash_table_add (self->idx_entries, entry))
+	if (!g_hash_table_add (self->idx_entries, entry))
 		nm_assert_not_reached ();
 
 	NM_SET_OUT (out_entry, entry);
@@ -541,12 +541,12 @@ _remove_entry (NMDedupMultiIndex *self,
 	    && !g_hash_table_remove (self->idx_entries, head_entry))
 		nm_assert_not_reached ();
 
-	c_list_unlink (&entry->lst_entries);
+	c_list_unlink_stale (&entry->lst_entries);
 	g_slice_free (NMDedupMultiEntry, entry);
 
 	if (head_entry) {
 		nm_assert (c_list_is_empty (&head_entry->lst_entries_head));
-		c_list_unlink (&head_entry->lst_idx);
+		c_list_unlink_stale (&head_entry->lst_idx);
 		g_slice_free (NMDedupMultiHeadEntry, head_entry);
 	}
 
@@ -870,14 +870,14 @@ nm_dedup_multi_index_obj_intern (NMDedupMultiIndex *self,
 	nm_assert (obj_new);
 	nm_assert (!obj_new->_multi_idx);
 
-	if (!nm_g_hash_table_add (self->idx_objs, (gpointer) obj_new))
+	if (!g_hash_table_add (self->idx_objs, (gpointer) obj_new))
 		nm_assert_not_reached ();
 
 	((NMDedupMultiObj *) obj_new)->_multi_idx = self;
 	return obj_new;
 }
 
-const NMDedupMultiObj *
+void
 nm_dedup_multi_obj_unref (const NMDedupMultiObj *obj)
 {
 	if (obj) {
@@ -899,8 +899,6 @@ again:
 			obj->klass->obj_destroy ((NMDedupMultiObj *) obj);
 		}
 	}
-
-	return NULL;
 }
 
 gboolean
@@ -1027,13 +1025,13 @@ nm_dedup_multi_entry_reorder (const NMDedupMultiEntry *entry,
 		nm_assert (c_list_contains (&head_entry->lst_entries_head, &entry->lst_entries));
 		if (order_after) {
 			if (head_entry->lst_entries_head.prev != &entry->lst_entries) {
-				c_list_unlink ((CList *) &entry->lst_entries);
+				c_list_unlink_stale ((CList *) &entry->lst_entries);
 				c_list_link_tail ((CList *) &head_entry->lst_entries_head, (CList *) &entry->lst_entries);
 				return TRUE;
 			}
 		} else {
 			if (head_entry->lst_entries_head.next != &entry->lst_entries) {
-				c_list_unlink ((CList *) &entry->lst_entries);
+				c_list_unlink_stale ((CList *) &entry->lst_entries);
 				c_list_link_front ((CList *) &head_entry->lst_entries_head, (CList *) &entry->lst_entries);
 				return TRUE;
 			}
@@ -1041,13 +1039,13 @@ nm_dedup_multi_entry_reorder (const NMDedupMultiEntry *entry,
 	} else if (entry != entry_order) {
 		if (order_after) {
 			if (entry_order->lst_entries.next != &entry->lst_entries) {
-				c_list_unlink ((CList *) &entry->lst_entries);
+				c_list_unlink_stale ((CList *) &entry->lst_entries);
 				c_list_link_after ((CList *) &entry_order->lst_entries, (CList *) &entry->lst_entries);
 				return TRUE;
 			}
 		} else {
 			if (entry_order->lst_entries.prev != &entry->lst_entries) {
-				c_list_unlink ((CList *) &entry->lst_entries);
+				c_list_unlink_stale ((CList *) &entry->lst_entries);
 				c_list_link_before ((CList *) &entry_order->lst_entries, (CList *) &entry->lst_entries);
 				return TRUE;
 			}

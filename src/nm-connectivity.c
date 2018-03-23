@@ -137,7 +137,9 @@ curl_check_connectivity (CURLM *mhandle, CURLMcode ret)
 	ConCheckCbData *cb_data;
 	CURLMsg *msg;
 	CURLcode eret;
+	CURL *easy_handle;
 	gint m_left;
+	long response_code;
 
 	if (ret != CURLM_OK)
 		_LOGW ("connectivity check failed");
@@ -154,22 +156,37 @@ curl_check_connectivity (CURLM *mhandle, CURLMcode ret)
 		}
 
 		if (cb_data) {
+			NMConnectivityState c;
+
 			/* If cb_data is still there this message hasn't been
 			 * taken care of. Do so now. */
-			if (msg->data.result == CURLE_OK) {
-				/* If we get here, it means that easy_write_cb() didn't read enough
-				 * bytes to be able to do a match. */
-				_LOG2I ("response shorter than expected '%s'; assuming captive portal.",
-				        cb_data->response);
-				finish_cb_data (cb_data, NM_CONNECTIVITY_PORTAL);
-			} else {
+			if (msg->data.result != CURLE_OK) {
 				_LOG2D ("check failed (%d)", msg->data.result);
-				finish_cb_data (cb_data, NM_CONNECTIVITY_LIMITED);
+				c = NM_CONNECTIVITY_LIMITED;
+			} else if (   !cb_data->response[0]
+			           && (curl_easy_getinfo (msg->easy_handle, CURLINFO_RESPONSE_CODE, &response_code) == CURLE_OK)
+			           && response_code == 204) {
+				/* If we got a 204 response code (no content) and we actually
+				 * requested no content, report full connectivity. */
+				_LOG2D ("response with no content received, check successful");
+				c = NM_CONNECTIVITY_FULL;
+			} else {
+				/* If we get here, it means that easy_write_cb() didn't read enough
+				 * bytes to be able to do a match, or that we were asking for no content
+				 * (204 response code) and we actually got some. Either way, that is
+				 * an indication of a captive portal */
+				_LOG2I ("response did not match expected response '%s'; assuming captive portal.",
+				        cb_data->response);
+				c = NM_CONNECTIVITY_PORTAL;
 			}
+
+			finish_cb_data (cb_data, c);
 		}
 
-		curl_multi_remove_handle (mhandle, msg->easy_handle);
-		curl_easy_cleanup (msg->easy_handle);
+		/* Do not use message data after calling curl_multi_remove_handle() */
+		easy_handle = msg->easy_handle;
+		curl_multi_remove_handle (mhandle, easy_handle);
+		curl_easy_cleanup (easy_handle);
 	}
 }
 
@@ -297,7 +314,9 @@ easy_write_cb (void *buffer, size_t size, size_t nmemb, void *userdata)
 	memcpy (cb_data->msg + cb_data->msg_size, buffer, len);
 	cb_data->msg_size += len;
 
-	if (cb_data->msg_size >= strlen (cb_data->response)) {
+	/* Check matching prefix if a expected response is given */
+	if (   cb_data->response[0]
+	    && cb_data->msg_size >= strlen (cb_data->response)) {
 		/* We already have enough data -- check response */
 		if (g_str_has_prefix (cb_data->msg, cb_data->response)) {
 			_LOG2D ("check successful.");

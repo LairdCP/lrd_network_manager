@@ -14,7 +14,7 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
- * Copyright 2010 - 2015 Red Hat, Inc.
+ * Copyright 2010 - 2017 Red Hat, Inc.
  */
 
 #include "nm-default.h"
@@ -30,8 +30,6 @@
 #include <netinet/ether.h>
 #include <readline/readline.h>
 #include <readline/history.h>
-
-#include "nm-utils/nm-hash-utils.h"
 
 #include "nm-client-utils.h"
 #include "nm-vpn-helpers.h"
@@ -146,7 +144,8 @@ const NmcMetaGenericInfo *const nmc_fields_con_active_details_general[] = {
                                          NM_SETTING_MACSEC_SETTING_NAME"," \
                                          NM_SETTING_MACVLAN_SETTING_NAME"," \
                                          NM_SETTING_VXLAN_SETTING_NAME"," \
-                                         NM_SETTING_PROXY_SETTING_NAME
+                                         NM_SETTING_PROXY_SETTING_NAME"," \
+                                         NM_SETTING_TC_CONFIG_SETTING_NAME
                                          // NM_SETTING_DUMMY_SETTING_NAME
                                          // NM_SETTING_WIMAX_SETTING_NAME
 
@@ -504,12 +503,8 @@ usage_connection_export (void)
 static void
 quit (void)
 {
-	if (progress_id) {
-		g_source_remove (progress_id);
-		progress_id = 0;
+	if (nm_clear_g_source (&progress_id))
 		nmc_terminal_erase_line ();
-	}
-
 	g_main_loop_quit (loop);
 }
 
@@ -615,26 +610,54 @@ get_ac_for_connection (const GPtrArray *active_cons, NMConnection *connection)
 	return ac;
 }
 
+typedef struct {
+	GMainLoop *loop;
+	NMConnection *local;
+	const char *setting_name;
+} GetSecretsData;
+
+static void
+got_secrets (GObject *source_object, GAsyncResult *res, gpointer user_data)
+{
+	NMRemoteConnection *remote = NM_REMOTE_CONNECTION (source_object);
+	GetSecretsData *data = user_data;
+	GVariant *secrets;
+	GError *error = NULL;
+
+	secrets = nm_remote_connection_get_secrets_finish (remote, res, NULL);
+	if (secrets) {
+		if (!nm_connection_update_secrets (data->local, NULL, secrets, &error) && error) {
+			g_printerr (_("Error updating secrets for %s: %s\n"),
+			            data->setting_name, error->message);
+			g_clear_error (&error);
+		}
+		g_variant_unref (secrets);
+	}
+
+	g_main_loop_quit (data->loop);
+}
+
 /* Put secrets into local connection. */
 static void
 update_secrets_in_connection (NMRemoteConnection *remote, NMConnection *local)
 {
-	GVariant *secrets;
+	GetSecretsData data = { 0, };
 	int i;
-	GError *error = NULL;
+
+	data.local = local;
+	data.loop = g_main_loop_new (NULL, FALSE);
 
 	for (i = 0; i < _NM_META_SETTING_TYPE_NUM; i++) {
-		secrets = nm_remote_connection_get_secrets (remote, nm_meta_setting_infos[i].setting_name, NULL, NULL);
-		if (secrets) {
-			if (!nm_connection_update_secrets (local, NULL, secrets, &error) && error) {
-				g_printerr (_("Error updating secrets for %s: %s\n"),
-				            nm_meta_setting_infos[i].setting_name,
-				            error->message);
-				g_clear_error (&error);
-			}
-			g_variant_unref (secrets);
-		}
+		data.setting_name = nm_meta_setting_infos[i].setting_name;
+		nm_remote_connection_get_secrets_async (remote,
+		                                        nm_meta_setting_infos[i].setting_name,
+		                                        NULL,
+		                                        got_secrets,
+		                                        &data);
+		g_main_loop_run (data.loop);
 	}
+
+	g_main_loop_unref (data.loop);
 }
 
 static gboolean
@@ -1099,7 +1122,6 @@ nmc_active_connection_details (NMActiveConnection *acon, NmCli *nmc)
 	const char *fields_str = NULL;
 	const NMMetaAbstractInfo *const*tmpl;
 	NmcOutputField *arr;
-	size_t tmpl_len;
 	const char *base_hdr = _("Activate connection details");
 	gboolean was_output = FALSE;
 
@@ -1153,7 +1175,6 @@ nmc_active_connection_details (NMActiveConnection *acon, NmCli *nmc)
 
 			/* Add field names */
 			tmpl = (const NMMetaAbstractInfo *const*) nmc_fields_con_active_details_general;
-			tmpl_len = sizeof (nmc_fields_con_active_details_general);
 			out_indices = parse_output_fields (group_fld,
 			                                   tmpl, FALSE, NULL, NULL);
 			arr = nmc_dup_fields_array (tmpl, NMC_OF_FLAG_FIELD_NAMES);
@@ -1560,18 +1581,18 @@ get_invisible_active_connections (NmCli *nmc)
 static GArray *
 parse_preferred_connection_order (const char *order, GError **error)
 {
-	char **strv, **iter;
+	gs_free const char **strv = NULL;
+	const char *const*iter;
 	const char *str;
 	GArray *order_arr;
 	NmcSortOrder val;
 	gboolean inverse, unique;
 	int i;
 
-	strv = nmc_strsplit_set (order, ":", -1);
-	if (!strv || !*strv) {
+	strv = nm_utils_strsplit_set (order, ":");
+	if (!strv) {
 		g_set_error (error, NMCLI_ERROR, 0,
 		             _("incorrect string '%s' of '--order' option"), order);
-		g_strfreev (strv);
 		return NULL;
 	}
 
@@ -1613,7 +1634,6 @@ parse_preferred_connection_order (const char *order, GError **error)
 			g_array_append_val (order_arr, val);
 	}
 
-	g_strfreev (strv);
 	return order_arr;
 }
 
@@ -1633,16 +1653,17 @@ get_connection (NmCli *nmc, int *argc, char ***argv, int *pos, GError **error)
 	if (*argc == 1 && nmc->complete)
 		nmc_complete_strings (**argv, "id", "uuid", "path", NULL);
 
-	if (   strcmp (**argv, "id") == 0
-	    || strcmp (**argv, "uuid") == 0
-	    || strcmp (**argv, "path") == 0) {
-		selector = **argv;
-		(*argc)--;
-		(*argv)++;
-		if (!*argc) {
-			g_set_error (error, NMCLI_ERROR, NMC_RESULT_ERROR_USER_INPUT,
-			             _("%s argument is missing"), selector);
-			return NULL;
+	if (NM_IN_STRSET (**argv, "id", "uuid", "path")) {
+		if (*argc == 1) {
+			if (!nmc->complete) {
+				g_set_error (error, NMCLI_ERROR, NMC_RESULT_ERROR_USER_INPUT,
+				             _("%s argument is missing"), selector);
+				return NULL;
+			}
+		} else {
+			selector = **argv;
+			(*argv)++;
+			(*argc)--;
 		}
 	}
 
@@ -2266,48 +2287,50 @@ activate_connection_cb (GObject *client, GAsyncResult *result, gpointer user_dat
 static GHashTable *
 parse_passwords (const char *passwd_file, GError **error)
 {
-	GHashTable *pwds_hash;
-	char *contents = NULL;
+	gs_unref_hashtable GHashTable *pwds_hash = NULL;
+	gs_free char *contents = NULL;
 	gsize len = 0;
 	GError *local_err = NULL;
-	char **lines, **iter;
+	gs_free const char **strv = NULL;
+	const char *const*iter;
 	char *pwd_spec, *pwd, *prop;
 	const char *setting;
 
 	pwds_hash = g_hash_table_new_full (nm_str_hash, g_str_equal, g_free, g_free);
 
 	if (!passwd_file)
-		return pwds_hash;
+		return g_steal_pointer (&pwds_hash);
 
-        /* Read the passwords file */
+	/* Read the passwords file */
 	if (!g_file_get_contents (passwd_file, &contents, &len, &local_err)) {
 		g_set_error (error, NMCLI_ERROR, NMC_RESULT_ERROR_USER_INPUT,
 		             _("failed to read passwd-file '%s': %s"),
 		             passwd_file, local_err->message);
 		g_error_free (local_err);
-		g_hash_table_destroy (pwds_hash);
 		return NULL;
 	}
 
-	lines = nmc_strsplit_set (contents, "\r\n", -1);
-	for (iter = lines; *iter; iter++) {
-		pwd = strchr (*iter, ':');
+	strv = nm_utils_strsplit_set (contents, "\r\n");
+	for (iter = strv; *iter; iter++) {
+		gs_free char *iter_s = g_strdup (*iter);
+
+		pwd = strchr (iter_s, ':');
 		if (!pwd) {
 			g_set_error (error, NMCLI_ERROR, NMC_RESULT_ERROR_USER_INPUT,
 			             _("missing colon in 'password' entry '%s'"), *iter);
-			goto failure;
+			return NULL;
 		}
 		*(pwd++) = '\0';
 
-		prop = strchr (*iter, '.');
+		prop = strchr (iter_s, '.');
 		if (!prop) {
 			g_set_error (error, NMCLI_ERROR, NMC_RESULT_ERROR_USER_INPUT,
 			             _("missing dot in 'password' entry '%s'"), *iter);
-			goto failure;
+			return NULL;
 		}
 		*(prop++) = '\0';
 
-		setting = *iter;
+		setting = iter_s;
 		while (g_ascii_isspace (*setting))
 			setting++;
 		/* Accept wifi-sec or wifi instead of cumbersome '802-11-wireless-security' */
@@ -2316,21 +2339,13 @@ parse_passwords (const char *passwd_file, GError **error)
 		if (nm_setting_lookup_type (setting) == G_TYPE_INVALID) {
 			g_set_error (error, NMCLI_ERROR, NMC_RESULT_ERROR_USER_INPUT,
 			             _("invalid setting name in 'password' entry '%s'"), setting);
-			goto failure;
+			return NULL;
 		}
 
 		pwd_spec = g_strdup_printf ("%s.%s", setting, prop);
 		g_hash_table_insert (pwds_hash, pwd_spec, g_strdup (pwd));
 	}
-	g_strfreev (lines);
-	g_free (contents);
-	return pwds_hash;
-
-failure:
-	g_strfreev (lines);
-	g_free (contents);
-	g_hash_table_destroy (pwds_hash);
-	return NULL;
+	return g_steal_pointer (&pwds_hash);
 }
 
 
@@ -2656,7 +2671,7 @@ do_connection_down (NmCli *nmc, int argc, char **argv)
 		const GPtrArray *connections;
 		const char *selector = NULL;
 
-		if (arg_num == 1)
+		if (arg_num == 1 && nmc->complete)
 			nmc_complete_strings (*arg_ptr, "id", "uuid", "path", "apath", NULL);
 
 		if (   strcmp (*arg_ptr, "id") == 0
@@ -3310,7 +3325,7 @@ _dynamic_options_set (const NMMetaAbstractInfo *abstract_info,
 	PropertyInfFlags v, v2;
 
 	if (G_UNLIKELY (!cache))
-		cache = g_hash_table_new (NULL, NULL);
+		cache = g_hash_table_new (nm_direct_hash, NULL);
 
 	if (g_hash_table_lookup_extended (cache, (gpointer) abstract_info, NULL, &p))
 		v = GPOINTER_TO_UINT (p);
@@ -5860,50 +5875,80 @@ typedef enum {
 	NMC_EDITOR_MAIN_CMD_QUIT,
 } NmcEditorMainCmd;
 
+static void
+_split_cmd (const char *cmd, char **out_arg0, const char **out_argr)
+{
+	gs_free char *arg0 = NULL;
+	const char *argr = NULL;
+	gsize l;
+
+	NM_SET_OUT (out_arg0, NULL);
+	NM_SET_OUT (out_argr, NULL);
+
+	if (!cmd)
+		return;
+	while (NM_IN_SET (cmd[0], ' ', '\t'))
+		cmd++;
+	if (!cmd[0])
+		return;
+
+	l = strcspn (cmd, " \t");
+	arg0 = g_strndup (cmd, l);
+	cmd += l;
+	if (cmd[0]) {
+		while (NM_IN_SET (cmd[0], ' ', '\t'))
+			cmd++;
+		if (cmd[0])
+			argr = cmd;
+	}
+
+	NM_SET_OUT (out_arg0, g_steal_pointer (&arg0));
+	NM_SET_OUT (out_argr, argr);
+}
+
 static NmcEditorMainCmd
 parse_editor_main_cmd (const char *cmd, char **cmd_arg)
 {
 	NmcEditorMainCmd editor_cmd = NMC_EDITOR_MAIN_CMD_UNKNOWN;
-	char **vec;
+	gs_free char *cmd_arg0 = NULL;
+	const char *cmd_argr;
 
-	vec = nmc_strsplit_set (cmd, " \t", 2);
-	if (g_strv_length (vec) < 1) {
-		if (cmd_arg)
-			*cmd_arg = NULL;
-		return NMC_EDITOR_MAIN_CMD_UNKNOWN;
-	}
+	_split_cmd (cmd, &cmd_arg0, &cmd_argr);
+	if (!cmd_arg0)
+		goto fail;
 
-	if (matches (vec[0], "goto"))
+	if (matches (cmd_arg0, "goto"))
 		editor_cmd = NMC_EDITOR_MAIN_CMD_GOTO;
-	else if (matches (vec[0], "remove"))
+	else if (matches (cmd_arg0, "remove"))
 		editor_cmd = NMC_EDITOR_MAIN_CMD_REMOVE;
-	else if (matches (vec[0], "set"))
+	else if (matches (cmd_arg0, "set"))
 		editor_cmd = NMC_EDITOR_MAIN_CMD_SET;
-	else if (matches (vec[0], "describe"))
+	else if (matches (cmd_arg0, "describe"))
 		editor_cmd = NMC_EDITOR_MAIN_CMD_DESCRIBE;
-	else if (matches (vec[0], "print"))
+	else if (matches (cmd_arg0, "print"))
 		editor_cmd = NMC_EDITOR_MAIN_CMD_PRINT;
-	else if (matches (vec[0], "verify"))
+	else if (matches (cmd_arg0, "verify"))
 		editor_cmd = NMC_EDITOR_MAIN_CMD_VERIFY;
-	else if (matches (vec[0], "save"))
+	else if (matches (cmd_arg0, "save"))
 		editor_cmd = NMC_EDITOR_MAIN_CMD_SAVE;
-	else if (matches (vec[0], "activate"))
+	else if (matches (cmd_arg0, "activate"))
 		editor_cmd = NMC_EDITOR_MAIN_CMD_ACTIVATE;
-	else if (matches (vec[0], "back"))
+	else if (matches (cmd_arg0, "back"))
 		editor_cmd = NMC_EDITOR_MAIN_CMD_BACK;
-	else if (matches (vec[0], "help") || strcmp (vec[0], "?") == 0)
+	else if (matches (cmd_arg0, "help") || strcmp (cmd_arg0, "?") == 0)
 		editor_cmd = NMC_EDITOR_MAIN_CMD_HELP;
-	else if (matches (vec[0], "quit"))
+	else if (matches (cmd_arg0, "quit"))
 		editor_cmd = NMC_EDITOR_MAIN_CMD_QUIT;
-	else if (matches (vec[0], "nmcli"))
+	else if (matches (cmd_arg0, "nmcli"))
 		editor_cmd = NMC_EDITOR_MAIN_CMD_NMCLI;
+	else
+		goto fail;
 
-	/* set pointer to command argument */
-	if (cmd_arg)
-		*cmd_arg = vec[1] ? g_strstrip (g_strdup (vec[1])) : NULL;
-
-	g_strfreev (vec);
+	NM_SET_OUT (cmd_arg, g_strdup (cmd_argr));
 	return editor_cmd;
+fail:
+	NM_SET_OUT (cmd_arg, NULL);
+	return NMC_EDITOR_MAIN_CMD_UNKNOWN;
 }
 
 static void
@@ -6052,40 +6097,39 @@ static NmcEditorSubCmd
 parse_editor_sub_cmd (const char *cmd, char **cmd_arg)
 {
 	NmcEditorSubCmd editor_cmd = NMC_EDITOR_SUB_CMD_UNKNOWN;
-	char **vec;
+	gs_free char *cmd_arg0 = NULL;
+	const char *cmd_argr;
 
-	vec = nmc_strsplit_set (cmd, " \t", 2);
-	if (g_strv_length (vec) < 1) {
-		if (cmd_arg)
-			*cmd_arg = NULL;
-		return NMC_EDITOR_SUB_CMD_UNKNOWN;
-	}
+	_split_cmd (cmd, &cmd_arg0, &cmd_argr);
+	if (!cmd_arg0)
+		goto fail;
 
-	if (matches (vec[0], "set"))
+	if (matches (cmd_arg0, "set"))
 		editor_cmd = NMC_EDITOR_SUB_CMD_SET;
-	else if (matches (vec[0], "add"))
+	else if (matches (cmd_arg0, "add"))
 		editor_cmd = NMC_EDITOR_SUB_CMD_ADD;
-	else if (matches (vec[0], "change"))
+	else if (matches (cmd_arg0, "change"))
 		editor_cmd = NMC_EDITOR_SUB_CMD_CHANGE;
-	else if (matches (vec[0], "remove"))
+	else if (matches (cmd_arg0, "remove"))
 		editor_cmd = NMC_EDITOR_SUB_CMD_REMOVE;
-	else if (matches (vec[0], "describe"))
+	else if (matches (cmd_arg0, "describe"))
 		editor_cmd = NMC_EDITOR_SUB_CMD_DESCRIBE;
-	else if (matches (vec[0], "print"))
+	else if (matches (cmd_arg0, "print"))
 		editor_cmd = NMC_EDITOR_SUB_CMD_PRINT;
-	else if (matches (vec[0], "back"))
+	else if (matches (cmd_arg0, "back"))
 		editor_cmd = NMC_EDITOR_SUB_CMD_BACK;
-	else if (matches (vec[0], "help") || strcmp (vec[0], "?") == 0)
+	else if (matches (cmd_arg0, "help") || strcmp (cmd_arg0, "?") == 0)
 		editor_cmd = NMC_EDITOR_SUB_CMD_HELP;
-	else if (matches (vec[0], "quit"))
+	else if (matches (cmd_arg0, "quit"))
 		editor_cmd = NMC_EDITOR_SUB_CMD_QUIT;
+	else
+		goto fail;
 
-	/* set pointer to command argument */
-	if (cmd_arg)
-		*cmd_arg = g_strdup (vec[1]);
-
-	g_strfreev (vec);
+	NM_SET_OUT (cmd_arg, g_strdup (cmd_argr));
 	return editor_cmd;
+fail:
+	NM_SET_OUT (cmd_arg, NULL);
+	return NMC_EDITOR_SUB_CMD_UNKNOWN;
 }
 
 static void
@@ -6621,29 +6665,26 @@ property_edit_submenu (NmCli *nmc,
 static void
 split_editor_main_cmd_args (const char *str, char **setting, char **property, char **value)
 {
-	char **args, **items;
+	gs_free char *cmd_arg0 = NULL;
+	const char *cmd_argr;
+	const char *s;
 
-	if (!str)
+	NM_SET_OUT (setting, NULL);
+	NM_SET_OUT (property, NULL);
+	NM_SET_OUT (value, NULL);
+
+	_split_cmd (str, &cmd_arg0, &cmd_argr);
+	if (!cmd_arg0)
 		return;
 
-	args = nmc_strsplit_set (str, " \t", 2);
-	if (args[0]) {
-		items = nmc_strsplit_set (args[0], ".", 2);
-		if (g_strv_length (items) == 2) {
-			if (setting)
-				*setting = g_strdup (items[0]);
-			if (property)
-				*property = g_strdup (items[1]);
-		} else {
-			if (property)
-				*property = g_strdup (items[0]);
-		}
-		g_strfreev (items);
-
-		if (value && args[1])
-			*value = g_strstrip (g_strdup (args[1]));
+	NM_SET_OUT (value, g_strdup (cmd_argr));
+	s = strchr (cmd_arg0, '.');
+	if (s && s > cmd_arg0) {
+		NM_SET_OUT (setting, g_strndup (cmd_arg0, s - cmd_arg0));
+		NM_SET_OUT (property, g_strdup (&s[1]));
+	} else {
+		NM_SET_OUT (property, g_steal_pointer (&cmd_arg0));
 	}
-	g_strfreev (args);
 }
 
 static NMSetting *
@@ -6764,7 +6805,7 @@ confirm_connection_saving (NMConnection *local, NMConnection *remote)
 	return confirmed;
 }
 
-typedef	struct {
+typedef struct {
 	guint level;
 	char *main_prompt;
 	NMSetting *curr_setting;
@@ -7568,6 +7609,8 @@ editor_menu_main (NmCli *nmc, NMConnection *connection, const char *connection_t
 	g_strfreev (menu_ctx.valid_props);
 	g_free (menu_ctx.valid_props_str);
 	g_weak_ref_clear (&weak);
+
+	quit ();
 
 	/* Save history file */
 	save_history_cmds (nm_connection_get_uuid (connection));
@@ -8605,7 +8648,7 @@ do_connection_export (NmCli *nmc, int argc, char **argv)
 			nmc->return_value = NMC_RESULT_ERROR_UNKNOWN;
 			goto finish;
 		}
-		close (fd);
+		nm_close (fd);
 		path = tmpfile;
 	}
 

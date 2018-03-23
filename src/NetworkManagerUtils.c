@@ -31,7 +31,6 @@
 #include "nm-core-internal.h"
 
 #include "platform/nm-platform.h"
-#include "nm-exported-object.h"
 #include "nm-auth-utils.h"
 
 /*****************************************************************************/
@@ -773,6 +772,10 @@ check_possible_match (NMConnection *orig,
  * @connections: a (optionally pre-sorted) list of connections from which to
  * find a matching connection to @original based on "inferrable" properties
  * @original: the #NMConnection to find a match for from @connections
+ * @indicated: whether the match is already hinted/indicated. That is the
+ *   case when we found the connection in the state file from a previous run.
+ *   In this case, we perform a relexed check, as we have a good hint
+ *   that the connection actually matches.
  * @device_has_carrier: pass %TRUE if the device that generated @original has
  * a carrier, %FALSE if not
  * @match_filter_func: a function to check whether each connection from @connections
@@ -792,6 +795,7 @@ check_possible_match (NMConnection *orig,
 NMConnection *
 nm_utils_match_connection (NMConnection *const*connections,
                            NMConnection *original,
+                           gboolean indicated,
                            gboolean device_has_carrier,
                            gint64 default_v4_metric,
                            gint64 default_v6_metric,
@@ -812,7 +816,24 @@ nm_utils_match_connection (NMConnection *const*connections,
 				continue;
 		}
 
-		if (!nm_connection_diff (original, candidate, NM_SETTING_COMPARE_FLAG_INFERRABLE, &diffs)) {
+		if (indicated) {
+			NMSettingConnection *s_orig, *s_cand;
+
+			s_orig = nm_connection_get_setting_connection (original);
+			s_cand = nm_connection_get_setting_connection (candidate);
+
+			/* It is indicated that this connection matches. Assume we have
+			 * a match, but check for particular differences that let us
+			 * reject the candidate. */
+			if (!nm_streq0 (nm_setting_connection_get_connection_type (s_orig),
+			                nm_setting_connection_get_connection_type (s_cand)))
+				continue;
+			if (!nm_streq0 (nm_setting_connection_get_slave_type (s_orig),
+			                nm_setting_connection_get_slave_type (s_cand)))
+				continue;
+
+			/* this is good enough for a match */
+		} else if (!nm_connection_diff (original, candidate, NM_SETTING_COMPARE_FLAG_INFERRABLE, &diffs)) {
 			if (!best_match) {
 				best_match = check_possible_match (original, candidate, diffs, device_has_carrier,
 				                                   default_v4_metric, default_v6_metric);
@@ -858,58 +879,37 @@ nm_utils_match_connection (NMConnection *const*connections,
 
 /*****************************************************************************/
 
-/**
- * nm_utils_g_value_set_object_path:
- * @value: a #GValue, initialized to store an object path
- * @object: (allow-none): an #NMExportedObject
- *
- * Sets @value to @object's object path. If @object is %NULL, or not
- * exported, @value is set to "/".
- */
-void
-nm_utils_g_value_set_object_path (GValue *value, gpointer object)
+int
+nm_match_spec_device_by_pllink (const NMPlatformLink *pllink,
+                                const char *match_device_type,
+                                const GSList *specs,
+                                int no_match_value)
 {
-	g_return_if_fail (!object || NM_IS_EXPORTED_OBJECT (object));
+	NMMatchSpecMatchType m;
 
-	if (object && nm_exported_object_is_exported (object))
-		g_value_set_string (value, nm_exported_object_get_path (object));
-	else
-		g_value_set_string (value, "/");
-}
+	/* we can only match by certain properties that are available on the
+	 * platform link (and even @pllink might be missing.
+	 *
+	 * It's still useful because of specs like "*" and "except:interface-name:eth0",
+	 * which match even in that case. */
+	m = nm_match_spec_device (specs,
+	                          pllink ? pllink->name : NULL,
+	                          match_device_type,
+	                          pllink ? pllink->driver : NULL,
+	                          NULL,
+	                          NULL,
+	                          NULL);
 
-/**
- * nm_utils_g_value_set_object_path_array:
- * @value: a #GValue, initialized to store an object path
- * @objects: a #GSList of #NMExportedObjects
- * @filter_func: (allow-none): function to call on each object in @objects
- * @user_data: data to pass to @filter_func
- *
- * Sets @value to an array of object paths of the objects in @objects.
- */
-void
-nm_utils_g_value_set_object_path_array (GValue *value,
-                                        GSList *objects,
-                                        NMUtilsObjectFunc filter_func,
-                                        gpointer user_data)
-{
-	char **paths;
-	guint i;
-	GSList *iter;
-
-	paths = g_new (char *, g_slist_length (objects) + 1);
-	for (i = 0, iter = objects; iter; iter = iter->next) {
-		NMExportedObject *object = iter->data;
-		const char *path;
-
-		path = nm_exported_object_get_path (object);
-		if (!path)
-			continue;
-		if (filter_func && !filter_func ((GObject *) object, user_data))
-			continue;
-		paths[i++] = g_strdup (path);
+	switch (m) {
+	case NM_MATCH_SPEC_MATCH:
+		return TRUE;
+	case NM_MATCH_SPEC_NEG_MATCH:
+		return FALSE;
+	case NM_MATCH_SPEC_NO_MATCH:
+		return no_match_value;
 	}
-	paths[i] = NULL;
-	g_value_take_boxed (value, paths);
+	nm_assert_not_reached ();
+	return no_match_value;
 }
 
-/*****************************************************************************/
+

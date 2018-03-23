@@ -32,8 +32,6 @@ typedef enum {
 
 const char *nmc_string_is_valid (const char *input, const char **allowed, GError **error);
 
-char **nmc_strsplit_set (const char *str, const char *delimiter, int max_tokens);
-
 gboolean nmc_string_to_uint (const char *str,
                              gboolean range_check,
                              unsigned long int min,
@@ -55,5 +53,9 @@ const char *nmc_device_metered_to_string (NMMetered value);
 NMActiveConnectionState nmc_activation_get_effective_state (NMActiveConnection *active,
                                                             NMDevice *device,
                                                             const char **reason);
+
+const char *nmc_wifi_strength_bars (guint8 strength);
+
+const char *nmc_password_subst_char (void);
 
 #endif /* __NM_CLIENT_UTILS_H__ */

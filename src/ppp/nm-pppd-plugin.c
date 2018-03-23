@@ -28,6 +28,7 @@
 #include <pppd/ipcp.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <net/if.h>
 #include <arpa/inet.h>
 #include <dlfcn.h>
 
@@ -36,7 +37,9 @@
 #include <pppd/ipv6cp.h>
 
 #include "nm-default.h"
+
 #include "nm-dbus-interface.h"
+
 #include "nm-pppd-plugin.h"
 #include "nm-ppp-status.h"
 
@@ -50,7 +53,9 @@ static void
 nm_phasechange (void *data, int arg)
 {
 	NMPPPStatus ppp_status = NM_PPP_STATUS_UNKNOWN;
+	char new_name[IF_NAMESIZE];
 	char *ppp_phase;
+	int index;
 
 	g_return_if_fail (G_IS_DBUS_PROXY (proxy));
 
@@ -126,6 +131,25 @@ nm_phasechange (void *data, int arg)
 		                   NULL,
 		                   NULL, NULL);
 	}
+
+	if (ppp_status == PHASE_RUNNING) {
+		index = if_nametoindex (ifname);
+		/* Make a sync call to ensure that when the call
+		 * terminates the interface already has its final
+		 * name. */
+		g_dbus_proxy_call_sync (proxy,
+		                        "SetIfindex",
+		                        g_variant_new ("(i)", index),
+		                        G_DBUS_CALL_FLAGS_NONE,
+		                        25000,
+		                        NULL, NULL);
+		/* Update the name in pppd if NM changed it */
+		if (   if_indextoname (index, new_name)
+		    && !nm_streq0 (ifname, new_name)) {
+			g_message ("nm-ppp-plugin: interface name changed from '%s' to '%s'", ifname, new_name);
+			strncpy (ifname, new_name, IF_NAMESIZE);
+		}
+	}
 }
 
 static void
@@ -148,6 +172,9 @@ nm_ip_up (void *data, int arg)
 
 	g_variant_builder_init (&builder, G_VARIANT_TYPE_VARDICT);
 
+	/* Keep sending the interface name to be backwards compatible
+	 * with older versions of NM during a package upgrade, where
+	 * NM is not restarted and the pppd plugin was not loaded. */
 	g_variant_builder_add (&builder, "{sv}",
 	                       NM_PPP_IP4_CONFIG_INTERFACE,
 	                       g_variant_new_string (ifname));
@@ -242,6 +269,9 @@ nm_ip6_up (void *data, int arg)
 	g_message ("nm-ppp-plugin: (%s): ip6-up event", __func__);
 
 	g_variant_builder_init (&builder, G_VARIANT_TYPE_VARDICT);
+	/* Keep sending the interface name to be backwards compatible
+	 * with older versions of NM during a package upgrade, where
+	 * NM is not restarted and the pppd plugin was not loaded. */
 	g_variant_builder_add (&builder, "{sv}",
 	                       NM_PPP_IP6_CONFIG_INTERFACE,
 	                       g_variant_new_string (ifname));
@@ -281,7 +311,6 @@ get_credentials (char *username, char *password)
 {
 	const char *my_username = NULL;
 	const char *my_password = NULL;
-	size_t len;
 	GVariant *ret;
 	GError *err = NULL;
 
@@ -313,21 +342,11 @@ get_credentials (char *username, char *password)
 
 	g_variant_get (ret, "(&s&s)", &my_username, &my_password);
 
-	if (my_username) {
-		len = strlen (my_username) + 1;
-		len = len < MAXNAMELEN ? len : MAXNAMELEN;
+	if (my_username)
+		g_strlcpy (username, my_username, MAXNAMELEN);
 
-		strncpy (username, my_username, len);
-		username[len - 1] = '\0';
-	}
-
-	if (my_password) {
-		len = strlen (my_password) + 1;
-		len = len < MAXSECRETLEN ? len : MAXSECRETLEN;
-
-		strncpy (password, my_password, len);
-		password[len - 1] = '\0';
-	}
+	if (my_password)
+		g_strlcpy (password, my_password, MAXSECRETLEN);
 
 	g_variant_unref (ret);
 
@@ -371,8 +390,6 @@ plugin_init (void)
 {
 	GDBusConnection *bus;
 	GError *err = NULL;
-
-	nm_g_type_init ();
 
 	g_message ("nm-ppp-plugin: (%s): initializing", __func__);
 

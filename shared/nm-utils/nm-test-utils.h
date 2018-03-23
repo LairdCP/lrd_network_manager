@@ -21,6 +21,10 @@
 #ifndef __NM_TEST_UTILS_H__
 #define __NM_TEST_UTILS_H__
 
+#if defined(NETWORKMANAGER_COMPILATION) && !defined(NETWORKMANAGER_COMPILATION_TEST)
+#error Need to mark the compilation with NETWORKMANAGER_COMPILATION_TEST.
+#endif
+
 /*******************************************************************************
  * HOWTO run tests.
  *
@@ -328,8 +332,6 @@ __nmtst_init (int *argc, char ***argv, gboolean assert_logging, const char *log_
 
 	__nmtst_internal.assert_logging = !!assert_logging;
 
-	nm_g_type_init ();
-
 	is_debug = g_test_verbose ();
 
 	nmtst_debug = g_getenv ("NMTST_DEBUG");
@@ -424,6 +426,11 @@ __nmtst_init (int *argc, char ***argv, gboolean assert_logging, const char *log_
 			g_array_append_val (debug_messages, msg);
 		}
 	} else {
+		/* We're intentionally assigning a value to static variables
+		 * s_tests_x and p_tests_x without using it afterwards, just
+		 * so that valgrind doesn't complain about the leak. */
+		NM_PRAGMA_WARNING_DISABLE("-Wunused-but-set-variable")
+
 		/* g_test_init() is a variadic function, so we cannot pass it
 		 * (variadic) arguments. If you need to pass additional parameters,
 		 * call nmtst_init() with argc==NULL and call g_test_init() yourself. */
@@ -497,6 +504,8 @@ __nmtst_init (int *argc, char ***argv, gboolean assert_logging, const char *log_
 				s_tests = NULL;
 			}
 		}
+
+		NM_PRAGMA_WARNING_REENABLE
 	}
 
 	if (test_quick_set)
@@ -529,13 +538,8 @@ __nmtst_init (int *argc, char ***argv, gboolean assert_logging, const char *log_
 		*out_set_logging = TRUE;
 #endif
 		g_assert (success);
-#if GLIB_CHECK_VERSION(2,34,0)
 		if (__nmtst_internal.no_expect_message)
 			g_log_set_always_fatal (G_LOG_FATAL_MASK);
-#else
-		/* g_test_expect_message() is a NOP, so allow any messages */
-		g_log_set_always_fatal (G_LOG_FATAL_MASK);
-#endif
 	} else if (__nmtst_internal.no_expect_message) {
 		/* We have a test that would be assert_logging, but the user specified no_expect_message.
 		 * This transforms g_test_expect_message() into a NOP, but we also have to relax
@@ -555,14 +559,9 @@ __nmtst_init (int *argc, char ***argv, gboolean assert_logging, const char *log_
 		}
 #endif
 	} else {
-#if GLIB_CHECK_VERSION(2,34,0)
 		/* We were called not to set logging levels. This means, that the user
 		 * expects to assert against (all) messages. Any uncought message is fatal. */
 		g_log_set_always_fatal (G_LOG_LEVEL_MASK);
-#else
-		/* g_test_expect_message() is a NOP, so allow any messages */
-		g_log_set_always_fatal (G_LOG_FATAL_MASK);
-#endif
 	}
 
 	if ((!__nmtst_internal.assert_logging || (__nmtst_internal.assert_logging && __nmtst_internal.no_expect_message)) &&
@@ -629,7 +628,6 @@ nmtst_test_quick (void)
 	return __nmtst_internal.test_quick;
 }
 
-#if GLIB_CHECK_VERSION(2,34,0)
 #undef g_test_expect_message
 #define g_test_expect_message(...) \
 	G_STMT_START { \
@@ -637,9 +635,7 @@ nmtst_test_quick (void)
 		if (__nmtst_internal.assert_logging && __nmtst_internal.no_expect_message) { \
 			g_debug ("nmtst: assert-logging: g_test_expect_message %s", G_STRINGIFY ((__VA_ARGS__))); \
 		} else { \
-			G_GNUC_BEGIN_IGNORE_DEPRECATIONS \
 			g_test_expect_message (__VA_ARGS__); \
-			G_GNUC_END_IGNORE_DEPRECATIONS \
 		} \
 	} G_STMT_END
 #undef g_test_assert_expected_messages_internal
@@ -653,10 +649,21 @@ nmtst_test_quick (void)
 		if (__nmtst_internal.assert_logging && __nmtst_internal.no_expect_message) \
 			g_debug ("nmtst: assert-logging: g_test_assert_expected_messages(%s, %s:%d, %s)", _domain?:"", _file?:"", _line, _func?:""); \
 		\
-		G_GNUC_BEGIN_IGNORE_DEPRECATIONS \
 		g_test_assert_expected_messages_internal (_domain, _file, _line, _func); \
-		G_GNUC_END_IGNORE_DEPRECATIONS \
 	} G_STMT_END
+
+#define NMTST_EXPECT(domain, level, msg)        g_test_expect_message (domain, level, msg)
+
+#if (NETWORKMANAGER_COMPILATION) & NM_NETWORKMANAGER_COMPILATION_WITH_LIBNM_UTIL
+#define NMTST_EXPECT_LIBNM_U(level, msg)        NMTST_EXPECT ("libnm-util", level, msg)
+#define NMTST_EXPECT_LIBNM_G(level, msg)        NMTST_EXPECT ("libnm-glib", level, msg)
+
+#define NMTST_EXPECT_LIBNM_U_CRITICAL(msg)      NMTST_EXPECT_LIBNM_U (G_LOG_LEVEL_CRITICAL, msg)
+#define NMTST_EXPECT_LIBNM_G_CRITICAL(msg)      NMTST_EXPECT_LIBNM_G (G_LOG_LEVEL_CRITICAL, msg)
+#else
+#define NMTST_EXPECT_LIBNM(level, msg)          NMTST_EXPECT ("libnm", level, msg)
+
+#define NMTST_EXPECT_LIBNM_CRITICAL(msg)        NMTST_EXPECT_LIBNM (G_LOG_LEVEL_CRITICAL, msg)
 #endif
 
 /*****************************************************************************/
@@ -1499,13 +1506,12 @@ _nmtst_connection_normalize (NMConnection *connection, ...)
 static inline NMConnection *
 _nmtst_connection_duplicate_and_normalize (NMConnection *connection, ...)
 {
-	gboolean was_modified;
 	va_list args;
 
 	connection = nmtst_clone_connection (connection);
 
 	va_start (args, connection);
-	was_modified = _nmtst_connection_normalize_v (connection, args);
+	_nmtst_connection_normalize_v (connection, args);
 	va_end (args);
 
 	return connection;
@@ -1697,7 +1703,7 @@ nmtst_assert_setting_verifies (NMSetting *setting)
 	g_assert (success);
 }
 
-#if defined(__NM_SIMPLE_CONNECTION_H__)
+#if defined(__NM_SIMPLE_CONNECTION_H__) && NM_CHECK_VERSION (1, 10, 0) && (!defined (NM_VERSION_MAX_ALLOWED) || NM_VERSION_MAX_ALLOWED >= NM_VERSION_1_10)
 static inline void
 _nmtst_assert_connection_has_settings (NMConnection *connection, gboolean has_at_least, gboolean has_at_most, ...)
 {
@@ -1715,7 +1721,7 @@ _nmtst_assert_connection_has_settings (NMConnection *connection, gboolean has_at
 
 	va_start (ap, has_at_most);
 	while ((name = va_arg (ap, const char *))) {
-		if (!nm_g_hash_table_add (names, (gpointer) name))
+		if (!g_hash_table_add (names, (gpointer) name))
 			g_assert_not_reached ();
 		g_ptr_array_add (names_arr, (gpointer) name);
 	}
@@ -1751,8 +1757,7 @@ _nmtst_assert_connection_has_settings (NMConnection *connection, gboolean has_at
 #define nmtst_assert_connection_has_settings(connection, ...)          _nmtst_assert_connection_has_settings ((connection), TRUE,  TRUE,  __VA_ARGS__, NULL)
 #define nmtst_assert_connection_has_settings_at_least(connection, ...) _nmtst_assert_connection_has_settings ((connection), TRUE,  FALSE, __VA_ARGS__, NULL)
 #define nmtst_assert_connection_has_settings_at_most(connection, ...)  _nmtst_assert_connection_has_settings ((connection), FALSE, TRUE,  __VA_ARGS__, NULL)
-
-#endif /* __NM_SIMPLE_CONNECTION_H__ */
+#endif
 
 static inline void
 nmtst_assert_setting_verify_fails (NMSetting *setting,

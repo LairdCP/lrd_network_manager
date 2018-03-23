@@ -336,7 +336,7 @@ nmt_newt_edit_string (const char *data)
 		len -= nwrote;
 		data += nwrote;
 	}
-	close (fd);
+	nm_close (fd);
 
 	argv[0] = (char *) g_getenv ("VISUAL");
 	if (!argv[0])
@@ -359,21 +359,11 @@ nmt_newt_edit_string (const char *data)
 		goto done;
 	}
 
-#if GLIB_CHECK_VERSION (2, 34, 0)
-	G_GNUC_BEGIN_IGNORE_DEPRECATIONS
 	if (!g_spawn_check_exit_status (status, &error)) {
 		nmt_newt_message_dialog (_("Editor failed: %s"), error->message);
 		g_error_free (error);
 		goto done;
 	}
-	G_GNUC_END_IGNORE_DEPRECATIONS
-#else
-	if (WIFEXITED (status)) {
-		if (WEXITSTATUS (status) != 0)
-			nmt_newt_message_dialog (_("Editor failed with status %d"), WEXITSTATUS (status));
-	} else if (WIFSIGNALED (status))
-		nmt_newt_message_dialog (_("Editor failed with signal %d"), WTERMSIG (status));
-#endif
 
 	if (!g_file_get_contents (filename, &new_data, NULL, &error)) {
 		nmt_newt_message_dialog (_("Could not re-read file: %s"), error->message);
@@ -386,5 +376,5 @@ nmt_newt_edit_string (const char *data)
 	g_free (filename);
 
 	return new_data;
-}	
+}
 

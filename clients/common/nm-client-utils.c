@@ -20,6 +20,7 @@
 #include "nm-default.h"
 
 #include "nm-client-utils.h"
+#include "nm-utils.h"
 
 #include "nm-device-bond.h"
 #include "nm-device-bridge.h"
@@ -133,7 +134,7 @@ nmc_string_is_valid (const char *input, const char **allowed, GError **error)
 {
 	const char **p;
 	size_t input_ln, p_len;
-	gboolean prev_match = FALSE;
+	gboolean prev_match = FALSE, ambiguous = FALSE;
 	const char *ret = NULL;
 
 	g_return_val_if_fail (error == NULL || *error == NULL, NULL);
@@ -147,19 +148,21 @@ nmc_string_is_valid (const char *input, const char **allowed, GError **error)
 		if (g_ascii_strncasecmp (input, *p, input_ln) == 0) {
 			if (input_ln == p_len) {
 				ret = *p;
+				ambiguous = FALSE;
 				break;
 			}
-			if (!prev_match)
+			if (!prev_match) {
 				ret = *p;
-			else {
-				g_set_error (error, 1, 1, _("'%s' is ambiguous (%s x %s)"),
-				             input, ret, *p);
-				return NULL;
-			}
-			prev_match = TRUE;
+				prev_match = TRUE;
+			} else
+				ambiguous = TRUE;
 		}
 	}
-
+	if (ambiguous) {
+		g_set_error (error, 1, 1, _("'%s' is ambiguous (%s x %s)"),
+		             input, ret, *p);
+		return NULL;
+	}
 finish:
 	if (ret == NULL) {
 		char *valid_vals = g_strjoinv (", ", (char **) allowed);
@@ -171,18 +174,6 @@ finish:
 		g_free (valid_vals);
 	}
 	return ret;
-}
-
-/*
- * Wrapper function for g_strsplit_set() that removes empty strings
- * from the vector as they are not useful in most cases.
- */
-char **
-nmc_strsplit_set (const char *str, const char *delimiter, int max_tokens)
-{
-	/* remove empty strings */
-	return _nm_utils_strv_cleanup (g_strsplit_set (str, delimiter, max_tokens),
-	                               FALSE, TRUE, FALSE);
 }
 
 gboolean
@@ -399,9 +390,12 @@ nmc_device_reason_to_string (NMDeviceStateReason reason)
 		return _("The device's parent changed");
 	case NM_DEVICE_STATE_REASON_PARENT_MANAGED_CHANGED:
 		return _("The device parent's management changed");
-
 	case NM_DEVICE_STATE_REASON_OVSDB_FAILED:
 		return _("OpenVSwitch database connection failed");
+	case NM_DEVICE_STATE_REASON_IP_ADDRESS_DUPLICATE:
+		return _("A duplicate IP address was detected");
+	case NM_DEVICE_STATE_REASON_IP_METHOD_UNSUPPORTED:
+		return _("The selected IP method is not supported");
 	}
 
 	/* TRANSLATORS: Unknown reason for a device state change (NMDeviceStateReason) */
@@ -514,4 +508,73 @@ nmc_activation_get_effective_state (NMActiveConnection *active,
 	}
 
 	return ac_state;
+}
+
+static gboolean
+can_show_graphics (void)
+{
+	static gboolean can_show_graphics_set = FALSE;
+	gboolean can_show_graphics = TRUE;
+	char *locale_str;
+
+	if (G_LIKELY (can_show_graphics_set))
+		return can_show_graphics;
+
+	if (!g_get_charset (NULL)) {
+		/* Non-UTF-8 locale */
+		locale_str = g_locale_from_utf8 ("\342\226\202\342\226\204\342\226\206\342\226\210", -1, NULL, NULL, NULL);
+		if (locale_str)
+			g_free (locale_str);
+		else
+			can_show_graphics = FALSE;
+	}
+
+	/* The linux console font typically doesn't have characters we need */
+	if (g_strcmp0 (g_getenv ("TERM"), "linux") == 0)
+		can_show_graphics = FALSE;
+
+	return can_show_graphics;
+}
+
+/**
+ * nmc_wifi_strength_bars:
+ * @strength: the access point strength, from 0 to 100
+ *
+ * Converts @strength into a 4-character-wide graphical representation of
+ * strength suitable for printing to stdout. If the current locale and terminal
+ * support it, this will use unicode graphics characters to represent
+ * "bars". Otherwise it will use 0 to 4 asterisks.
+ *
+ * Returns: the graphical representation of the access point strength
+ */
+const char *
+nmc_wifi_strength_bars (guint8 strength)
+{
+	if (!can_show_graphics ())
+		return nm_utils_wifi_strength_bars (strength);
+
+	if (strength > 80)
+		return /* ▂▄▆█ */ "\342\226\202\342\226\204\342\226\206\342\226\210";
+	else if (strength > 55)
+		return /* ▂▄▆_ */ "\342\226\202\342\226\204\342\226\206_";
+	else if (strength > 30)
+		return /* ▂▄__ */ "\342\226\202\342\226\204__";
+	else if (strength > 5)
+		return /* ▂___ */ "\342\226\202___";
+	else
+		return /* ____ */ "____";
+}
+
+/**
+ * nmc_utils_password_subst_char:
+ *
+ * Returns: the string substituted when hiding actual password glyphs
+ */
+const char *
+nmc_password_subst_char (void)
+{
+	if (can_show_graphics ())
+		return "\u2022"; /* Bullet */
+	else
+		return "*";
 }

@@ -16,7 +16,7 @@
  * Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
  * Boston, MA 02110-1301 USA.
  *
- * Copyright 2007 - 2013 Red Hat, Inc.
+ * Copyright 2007 - 2017 Red Hat, Inc.
  * Copyright 2007 - 2008 Novell, Inc.
  */
 
@@ -587,7 +587,7 @@ nm_connection_diff (NMConnection *a,
 	if (a == b)
 		return TRUE;
 
-	diffs = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, (GDestroyNotify) g_hash_table_destroy);
+	diffs = g_hash_table_new_full (nm_str_hash, g_str_equal, g_free, (GDestroyNotify) g_hash_table_destroy);
 
 	/* Diff A to B, then B to A to capture keys in B that aren't in A */
 	if (diff_one_connection (a, b, flags, FALSE, diffs))
@@ -959,7 +959,7 @@ _normalize_infiniband_mtu (NMConnection *self, GHashTable *parameters)
 				max_mtu = 65520;
 
 			if (max_mtu && nm_setting_infiniband_get_mtu (s_infini) > max_mtu) {
-				g_object_set (s_infini, NM_SETTING_INFINIBAND_MTU, max_mtu, NULL);
+				g_object_set (s_infini, NM_SETTING_INFINIBAND_MTU, (guint) max_mtu, NULL);
 				return TRUE;
 			}
 		}
@@ -1370,7 +1370,7 @@ nm_connection_verify_secrets (NMConnection *connection, GError **error)
  * @parameters: (allow-none) (element-type utf8 gpointer): a #GHashTable with
  * normalization parameters to allow customization of the normalization by providing
  * specific arguments. Unknown arguments will be ignored and the default will be
- * used. The keys must be strings, hashed by g_str_hash() and g_str_equal() functions.
+ * used. The keys must be strings compared with g_str_equal() function.
  * The values are opaque and depend on the parameter name.
  * @modified: (out) (allow-none): outputs whether any settings were modified.
  * @error: location to store error, or %NULL. Contains the reason,
@@ -1576,10 +1576,8 @@ nm_connection_update_secrets (NMConnection *connection,
 		}
 	}
 
-	if (updated) {
+	if (updated)
 		g_signal_emit (connection, signals[SECRETS_UPDATED], 0, setting_name);
-		g_signal_emit (connection, signals[CHANGED], 0);
-	}
 
 	return success;
 }
@@ -1657,20 +1655,17 @@ nm_connection_clear_secrets (NMConnection *connection)
 {
 	GHashTableIter iter;
 	NMSetting *setting;
-	gboolean changed = FALSE;
 
 	g_return_if_fail (NM_IS_CONNECTION (connection));
 
 	g_hash_table_iter_init (&iter, NM_CONNECTION_GET_PRIVATE (connection)->settings);
 	while (g_hash_table_iter_next (&iter, NULL, (gpointer) &setting)) {
 		g_signal_handlers_block_by_func (setting, (GCallback) setting_changed_cb, connection);
-		changed |= _nm_setting_clear_secrets (setting);
+		_nm_setting_clear_secrets (setting);
 		g_signal_handlers_unblock_by_func (setting, (GCallback) setting_changed_cb, connection);
 	}
 
 	g_signal_emit (connection, signals[SECRETS_CLEARED], 0);
-	if (changed)
-		g_signal_emit (connection, signals[CHANGED], 0);
 }
 
 /**
@@ -1689,20 +1684,17 @@ nm_connection_clear_secrets_with_flags (NMConnection *connection,
 {
 	GHashTableIter iter;
 	NMSetting *setting;
-	gboolean changed = FALSE;
 
 	g_return_if_fail (NM_IS_CONNECTION (connection));
 
 	g_hash_table_iter_init (&iter, NM_CONNECTION_GET_PRIVATE (connection)->settings);
 	while (g_hash_table_iter_next (&iter, NULL, (gpointer) &setting)) {
 		g_signal_handlers_block_by_func (setting, (GCallback) setting_changed_cb, connection);
-		changed |= _nm_setting_clear_secrets_with_flags (setting, func, user_data);
+		_nm_setting_clear_secrets_with_flags (setting, func, user_data);
 		g_signal_handlers_unblock_by_func (setting, (GCallback) setting_changed_cb, connection);
 	}
 
 	g_signal_emit (connection, signals[SECRETS_CLEARED], 0);
-	if (changed)
-		g_signal_emit (connection, signals[CHANGED], 0);
 }
 
 /**
@@ -2455,7 +2447,7 @@ nm_connection_get_setting_ovs_patch (NMConnection *connection)
 {
 	return _connection_get_setting_check (connection, NM_TYPE_SETTING_OVS_PATCH);
 }
- 
+
 /**
  * nm_connection_get_setting_ovs_port:
  * @connection: the #NMConnection
@@ -2528,6 +2520,22 @@ NMSettingSerial *
 nm_connection_get_setting_serial (NMConnection *connection)
 {
 	return _connection_get_setting_check (connection, NM_TYPE_SETTING_SERIAL);
+}
+
+/**
+ * nm_connection_get_setting_tc_config:
+ * @connection: the #NMConnection
+ *
+ * A shortcut to return any #NMSettingTCConfig the connection might contain.
+ *
+ * Returns: (transfer none): an #NMSettingTCConfig if the connection contains one, otherwise %NULL
+ *
+ * Since: 1.12
+ **/
+NMSettingTCConfig *
+nm_connection_get_setting_tc_config (NMConnection *connection)
+{
+	return _connection_get_setting_check (connection, NM_TYPE_SETTING_TC_CONFIG);
 }
 
 /**
@@ -2716,7 +2724,7 @@ nm_connection_get_private (NMConnection *connection)
 		                         priv, (GDestroyNotify) nm_connection_private_free);
 
 		priv->self = connection;
-		priv->settings = g_hash_table_new_full (g_str_hash, g_str_equal, NULL, g_object_unref);
+		priv->settings = g_hash_table_new_full (nm_str_hash, g_str_equal, NULL, g_object_unref);
 	}
 
 	return priv;

@@ -25,7 +25,7 @@
 #include "nm-config.h"
 #include "nm-test-device.h"
 #include "platform/nm-fake-platform.h"
-#include "nm-bus-manager.h"
+#include "nm-dbus-manager.h"
 #include "nm-connectivity.h"
 
 #include "nm-test-utils-core.h"
@@ -318,6 +318,7 @@ test_config_global_dns (void)
 	g_object_unref (config);
 }
 
+#if WITH_CONCHECK
 static void
 test_config_connectivity_check (void)
 {
@@ -333,14 +334,14 @@ test_config_connectivity_check (void)
 	g_assert (nm_connectivity_check_enabled (connectivity));
 
 	/* disable connectivity checking */
-	g_test_expect_message ("NetworkManager", G_LOG_LEVEL_INFO, "*config: signal *");
+	NMTST_EXPECT_NM_INFO ("config: signal: *");
 	nm_config_set_connectivity_check_enabled (config, FALSE);
 	g_test_assert_expected_messages ();
 
 	g_assert (!nm_connectivity_check_enabled (connectivity));
 
 	/* re-enable connectivity checking */
-	g_test_expect_message ("NetworkManager", G_LOG_LEVEL_INFO, "*config: signal *");
+	NMTST_EXPECT_NM_INFO ("config: signal: *");
 	nm_config_set_connectivity_check_enabled (config, TRUE);
 	g_test_assert_expected_messages ();
 
@@ -351,6 +352,7 @@ test_config_connectivity_check (void)
 
 	g_assert (remove (CONFIG_INTERN) == 0);
 }
+#endif
 
 static void
 test_config_no_auto_default (void)
@@ -368,7 +370,7 @@ test_config_no_auto_default (void)
 	g_assert_cmpint (nwrote, ==, 18);
 	nwrote = write (fd, "44:44:44:44:44:44\n", 18);
 	g_assert_cmpint (nwrote, ==, 18);
-	close (fd);
+	nm_close (fd);
 
 	config = setup_config (NULL, SRCDIR "/NetworkManager.conf", "", NULL, "/no/such/dir", "",
 	                       "--no-auto-default", state_file,
@@ -384,7 +386,7 @@ test_config_no_auto_default (void)
 	g_assert (!nm_config_get_no_auto_default_for_device (config, dev3));
 	g_assert (nm_config_get_no_auto_default_for_device (config, dev4));
 
-	g_test_expect_message ("NetworkManager", G_LOG_LEVEL_INFO, "*config: signal NO_AUTO_DEFAULT,no-auto-default *");
+	NMTST_EXPECT_NM_INFO ("config: signal: NO_AUTO_DEFAULT,no-auto-default *");
 	nm_config_set_no_auto_default_for_device (config, dev3);
 	g_test_assert_expected_messages ();
 
@@ -595,9 +597,9 @@ _set_values_user (NMConfig *config,
 	config_data_before = g_object_ref (nm_config_get_data (config));
 
 	if (expected_changes != NM_CONFIG_CHANGE_NONE)
-		g_test_expect_message ("NetworkManager", G_LOG_LEVEL_INFO, "*config: signal *");
+		NMTST_EXPECT_NM_INFO ("config: signal: *");
 	else
-		g_test_expect_message ("NetworkManager", G_LOG_LEVEL_INFO, "*config: signal SIGHUP (no changes from disk)*");
+		NMTST_EXPECT_NM_INFO ("config: signal: SIGHUP (no changes from disk)*");
 
 	nm_config_reload (config, NM_CONFIG_CHANGE_CAUSE_SIGHUP);
 
@@ -639,7 +641,7 @@ _set_values_intern (NMConfig *config,
 	                  &config_changed_data);
 
 	if (expected_changes != NM_CONFIG_CHANGE_NONE)
-		g_test_expect_message ("NetworkManager", G_LOG_LEVEL_INFO, "*config: signal *");
+		NMTST_EXPECT_NM_INFO ("config: signal: *");
 
 	nm_config_set_values (config, keyfile_intern, TRUE, FALSE);
 
@@ -902,15 +904,15 @@ test_config_signal (void)
 	                  &expected);
 
 	expected = NM_CONFIG_CHANGE_CAUSE_SIGUSR1;
-	g_test_expect_message ("NetworkManager", G_LOG_LEVEL_INFO, "*config: signal SIGUSR1");
+	NMTST_EXPECT_NM_INFO ("config: signal: SIGUSR1");
 	nm_config_reload (config, expected);
 
 	expected = NM_CONFIG_CHANGE_CAUSE_SIGUSR2;
-	g_test_expect_message ("NetworkManager", G_LOG_LEVEL_INFO, "*config: signal SIGUSR2");
+	NMTST_EXPECT_NM_INFO ("config: signal: SIGUSR2");
 	nm_config_reload (config, expected);
 
 	expected = NM_CONFIG_CHANGE_CAUSE_SIGHUP;
-	g_test_expect_message ("NetworkManager", G_LOG_LEVEL_INFO, "*config: signal SIGHUP (no changes from disk)*");
+	NMTST_EXPECT_NM_INFO ("config: signal: SIGHUP (no changes from disk)*");
 	nm_config_reload (config, expected);
 
 
@@ -923,7 +925,7 @@ test_config_signal (void)
 	                  G_CALLBACK (_test_signal_config_changed_cb2),
 	                  &expected);
 	expected = NM_CONFIG_CHANGE_CAUSE_SIGUSR2;
-	g_test_expect_message ("NetworkManager", G_LOG_LEVEL_INFO, "*config: signal SIGUSR2");
+	NMTST_EXPECT_NM_INFO ("config: signal: SIGUSR2");
 	nm_config_reload (config, NM_CONFIG_CHANGE_CAUSE_SIGUSR2);
 	g_signal_handlers_disconnect_by_func (config, _test_signal_config_changed_cb2, &expected);
 
@@ -1035,13 +1037,6 @@ main (int argc, char **argv)
 {
 	nmtst_init_assert_logging (&argc, &argv, "INFO", "DEFAULT");
 
-	/* Initialize the DBus manager singleton explicitly, because it is accessed by
-	 * the class initializer of NMDevice (used by the NMTestDevice stub).
-	 * This way, we skip calling nm_bus_manager_init_bus() which would
-	 * either fail and/or cause unexpected actions in the test.
-	 * */
-	nm_bus_manager_setup (g_object_new (NM_TYPE_BUS_MANAGER, NULL));
-
 	nm_fake_platform_setup ();
 
 	g_test_add_func ("/config/simple", test_config_simple);
@@ -1053,7 +1048,9 @@ main (int argc, char **argv)
 
 	g_test_add_func ("/config/set-values", test_config_set_values);
 	g_test_add_func ("/config/global-dns", test_config_global_dns);
+#if WITH_CONCHECK
 	g_test_add_func ("/config/connectivity-check", test_config_connectivity_check);
+#endif
 
 	g_test_add_func ("/config/signal", test_config_signal);
 

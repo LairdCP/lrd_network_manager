@@ -23,7 +23,6 @@
 
 #include <netinet/in.h>
 
-#include "nm-exported-object.h"
 #include "nm-setting-ip6-config.h"
 
 #include "nm-utils/nm-dedup-multi.h"
@@ -101,6 +100,7 @@ GType nm_ip6_config_get_type (void);
 NMIP6Config * nm_ip6_config_new (struct _NMDedupMultiIndex *multi_idx, int ifindex);
 NMIP6Config * nm_ip6_config_new_cloned (const NMIP6Config *src);
 
+NMIP6Config *nm_ip6_config_clone (const NMIP6Config *self);
 int nm_ip6_config_get_ifindex (const NMIP6Config *self);
 
 struct _NMDedupMultiIndex *nm_ip6_config_get_multi_idx (const NMIP6Config *self);
@@ -133,6 +133,9 @@ void nm_ip6_config_subtract (NMIP6Config *dst,
 void nm_ip6_config_intersect (NMIP6Config *dst,
                               const NMIP6Config *src,
                               guint32 default_route_metric_penalty);
+NMIP6Config *nm_ip6_config_intersect_alloc (const NMIP6Config *a,
+                                            const NMIP6Config *b,
+                                            guint32 default_route_metric_penalty);
 gboolean nm_ip6_config_replace (NMIP6Config *dst, const NMIP6Config *src, gboolean *relevant_changes);
 void nm_ip6_config_dump (const NMIP6Config *self, const char *detail);
 

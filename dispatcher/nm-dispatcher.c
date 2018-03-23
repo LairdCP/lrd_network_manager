@@ -604,7 +604,7 @@ find_scripts (const char *str_action)
 
 	while ((filename = g_dir_read_name (dir))) {
 		char *path;
-		struct stat	st;
+		struct stat st;
 		int err;
 		const char *err_msg = NULL;
 
@@ -915,8 +915,6 @@ main (int argc, char **argv)
 	}
 
 	g_option_context_free (opt_ctx);
-
-	nm_g_type_init ();
 
 	g_unix_signal_add (SIGTERM, signal_handler, GINT_TO_POINTER (SIGTERM));
 	g_unix_signal_add (SIGINT, signal_handler, GINT_TO_POINTER (SIGINT));

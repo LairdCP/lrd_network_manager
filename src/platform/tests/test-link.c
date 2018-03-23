@@ -1,6 +1,5 @@
 /* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
-/* NetworkManager audit support
- *
+/*
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -761,13 +760,27 @@ test_software_detect (gconstpointer user_data)
 			gracefully_skip = nm_utils_modprobe (NULL, TRUE, "ip6_tunnel", NULL) != 0;
 		}
 
-		lnk_ip6tnl.local = *nmtst_inet6_from_string ("fd01::15");
-		lnk_ip6tnl.remote = *nmtst_inet6_from_string ("fd01::16");
-		lnk_ip6tnl.parent_ifindex = ifindex_parent;
-		lnk_ip6tnl.tclass = 20;
-		lnk_ip6tnl.encap_limit = 6;
-		lnk_ip6tnl.flow_label = 1337;
-		lnk_ip6tnl.proto = IPPROTO_IPV6;
+		switch (test_data->test_mode) {
+		case 0:
+			lnk_ip6tnl.local = *nmtst_inet6_from_string ("fd01::15");
+			lnk_ip6tnl.remote = *nmtst_inet6_from_string ("fd01::16");
+			lnk_ip6tnl.parent_ifindex = ifindex_parent;
+			lnk_ip6tnl.tclass = 20;
+			lnk_ip6tnl.encap_limit = 6;
+			lnk_ip6tnl.flow_label = 1337;
+			lnk_ip6tnl.proto = IPPROTO_IPV6;
+			break;
+		case 1:
+			lnk_ip6tnl.local = *nmtst_inet6_from_string ("fd01::17");
+			lnk_ip6tnl.remote = *nmtst_inet6_from_string ("fd01::18");
+			lnk_ip6tnl.parent_ifindex = ifindex_parent;
+			lnk_ip6tnl.tclass = 0;
+			lnk_ip6tnl.encap_limit = 0;
+			lnk_ip6tnl.flow_label = 1338;
+			lnk_ip6tnl.proto = IPPROTO_IPV6;
+			lnk_ip6tnl.flags = IP6_TNL_F_IGN_ENCAP_LIMIT | IP6_TNL_F_USE_ORIG_TCLASS;
+			break;
+		}
 
 		if (!nmtstp_link_ip6tnl_add (NULL, ext, DEVICE_NAME, &lnk_ip6tnl)) {
 			if (gracefully_skip) {
@@ -931,15 +944,31 @@ test_software_detect (gconstpointer user_data)
 		case NM_LINK_TYPE_IP6TNL: {
 			const NMPlatformLnkIp6Tnl *plnk = &lnk->lnk_ip6tnl;
 
-			g_assert (plnk == nm_platform_link_get_lnk_ip6tnl (NM_PLATFORM_GET, ifindex, NULL));
-			g_assert_cmpint (plnk->parent_ifindex, ==, ifindex_parent);
-			nmtst_assert_ip6_address (&plnk->local, "fd01::15");
-			nmtst_assert_ip6_address (&plnk->remote, "fd01::16");
-			g_assert_cmpint (plnk->ttl, ==, 0);
-			g_assert_cmpint (plnk->tclass, ==, 20);
-			g_assert_cmpint (plnk->encap_limit, ==, 6);
-			g_assert_cmpint (plnk->flow_label, ==, 1337);
-			g_assert_cmpint (plnk->proto, ==, IPPROTO_IPV6);
+			switch (test_data->test_mode) {
+			case 0:
+				g_assert (plnk == nm_platform_link_get_lnk_ip6tnl (NM_PLATFORM_GET, ifindex, NULL));
+				g_assert_cmpint (plnk->parent_ifindex, ==, ifindex_parent);
+				nmtst_assert_ip6_address (&plnk->local, "fd01::15");
+				nmtst_assert_ip6_address (&plnk->remote, "fd01::16");
+				g_assert_cmpint (plnk->ttl, ==, 0);
+				g_assert_cmpint (plnk->tclass, ==, 20);
+				g_assert_cmpint (plnk->encap_limit, ==, 6);
+				g_assert_cmpint (plnk->flow_label, ==, 1337);
+				g_assert_cmpint (plnk->proto, ==, IPPROTO_IPV6);
+				break;
+			case 1:
+				g_assert (plnk == nm_platform_link_get_lnk_ip6tnl (NM_PLATFORM_GET, ifindex, NULL));
+				g_assert_cmpint (plnk->parent_ifindex, ==, ifindex_parent);
+				nmtst_assert_ip6_address (&plnk->local, "fd01::17");
+				nmtst_assert_ip6_address (&plnk->remote, "fd01::18");
+				g_assert_cmpint (plnk->ttl, ==, 0);
+				g_assert_cmpint (plnk->flow_label, ==, 1338);
+				g_assert_cmpint (plnk->proto, ==, IPPROTO_IPV6);
+				g_assert_cmpint (plnk->flags & 0xFFFF, /* ignore kernel internal flags */
+				                 ==,
+				                 IP6_TNL_F_IGN_ENCAP_LIMIT | IP6_TNL_F_USE_ORIG_TCLASS);
+				break;
+			}
 			break;
 		}
 		case NM_LINK_TYPE_IPIP: {
@@ -1916,6 +1945,7 @@ _test_netns_check_skip (void)
 	static int support = -1;
 	static int support_errsv = 0;
 	NMPNetns *netns;
+	gs_unref_object NMPNetns *netns2 = NULL;
 
 	netns = nmp_netns_get_current ();
 	if (!netns) {
@@ -1931,10 +1961,31 @@ _test_netns_check_skip (void)
 			support_errsv = errno;
 	}
 	if (!support) {
-			_LOGD ("setns() failed with \"%s\". This indicates missing support (valgrind?)", g_strerror (support_errsv));
-			g_test_skip ("No netns support (setns failed)");
+		_LOGD ("setns() failed with \"%s\". This indicates missing support (valgrind?)", g_strerror (support_errsv));
+		g_test_skip ("No netns support (setns failed)");
 		return TRUE;
 	}
+
+	netns2 = nmp_netns_new ();
+	if (!netns2) {
+		/* skip tests for https://bugzilla.gnome.org/show_bug.cgi?id=790214 */
+		g_assert_cmpint (errno, ==, EINVAL);
+		g_test_skip ("No netns support to create another netns");
+		return TRUE;
+	}
+	nmp_netns_pop (netns2);
+
+	return FALSE;
+}
+
+static gboolean
+_check_sysctl_skip (void)
+{
+	if (access ("/proc/sys/net/ipv4/ip_forward", W_OK) == -1) {
+		g_test_skip ("Can not write sysctls");
+		return TRUE;
+	}
+
 	return FALSE;
 }
 
@@ -1960,6 +2011,9 @@ test_netns_general (gpointer fixture, gconstpointer test_data)
 	NMPUtilsEthtoolDriverInfo driver_info;
 
 	if (_test_netns_check_skip ())
+		return;
+
+	if (_check_sysctl_skip ())
 		return;
 
 	platform_1 = nm_linux_platform_new (TRUE, TRUE);
@@ -2157,6 +2211,9 @@ test_netns_push (gpointer fixture, gconstpointer test_data)
 	if (_test_netns_check_skip ())
 		return;
 
+	if (_check_sysctl_skip ())
+		return;
+
 	pl[0].platform = platform_0 = nm_linux_platform_new (TRUE, TRUE);
 	pl[1].platform = platform_1 = _test_netns_create_platform ();
 	pl[2].platform = platform_2 = _test_netns_create_platform ();
@@ -2220,7 +2277,7 @@ test_netns_push (gpointer fixture, gconstpointer test_data)
 		p = pl_base;
 		for (j = nstack; j >= 1; ) {
 			j--;
-			if (NM_FLAGS_HAS (stack[j].ns_types, ns_type)) {
+			if (NM_FLAGS_ANY (stack[j].ns_types, ns_type)) {
 				p = stack[j].pl;
 				break;
 			}
@@ -2518,7 +2575,8 @@ _nmtstp_setup_tests (void)
 		g_test_add_func ("/link/external", test_external);
 
 		test_software_detect_add ("/link/software/detect/gre", NM_LINK_TYPE_GRE, 0);
-		test_software_detect_add ("/link/software/detect/ip6tnl", NM_LINK_TYPE_IP6TNL, 0);
+		test_software_detect_add ("/link/software/detect/ip6tnl/0", NM_LINK_TYPE_IP6TNL, 0);
+		test_software_detect_add ("/link/software/detect/ip6tnl/1", NM_LINK_TYPE_IP6TNL, 1);
 		test_software_detect_add ("/link/software/detect/ipip", NM_LINK_TYPE_IPIP, 0);
 		test_software_detect_add ("/link/software/detect/macvlan", NM_LINK_TYPE_MACVLAN, 0);
 		test_software_detect_add ("/link/software/detect/macvtap", NM_LINK_TYPE_MACVTAP, 0);

@@ -105,7 +105,7 @@ G_STMT_START { \
  * itself.
  *****************************************************************************/
 
-#if (NETWORKMANAGER_COMPILATION) == NM_NETWORKMANAGER_COMPILATION_SYSTEMD
+#if (NETWORKMANAGER_COMPILATION) & NM_NETWORKMANAGER_COMPILATION_WITH_SYSTEMD
 
 #include <netinet/in.h>
 #include <string.h>
@@ -138,6 +138,15 @@ G_STMT_START { \
 #  endif
 #endif
 
+static inline pid_t
+raw_getpid (void) {
+#if defined(__alpha__)
+	return (pid_t) syscall (__NR_getxpid);
+#else
+	return (pid_t) syscall (__NR_getpid);
+#endif
+}
+
 /*****************************************************************************/
 
 /* work around missing uchar.h */
@@ -145,8 +154,6 @@ typedef guint16 char16_t;
 typedef guint32 char32_t;
 
 /*****************************************************************************/
-
-#define PID_TO_PTR(p) ((void*) ((uintptr_t) p))
 
 static inline int
 sd_notify (int unset_environment, const char *state)
@@ -186,7 +193,7 @@ static inline pid_t gettid(void) {
         return (pid_t) syscall(SYS_gettid);
 }
 
-#endif /* (NETWORKMANAGER_COMPILATION) == NM_NETWORKMANAGER_COMPILATION_SYSTEMD */
+#endif /* (NETWORKMANAGER_COMPILATION) & NM_NETWORKMANAGER_COMPILATION_WITH_SYSTEMD */
 
 #endif /* NM_SD_ADAPT_H */
 

@@ -95,6 +95,8 @@ typedef struct {
 		guint interval;
 	} connectivity;
 
+	int autoconnect_retries_default;
+
 	struct {
 		char **arr;
 		GSList *specs;
@@ -273,6 +275,14 @@ nm_config_data_get_connectivity_response (const NMConfigData *self)
 	g_return_val_if_fail (self != NULL, NULL);
 
 	return NM_CONFIG_DATA_GET_PRIVATE (self)->connectivity.response;
+}
+
+int
+nm_config_data_get_autoconnect_retries_default (const NMConfigData *self)
+{
+	g_return_val_if_fail (self, FALSE);
+
+	return NM_CONFIG_DATA_GET_PRIVATE (self)->autoconnect_retries_default;
 }
 
 const char *const*
@@ -1186,6 +1196,8 @@ _match_section_infos_lookup (const MatchSectionInfo *match_section_infos,
                              GKeyFile *keyfile,
                              const char *property,
                              NMDevice *device,
+                             const NMPlatformLink *pllink,
+                             const char *match_device_type,
                              char **out_value)
 {
 	if (!match_section_infos)
@@ -1206,9 +1218,15 @@ _match_section_infos_lookup (const MatchSectionInfo *match_section_infos,
 		if (!value && !match_section_infos->stop_match)
 			continue;
 
-		match = TRUE;
-		if (match_section_infos->match_device.has)
-			match = device && nm_device_spec_match_list (device, match_section_infos->match_device.spec);
+		if (match_section_infos->match_device.has) {
+			if (device)
+				match = nm_device_spec_match_list (device, match_section_infos->match_device.spec);
+			else if (pllink)
+				match = nm_match_spec_device_by_pllink (pllink, match_device_type, match_section_infos->match_device.spec, FALSE);
+			else
+				match = FALSE;
+		} else
+			match = TRUE;
 
 		if (match) {
 			*out_value = value;
@@ -1238,6 +1256,35 @@ nm_config_data_get_device_config (const NMConfigData *self,
 	                                               priv->keyfile,
 	                                               property,
 	                                               device,
+	                                               NULL,
+	                                               NULL,
+	                                               &value);
+	NM_SET_OUT (has_match, !!connection_info);
+	return value;
+}
+
+char *
+nm_config_data_get_device_config_by_pllink (const NMConfigData *self,
+                                            const char *property,
+                                            const NMPlatformLink *pllink,
+                                            const char *match_device_type,
+                                            gboolean *has_match)
+{
+	const NMConfigDataPrivate *priv;
+	const MatchSectionInfo *connection_info;
+	char *value = NULL;
+
+	g_return_val_if_fail (self, NULL);
+	g_return_val_if_fail (property && *property, NULL);
+
+	priv = NM_CONFIG_DATA_GET_PRIVATE (self);
+
+	connection_info = _match_section_infos_lookup (&priv->device_infos[0],
+	                                               priv->keyfile,
+	                                               property,
+	                                               NULL,
+	                                               pllink,
+	                                               match_device_type,
 	                                               &value);
 	NM_SET_OUT (has_match, !!connection_info);
 	return value;
@@ -1277,6 +1324,8 @@ nm_config_data_get_connection_default (const NMConfigData *self,
 	                             priv->keyfile,
 	                             property,
 	                             device,
+	                             NULL,
+	                             NULL,
 	                             &value);
 	return value;
 }
@@ -1527,7 +1576,7 @@ constructed (GObject *object)
 {
 	NMConfigData *self = NM_CONFIG_DATA (object);
 	NMConfigDataPrivate *priv = NM_CONFIG_DATA_GET_PRIVATE (self);
-	char *interval;
+	char *str;
 
 	priv->keyfile = _merge_keyfiles (priv->keyfile_user, priv->keyfile_intern);
 
@@ -1538,13 +1587,15 @@ constructed (GObject *object)
 	priv->connectivity.uri = nm_strstrip (g_key_file_get_string (priv->keyfile, NM_CONFIG_KEYFILE_GROUP_CONNECTIVITY, "uri", NULL));
 	priv->connectivity.response = g_key_file_get_string (priv->keyfile, NM_CONFIG_KEYFILE_GROUP_CONNECTIVITY, "response", NULL);
 
+	str = nm_config_keyfile_get_value (priv->keyfile, NM_CONFIG_KEYFILE_GROUP_MAIN, NM_CONFIG_KEYFILE_KEY_MAIN_AUTOCONNECT_RETRIES_DEFAULT, NM_CONFIG_GET_VALUE_NONE);
+	priv->autoconnect_retries_default = _nm_utils_ascii_str_to_int64 (str, 10, 0, G_MAXINT32, 4);
+	g_free (str);
+
 	/* On missing config value, fallback to 300. On invalid value, disable connectivity checking by setting
 	 * the interval to zero. */
-	interval = g_key_file_get_string (priv->keyfile, NM_CONFIG_KEYFILE_GROUP_CONNECTIVITY, "interval", NULL);
-	priv->connectivity.interval = interval
-	    ? _nm_utils_ascii_str_to_int64 (interval, 10, 0, G_MAXUINT, 0)
-	    : NM_CONFIG_DEFAULT_CONNECTIVITY_INTERVAL;
-	g_free (interval);
+	str = g_key_file_get_string (priv->keyfile, NM_CONFIG_KEYFILE_GROUP_CONNECTIVITY, "interval", NULL);
+	priv->connectivity.interval = _nm_utils_ascii_str_to_int64 (str, 10, 0, G_MAXUINT, NM_CONFIG_DEFAULT_CONNECTIVITY_INTERVAL);
+	g_free (str);
 
 	priv->dns_mode = nm_strstrip (g_key_file_get_string (priv->keyfile, NM_CONFIG_KEYFILE_GROUP_MAIN, "dns", NULL));
 	priv->rc_manager = nm_strstrip (g_key_file_get_string (priv->keyfile, NM_CONFIG_KEYFILE_GROUP_MAIN, "rc-manager", NULL));

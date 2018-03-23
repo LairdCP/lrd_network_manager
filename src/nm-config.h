@@ -57,9 +57,9 @@
 
 #define NM_CONFIG_KEYFILE_GROUP_KEYFILE                     "keyfile"
 #define NM_CONFIG_KEYFILE_GROUP_IFUPDOWN                    "ifupdown"
-#define NM_CONFIG_KEYFILE_GROUP_IFNET                       "ifnet"
 
 #define NM_CONFIG_KEYFILE_KEY_MAIN_AUTH_POLKIT              "auth-polkit"
+#define NM_CONFIG_KEYFILE_KEY_MAIN_AUTOCONNECT_RETRIES_DEFAULT "autoconnect-retries-default"
 #define NM_CONFIG_KEYFILE_KEY_MAIN_DHCP                     "dhcp"
 #define NM_CONFIG_KEYFILE_KEY_MAIN_DEBUG                    "debug"
 #define NM_CONFIG_KEYFILE_KEY_MAIN_HOSTNAME_MODE            "hostname-mode"
@@ -78,6 +78,9 @@
 #define NM_CONFIG_KEYFILE_KEY_DEVICE_MANAGED                "managed"
 #define NM_CONFIG_KEYFILE_KEY_DEVICE_IGNORE_CARRIER         "ignore-carrier"
 #define NM_CONFIG_KEYFILE_KEY_DEVICE_SRIOV_NUM_VFS          "sriov-num-vfs"
+#define NM_CONFIG_KEYFILE_KEY_DEVICE_WIFI_BACKEND           "wifi.backend"
+#define NM_CONFIG_KEYFILE_KEY_DEVICE_WIFI_SCAN_RAND_MAC_ADDRESS "wifi.scan-rand-mac-address"
+#define NM_CONFIG_KEYFILE_KEY_DEVICE_CARRIER_WAIT_TIMEOUT   "carrier-wait-timeout"
 
 #define NM_CONFIG_KEYFILE_KEYPREFIX_WAS                     ".was."
 #define NM_CONFIG_KEYFILE_KEYPREFIX_SET                     ".set."
@@ -163,6 +166,13 @@ gint nm_config_keyfile_get_boolean (const GKeyFile *keyfile,
                                     const char *section,
                                     const char *key,
                                     gint default_value);
+gint64 nm_config_keyfile_get_int64 (const GKeyFile *keyfile,
+                                    const char *section,
+                                    const char *key,
+                                    guint base,
+                                    gint64 min,
+                                    gint64 max,
+                                    gint64 fallback);
 char *nm_config_keyfile_get_value (const GKeyFile *keyfile,
                                    const char *section,
                                    const char *key,
@@ -203,6 +213,10 @@ struct _NMConfigDeviceStateData {
 	int ifindex;
 	NMConfigDeviceStateManagedType managed;
 
+	/* a value of zero means that no metric is set. */
+	guint32 route_metric_default_aspired;
+	guint32 route_metric_default_effective;
+
 	/* the UUID of the last settings-connection active
 	 * on the device. */
 	const char *connection_uuid;
@@ -211,16 +225,24 @@ struct _NMConfigDeviceStateData {
 
 	/* whether the device was nm-owned (0/1) or -1 for
 	 * non-software devices. */
-	gint nm_owned;
+	int nm_owned:3;
 };
 
 NMConfigDeviceStateData *nm_config_device_state_load (int ifindex);
+GHashTable *nm_config_device_state_load_all (void);
 gboolean nm_config_device_state_write (int ifindex,
                                        NMConfigDeviceStateManagedType managed,
                                        const char *perm_hw_addr_fake,
                                        const char *connection_uuid,
-                                       gint nm_owned);
+                                       gint nm_owned,
+                                       guint32 route_metric_default_aspired,
+                                       guint32 route_metric_default_effective);
+
 void nm_config_device_state_prune_unseen (GHashTable *seen_ifindexes);
+
+const GHashTable *nm_config_device_state_get_all (NMConfig *self);
+const NMConfigDeviceStateData *nm_config_device_state_get (NMConfig *self,
+                                                           int ifindex);
 
 /*****************************************************************************/
 

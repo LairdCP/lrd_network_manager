@@ -80,7 +80,7 @@ nm_dhcp_dhcpcanon_get_path (void)
 static gboolean
 dhcpcanon_start (NMDhcpClient *client,
                 const char *mode_opt,
-                const GByteArray *duid,
+                GBytes *duid,
                 gboolean release,
                 pid_t *out_pid,
                 int prefixes)
@@ -118,16 +118,16 @@ dhcpcanon_start (NMDhcpClient *client,
 	argv = g_ptr_array_new ();
 	g_ptr_array_add (argv, (gpointer) dhcpcanon_path);
 
-	g_ptr_array_add (argv, (gpointer) "-sf");	/* Set script file */
+	g_ptr_array_add (argv, (gpointer) "-sf"); /* Set script file */
 	g_ptr_array_add (argv, (gpointer) nm_dhcp_helper_path);
 
 	if (pid_file) {
-		g_ptr_array_add (argv, (gpointer) "-pf");	/* Set pid file */
+		g_ptr_array_add (argv, (gpointer) "-pf"); /* Set pid file */
 		g_ptr_array_add (argv, (gpointer) pid_file);
 	}
 
 	if (priv->conf_file) {
-		g_ptr_array_add (argv, (gpointer) "-cf");	/* Set interface config file */
+		g_ptr_array_add (argv, (gpointer) "-cf"); /* Set interface config file */
 		g_ptr_array_add (argv, (gpointer) priv->conf_file);
 	}
 
@@ -179,9 +179,8 @@ static gboolean
 ip6_start (NMDhcpClient *client,
            const char *dhcp_anycast_addr,
            const struct in6_addr *ll_addr,
-           gboolean info_only,
            NMSettingIP6ConfigPrivacy privacy,
-           const GByteArray *duid,
+           GBytes *duid,
            guint needed_prefixes)
 {
 	NMDhcpDhcpcanon *self = NM_DHCP_DHCPCANON (client);
@@ -190,7 +189,7 @@ ip6_start (NMDhcpClient *client,
 	return FALSE;
 }
 static void
-stop (NMDhcpClient *client, gboolean release, const GByteArray *duid)
+stop (NMDhcpClient *client, gboolean release, GBytes *duid)
 {
 	NMDhcpDhcpcanon *self = NM_DHCP_DHCPCANON (client);
 	NMDhcpDhcpcanonPrivate *priv = NM_DHCP_DHCPCANON_GET_PRIVATE (self);

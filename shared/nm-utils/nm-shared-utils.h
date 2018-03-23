@@ -26,23 +26,6 @@
 
 /*****************************************************************************/
 
-typedef struct {
-	union {
-		guint8 addr_ptr[1];
-		in_addr_t addr4;
-		struct in6_addr addr6;
-
-		/* NMIPAddr is really a union for IP addresses.
-		 * However, as ethernet addresses fit in here nicely, use
-		 * it also for an ethernet MAC address. */
-		guint8 addr_eth[6 /*ETH_ALEN*/];
-	};
-} NMIPAddr;
-
-extern const NMIPAddr nm_ip_addr_zero;
-
-/*****************************************************************************/
-
 static inline char
 nm_utils_addr_family_to_char (int addr_family)
 {
@@ -65,6 +48,36 @@ nm_utils_addr_family_to_size (int addr_family)
 
 #define nm_assert_addr_family(addr_family) \
 	nm_assert (NM_IN_SET ((addr_family), AF_INET, AF_INET6))
+
+/*****************************************************************************/
+
+typedef struct {
+	union {
+		guint8 addr_ptr[1];
+		in_addr_t addr4;
+		struct in6_addr addr6;
+
+		/* NMIPAddr is really a union for IP addresses.
+		 * However, as ethernet addresses fit in here nicely, use
+		 * it also for an ethernet MAC address. */
+		guint8 addr_eth[6 /*ETH_ALEN*/];
+	};
+} NMIPAddr;
+
+extern const NMIPAddr nm_ip_addr_zero;
+
+static inline void
+nm_ip_addr_set (int addr_family, gpointer dst, const NMIPAddr *src)
+{
+	nm_assert_addr_family (addr_family);
+	nm_assert (dst);
+	nm_assert (src);
+
+	if (addr_family != AF_INET6)
+		*((in_addr_t *) dst) = src->addr4;
+	else
+		*((struct in6_addr *) dst) = src->addr6;
+}
 
 /*****************************************************************************/
 
@@ -313,12 +326,18 @@ _nm_g_slice_free_fcn_define (16)
 		/* If mem_size is a compile time constant, the compiler
 		 * will be able to optimize this. Hence, you don't want
 		 * to call this with a non-constant size argument. */ \
-		switch (mem_size) { \
+		G_STATIC_ASSERT_EXPR (   ((mem_size) ==  1) \
+		                      || ((mem_size) ==  2) \
+		                      || ((mem_size) ==  4) \
+		                      || ((mem_size) ==  8) \
+		                      || ((mem_size) == 12) \
+		                      || ((mem_size) == 16)); \
+		switch ((mem_size)) { \
 		case  1: _fcn = _nm_g_slice_free_fcn_1;  break; \
 		case  2: _fcn = _nm_g_slice_free_fcn_2;  break; \
 		case  4: _fcn = _nm_g_slice_free_fcn_4;  break; \
 		case  8: _fcn = _nm_g_slice_free_fcn_8;  break; \
-		case 12: _fcn = _nm_g_slice_free_fcn_12;  break; \
+		case 12: _fcn = _nm_g_slice_free_fcn_12; break; \
 		case 16: _fcn = _nm_g_slice_free_fcn_16; break; \
 		default: g_assert_not_reached (); _fcn = NULL; break; \
 		} \
@@ -373,6 +392,16 @@ gboolean nm_g_object_set_property (GObject *object,
                                    const GValue *value,
                                    GError **error);
 
+gboolean nm_g_object_set_property_boolean (GObject *object,
+                                           const gchar  *property_name,
+                                           gboolean value,
+                                           GError **error);
+
+gboolean nm_g_object_set_property_uint (GObject *object,
+                                        const gchar  *property_name,
+                                        guint value,
+                                        GError **error);
+
 GParamSpec *nm_g_object_class_find_property_from_gtype (GType gtype,
                                                         const char *property_name);
 
@@ -392,6 +421,57 @@ char *nm_utils_str_utf8safe_unescape_cp (const char *str);
 
 char *nm_utils_str_utf8safe_escape_take (char *str, NMUtilsStrUtf8SafeFlags flags);
 
+static inline void
+nm_g_variant_unref_floating (GVariant *var)
+{
+	/* often a function wants to keep a reference to an input variant.
+	 * It uses g_variant_ref_sink() to either increase the ref-count,
+	 * or take ownership of a possibly floating reference.
+	 *
+	 * If the function doesn't actually want to do anything with the
+	 * input variant, it still must make sure that a passed in floating
+	 * reference is consumed. Hence, this helper which:
+	 *
+	 *   - does nothing if @var is not floating
+	 *   - unrefs (consumes) @var if it is floating. */
+	if (g_variant_is_floating (var))
+		g_variant_unref (var);
+}
+
+/*****************************************************************************/
+
+typedef struct {
+	const char *name;
+} NMUtilsNamedEntry;
+
+typedef struct {
+	union {
+		NMUtilsNamedEntry named_entry;
+		const char *name;
+	};
+	union {
+		const char *value_str;
+		gconstpointer value_ptr;
+	};
+} NMUtilsNamedValue;
+
+#define nm_utils_named_entry_cmp           nm_strcmp_p
+#define nm_utils_named_entry_cmp_with_data nm_strcmp_p_with_data
+
+NMUtilsNamedValue *nm_utils_named_values_from_str_dict (GHashTable *hash, guint *out_len);
+
+const char **nm_utils_strdict_get_keys (const GHashTable *hash,
+                                        gboolean sorted,
+                                        guint *out_length);
+
+char **nm_utils_strv_make_deep_copied (const char **strv);
+
+static inline char **
+nm_utils_strv_make_deep_copied_nonnull (const char **strv)
+{
+	return nm_utils_strv_make_deep_copied (strv) ?: g_new0 (char *, 1);
+}
+
 /*****************************************************************************/
 
 #define NM_UTILS_NS_PER_SECOND  ((gint64) 1000000000)
@@ -403,6 +483,94 @@ char *nm_utils_str_utf8safe_escape_take (char *str, NMUtilsStrUtf8SafeFlags flag
 int nm_utils_fd_wait_for_event (int fd, int event, gint64 timeout_ns);
 ssize_t nm_utils_fd_read_loop (int fd, void *buf, size_t nbytes, bool do_poll);
 int nm_utils_fd_read_loop_exact (int fd, void *buf, size_t nbytes, bool do_poll);
+
+/*****************************************************************************/
+
+#define NM_DEFINE_GDBUS_ARG_INFO_FULL(name_, ...) \
+	((GDBusArgInfo *) (&((const GDBusArgInfo) { \
+		.ref_count = -1, \
+		.name = name_, \
+		__VA_ARGS__ \
+	})))
+
+#define NM_DEFINE_GDBUS_ARG_INFO(name_, a_signature) \
+	NM_DEFINE_GDBUS_ARG_INFO_FULL ( \
+		name_, \
+		.signature = a_signature, \
+	)
+
+#define NM_DEFINE_GDBUS_ARG_INFOS(...) \
+	((GDBusArgInfo **) ((const GDBusArgInfo *[]) { \
+		__VA_ARGS__ \
+		NULL, \
+	}))
+
+#define NM_DEFINE_GDBUS_PROPERTY_INFO(name_, ...) \
+	((GDBusPropertyInfo *) (&((const GDBusPropertyInfo) { \
+		.ref_count = -1, \
+		.name = name_, \
+		__VA_ARGS__ \
+	})))
+
+#define NM_DEFINE_GDBUS_PROPERTY_INFO_READABLE(name_, m_signature) \
+	NM_DEFINE_GDBUS_PROPERTY_INFO ( \
+		name_, \
+		.signature = m_signature, \
+		.flags = G_DBUS_PROPERTY_INFO_FLAGS_READABLE, \
+	)
+
+#define NM_DEFINE_GDBUS_PROPERTY_INFOS(...) \
+	((GDBusPropertyInfo **) ((const GDBusPropertyInfo *[]) { \
+		__VA_ARGS__ \
+		NULL, \
+	}))
+
+#define NM_DEFINE_GDBUS_SIGNAL_INFO_INIT(name_, ...) \
+	{ \
+		.ref_count = -1, \
+		.name = name_, \
+		__VA_ARGS__ \
+	}
+
+#define NM_DEFINE_GDBUS_SIGNAL_INFO(name_, ...) \
+	((GDBusSignalInfo *) (&((const GDBusSignalInfo) NM_DEFINE_GDBUS_SIGNAL_INFO_INIT (name_, __VA_ARGS__))))
+
+#define NM_DEFINE_GDBUS_SIGNAL_INFOS(...) \
+	((GDBusSignalInfo **) ((const GDBusSignalInfo *[]) { \
+		__VA_ARGS__ \
+		NULL, \
+	}))
+
+#define NM_DEFINE_GDBUS_METHOD_INFO_INIT(name_, ...) \
+	{ \
+		.ref_count = -1, \
+		.name = name_, \
+		__VA_ARGS__ \
+	}
+
+#define NM_DEFINE_GDBUS_METHOD_INFO(name_, ...) \
+	((GDBusMethodInfo *) (&((const GDBusMethodInfo) NM_DEFINE_GDBUS_METHOD_INFO_INIT (name_, __VA_ARGS__))))
+
+#define NM_DEFINE_GDBUS_METHOD_INFOS(...) \
+	((GDBusMethodInfo **) ((const GDBusMethodInfo *[]) { \
+		__VA_ARGS__ \
+		NULL, \
+	}))
+
+#define NM_DEFINE_GDBUS_INTERFACE_INFO_INIT(name_, ...) \
+	{ \
+		.ref_count = -1, \
+		.name = name_, \
+		__VA_ARGS__ \
+	}
+
+#define NM_DEFINE_GDBUS_INTERFACE_INFO(name_, ...) \
+	((GDBusInterfaceInfo *) (&((const GDBusInterfaceInfo) NM_DEFINE_GDBUS_INTERFACE_INFO_INIT (name_, __VA_ARGS__))))
+
+#define NM_DEFINE_GDBUS_INTERFACE_VTABLE(...) \
+	((GDBusInterfaceVTable *) (&((const GDBusInterfaceVTable) { \
+		__VA_ARGS__ \
+	})))
 
 /*****************************************************************************/
 

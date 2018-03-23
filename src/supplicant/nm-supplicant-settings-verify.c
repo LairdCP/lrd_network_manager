@@ -74,6 +74,7 @@ const char * proto_allowed[] =    { "WPA", "RSN", NULL };
 const char * key_mgmt_allowed[] = { "WPA-PSK", "WPA-PSK-SHA256",
                                     "WPA-EAP", "WPA-EAP-SHA256",
                                     "CCKM",
+                                    "FILS-SHA256", "FILS-SHA384",
                                     "IEEE8021X", "WPA-NONE",
                                     "NONE", NULL };
 const char * auth_alg_allowed[] = { "OPEN", "SHARED", "LEAP", NULL };
@@ -231,10 +232,10 @@ validate_type_keyword (const struct Opt * opt,
                        const char * value,
                        const guint32 len)
 {
-	char **		allowed;
-	gchar **	candidates = NULL;
-	char **		candidate;
-	gboolean	found = FALSE;
+	char **allowed;
+	gchar **candidates = NULL;
+	char **candidate;
+	gboolean found = FALSE;
 
 	g_return_val_if_fail (opt != NULL, FALSE);
 	g_return_val_if_fail (value != NULL, FALSE);

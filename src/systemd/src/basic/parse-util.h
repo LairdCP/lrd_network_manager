@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: LGPL-2.1+ */
 #pragma once
 
 /***
@@ -37,6 +38,8 @@ int parse_ifindex(const char *s, int *ret);
 
 int parse_size(const char *t, uint64_t base, uint64_t *size);
 int parse_range(const char *t, unsigned *lower, unsigned *upper);
+int parse_errno(const char *t);
+int parse_syscall_and_errno(const char *in, char **name, int *error);
 
 #define FORMAT_BYTES_MAX 8
 char *format_bytes(char *buf, size_t l, uint64_t t);
@@ -50,6 +53,8 @@ int safe_atou8(const char *s, uint8_t *ret);
 
 int safe_atou16(const char *s, uint16_t *ret);
 int safe_atoi16(const char *s, int16_t *ret);
+
+int safe_atoux16(const char *s, uint16_t *ret);
 
 static inline int safe_atou32(const char *s, uint32_t *ret_u) {
         assert_cc(sizeof(uint32_t) == sizeof(unsigned));

@@ -28,8 +28,6 @@
 
 #include "nm-connection.h"
 
-#include "nm-exported-object.h"
-
 #define NM_TYPE_SETTINGS            (nm_settings_get_type ())
 #define NM_SETTINGS(obj)            (G_TYPE_CHECK_INSTANCE_CAST ((obj), NM_TYPE_SETTINGS, NMSettings))
 #define NM_SETTINGS_CLASS(klass)    (G_TYPE_CHECK_CLASS_CAST ((klass),  NM_TYPE_SETTINGS, NMSettingsClass))
@@ -46,8 +44,7 @@
 #define NM_SETTINGS_SIGNAL_CONNECTION_ADDED              "connection-added"
 #define NM_SETTINGS_SIGNAL_CONNECTION_UPDATED            "connection-updated"
 #define NM_SETTINGS_SIGNAL_CONNECTION_REMOVED            "connection-removed"
-#define NM_SETTINGS_SIGNAL_CONNECTION_VISIBILITY_CHANGED "connection-visibility-changed"
-#define NM_SETTINGS_SIGNAL_AGENT_REGISTERED              "agent-registered"
+#define NM_SETTINGS_SIGNAL_CONNECTION_FLAGS_CHANGED      "connection-flags-changed"
 
 /**
  * NMConnectionFilterFunc:
@@ -100,10 +97,9 @@ NMSettingsConnection *const* nm_settings_get_connections (NMSettings *settings, 
 NMSettingsConnection **nm_settings_get_connections_clone (NMSettings *self,
                                                           guint *out_len,
                                                           NMSettingsConnectionFilterFunc func,
-                                                          gpointer func_data);
-
-NMSettingsConnection **nm_settings_get_connections_sorted (NMSettings *self,
-                                                           guint *out_len);
+                                                          gpointer func_data,
+                                                          GCompareDataFunc sort_compare_func,
+                                                          gpointer sort_data);
 
 NMSettingsConnection *nm_settings_add_connection (NMSettings *settings,
                                                   NMConnection *connection,

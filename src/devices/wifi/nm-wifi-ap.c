@@ -21,19 +21,18 @@
 
 #include "nm-default.h"
 
+#include "nm-wifi-ap.h"
+
 #include <string.h>
 #include <stdlib.h>
 
-#include "nm-wifi-ap.h"
+#include "nm-setting-wireless.h"
+
 #include "nm-wifi-utils.h"
 #include "NetworkManagerUtils.h"
 #include "nm-utils.h"
 #include "nm-core-internal.h"
 #include "platform/nm-platform.h"
-
-#include "nm-setting-wireless.h"
-
-#include "introspection/org.freedesktop.NetworkManager.AccessPoint.h"
 
 #define PROTO_WPA "wpa"
 #define PROTO_RSN "rsn"
@@ -75,15 +74,15 @@ typedef struct {
 } NMWifiAPPrivate;
 
 struct _NMWifiAP {
-	NMExportedObject parent;
+	NMDBusObject parent;
 	NMWifiAPPrivate _priv;
 };
 
 struct _NMWifiAPClass {
-	NMExportedObjectClass parent;
+	NMDBusObjectClass parent;
 };
 
-G_DEFINE_TYPE (NMWifiAP, nm_wifi_ap, NM_TYPE_EXPORTED_OBJECT)
+G_DEFINE_TYPE (NMWifiAP, nm_wifi_ap, NM_TYPE_DBUS_OBJECT)
 
 #define NM_WIFI_AP_GET_PRIVATE(self) _NM_GET_PRIVATE(self, NMWifiAP, NM_IS_WIFI_AP)
 
@@ -105,7 +104,7 @@ nm_wifi_ap_get_id (NMWifiAP *ap)
 
 	g_return_val_if_fail (NM_IS_WIFI_AP (ap), 0);
 
-	path = nm_exported_object_get_path (NM_EXPORTED_OBJECT (ap));
+	path = nm_dbus_object_get_path (NM_DBUS_OBJECT (ap));
 	g_return_val_if_fail (path, 0);
 
 	nm_assert (g_str_has_prefix (path, NM_DBUS_PATH_ACCESS_POINT"/"));
@@ -116,11 +115,24 @@ nm_wifi_ap_get_id (NMWifiAP *ap)
 	return i;
 }
 
-const GByteArray * nm_wifi_ap_get_ssid (const NMWifiAP *ap)
+const GByteArray *
+nm_wifi_ap_get_ssid (const NMWifiAP *ap)
 {
 	g_return_val_if_fail (NM_IS_WIFI_AP (ap), NULL);
 
 	return NM_WIFI_AP_GET_PRIVATE (ap)->ssid;
+}
+
+static GVariant *
+nm_wifi_ap_get_ssid_as_variant (const NMWifiAP *self)
+{
+	const NMWifiAPPrivate *priv = NM_WIFI_AP_GET_PRIVATE (self);
+
+	if (priv->ssid) {
+		return g_variant_new_fixed_array (G_VARIANT_TYPE_BYTE,
+		                                  priv->ssid->data, priv->ssid->len, 1);
+	} else
+		return g_variant_new_array (G_VARIANT_TYPE_BYTE, NULL, 0);
 }
 
 gboolean
@@ -330,7 +342,7 @@ guint32
 nm_wifi_ap_get_max_bitrate (NMWifiAP *ap)
 {
 	g_return_val_if_fail (NM_IS_WIFI_AP (ap), 0);
-	g_return_val_if_fail (nm_exported_object_is_exported (NM_EXPORTED_OBJECT (ap)), 0);
+	g_return_val_if_fail (nm_dbus_object_is_exported (NM_DBUS_OBJECT (ap)), 0);
 
 	return NM_WIFI_AP_GET_PRIVATE (ap)->max_bitrate;
 }
@@ -415,7 +427,9 @@ security_from_vardict (GVariant *security)
 	    && array) {
 		if (g_strv_contains (array, "wpa-psk"))
 			flags |= NM_802_11_AP_SEC_KEY_MGMT_PSK;
-		if (g_strv_contains (array, "wpa-eap"))
+		if (g_strv_contains (array, "wpa-eap") ||
+		    g_strv_contains (array, "wpa-fils-sha256") ||
+		    g_strv_contains (array, "wpa-fils-sha384"))
 			flags |= NM_802_11_AP_SEC_KEY_MGMT_802_1X;
 		g_free (array);
 	}
@@ -636,7 +650,7 @@ get_max_rate_vht_160_ss3 (int mcs)
 static gboolean
 get_max_rate_ht (const guint8 *bytes, guint len, guint32 *out_maxrate)
 {
-	guint32 mcs, i;
+	guint32 i;
 	guint8 ht_cap_info;
 	const guint8 *supported_mcs_set;
 	guint32 rate;
@@ -653,7 +667,6 @@ get_max_rate_ht (const guint8 *bytes, guint len, guint32 *out_maxrate)
 	*out_maxrate = 0;
 
 	/* Find the maximum supported mcs rate */
-	mcs = -1;
 	for (i = 0; i <= 76; i++) {
 		unsigned int mcs_octet = i / 8;
 		unsigned int MCS_RATE_BIT = 1 << i % 8;
@@ -977,7 +990,7 @@ nm_wifi_ap_to_string (const NMWifiAP *self,
 	if (priv->supplicant_path)
 		supplicant_id = strrchr (priv->supplicant_path, '/') ?: supplicant_id;
 
-	export_path = nm_exported_object_get_path (NM_EXPORTED_OBJECT (self));
+	export_path = nm_dbus_object_get_path (NM_DBUS_OBJECT (self));
 	if (export_path)
 		export_path = strrchr (export_path, '/') ?: export_path;
 	else
@@ -1119,8 +1132,8 @@ static void
 get_property (GObject *object, guint prop_id,
               GValue *value, GParamSpec *pspec)
 {
-	NMWifiAPPrivate *priv = NM_WIFI_AP_GET_PRIVATE ((NMWifiAP *) object);
-	GVariant *ssid;
+	NMWifiAP *self = NM_WIFI_AP (object);
+	NMWifiAPPrivate *priv = NM_WIFI_AP_GET_PRIVATE (self);
 
 	switch (prop_id) {
 	case PROP_FLAGS:
@@ -1133,12 +1146,7 @@ get_property (GObject *object, guint prop_id,
 		g_value_set_uint (value, priv->rsn_flags);
 		break;
 	case PROP_SSID:
-		if (priv->ssid) {
-			ssid = g_variant_new_fixed_array (G_VARIANT_TYPE_BYTE,
-			                                  priv->ssid->data, priv->ssid->len, 1);
-		} else
-			ssid = g_variant_new_array (G_VARIANT_TYPE_BYTE, NULL, 0);
-		g_value_take_variant (value, ssid);
+		g_value_take_variant (value, nm_wifi_ap_get_ssid_as_variant (self));
 		break;
 	case PROP_FREQUENCY:
 		g_value_set_uint (value, priv->freq);
@@ -1342,6 +1350,28 @@ finalize (GObject *object)
 	G_OBJECT_CLASS (nm_wifi_ap_parent_class)->finalize (object);
 }
 
+static const NMDBusInterfaceInfoExtended interface_info_access_point = {
+	.parent = NM_DEFINE_GDBUS_INTERFACE_INFO_INIT (
+		NM_DBUS_INTERFACE_ACCESS_POINT,
+		.signals = NM_DEFINE_GDBUS_SIGNAL_INFOS (
+			&nm_signal_info_property_changed_legacy,
+		),
+		.properties = NM_DEFINE_GDBUS_PROPERTY_INFOS (
+			NM_DEFINE_DBUS_PROPERTY_INFO_EXTENDED_READABLE_L ("Flags",      "u",  NM_WIFI_AP_FLAGS),
+			NM_DEFINE_DBUS_PROPERTY_INFO_EXTENDED_READABLE_L ("WpaFlags",   "u",  NM_WIFI_AP_WPA_FLAGS),
+			NM_DEFINE_DBUS_PROPERTY_INFO_EXTENDED_READABLE_L ("RsnFlags",   "u",  NM_WIFI_AP_RSN_FLAGS),
+			NM_DEFINE_DBUS_PROPERTY_INFO_EXTENDED_READABLE_L ("Ssid",       "ay", NM_WIFI_AP_SSID),
+			NM_DEFINE_DBUS_PROPERTY_INFO_EXTENDED_READABLE_L ("Frequency",  "u",  NM_WIFI_AP_FREQUENCY),
+			NM_DEFINE_DBUS_PROPERTY_INFO_EXTENDED_READABLE_L ("HwAddress",  "s",  NM_WIFI_AP_HW_ADDRESS),
+			NM_DEFINE_DBUS_PROPERTY_INFO_EXTENDED_READABLE_L ("Mode",       "u",  NM_WIFI_AP_MODE),
+			NM_DEFINE_DBUS_PROPERTY_INFO_EXTENDED_READABLE_L ("MaxBitrate", "u",  NM_WIFI_AP_MAX_BITRATE),
+			NM_DEFINE_DBUS_PROPERTY_INFO_EXTENDED_READABLE_L ("Strength",   "y",  NM_WIFI_AP_STRENGTH),
+			NM_DEFINE_DBUS_PROPERTY_INFO_EXTENDED_READABLE_L ("LastSeen",   "i",  NM_WIFI_AP_LAST_SEEN),
+		),
+	),
+	.legacy_property_changed = TRUE,
+};
+
 static void
 nm_wifi_ap_class_init (NMWifiAPClass *ap_class)
 {
@@ -1359,9 +1389,10 @@ nm_wifi_ap_class_init (NMWifiAPClass *ap_class)
 	| NM_802_11_AP_SEC_KEY_MGMT_802_1X )
 
 	GObjectClass *object_class = G_OBJECT_CLASS (ap_class);
-	NMExportedObjectClass *exported_object_class = NM_EXPORTED_OBJECT_CLASS (ap_class);
+	NMDBusObjectClass *dbus_object_class = NM_DBUS_OBJECT_CLASS (ap_class);
 
-	exported_object_class->export_path = NM_EXPORT_PATH_NUMBERED (NM_DBUS_PATH_ACCESS_POINT);
+	dbus_object_class->export_path = NM_DBUS_EXPORT_PATH_NUMBERED (NM_DBUS_PATH_ACCESS_POINT);
+	dbus_object_class->interface_infos = NM_DBUS_INTERFACE_INFOS (&interface_info_access_point);
 
 	object_class->get_property = get_property;
 	object_class->finalize = finalize;
@@ -1424,9 +1455,90 @@ nm_wifi_ap_class_init (NMWifiAPClass *ap_class)
 	                       G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
 
 	g_object_class_install_properties (object_class, _PROPERTY_ENUMS_LAST, obj_properties);
-
-	nm_exported_object_class_add_interface (NM_EXPORTED_OBJECT_CLASS (ap_class),
-	                                        NMDBUS_TYPE_ACCESS_POINT_SKELETON,
-	                                        NULL);
 }
 
+/*****************************************************************************/
+
+static int
+ap_id_compare (gconstpointer p_a, gconstpointer p_b, gpointer user_data)
+{
+	guint64 a_id = nm_wifi_ap_get_id (*((NMWifiAP **) p_a));
+	guint64 b_id = nm_wifi_ap_get_id (*((NMWifiAP **) p_b));
+
+	return a_id < b_id ? -1 : (a_id == b_id ? 0 : 1);
+}
+
+NMWifiAP **
+nm_wifi_aps_get_sorted (GHashTable *aps, gboolean include_without_ssid)
+{
+	NMWifiAP **list;
+	GHashTableIter iter;
+	NMWifiAP *ap;
+	gsize i, n;
+
+	n = g_hash_table_size (aps);
+	list = g_new (NMWifiAP *, n + 1);
+
+	i = 0;
+	if (n > 0) {
+		g_hash_table_iter_init (&iter, aps);
+		while (g_hash_table_iter_next (&iter, NULL, (gpointer) &ap)) {
+			nm_assert (i < n);
+			if (   include_without_ssid
+			    || nm_wifi_ap_get_ssid (ap))
+				list[i++] = ap;
+		}
+		nm_assert (i <= n);
+		nm_assert (!include_without_ssid || i == n);
+
+		g_qsort_with_data (list,
+		                   i,
+		                   sizeof (gpointer),
+		                   ap_id_compare,
+		                   NULL);
+	}
+	list[i] = NULL;
+	return list;
+}
+
+const char **
+nm_wifi_aps_get_sorted_paths (GHashTable *aps, gboolean include_without_ssid)
+{
+	gpointer *list;
+	gsize i, j;
+
+	list = (gpointer *) nm_wifi_aps_get_sorted (aps, include_without_ssid);
+	for (i = 0, j = 0; list[i]; i++) {
+		NMWifiAP *ap = list[i];
+		const char *path;
+
+		/* update @list inplace to hold instead the export-path. */
+		path = nm_dbus_object_get_path (NM_DBUS_OBJECT (ap));
+		nm_assert (path);
+		list[j++] = (gpointer) path;
+	}
+	return (const char **) list;
+}
+
+NMWifiAP *
+nm_wifi_aps_find_first_compatible (GHashTable *aps,
+                                   NMConnection *connection,
+                                   gboolean allow_unstable_order)
+{
+	GHashTableIter iter;
+	NMWifiAP *ap;
+	NMWifiAP *cand_ap = NULL;
+
+	g_return_val_if_fail (connection != NULL, NULL);
+
+	g_hash_table_iter_init (&iter, aps);
+	while (g_hash_table_iter_next (&iter, NULL, (gpointer) &ap)) {
+		if (!nm_wifi_ap_check_compatible (ap, connection))
+			continue;
+		if (allow_unstable_order)
+			return ap;
+		if (!cand_ap || (nm_wifi_ap_get_id (cand_ap) < nm_wifi_ap_get_id (ap)))
+			cand_ap = ap;
+	}
+	return cand_ap;
+}

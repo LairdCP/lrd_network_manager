@@ -104,7 +104,7 @@ get_secrets_from_user (const char *request_id,
 			rl_startup_hook = set_deftext;
 			pre_input_deftext = g_strdup (secret->value);
 		}
-		pwd = nmc_readline ("%s (%s): ", secret->name, secret->prop_name);
+		pwd = nmc_readline ("%s (%s): ", secret->pretty_name, secret->entry_id);
 
 		/* No password provided, cancel the secrets. */
 		if (!pwd)
@@ -201,10 +201,16 @@ do_agent_all (NmCli *nmc, int argc, char **argv)
 
 	/* Run both secret and polkit agent */
 	secret_res = do_agent_secret (nmc, argc, argv);
-	if (secret_res != NMC_RESULT_SUCCESS)
+	if (secret_res != NMC_RESULT_SUCCESS) {
 		g_printerr ("%s\n", nmc->return_text->str);
+		g_string_truncate (nmc->return_text, 0);
+	}
 
 	nmc->return_value = do_agent_polkit (nmc, argc, argv);
+	if (nmc->return_value != NMC_RESULT_SUCCESS) {
+		g_printerr ("%s\n", nmc->return_text->str);
+		g_string_truncate (nmc->return_text, 0);
+	}
 
 	if (nmc->return_value == NMC_RESULT_SUCCESS && secret_res != NMC_RESULT_SUCCESS)
 		nmc->return_value = secret_res;

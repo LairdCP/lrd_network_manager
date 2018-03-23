@@ -21,8 +21,9 @@
 #ifndef __NETWORKMANAGER_ACTIVE_CONNECTION_H__
 #define __NETWORKMANAGER_ACTIVE_CONNECTION_H__
 
-#include "nm-exported-object.h"
+#include "nm-utils/c-list.h"
 #include "nm-connection.h"
+#include "nm-dbus-object.h"
 
 #define NM_TYPE_ACTIVE_CONNECTION            (nm_active_connection_get_type ())
 #define NM_ACTIVE_CONNECTION(obj)            (G_TYPE_CHECK_INSTANCE_CAST ((obj), NM_TYPE_ACTIVE_CONNECTION, NMActiveConnection))
@@ -69,12 +70,16 @@
 struct _NMActiveConnectionPrivate;
 
 struct _NMActiveConnection {
-	NMExportedObject parent;
+	NMDBusObject parent;
 	struct _NMActiveConnectionPrivate *_priv;
+
+	/* active connection can be tracked in a list by NMManager. This is
+	 * the list node. */
+	CList active_connections_lst;
 };
 
 typedef struct {
-	NMExportedObjectClass parent;
+	NMDBusObjectClass parent;
 
 	/* re-emits device state changes as a convenience for subclasses for
 	 * device states >= DISCONNECTED.
@@ -131,20 +136,20 @@ void          nm_active_connection_set_specific_object (NMActiveConnection *self
                                                         const char *specific_object);
 
 void          nm_active_connection_set_default (NMActiveConnection *self,
+                                                int addr_family,
                                                 gboolean is_default);
 
-gboolean      nm_active_connection_get_default (NMActiveConnection *self);
-
-void          nm_active_connection_set_default6 (NMActiveConnection *self,
-                                                 gboolean is_default6);
-
-gboolean      nm_active_connection_get_default6 (NMActiveConnection *self);
+gboolean      nm_active_connection_get_default (NMActiveConnection *self, int addr_family);
 
 NMActiveConnectionState nm_active_connection_get_state (NMActiveConnection *self);
 
 void          nm_active_connection_set_state (NMActiveConnection *self,
                                               NMActiveConnectionState state,
                                               NMActiveConnectionStateReason reason);
+
+void          nm_active_connection_set_state_fail (NMActiveConnection *active,
+                                                   NMActiveConnectionStateReason reason,
+                                                   const char *error_desc);
 
 NMActivationStateFlags  nm_active_connection_get_state_flags (NMActiveConnection *self);
 

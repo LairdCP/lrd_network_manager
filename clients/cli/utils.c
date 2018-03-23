@@ -524,7 +524,7 @@ nmc_count_color_escape_chars (const char *start, const char *end)
 			inside = TRUE;
 		if (inside)
 			num++;
-		if (*start == 'm') 
+		if (*start == 'm')
 			inside = FALSE;
 		start++;
 	}
@@ -603,9 +603,14 @@ int
 nmc_string_to_arg_array (const char *line, const char *delim, gboolean unquote,
                          char ***argv, int *argc)
 {
+	gs_free const char **arr0 = NULL;
 	char **arr;
 
-	arr = nmc_strsplit_set (line ? line : "", delim ? delim : " \t", 0);
+	arr0 = nm_utils_strsplit_set (line ?: "", delim ?: " \t");
+	if (!arr0)
+		arr = g_new0 (char *, 1);
+	else
+		arr = g_strdupv ((char **) arr0);
 
 	if (unquote) {
 		int i = 0;
@@ -613,7 +618,7 @@ nmc_string_to_arg_array (const char *line, const char *delim, gboolean unquote,
 		size_t l;
 		const char *quotes = "\"'";
 
-		while (arr && arr[i]) {
+		while (arr[i]) {
 			s = arr[i];
 			l = strlen (s);
 			if (l >= 2) {
@@ -628,7 +633,6 @@ nmc_string_to_arg_array (const char *line, const char *delim, gboolean unquote,
 
 	*argv = arr;
 	*argc = g_strv_length (arr);
-
 	return 0;
 }
 
@@ -1504,16 +1508,16 @@ nmc_terminal_spawn_pager (const NmcConfig *nmc_config)
 	nm_cli.pager_pid = fork ();
 	if (nm_cli.pager_pid == -1) {
 		g_printerr (_("Failed to fork pager: %s\n"), strerror (errno));
-		close (fd[0]);
-		close (fd[1]);
+		nm_close (fd[0]);
+		nm_close (fd[1]);
 		return;
 	}
 
 	/* In the child start the pager */
 	if (nm_cli.pager_pid == 0) {
 		dup2 (fd[0], STDIN_FILENO);
-		close (fd[0]);
-		close (fd[1]);
+		nm_close (fd[0]);
+		nm_close (fd[1]);
 
 		setenv ("LESS", "FRSXMK", 1);
 		setenv ("LESSCHARSET", "utf-8", 1);
@@ -1553,8 +1557,8 @@ nmc_terminal_spawn_pager (const NmcConfig *nmc_config)
 	if (dup2 (fd[1], STDERR_FILENO) < 0)
 		g_printerr (_("Failed to duplicate pager pipe: %s\n"), strerror (errno));
 
-	close (fd[0]);
-	close (fd[1]);
+	nm_close (fd[0]);
+	nm_close (fd[1]);
 }
 
 /*****************************************************************************/

@@ -1,5 +1,4 @@
 /* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
-
 /*
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -16,7 +15,7 @@
  * Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
  * Boston, MA 02110-1301 USA.
  *
- * (C) Copyright 2014 Red Hat, Inc.
+ * (C) Copyright 2014 - 2017 Red Hat, Inc.
  */
 
 #ifndef NM_CORE_NM_INTERNAL_H
@@ -32,6 +31,9 @@
  * statically against libnm-core. This basically means libnm-core, libnm, NetworkManager
  * and some test programs.
  **/
+#if !((NETWORKMANAGER_COMPILATION) & NM_NETWORKMANAGER_COMPILATION_WITH_LIBNM_CORE_INTERNAL)
+#error Cannot use this header.
+#endif
 
 
 #include "nm-connection.h"
@@ -63,6 +65,7 @@
 #include "nm-setting-ppp.h"
 #include "nm-setting-pppoe.h"
 #include "nm-setting-serial.h"
+#include "nm-setting-tc-config.h"
 #include "nm-setting-team-port.h"
 #include "nm-setting-team.h"
 #include "nm-setting-tun.h"
@@ -79,6 +82,20 @@
 #include "nm-vpn-dbus-interface.h"
 #include "nm-core-types-internal.h"
 #include "nm-vpn-editor-plugin.h"
+
+/* IEEE 802.1D-1998 timer values */
+#define NM_BR_MIN_HELLO_TIME    1
+#define NM_BR_MAX_HELLO_TIME    10
+
+#define NM_BR_MIN_FORWARD_DELAY 2
+#define NM_BR_MAX_FORWARD_DELAY 30
+
+#define NM_BR_MIN_MAX_AGE       6
+#define NM_BR_MAX_MAX_AGE       40
+
+/* IEEE 802.1D-1998 Table 7.4 */
+#define NM_BR_MIN_AGEING_TIME   0
+#define NM_BR_MAX_AGEING_TIME   1000000
 
 /* NM_SETTING_COMPARE_FLAG_INFERRABLE: check whether a device-generated
  * connection can be replaced by a already-defined connection. This flag only
@@ -202,6 +219,8 @@ GHashTable *_nm_utils_copy_strdict (GHashTable *strdict);
 
 typedef gpointer (*NMUtilsCopyFunc) (gpointer);
 
+const char **_nm_ip_address_get_attribute_names (const NMIPAddress *addr, gboolean sorted, guint *out_length);
+
 gboolean _nm_ip_route_attribute_validate_all (const NMIPRoute *route);
 const char **_nm_ip_route_get_attribute_names (const NMIPRoute *route, gboolean sorted, guint *out_length);
 GHashTable *_nm_ip_route_get_attributes_direct (NMIPRoute *route);
@@ -227,12 +246,14 @@ GPtrArray *_nm_utils_copy_object_array (const GPtrArray *array);
 
 gssize _nm_utils_ptrarray_find_first (gconstpointer *list, gssize len, gconstpointer needle);
 
-gssize _nm_utils_ptrarray_find_binary_search (gconstpointer *list, gsize len, gconstpointer needle, GCompareDataFunc cmpfcn, gpointer user_data);
+gssize _nm_utils_ptrarray_find_binary_search (gconstpointer *list,
+                                              gsize len,
+                                              gconstpointer needle,
+                                              GCompareDataFunc cmpfcn,
+                                              gpointer user_data,
+                                              gssize *out_idx_first,
+                                              gssize *out_idx_last);
 gssize _nm_utils_array_find_binary_search (gconstpointer list, gsize elem_size, gsize len, gconstpointer needle, GCompareDataFunc cmpfcn, gpointer user_data);
-
-char **     _nm_utils_strsplit_set (const char *str,
-                                    const char *delimiters,
-                                    int max_tokens);
 
 GSList *    _nm_utils_strv_to_slist (char **strv, gboolean deep_copy);
 char **     _nm_utils_slist_to_strv (GSList *slist, gboolean deep_copy);
@@ -429,11 +450,24 @@ NMSettingBluetooth *_nm_connection_get_setting_bluetooth_for_nap (NMConnection *
 
 /*****************************************************************************/
 
+const char *nm_utils_inet_ntop (int addr_family, gconstpointer addr, char *dst);
+
 gboolean _nm_utils_inet6_is_token (const struct in6_addr *in6addr);
 
 /*****************************************************************************/
 
-gboolean    _nm_utils_team_config_equal (const char *conf1, const char *conf2, gboolean port);
+gboolean _nm_utils_team_config_equal (const char *conf1, const char *conf2, gboolean port);
+GValue *_nm_utils_team_config_get (const char *conf,
+                                   const char *key,
+                                   const char *key2,
+                                   const char *key3,
+                                   gboolean port_config);
+
+gboolean _nm_utils_team_config_set (char **conf,
+                                    const char *key,
+                                    const char *key2,
+                                    const char *key3,
+                                    const GValue *value);
 
 /*****************************************************************************/
 
@@ -445,6 +479,32 @@ nm_setting_ip_config_get_addr_family (NMSettingIPConfig *s_ip)
 	if (NM_IS_SETTING_IP6_CONFIG (s_ip))
 		return AF_INET6;
 	g_return_val_if_reached (AF_UNSPEC);
+}
+
+/*****************************************************************************/
+
+guint32 _nm_utils_parse_tc_handle                (const char *str,
+                                                  GError **error);
+void _nm_utils_string_append_tc_parent           (GString *string,
+                                                  const char *prefix,
+                                                  guint32 parent);
+void _nm_utils_string_append_tc_qdisc_rest       (GString *string,
+                                                  NMTCQdisc *qdisc);
+gboolean _nm_utils_string_append_tc_tfilter_rest (GString *string,
+                                                  NMTCTfilter *tfilter,
+                                                  GError **error);
+
+/*****************************************************************************/
+
+static inline gboolean
+_nm_connection_type_is_master (const char *type)
+{
+	return (NM_IN_STRSET (type,
+	                      NM_SETTING_BOND_SETTING_NAME,
+	                      NM_SETTING_BRIDGE_SETTING_NAME,
+	                      NM_SETTING_TEAM_SETTING_NAME,
+	                      NM_SETTING_OVS_BRIDGE_SETTING_NAME,
+	                      NM_SETTING_OVS_PORT_SETTING_NAME));
 }
 
 /*****************************************************************************/

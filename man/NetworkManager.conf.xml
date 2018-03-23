@@ -312,6 +312,7 @@ no-auto-default=*
         <listitem><para>Set the DNS (<filename>resolv.conf</filename>) processing mode.
         If the key is unspecified, <literal>default</literal> is used,
         unless <filename>/etc/resolv.conf</filename> is a symlink to
+        <filename>/run/systemd/resolve/stub-resolv.conf</filename>,
         <filename>/run/systemd/resolve/resolv.conf</filename>,
         <filename>/lib/systemd/resolv.conf</filename> or
         <filename>/usr/lib/systemd/resolv.conf</filename>.
@@ -655,6 +656,9 @@ ipv6.ip6-privacy=0
           <term><varname>connection.lldp</varname></term>
         </varlistentry>
         <varlistentry>
+          <term><varname>connection.mdns</varname></term>
+        </varlistentry>
+        <varlistentry>
           <term><varname>connection.stable-id</varname></term>
         </varlistentry>
         <varlistentry>
@@ -681,6 +685,9 @@ ipv6.ip6-privacy=0
         </varlistentry>
         <varlistentry>
           <term><varname>ipv4.dad-timeout</varname></term>
+        </varlistentry>
+        <varlistentry>
+          <term><varname>ipv4.dhcp-client-id</varname></term>
         </varlistentry>
         <varlistentry>
           <term><varname>ipv4.dhcp-timeout</varname></term>
@@ -746,6 +753,11 @@ ipv6.ip6-privacy=0
         </varlistentry>
         <varlistentry>
           <term><varname>wifi-sec.pmf</varname></term>
+          <listitem><para>If left unspecified, the default value
+          "<literal>optional</literal>" will be used.</para></listitem>
+        </varlistentry>
+        <varlistentry>
+          <term><varname>wifi-sec.fils</varname></term>
           <listitem><para>If left unspecified, the default value
           "<literal>optional</literal>" will be used.</para></listitem>
         </varlistentry>
@@ -856,6 +868,24 @@ managed=1
             </para>
           </listitem>
         </varlistentry>
+        <varlistentry id="carrier-wait-timeout">
+          <term><varname>carrier-wait-timeout</varname></term>
+          <listitem>
+            <para>
+              Specify the timeout for waiting for carrier in milliseconds.
+              When the device loses carrier, NetworkManager does not react
+              immediately. Instead, it waits for this timeout before considering
+              the link lost. Also, on startup, NetworkManager considers the
+              device as busy for this time, as long as the device has no carrier.
+              This delays startup-complete signal and NetworkManager-wait-online.
+              Configuring this too high means to block NetworkManager-wait-online
+              longer then necessary. Configuring it too low, means that NetworkManager
+              will declare startup-complete, although carrier is about to come
+              and auto-activation to kick in.
+              The default is 5000 milliseconds.
+            </para>
+          </listitem>
+        </varlistentry>
         <varlistentry id="ignore-carrier">
           <term><varname>ignore-carrier</varname></term>
           <listitem>
@@ -906,6 +936,15 @@ managed=1
               whatever is configured.
               For the configured MAC address while the device is associated, see instead
               the per-connection setting <literal>wifi.cloned-mac-address</literal>.
+            </para>
+          </listitem>
+        </varlistentry>
+        <varlistentry id="wifi.backend">
+          <term><varname>wifi.backend</varname></term>
+          <listitem>
+            <para>
+              Specify the Wi-Fi backend used for the device. Currently supported
+              are <literal>wpa_supplicant</literal> and <literal>iwd</literal> (experimental).
             </para>
           </listitem>
         </varlistentry>
@@ -1162,6 +1201,7 @@ enable=nm-version-min:1.3,nm-version-min:1.2.6,nm-version-min:1.0.16
           </para>
         </listitem>
       </varlistentry>
+
       <varlistentry>
         <term><varname>ifcfg-rh</varname></term>
         <listitem>
@@ -1175,17 +1215,6 @@ enable=nm-version-min:1.3,nm-version-min:1.2.6,nm-version-min:1.0.16
             Enabling <literal>ifcfg-rh</literal> implicitly enables
             <literal>ibft</literal> plugin, if it is available.
             This can be disabled by adding <literal>no-ibft</literal>.
-          </para>
-        </listitem>
-      </varlistentry>
-
-      <varlistentry>
-        <term><varname>ifcfg-suse</varname></term>
-        <listitem>
-          <para>
-            This plugin is deprecated and its selection has no effect.
-            The <literal>keyfile</literal> plugin should be used
-            instead.
           </para>
         </listitem>
       </varlistentry>
@@ -1222,6 +1251,17 @@ enable=nm-version-min:1.3,nm-version-min:1.2.6,nm-version-min:1.0.16
           <para>
             Note that ibft plugin uses <filename>/sbin/iscsiadm</filename> and thus requires
             CAP_SYS_ADMIN capability.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term><varname>ifcfg-suse</varname>, <varname>ifnet</varname></term>
+        <listitem>
+          <para>
+            These plugins are deprecated and their selection has no effect.
+            The <literal>keyfile</literal> plugin should be used
+            instead.
           </para>
         </listitem>
       </varlistentry>

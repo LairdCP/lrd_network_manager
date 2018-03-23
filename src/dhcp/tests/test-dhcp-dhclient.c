@@ -585,23 +585,26 @@ test_existing_multiline_alsoreq (void)
 static void
 test_one_duid (const char *escaped, const guint8 *unescaped, guint len)
 {
-	GByteArray *t;
+	GBytes *t;
 	char *w;
+	gsize t_len;
+	gconstpointer t_arr;
 
 	t = nm_dhcp_dhclient_unescape_duid (escaped);
 	g_assert (t);
-	g_assert_cmpint (t->len, ==, len);
-	g_assert_cmpint (memcmp (t->data, unescaped, len), ==, 0);
-	g_byte_array_free (t, TRUE);
+	t_arr = g_bytes_get_data (t, &t_len);
+	g_assert (t_arr);
+	g_assert_cmpint (t_len, ==, len);
+	g_assert_cmpint (memcmp (t_arr, unescaped, len), ==, 0);
+	g_bytes_unref (t);
 
-	t = g_byte_array_sized_new (len);
-	g_byte_array_append (t, unescaped, len);
+	t = g_bytes_new_static (unescaped, len);
 	w = nm_dhcp_dhclient_escape_duid (t);
 	g_assert (w);
 	g_assert_cmpint (strlen (escaped), ==, strlen (w));
 	g_assert_cmpstr (escaped, ==, w);
 
-	g_byte_array_free (t, TRUE);
+	g_bytes_unref (t);
 	g_free (w);
 }
 
@@ -640,22 +643,23 @@ test_read_duid_from_leasefile (void)
 {
 	const guint8 expected[] = { 0x00, 0x01, 0x00, 0x01, 0x18, 0x79, 0xa6,
 	                            0x13, 0x60, 0x67, 0x20, 0xec, 0x4c, 0x70 };
-	GByteArray *duid;
+	gs_unref_bytes GBytes *duid = NULL;
 	GError *error = NULL;
+	gconstpointer duid_arr;
+	gsize duid_len;
 
 	duid = nm_dhcp_dhclient_read_duid (TESTDIR "/test-dhclient-duid.leases", &error);
 	g_assert_no_error (error);
 	g_assert (duid);
-	g_assert_cmpint (duid->len, ==, sizeof (expected));
-	g_assert_cmpint (memcmp (duid->data, expected, duid->len), ==, 0);
-
-	g_byte_array_free (duid, TRUE);
+	duid_arr = g_bytes_get_data (duid, &duid_len);
+	g_assert_cmpint (duid_len, ==, sizeof (expected));
+	g_assert_cmpint (memcmp (duid_arr, expected, duid_len), ==, 0);
 }
 
 static void
 test_read_commented_duid_from_leasefile (void)
 {
-	GByteArray *duid;
+	GBytes *duid;
 	GError *error = NULL;
 
 	duid = nm_dhcp_dhclient_read_duid (TESTDIR "/test-dhclient-commented-duid.leases", &error);
@@ -754,12 +758,12 @@ test_write_existing_commented_duid (void)
 
 static const char *interface1_orig = \
 	"interface \"eth0\" {\n"
-	"	also request my-option;\n"
-	"	initial-delay 5;\n"
+	"\talso request my-option;\n"
+	"\tinitial-delay 5;\n"
 	"}\n"
 	"interface \"eth1\" {\n"
-	"	also request another-option;\n"
-	"	initial-delay 0;\n"
+	"\talso request another-option;\n"
+	"\tinitial-delay 0;\n"
 	"}\n"
 	"\n"
 	"also request yet-another-option;\n";
@@ -798,12 +802,12 @@ test_interface1 (void)
 
 static const char *interface2_orig = \
 	"interface eth0 {\n"
-	"	also request my-option;\n"
-	"	initial-delay 5;\n"
+	"\talso request my-option;\n"
+	"\tinitial-delay 5;\n"
 	" }\n"
 	"interface eth1 {\n"
-	"	initial-delay 0;\n"
-	"	request another-option;\n"
+	"\tinitial-delay 0;\n"
+	"\trequest another-option;\n"
 	" } \n"
 	"\n"
 	"also request yet-another-option;\n";
@@ -844,12 +848,12 @@ test_config_req_intf (void)
 {
 	static const char *const orig = \
 		"request subnet-mask, broadcast-address, routers,\n"
-		"	rfc3442-classless-static-routes,\n"
-		"	interface-mtu, host-name, domain-name, domain-search,\n"
-		"	domain-name-servers, nis-domain, nis-servers,\n"
-		"	nds-context, nds-servers, nds-tree-name,\n"
-		"	netbios-name-servers, netbios-dd-server,\n"
-		"	netbios-node-type, netbios-scope, ntp-servers;\n"
+		"\trfc3442-classless-static-routes,\n"
+		"\tinterface-mtu, host-name, domain-name, domain-search,\n"
+		"\tdomain-name-servers, nis-domain, nis-servers,\n"
+		"\tnds-context, nds-servers, nds-tree-name,\n"
+		"\tnetbios-name-servers, netbios-dd-server,\n"
+		"\tnetbios-node-type, netbios-scope, ntp-servers;\n"
 		"";
 	static const char *const expected = \
 		"# Created by NetworkManager\n"

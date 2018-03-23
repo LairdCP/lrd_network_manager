@@ -451,11 +451,8 @@ usage_device_lldp (void)
 static void
 quit (void)
 {
-	if (progress_id) {
-		g_source_remove (progress_id);
+	if (nm_clear_g_source (&progress_id))
 		nmc_terminal_erase_line ();
-	}
-
 	g_main_loop_quit (loop);
 }
 
@@ -834,7 +831,7 @@ fill_output_access_point (gpointer data, gpointer user_data)
 	strength_str = g_strdup_printf ("%u", strength);
 	wpa_flags_str = ap_wpa_rsn_flags_to_string (wpa_flags);
 	rsn_flags_str = ap_wpa_rsn_flags_to_string (rsn_flags);
-	sig_bars = nm_utils_wifi_strength_bars (strength);
+	sig_bars = nmc_wifi_strength_bars (strength);
 
 	security_str = g_string_new (NULL);
 
@@ -1116,8 +1113,8 @@ show_device_info (NMDevice *device, NmCli *nmc)
 		                                   (const NMMetaAbstractInfo *const*) nmc_fields_dev_show_general,
 		                                   FALSE, NULL, NULL);
 
-		row = g_new0 (NmcOutputField, _NM_META_SETTING_TYPE_NUM + 1);
-		for (i = 0; i < _NM_META_SETTING_TYPE_NUM; i++)
+		row = g_new0 (NmcOutputField, G_N_ELEMENTS (nmc_fields_dev_show_general));
+		for (i = 0; i < G_N_ELEMENTS (nmc_fields_dev_show_general); i++)
 			row[i].info = (const NMMetaAbstractInfo *) &nmc_fields_dev_show_general[i];
 
 		print_required_fields (&nmc->nmc_config, NMC_OF_FLAG_MAIN_HEADER_ONLY,

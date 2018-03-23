@@ -41,6 +41,7 @@ typedef struct {
 	NMSupplicantFeature ap_support;
 	NMSupplicantFeature pmf_support;
 	NMSupplicantFeature laird_support;
+	NMSupplicantFeature fils_support;
 	guint             die_count_reset_id;
 	guint             die_count;
 } NMSupplicantManagerPrivate;
@@ -162,7 +163,8 @@ nm_supplicant_manager_create_interface (NMSupplicantManager *self,
 	                                     driver,
 	                                     priv->fast_support,
 	                                     priv->ap_support,
-	                                     priv->pmf_support);
+	                                     priv->pmf_support,
+	                                     priv->fils_support);
 
 	if (iface) {
 		nm_supplicant_interface_set_laird_support(iface, priv->laird_support);
@@ -202,6 +204,7 @@ update_capabilities (NMSupplicantManager *self)
 	priv->ap_support = NM_SUPPLICANT_FEATURE_UNKNOWN;
 	priv->pmf_support = NM_SUPPLICANT_FEATURE_UNKNOWN;
 	priv->laird_support = NM_SUPPLICANT_FEATURE_UNKNOWN;
+	priv->fils_support = NM_SUPPLICANT_FEATURE_UNKNOWN;
 
 	value = g_dbus_proxy_get_cached_property (priv->proxy, "Capabilities");
 	if (value) {
@@ -210,6 +213,7 @@ update_capabilities (NMSupplicantManager *self)
 			priv->ap_support = NM_SUPPLICANT_FEATURE_NO;
 			priv->pmf_support = NM_SUPPLICANT_FEATURE_NO;
 			priv->laird_support = NM_SUPPLICANT_FEATURE_NO;
+			priv->fils_support = NM_SUPPLICANT_FEATURE_NO;
 			if (array) {
 				if (g_strv_contains (array, "ap"))
 					priv->ap_support = NM_SUPPLICANT_FEATURE_YES;
@@ -217,18 +221,21 @@ update_capabilities (NMSupplicantManager *self)
 					priv->pmf_support = NM_SUPPLICANT_FEATURE_YES;
 				if (g_strv_contains (array, "laird-features"))
 					priv->laird_support = NM_SUPPLICANT_FEATURE_YES;
+				if (g_strv_contains (array, "fils"))
+					priv->fils_support = NM_SUPPLICANT_FEATURE_YES;
 				g_free (array);
 			}
 		}
 		g_variant_unref (value);
 	}
 
-	/* Tell all interfaces about results of the AP/PMF check */
 	/* Tell all interfaces about results of the Laird features check */
+	/* Tell all interfaces about results of the AP/PMF/FILS check */
 	for (ifaces = priv->ifaces; ifaces; ifaces = ifaces->next) {
+		nm_supplicant_interface_set_laird_support (ifaces->data, priv->laird_support);
 		nm_supplicant_interface_set_ap_support (ifaces->data, priv->ap_support);
 		nm_supplicant_interface_set_pmf_support (ifaces->data, priv->pmf_support);
-		nm_supplicant_interface_set_laird_support (ifaces->data, priv->laird_support);
+		nm_supplicant_interface_set_fils_support (ifaces->data, priv->fils_support);
 	}
 
 	_LOGD ("AP mode is %ssupported",
@@ -237,6 +244,9 @@ update_capabilities (NMSupplicantManager *self)
 	_LOGD ("PMF is %ssupported",
 	       (priv->pmf_support == NM_SUPPLICANT_FEATURE_YES) ? "" :
 	           (priv->pmf_support == NM_SUPPLICANT_FEATURE_NO) ? "not " : "possibly ");
+	_LOGD ("FILS is %ssupported",
+	       (priv->fils_support == NM_SUPPLICANT_FEATURE_YES) ? "" :
+	           (priv->fils_support == NM_SUPPLICANT_FEATURE_NO) ? "not " : "possibly ");
 
 	_LOGD ("Laird features are %ssupported",
 	       (priv->laird_support == NM_SUPPLICANT_FEATURE_YES) ? "" :
@@ -365,6 +375,7 @@ name_owner_cb (GDBusProxy *proxy, GParamSpec *pspec, gpointer user_data)
 		priv->fast_support = NM_SUPPLICANT_FEATURE_UNKNOWN;
 		priv->pmf_support = NM_SUPPLICANT_FEATURE_UNKNOWN;
 		priv->laird_support = NM_SUPPLICANT_FEATURE_UNKNOWN;
+		priv->fils_support = NM_SUPPLICANT_FEATURE_UNKNOWN;
 
 		set_running (self, FALSE);
 	}

@@ -37,8 +37,6 @@
 #include "nm-core-internal.h"
 #include "platform/nmp-object.h"
 
-#include "introspection/org.freedesktop.NetworkManager.Device.Vlan.h"
-
 #include "nm-device-logging.h"
 _LOG_DECLARE_SELF(NMDeviceVlan);
 
@@ -66,7 +64,7 @@ struct _NMDeviceVlanClass {
 
 G_DEFINE_TYPE (NMDeviceVlan, nm_device_vlan, NM_TYPE_DEVICE)
 
-#define NM_DEVICE_VLAN_GET_PRIVATE(self) _NM_GET_PRIVATE (self, NMDeviceVlan, NM_IS_DEVICE_VLAN)
+#define NM_DEVICE_VLAN_GET_PRIVATE(self) _NM_GET_PRIVATE (self, NMDeviceVlan, NM_IS_DEVICE_VLAN, NMDevice)
 
 /*****************************************************************************/
 
@@ -134,7 +132,7 @@ parent_hwaddr_maybe_changed (NMDevice *parent,
 		 */
 		s_ip6 = nm_connection_get_setting_ip6_config (connection);
 		if (s_ip6)
-			nm_device_reactivate_ip6_config (NM_DEVICE (self), s_ip6, s_ip6, FALSE);
+			nm_device_reactivate_ip6_config (NM_DEVICE (self), s_ip6, s_ip6);
 	}
 }
 
@@ -418,7 +416,7 @@ complete_connection (NMDevice *device,
 static void
 update_connection (NMDevice *device, NMConnection *connection)
 {
-	NMDeviceVlanPrivate *priv = NM_DEVICE_VLAN_GET_PRIVATE ((NMDeviceVlan *) device);
+	NMDeviceVlanPrivate *priv = NM_DEVICE_VLAN_GET_PRIVATE (device);
 	NMSettingVlan *s_vlan = nm_connection_get_setting_vlan (connection);
 	int ifindex = nm_device_get_ifindex (device);
 	const char *setting_parent, *new_parent;
@@ -558,7 +556,7 @@ static void
 get_property (GObject *object, guint prop_id,
               GValue *value, GParamSpec *pspec)
 {
-	NMDeviceVlanPrivate *priv = NM_DEVICE_VLAN_GET_PRIVATE ((NMDeviceVlan *) object);
+	NMDeviceVlanPrivate *priv = NM_DEVICE_VLAN_GET_PRIVATE (object);
 
 	switch (prop_id) {
 	case PROP_VLAN_ID:
@@ -577,15 +575,34 @@ nm_device_vlan_init (NMDeviceVlan * self)
 {
 }
 
+static const NMDBusInterfaceInfoExtended interface_info_device_vlan = {
+	.parent = NM_DEFINE_GDBUS_INTERFACE_INFO_INIT (
+		NM_DBUS_INTERFACE_DEVICE_VLAN,
+		.signals = NM_DEFINE_GDBUS_SIGNAL_INFOS (
+			&nm_signal_info_property_changed_legacy,
+		),
+		.properties = NM_DEFINE_GDBUS_PROPERTY_INFOS (
+			NM_DEFINE_DBUS_PROPERTY_INFO_EXTENDED_READABLE_L ("HwAddress", "s", NM_DEVICE_HW_ADDRESS),
+			NM_DEFINE_DBUS_PROPERTY_INFO_EXTENDED_READABLE_L ("Carrier",   "b", NM_DEVICE_CARRIER),
+			NM_DEFINE_DBUS_PROPERTY_INFO_EXTENDED_READABLE_L ("Parent",    "o", NM_DEVICE_PARENT),
+			NM_DEFINE_DBUS_PROPERTY_INFO_EXTENDED_READABLE_L ("VlanId",    "u", NM_DEVICE_VLAN_ID),
+		),
+	),
+	.legacy_property_changed = TRUE,
+};
+
 static void
 nm_device_vlan_class_init (NMDeviceVlanClass *klass)
 {
 	GObjectClass *object_class = G_OBJECT_CLASS (klass);
+	NMDBusObjectClass *dbus_object_class = NM_DBUS_OBJECT_CLASS (klass);
 	NMDeviceClass *parent_class = NM_DEVICE_CLASS (klass);
 
 	NM_DEVICE_CLASS_DECLARE_TYPES (klass, NM_SETTING_VLAN_SETTING_NAME, NM_LINK_TYPE_VLAN)
 
 	object_class->get_property = get_property;
+
+	dbus_object_class->interface_infos = NM_DBUS_INTERFACE_INFOS (&interface_info_device_vlan);
 
 	parent_class->create_and_realize = create_and_realize;
 	parent_class->link_changed = link_changed;
@@ -608,10 +625,6 @@ nm_device_vlan_class_init (NMDeviceVlanClass *klass)
 	                        | G_PARAM_STATIC_STRINGS);
 
 	g_object_class_install_properties (object_class, _PROPERTY_ENUMS_LAST, obj_properties);
-
-	nm_exported_object_class_add_interface (NM_EXPORTED_OBJECT_CLASS (klass),
-	                                        NMDBUS_TYPE_DEVICE_VLAN_SKELETON,
-	                                        NULL);
 }
 
 /*****************************************************************************/

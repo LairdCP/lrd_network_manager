@@ -16,7 +16,7 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
- * Copyright 2012 - 2014 Red Hat, Inc.
+ * Copyright 2012 - 2017 Red Hat, Inc.
  */
 
 #include "nm-default.h"
@@ -26,12 +26,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
-#include <termios.h>
 #include <sys/ioctl.h>
 #include <readline/readline.h>
 #include <readline/history.h>
 
-#include "nm-utils/nm-hash-utils.h"
 #include "nm-vpn-helpers.h"
 #include "nm-client-utils.h"
 
@@ -532,10 +530,10 @@ vpn_openconnect_get_secrets (NMConnection *connection, GPtrArray *secrets)
 {
 	GError *error = NULL;
 	NMSettingVpn *s_vpn;
-	const char *vpn_type, *gw, *port;
-	char *cookie = NULL;
-	char *gateway = NULL;
-	char *gwcert = NULL;
+	const char *gw, *port;
+	gs_free char *cookie = NULL;
+	gs_free char *gateway = NULL;
+	gs_free char *gwcert = NULL;
 	int status = 0;
 	int i;
 	gboolean ret;
@@ -547,8 +545,7 @@ vpn_openconnect_get_secrets (NMConnection *connection, GPtrArray *secrets)
 		return FALSE;
 
 	s_vpn = nm_connection_get_setting_vpn (connection);
-	vpn_type = nm_setting_vpn_get_service_type (s_vpn);
-	if (g_strcmp0 (vpn_type, NM_DBUS_INTERFACE ".openconnect"))
+	if (!nm_streq0 (nm_setting_vpn_get_service_type (s_vpn), NM_SECRET_AGENT_VPN_TYPE_OPENCONNECT))
 		return FALSE;
 
 	/* Get gateway and port */
@@ -571,34 +568,31 @@ vpn_openconnect_get_secrets (NMConnection *connection, GPtrArray *secrets)
 
 	/* Append port to the host value */
 	if (gateway && port) {
-		char *tmp = gateway;
-		gateway = g_strdup_printf ("%s%s", gateway, port);
-		g_free (tmp);
+		gs_free char *tmp = gateway;
+
+		gateway = g_strdup_printf ("%s%s", tmp, port);
 	}
 
 	/* Fill secrets to the array */
 	for (i = 0; i < secrets->len; i++) {
 		NMSecretAgentSimpleSecret *secret = secrets->pdata[i];
 
-		if (!g_strcmp0 (secret->vpn_type, vpn_type)) {
-			if (!g_strcmp0 (secret->vpn_property, "cookie")) {
-				g_free (secret->value);
-				secret->value = cookie;
-				cookie = NULL;
-			} else if (!g_strcmp0 (secret->vpn_property, "gateway")) {
-				g_free (secret->value);
-				secret->value = gateway;
-				gateway = NULL;
-			} else if (!g_strcmp0 (secret->vpn_property, "gwcert")) {
-				g_free (secret->value);
-				secret->value = gwcert;
-				gwcert = NULL;
-			}
+		if (secret->secret_type != NM_SECRET_AGENT_SECRET_TYPE_VPN_SECRET)
+			continue;
+		if (!nm_streq0 (secret->vpn_type, NM_SECRET_AGENT_VPN_TYPE_OPENCONNECT))
+			continue;
+
+		if (nm_streq0 (secret->entry_id, NM_SECRET_AGENT_ENTRY_ID_PREFX_VPN_SECRET "cookie")) {
+			g_free (secret->value);
+			secret->value = g_steal_pointer (&cookie);
+		} else if (nm_streq0 (secret->entry_id, NM_SECRET_AGENT_ENTRY_ID_PREFX_VPN_SECRET "gateway")) {
+			g_free (secret->value);
+			secret->value = g_steal_pointer (&gateway);
+		} else if (nm_streq0 (secret->entry_id, NM_SECRET_AGENT_ENTRY_ID_PREFX_VPN_SECRET "gwcert")) {
+			g_free (secret->value);
+			secret->value = g_steal_pointer (&gwcert);
 		}
 	}
-	g_free (cookie);
-	g_free (gateway);
-	g_free (gwcert);
 
 	return TRUE;
 }
@@ -625,7 +619,7 @@ get_secrets_from_user (const char *request_id,
 
 		/* First try to find the password in provided passwords file,
 		 * then ask user. */
-		if (pwds_hash && (pwd = g_hash_table_lookup (pwds_hash, secret->prop_name))) {
+		if (pwds_hash && (pwd = g_hash_table_lookup (pwds_hash, secret->entry_id))) {
 			pwd = g_strdup (pwd);
 		} else {
 			if (ask) {
@@ -641,8 +635,10 @@ get_secrets_from_user (const char *request_id,
 				}
 				if (msg)
 					g_print ("%s\n", msg);
-				pwd = nmc_readline_echo (secret->password ? echo_on : TRUE,
-				                         "%s (%s): ", secret->name, secret->prop_name);
+				pwd = nmc_readline_echo (secret->is_secret
+				                         ? echo_on
+				                         : TRUE,
+				                         "%s (%s): ", secret->pretty_name, secret->entry_id);
 				if (!pwd)
 					pwd = g_strdup ("");
 			} else {
@@ -650,7 +646,7 @@ get_secrets_from_user (const char *request_id,
 					g_print ("%s\n", msg);
 				g_printerr (_("Warning: password for '%s' not given in 'passwd-file' "
 				              "and nmcli cannot ask without '--ask' option.\n"),
-				            secret->prop_name);
+				            secret->entry_id);
 			}
 		}
 		/* No password provided, cancel the secrets. */
@@ -883,6 +879,31 @@ nmc_readline (const char *prompt_fmt, ...)
 	return str;
 }
 
+static void
+nmc_secret_redisplay (void)
+{
+	int save_point = rl_point;
+	int save_end = rl_end;
+	char *save_line_buffer = rl_line_buffer;
+	const char *subst = nmc_password_subst_char ();
+	int subst_len = strlen (subst);
+	int i;
+
+	rl_point = g_utf8_strlen (save_line_buffer, save_point) * subst_len;
+	rl_end = g_utf8_strlen (rl_line_buffer, -1) * subst_len;
+	rl_line_buffer = g_slice_alloc (rl_end + 1);
+
+	for (i = 0; i + subst_len <= rl_end; i += subst_len)
+		memcpy (&rl_line_buffer[i], subst, subst_len);
+	rl_line_buffer[i] = '\0';
+
+	rl_redisplay ();
+	g_slice_free1 (rl_end + 1, rl_line_buffer);
+	rl_line_buffer = save_line_buffer;
+	rl_end = save_end;
+	rl_point = save_point;
+}
+
 /**
  * nmc_readline_echo:
  *
@@ -894,29 +915,28 @@ nmc_readline_echo (gboolean echo_on, const char *prompt_fmt, ...)
 {
 	va_list args;
 	char *prompt, *str;
-	struct termios termios_orig, termios_new;
+	HISTORY_STATE *saved_history;
+	HISTORY_STATE passwd_history = { 0, };
 
 	va_start (args, prompt_fmt);
 	prompt = g_strdup_vprintf (prompt_fmt, args);
 	va_end (args);
 
-	/* Disable echoing characters */
+	/* Hide the actual password */
 	if (!echo_on) {
-		tcgetattr (STDIN_FILENO, &termios_orig);
-		termios_new = termios_orig;
-		termios_new.c_lflag &= ~(ECHO);
-		tcsetattr (STDIN_FILENO, TCSADRAIN, &termios_new);
+		saved_history = history_get_history_state ();
+		history_set_history_state (&passwd_history);
+		rl_redisplay_function = nmc_secret_redisplay;
 	}
 
 	str = nmc_readline_helper (prompt);
 
 	g_free (prompt);
 
-	/* Restore original terminal settings */
+	/* Restore the non-hiding behavior */
 	if (!echo_on) {
-		tcsetattr (STDIN_FILENO, TCSADRAIN, &termios_orig);
-		/* New line - setting ECHONL | ICANON did not help */
-		fprintf (stdout, "\n");
+		rl_redisplay_function = rl_redisplay;
+		history_set_history_state (saved_history);
 	}
 
 	return str;
@@ -1215,9 +1235,8 @@ nmc_do_cmd (NmCli *nmc, const NMCCommand cmds[], const char *cmd, int argc, char
 		/* A valid command was specified. */
 		if (c->usage && argc == 2 && nmc->complete)
 			nmc_complete_help (*(argv+1));
-		if (c->usage && nmc_arg_is_help (*(argv+1))) {
-			if (!nmc->complete)
-				c->usage ();
+		if (!nmc->complete && c->usage && nmc_arg_is_help (*(argv+1))) {
+			c->usage ();
 			g_simple_async_result_complete_in_idle (simple);
 			g_object_unref (simple);
 		} else {

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: LGPL-2.1+ */
 #pragma once
 
 /***
@@ -99,12 +100,12 @@ triple_timestamp* triple_timestamp_from_realtime(triple_timestamp *ts, usec_t u)
 #define TRIPLE_TIMESTAMP_HAS_CLOCK(clock)                               \
         IN_SET(clock, CLOCK_REALTIME, CLOCK_REALTIME_ALARM, CLOCK_MONOTONIC, CLOCK_BOOTTIME, CLOCK_BOOTTIME_ALARM)
 
-static inline bool dual_timestamp_is_set(dual_timestamp *ts) {
+static inline bool dual_timestamp_is_set(const dual_timestamp *ts) {
         return ((ts->realtime > 0 && ts->realtime != USEC_INFINITY) ||
                 (ts->monotonic > 0 && ts->monotonic != USEC_INFINITY));
 }
 
-static inline bool triple_timestamp_is_set(triple_timestamp *ts) {
+static inline bool triple_timestamp_is_set(const triple_timestamp *ts) {
         return ((ts->realtime > 0 && ts->realtime != USEC_INFINITY) ||
                 (ts->monotonic > 0 && ts->monotonic != USEC_INFINITY) ||
                 (ts->boottime > 0 && ts->boottime != USEC_INFINITY));
@@ -154,6 +155,8 @@ time_t mktime_or_timegm(struct tm *tm, bool utc);
 struct tm *localtime_or_gmtime_r(const time_t *t, struct tm *tm, bool utc);
 
 unsigned long usec_to_jiffies(usec_t usec);
+
+bool in_utc_timezone(void);
 
 static inline usec_t usec_add(usec_t a, usec_t b) {
         usec_t c;

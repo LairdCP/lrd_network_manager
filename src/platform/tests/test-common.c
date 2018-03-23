@@ -1,6 +1,5 @@
 /* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
-/* NetworkManager audit support
- *
+/*
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -15,7 +14,7 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
- * Copyright 2016 Red Hat, Inc.
+ * Copyright 2016 - 2017 Red Hat, Inc.
  */
 
 #include "nm-default.h"
@@ -78,9 +77,9 @@ _ipx_address_get_all (NMPlatform *self, int ifindex, NMPObjectType obj_type)
 	g_assert (NM_IS_PLATFORM (self));
 	g_assert (ifindex > 0);
 	g_assert (NM_IN_SET (obj_type, NMP_OBJECT_TYPE_IP4_ADDRESS, NMP_OBJECT_TYPE_IP6_ADDRESS));
-	nmp_lookup_init_addrroute (&lookup,
-	                           obj_type,
-	                           ifindex);
+	nmp_lookup_init_object (&lookup,
+	                        obj_type,
+	                        ifindex);
 	return nmp_cache_lookup_to_array (nm_platform_lookup (self, &lookup),
 	                                  obj_type,
 	                                  FALSE /*addresses are always visible. */);
@@ -108,9 +107,9 @@ nmtstp_platform_ip4_route_delete (NMPlatform *platform, int ifindex, in_addr_t n
 	nm_platform_process_events (platform);
 
 	nm_dedup_multi_iter_for_each (&iter,
-	                              nm_platform_lookup_addrroute (platform,
-	                                                            NMP_OBJECT_TYPE_IP4_ROUTE,
-	                                                            ifindex)) {
+	                              nm_platform_lookup_object (platform,
+	                                                         NMP_OBJECT_TYPE_IP4_ROUTE,
+	                                                         ifindex)) {
 		const NMPlatformIP4Route *r = NMP_OBJECT_CAST_IP4_ROUTE (iter.current->obj);
 
 		if (   r->ifindex != ifindex
@@ -120,7 +119,7 @@ nmtstp_platform_ip4_route_delete (NMPlatform *platform, int ifindex, in_addr_t n
 			continue;
 		}
 
-		return nm_platform_ip_route_delete (platform, NMP_OBJECT_UP_CAST (r));
+		return nm_platform_object_delete (platform, NMP_OBJECT_UP_CAST (r));
 	}
 
 	return TRUE;
@@ -134,9 +133,9 @@ nmtstp_platform_ip6_route_delete (NMPlatform *platform, int ifindex, struct in6_
 	nm_platform_process_events (platform);
 
 	nm_dedup_multi_iter_for_each (&iter,
-	                              nm_platform_lookup_addrroute (platform,
-	                                                            NMP_OBJECT_TYPE_IP6_ROUTE,
-	                                                            ifindex)) {
+	                              nm_platform_lookup_object (platform,
+	                                                         NMP_OBJECT_TYPE_IP6_ROUTE,
+	                                                         ifindex)) {
 		const NMPlatformIP6Route *r = NMP_OBJECT_CAST_IP6_ROUTE (iter.current->obj);
 
 		if (   r->ifindex != ifindex
@@ -146,7 +145,7 @@ nmtstp_platform_ip6_route_delete (NMPlatform *platform, int ifindex, struct in6_
 			continue;
 		}
 
-		return nm_platform_ip_route_delete (platform, NMP_OBJECT_UP_CAST (r));
+		return nm_platform_object_delete (platform, NMP_OBJECT_UP_CAST (r));
 	}
 
 	return TRUE;
@@ -1284,6 +1283,10 @@ nmtstp_link_ip6tnl_add (NMPlatform *platform,
 	const NMPlatformLink *pllink = NULL;
 	gboolean success;
 	char buffer[INET6_ADDRSTRLEN];
+	char encap[20];
+	char tclass[20];
+	gboolean encap_ignore;
+	gboolean tclass_inherit;
 
 	g_assert (nm_utils_is_valid_iface_name (name, NULL));
 
@@ -1309,15 +1312,18 @@ nmtstp_link_ip6tnl_add (NMPlatform *platform,
 			g_assert_not_reached ();
 		}
 
-		success = !nmtstp_run_command ("ip -6 tunnel add %s mode %s %s local %s remote %s ttl %u tclass %02x encaplimit %u flowlabel %x",
+		encap_ignore = NM_FLAGS_HAS (lnk->flags, IP6_TNL_F_IGN_ENCAP_LIMIT);
+		tclass_inherit = NM_FLAGS_HAS (lnk->flags, IP6_TNL_F_USE_ORIG_TCLASS);
+
+		success = !nmtstp_run_command ("ip -6 tunnel add %s mode %s %s local %s remote %s ttl %u tclass %s encaplimit %s flowlabel %x",
 		                                name,
 		                                mode,
 		                                dev,
 		                                nm_utils_inet6_ntop (&lnk->local, NULL),
 		                                nm_utils_inet6_ntop (&lnk->remote, buffer),
 		                                lnk->ttl,
-		                                lnk->tclass,
-		                                lnk->encap_limit,
+		                                tclass_inherit ? "inherit" : nm_sprintf_buf (tclass, "%02x", lnk->tclass),
+		                                encap_ignore ? "none" : nm_sprintf_buf (encap, "%u", lnk->encap_limit),
 		                                lnk->flow_label);
 		if (success)
 			pllink = nmtstp_assert_wait_for_link (platform, name, NM_LINK_TYPE_IP6TNL, 100);
@@ -1703,8 +1709,8 @@ nmtstp_namespace_create (int unshare_flags, GError **error)
 		errsv = errno;
 		g_set_error (error, NM_UTILS_ERROR, NM_UTILS_ERROR_UNKNOWN,
 		             "pipe() failed with %d (%s)", errsv, strerror (errsv));
-		close (pipefd_c2p[0]);
-		close (pipefd_c2p[1]);
+		nm_close (pipefd_c2p[0]);
+		nm_close (pipefd_c2p[1]);
 		return FALSE;
 	}
 
@@ -1713,18 +1719,18 @@ nmtstp_namespace_create (int unshare_flags, GError **error)
 		errsv = errno;
 		g_set_error (error, NM_UTILS_ERROR, NM_UTILS_ERROR_UNKNOWN,
 		             "fork() failed with %d (%s)", errsv, strerror (errsv));
-		close (pipefd_c2p[0]);
-		close (pipefd_c2p[1]);
-		close (pipefd_p2c[0]);
-		close (pipefd_p2c[1]);
+		nm_close (pipefd_c2p[0]);
+		nm_close (pipefd_c2p[1]);
+		nm_close (pipefd_p2c[0]);
+		nm_close (pipefd_p2c[1]);
 		return FALSE;
 	}
 
 	if (pid == 0) {
 		char read_buf[1];
 
-		close (pipefd_c2p[0]); /* close read-end */
-		close (pipefd_p2c[1]); /* close write-end */
+		nm_close (pipefd_c2p[0]); /* close read-end */
+		nm_close (pipefd_p2c[1]); /* close write-end */
 
 		if (unshare (unshare_flags) != 0) {
 			errsv = errno;
@@ -1742,7 +1748,7 @@ nmtstp_namespace_create (int unshare_flags, GError **error)
 			if (errsv == 0)
 				errsv = -2;
 		}
-		close (pipefd_c2p[1]);
+		nm_close (pipefd_c2p[1]);
 
 		/* wait until parent process terminates (or kills us). */
 		if (errsv == 0) {
@@ -1750,19 +1756,19 @@ nmtstp_namespace_create (int unshare_flags, GError **error)
 				r = read (pipefd_p2c[0], read_buf, sizeof (read_buf));
 			} while (r < 0 && errno == EINTR);
 		}
-		close (pipefd_p2c[0]);
+		nm_close (pipefd_p2c[0]);
 		_exit (0);
 	}
 
-	close (pipefd_c2p[1]); /* close write-end */
-	close (pipefd_p2c[0]); /* close read-end */
+	nm_close (pipefd_c2p[1]); /* close write-end */
+	nm_close (pipefd_p2c[0]); /* close read-end */
 
 	/* sync with child process. */
 	do {
 		r = read (pipefd_c2p[0], &errsv, sizeof (errsv));
 	} while (r < 0 && errno == EINTR);
 
-	close (pipefd_c2p[0]);
+	nm_close (pipefd_c2p[0]);
 
 	if (   r != sizeof (errsv)
 	    || errsv != 0) {
@@ -1775,7 +1781,7 @@ nmtstp_namespace_create (int unshare_flags, GError **error)
 			g_set_error (error, NM_UTILS_ERROR, NM_UTILS_ERROR_UNKNOWN,
 			             "child process signaled failure %d (%s)", errsv, strerror (errsv));
 		}
-		close (pipefd_p2c[1]);
+		nm_close (pipefd_p2c[1]);
 		kill (pid, SIGKILL);
 		do {
 			pid2 = waitpid (pid, &status, 0);
@@ -1809,7 +1815,7 @@ nmtstp_namespace_handle_release (NMTstpNamespaceHandle *ns_handle)
 
 	g_return_if_fail (ns_handle->pid > 0);
 
-	close (ns_handle->pipe_fd);
+	nm_close (ns_handle->pipe_fd);
 	ns_handle->pipe_fd = 0;
 
 	kill (ns_handle->pid, SIGKILL);
@@ -1931,46 +1937,11 @@ main (int argc, char **argv)
 			g_error ("unshare(CLONE_NEWNET|CLONE_NEWNS) failed with %s (%d)", strerror (errsv), errsv);
 		}
 
-		/* Below we need a read-only /sys (to signal that we're in an environment
-		 * we don't have udev and writable /sys/devices so that we still are able
-		 * to test device classes that modify the device attributes (such as bridges).
-		 *
-		 * We use two sysfs instances to achieve this, binding the /device subtree
-		 * of the writeable one to the read-only one.
-		 *
-		 * We abuse a /sys/kernel/debug for our temporary writable sysfs mount,
-		 * just because it's guarranteed to exist and mounts are allowed there even
-		 * after the sysfs mount point hardening [linux 0cbee99269]. It's just in
-		 * our mount namespace, we release it quickly and don't need debugfs anyway...
-		 * An alrernative would be to create a temporary directory, but that seems
-		 * like an overkill. */
-
-		/* Make the mounts below /sys private to our namespace. Other mounts
-		 * wouldn't be permitted for good reasons. */
+		/* We need a read-only /sys so that the platform knows there's no udev. */
 		mount (NULL, "/sys", "sysfs", MS_SLAVE, NULL);
-
-		/* Mount the read-only sysfs. */
 		if (mount ("sys", "/sys", "sysfs", MS_RDONLY, NULL) != 0) {
 			errsv = errno;
 			g_error ("mount(\"/sys\") failed with %s (%d)", strerror (errsv), errsv);
-		}
-
-		/* Create the writable /sys/devices tree. */
-		if (mount ("sys", "/sys/kernel/debug", "sysfs", 0, NULL) != 0) {
-			errsv = errno;
-			g_error ("mount(\"/sys/devices/k\") failed with %s (%d)", strerror (errsv), errsv);
-		}
-
-		/* Bind mound the writable device tree to the read-only sysfs. */
-		if (mount ("/sys/kernel/debug/devices", "/sys/devices", "sysfs", MS_BIND, NULL) != 0) {
-			errsv = errno;
-			g_error ("mount(\"/sys\") failed with %s (%d)", strerror (errsv), errsv);
-		}
-
-		/* Release the temporary mount now that we bound the /devices subtree. */
-		if (umount ("/sys/kernel/debug") != 0) {
-			errsv = errno;
-			g_error ("umount(\"/sys/kernel/debug\") failed with  %s (%d)", strerror (errsv), errsv);
 		}
 	}
 

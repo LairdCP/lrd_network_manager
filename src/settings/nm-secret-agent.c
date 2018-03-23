@@ -26,13 +26,12 @@
 #include <pwd.h>
 
 #include "nm-dbus-interface.h"
-#include "nm-bus-manager.h"
+#include "nm-dbus-manager.h"
+#include "nm-core-internal.h"
 #include "nm-auth-subject.h"
 #include "nm-simple-connection.h"
 #include "NetworkManagerUtils.h"
 #include "nm-utils/c-list.h"
-
-#include "introspection/org.freedesktop.NetworkManager.SecretAgent.h"
 
 /*****************************************************************************/
 
@@ -50,16 +49,13 @@ typedef struct {
 	char *owner_username;
 	char *dbus_owner;
 	NMSecretAgentCapabilities capabilities;
-
 	GSList *permissions;
-
-	NMDBusSecretAgent *proxy;
-	NMBusManager *bus_mgr;
+	GDBusProxy *proxy;
+	NMDBusManager *bus_mgr;
 	GDBusConnection *connection;
-	gboolean connection_is_private;
-	gulong on_disconnected_id;
-
 	CList requests;
+	gulong on_disconnected_id;
+	bool connection_is_private:1;
 } NMSecretAgentPrivate;
 
 struct _NMSecretAgent {
@@ -99,6 +95,13 @@ G_DEFINE_TYPE (NMSecretAgent, nm_secret_agent, G_TYPE_OBJECT)
 
 /*****************************************************************************/
 
+NM_UTILS_FLAGS2STR_DEFINE_STATIC (_capabilities_to_string, NMSecretAgentCapabilities,
+	NM_UTILS_FLAGS2STR (NM_SECRET_AGENT_CAPABILITY_NONE, "none"),
+	NM_UTILS_FLAGS2STR (NM_SECRET_AGENT_CAPABILITY_VPN_HINTS, "vpn-hints"),
+);
+
+/*****************************************************************************/
+
 struct _NMSecretAgentCallId {
 	CList lst;
 	NMSecretAgent *agent;
@@ -111,9 +114,7 @@ struct _NMSecretAgentCallId {
 	gpointer callback_data;
 };
 
-typedef struct _NMSecretAgentCallId Request;
-
-static Request *
+static NMSecretAgentCallId *
 request_new (NMSecretAgent *self,
              const char *dbus_command, /* this must be a static string. */
              const char *path,
@@ -121,9 +122,9 @@ request_new (NMSecretAgent *self,
              NMSecretAgentCallback callback,
              gpointer callback_data)
 {
-	Request *r;
+	NMSecretAgentCallId *r;
 
-	r = g_slice_new0 (Request);
+	r = g_slice_new0 (NMSecretAgentCallId);
 	r->agent = self;
 	r->path = g_strdup (path);
 	r->setting_name = g_strdup (setting_name);
@@ -139,21 +140,21 @@ request_new (NMSecretAgent *self,
 #define request_new(self,dbus_command,path,setting_name,callback,callback_data) request_new(self,""dbus_command"",path,setting_name,callback,callback_data)
 
 static void
-request_free (Request *r)
+request_free (NMSecretAgentCallId *r)
 {
 	NMSecretAgent *self = r->agent;
 
 	_LOGt ("request "LOG_REQ_FMT": destroyed", LOG_REQ_ARG (r));
-	c_list_unlink (&r->lst);
+	c_list_unlink_stale (&r->lst);
 	g_free (r->path);
 	g_free (r->setting_name);
 	if (r->cancellable)
 		g_object_unref (r->cancellable);
-	g_slice_free (Request, r);
+	g_slice_free (NMSecretAgentCallId, r);
 }
 
 static gboolean
-request_check_return (Request *r)
+request_check_return (NMSecretAgentCallId *r)
 {
 	if (!r->cancellable)
 		return FALSE;
@@ -163,7 +164,7 @@ request_check_return (Request *r)
 	nm_assert (c_list_contains (&NM_SECRET_AGENT_GET_PRIVATE (r->agent)->requests,
 	                            &r->lst));
 
-	c_list_unlink_init (&r->lst);
+	c_list_unlink (&r->lst);
 
 	return TRUE;
 }
@@ -298,7 +299,7 @@ nm_secret_agent_add_permission (NMSecretAgent *agent,
  * @permission: The name of the permission to check for
  *
  * Returns whether or not the agent has the given permission.
- * 
+ *
  * Returns: %TRUE if the agent has the given permission, %FALSE if it does not
  * or if the permission was not previous recorded with
  * nm_secret_agent_add_permission().
@@ -329,23 +330,29 @@ get_callback (GObject *proxy,
               GAsyncResult *result,
               gpointer user_data)
 {
-	Request *r = user_data;
+	NMSecretAgentCallId *r = user_data;
 
 	if (request_check_return (r)) {
 		NMSecretAgentPrivate *priv = NM_SECRET_AGENT_GET_PRIVATE (r->agent);
 		gs_free_error GError *error = NULL;
+		gs_unref_variant GVariant *ret = NULL;
 		gs_unref_variant GVariant *secrets = NULL;
 
-		nmdbus_secret_agent_call_get_secrets_finish (priv->proxy, &secrets, result, &error);
-		if (error)
+		ret = _nm_dbus_proxy_call_finish (priv->proxy, result, G_VARIANT_TYPE ("(a{sa{sv}})"), &error);
+		if (!ret)
 			g_dbus_error_strip_remote_error (error);
+		else {
+			g_variant_get (ret,
+			               "(@a{sa{sv}})",
+			               &secrets);
+		}
 		r->callback (r->agent, r, secrets, error, r->callback_data);
 	}
 
 	request_free (r);
 }
 
-NMSecretAgentCallId
+NMSecretAgentCallId *
 nm_secret_agent_get_secrets (NMSecretAgent *self,
                              const char *path,
                              NMConnection *connection,
@@ -356,9 +363,8 @@ nm_secret_agent_get_secrets (NMSecretAgent *self,
                              gpointer callback_data)
 {
 	NMSecretAgentPrivate *priv;
-	static const char *no_hints[] = { NULL };
 	GVariant *dict;
-	Request *r;
+	NMSecretAgentCallId *r;
 
 	g_return_val_if_fail (NM_IS_SECRET_AGENT (self), NULL);
 	g_return_val_if_fail (NM_IS_CONNECTION (connection), NULL);
@@ -377,16 +383,20 @@ nm_secret_agent_get_secrets (NMSecretAgent *self,
 	r = request_new (self, "GetSecrets", path, setting_name, callback, callback_data);
 	r->is_get_secrets = TRUE;
 
-	/* Increase the timeout only for this call */
-	g_dbus_proxy_set_default_timeout (G_DBUS_PROXY (priv->proxy), 120000);
-	nmdbus_secret_agent_call_get_secrets (priv->proxy,
-	                                      dict,
-	                                      path,
-	                                      setting_name,
-	                                      hints ? hints : no_hints,
-	                                      flags,
-	                                      r->cancellable,
-	                                      get_callback, r);
+	g_dbus_proxy_call (priv->proxy,
+	                   "GetSecrets",
+	                   g_variant_new ("(@a{sa{sv}}os^asu)",
+	                                  dict,
+	                                  path,
+	                                  setting_name,
+	                                  hints ?: NM_PTRARRAY_EMPTY (const char *),
+	                                  (guint32) flags),
+	                   G_DBUS_CALL_FLAGS_NONE,
+	                   120000,
+	                   r->cancellable,
+	                   get_callback,
+	                   r);
+
 	g_dbus_proxy_set_default_timeout (G_DBUS_PROXY (priv->proxy), -1);
 
 	return r;
@@ -397,21 +407,20 @@ nm_secret_agent_get_secrets (NMSecretAgent *self,
 static void
 cancel_done (GObject *proxy, GAsyncResult *result, gpointer user_data)
 {
-	char *description = user_data;
-	GError *error = NULL;
+	gs_free char *description = user_data;
+	gs_free_error GError *error = NULL;
+	gs_unref_variant GVariant *ret = NULL;
 
-	if (!nmdbus_secret_agent_call_cancel_get_secrets_finish (NMDBUS_SECRET_AGENT (proxy), result, &error)) {
+	ret = _nm_dbus_proxy_call_finish (G_DBUS_PROXY (proxy), result, G_VARIANT_TYPE ("()"), &error);
+	if (!ret) {
 		nm_log_dbg (LOGD_AGENTS, "%s%s%s: agent failed to cancel secrets: %s",
 		            NM_PRINT_FMT_QUOTED (description, "(", description, ")", "???"),
 		            error->message);
-		g_clear_error (&error);
 	}
-
-	g_free (description);
 }
 
 static void
-do_cancel_secrets (NMSecretAgent *self, Request *r, gboolean disposing)
+do_cancel_secrets (NMSecretAgent *self, NMSecretAgentCallId *r, gboolean disposing)
 {
 	NMSecretAgentPrivate *priv = NM_SECRET_AGENT_GET_PRIVATE (self);
 	GCancellable *cancellable;
@@ -424,11 +433,16 @@ do_cancel_secrets (NMSecretAgent *self, Request *r, gboolean disposing)
 	if (   r->is_get_secrets
 	    && priv->proxy) {
 		/* for GetSecrets call, we must cancel the request. */
-		nmdbus_secret_agent_call_cancel_get_secrets (priv->proxy,
-		                                             r->path, r->setting_name,
-		                                             NULL,
-		                                             cancel_done,
-		                                             g_strdup (nm_secret_agent_get_description (self)));
+		g_dbus_proxy_call (G_DBUS_PROXY (priv->proxy),
+		                   "CancelGetSecrets",
+		                   g_variant_new ("(os)",
+		                                  r->path,
+		                                  r->setting_name),
+		                   G_DBUS_CALL_FLAGS_NONE,
+		                   -1,
+		                   NULL,
+		                   cancel_done,
+		                   g_strdup (nm_secret_agent_get_description (self)));
 	}
 
 	cancellable = r->cancellable;
@@ -467,9 +481,9 @@ do_cancel_secrets (NMSecretAgent *self, Request *r, gboolean disposing)
  * callback before nm_secret_agent_cancel_secrets() returns.
  */
 void
-nm_secret_agent_cancel_secrets (NMSecretAgent *self, NMSecretAgentCallId call_id)
+nm_secret_agent_cancel_secrets (NMSecretAgent *self, NMSecretAgentCallId *call_id)
 {
-	Request *r = call_id;
+	NMSecretAgentCallId *r = call_id;
 
 	g_return_if_fail (NM_IS_SECRET_AGENT (self));
 	g_return_if_fail (r);
@@ -477,7 +491,7 @@ nm_secret_agent_cancel_secrets (NMSecretAgent *self, NMSecretAgentCallId call_id
 	nm_assert (c_list_contains (&NM_SECRET_AGENT_GET_PRIVATE (self)->requests,
 	                            &r->lst));
 
-	c_list_unlink_init (&r->lst);
+	c_list_unlink (&r->lst);
 
 	do_cancel_secrets (self, r, FALSE);
 }
@@ -489,14 +503,14 @@ agent_save_cb (GObject *proxy,
                GAsyncResult *result,
                gpointer user_data)
 {
-	Request *r = user_data;
+	NMSecretAgentCallId *r = user_data;
 
 	if (request_check_return (r)) {
-		NMSecretAgentPrivate *priv = NM_SECRET_AGENT_GET_PRIVATE (r->agent);
 		gs_free_error GError *error = NULL;
+		gs_unref_variant GVariant *ret = NULL;
 
-		nmdbus_secret_agent_call_save_secrets_finish (priv->proxy, result, &error);
-		if (error)
+		ret = _nm_dbus_proxy_call_finish (G_DBUS_PROXY (proxy), result, G_VARIANT_TYPE ("()"), &error);
+		if (!ret)
 			g_dbus_error_strip_remote_error (error);
 		r->callback (r->agent, r, NULL, error, r->callback_data);
 	}
@@ -504,7 +518,7 @@ agent_save_cb (GObject *proxy,
 	request_free (r);
 }
 
-NMSecretAgentCallId
+NMSecretAgentCallId *
 nm_secret_agent_save_secrets (NMSecretAgent *self,
                               const char *path,
                               NMConnection *connection,
@@ -513,7 +527,7 @@ nm_secret_agent_save_secrets (NMSecretAgent *self,
 {
 	NMSecretAgentPrivate *priv;
 	GVariant *dict;
-	Request *r;
+	NMSecretAgentCallId *r;
 
 	g_return_val_if_fail (NM_IS_SECRET_AGENT (self), NULL);
 	g_return_val_if_fail (NM_IS_CONNECTION (connection), NULL);
@@ -525,11 +539,16 @@ nm_secret_agent_save_secrets (NMSecretAgent *self,
 	dict = nm_connection_to_dbus (connection, NM_CONNECTION_SERIALIZE_ALL);
 
 	r = request_new (self, "SaveSecrets", path, NULL, callback, callback_data);
-	nmdbus_secret_agent_call_save_secrets (priv->proxy,
-	                                       dict,
-	                                       path,
-	                                       NULL, /* cancelling the request does *not* cancel the D-Bus call. */
-	                                       agent_save_cb, r);
+	g_dbus_proxy_call (priv->proxy,
+	                   "SaveSecrets",
+	                   g_variant_new ("(@a{sa{sv}}o)",
+	                                  dict,
+	                                  path),
+	                   G_DBUS_CALL_FLAGS_NONE,
+	                   -1,
+	                   NULL, /* cancelling the request does *not* cancel the D-Bus call. */
+	                   agent_save_cb,
+	                   r);
 
 	return r;
 }
@@ -541,14 +560,14 @@ agent_delete_cb (GObject *proxy,
                  GAsyncResult *result,
                  gpointer user_data)
 {
-	Request *r = user_data;
+	NMSecretAgentCallId *r = user_data;
 
 	if (request_check_return (r)) {
-		NMSecretAgentPrivate *priv = NM_SECRET_AGENT_GET_PRIVATE (r->agent);
 		gs_free_error GError *error = NULL;
+		gs_unref_variant GVariant *ret = NULL;
 
-		nmdbus_secret_agent_call_delete_secrets_finish (priv->proxy, result, &error);
-		if (error)
+		ret = _nm_dbus_proxy_call_finish (G_DBUS_PROXY (proxy), result, G_VARIANT_TYPE ("()"), &error);
+		if (!ret)
 			g_dbus_error_strip_remote_error (error);
 		r->callback (r->agent, r, NULL, error, r->callback_data);
 	}
@@ -556,7 +575,7 @@ agent_delete_cb (GObject *proxy,
 	request_free (r);
 }
 
-NMSecretAgentCallId
+NMSecretAgentCallId *
 nm_secret_agent_delete_secrets (NMSecretAgent *self,
                                 const char *path,
                                 NMConnection *connection,
@@ -565,7 +584,7 @@ nm_secret_agent_delete_secrets (NMSecretAgent *self,
 {
 	NMSecretAgentPrivate *priv;
 	GVariant *dict;
-	Request *r;
+	NMSecretAgentCallId *r;
 
 	g_return_val_if_fail (NM_IS_SECRET_AGENT (self), NULL);
 	g_return_val_if_fail (NM_IS_CONNECTION (connection), NULL);
@@ -577,12 +596,16 @@ nm_secret_agent_delete_secrets (NMSecretAgent *self,
 	dict = nm_connection_to_dbus (connection, NM_CONNECTION_SERIALIZE_NO_SECRETS);
 
 	r = request_new (self, "DeleteSecrets", path, NULL, callback, callback_data);
-	nmdbus_secret_agent_call_delete_secrets (priv->proxy,
-	                                         dict,
-	                                         path,
-	                                         NULL, /* cancelling the request does *not* cancel the D-Bus call. */
-	                                         agent_delete_cb, r);
-
+	g_dbus_proxy_call (priv->proxy,
+	                   "DeleteSecrets",
+	                   g_variant_new ("(@a{sa{sv}}o)",
+	                                  dict,
+	                                  path),
+	                   G_DBUS_CALL_FLAGS_NONE,
+	                   -1,
+	                   NULL, /* cancelling the request does *not* cancel the D-Bus call. */
+	                   agent_delete_cb,
+	                   r);
 	return r;
 }
 
@@ -608,7 +631,7 @@ _on_disconnected_cleanup (NMSecretAgentPrivate *priv)
 }
 
 static void
-_on_disconnected_private_connection (NMBusManager *mgr,
+_on_disconnected_private_connection (NMDBusManager *mgr,
                                      GDBusConnection *connection,
                                      NMSecretAgent *self)
 {
@@ -664,10 +687,10 @@ nm_secret_agent_new (GDBusMethodInvocation *context,
 	NMSecretAgentPrivate *priv;
 	const char *dbus_owner;
 	struct passwd *pw;
-	GDBusProxy *proxy;
 	char *owner_username = NULL;
 	char *description = NULL;
 	char buf_subject[64];
+	char buf_caps[150];
 	gulong uid;
 	GDBusConnection *connection;
 
@@ -692,16 +715,17 @@ nm_secret_agent_new (GDBusMethodInvocation *context,
 
 	priv = NM_SECRET_AGENT_GET_PRIVATE (self);
 
-	priv->bus_mgr = g_object_ref (nm_bus_manager_get ());
+	priv->bus_mgr = g_object_ref (nm_dbus_manager_get ());
 	priv->connection = g_object_ref (connection);
-	priv->connection_is_private = !!nm_bus_manager_connection_get_private_name (priv->bus_mgr, connection);
+	priv->connection_is_private = !!nm_dbus_manager_connection_get_private_name (priv->bus_mgr, connection);
 
-	_LOGt ("constructed: %s, owner=%s%s%s (%s), private-connection=%d, unique-name=%s%s%s",
+	_LOGt ("constructed: %s, owner=%s%s%s (%s), private-connection=%d, unique-name=%s%s%s, capabilities=%s",
 	       (description = _create_description (dbus_owner, identifier, uid)),
 	       NM_PRINT_FMT_QUOTE_STRING (owner_username),
 	       nm_auth_subject_to_string (subject, buf_subject, sizeof (buf_subject)),
 	       priv->connection_is_private,
-	       NM_PRINT_FMT_QUOTE_STRING (g_dbus_connection_get_unique_name (priv->connection)));
+	       NM_PRINT_FMT_QUOTE_STRING (g_dbus_connection_get_unique_name (priv->connection)),
+	       _capabilities_to_string (capabilities, buf_caps, sizeof (buf_caps)));
 
 	priv->identifier = g_strdup (identifier);
 	priv->owner_username = owner_username;
@@ -710,20 +734,18 @@ nm_secret_agent_new (GDBusMethodInvocation *context,
 	priv->capabilities = capabilities;
 	priv->subject = g_object_ref (subject);
 
-	proxy = nm_bus_manager_new_proxy (priv->bus_mgr,
-	                                  priv->connection,
-	                                  NMDBUS_TYPE_SECRET_AGENT_PROXY,
-	                                  priv->dbus_owner,
-	                                  NM_DBUS_PATH_SECRET_AGENT,
-	                                  NM_DBUS_INTERFACE_SECRET_AGENT);
-	g_assert (proxy);
-	priv->proxy = NMDBUS_SECRET_AGENT (proxy);
+	priv->proxy = nm_dbus_manager_new_proxy (priv->bus_mgr,
+	                                         priv->connection,
+	                                         G_TYPE_DBUS_PROXY,
+	                                         priv->dbus_owner,
+	                                         NM_DBUS_PATH_SECRET_AGENT,
+	                                         NM_DBUS_INTERFACE_SECRET_AGENT);
 
 	/* we cannot subscribe to notify::g-name-owner because that doesn't work
 	 * for unique names and it doesn't work for private connections. */
 	if (priv->connection_is_private) {
 		priv->on_disconnected_id = g_signal_connect (priv->bus_mgr,
-		                                             NM_BUS_MANAGER_PRIVATE_CONNECTION_DISCONNECTED,
+		                                             NM_DBUS_MANAGER_PRIVATE_CONNECTION_DISCONNECTED,
 		                                             G_CALLBACK (_on_disconnected_private_connection),
 		                                             self);
 	} else {
@@ -759,8 +781,8 @@ dispose (GObject *object)
 
 again:
 	c_list_for_each (iter, &priv->requests) {
-		c_list_unlink_init (iter);
-		do_cancel_secrets (self, c_list_entry (iter, Request, lst), TRUE);
+		c_list_unlink (iter);
+		do_cancel_secrets (self, c_list_entry (iter, NMSecretAgentCallId, lst), TRUE);
 		goto again;
 	}
 

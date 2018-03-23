@@ -25,8 +25,6 @@
 #include <stdio.h>
 #include <arpa/inet.h>
 
-#include "nm-utils/nm-hash-utils.h"
-
 #include "nm-connection.h"
 
 /*****************************************************************************/
@@ -410,12 +408,11 @@ guint32 nm_utils_lifetime_rebase_relative_time_on_now (guint32 timestamp,
                                                        guint32 duration,
                                                        gint32 now);
 
-gboolean nm_utils_lifetime_get (guint32 timestamp,
-                                guint32 lifetime,
-                                guint32 preferred,
-                                gint32 now,
-                                guint32 *out_lifetime,
-                                guint32 *out_preferred);
+guint32 nm_utils_lifetime_get (guint32 timestamp,
+                               guint32 lifetime,
+                               guint32 preferred,
+                               gint32 now,
+                               guint32 *out_preferred);
 
 gboolean nm_utils_ip4_address_is_link_local (in_addr_t addr);
 
@@ -449,5 +446,7 @@ const char *nm_icmpv6_router_pref_to_string (NMIcmpv6RouterPref pref, char *buf,
 const char *nm_activation_type_to_string (NMActivationType activation_type);
 
 /*****************************************************************************/
+
+const char *nm_utils_parse_dns_domain (const char *domain, gboolean *is_routing);
 
 #endif /* __NM_CORE_UTILS_H__ */

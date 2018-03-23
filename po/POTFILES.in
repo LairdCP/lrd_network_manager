@@ -16,7 +16,7 @@ clients/common/nm-meta-setting-desc.c
 clients/common/nm-polkit-listener.c
 clients/common/nm-secret-agent-simple.c
 clients/common/nm-vpn-helpers.c
-clients/common/settings-docs.c.in
+clients/common/settings-docs.h.in
 clients/nm-online.c
 clients/tui/newt/nmt-newt-utils.c
 clients/tui/nm-editor-utils.c
@@ -82,6 +82,7 @@ libnm-core/nm-setting-ovs-bridge.c
 libnm-core/nm-setting-ppp.c
 libnm-core/nm-setting-pppoe.c
 libnm-core/nm-setting-proxy.c
+libnm-core/nm-setting-tc-config.c
 libnm-core/nm-setting-team.c
 libnm-core/nm-setting-team-port.c
 libnm-core/nm-setting-tun.c

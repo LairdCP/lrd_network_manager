@@ -37,7 +37,6 @@
 #include "settings/nm-settings-plugin.h"
 #include "nm-config.h"
 #include "NetworkManagerUtils.h"
-#include "nm-exported-object.h"
 
 #include "nms-ifcfg-rh-connection.h"
 #include "nms-ifcfg-rh-common.h"
@@ -46,10 +45,10 @@
 #include "nms-ifcfg-rh-utils.h"
 #include "shvar.h"
 
-#include "settings/plugins/ifcfg-rh/nmdbus-ifcfg-rh.h"
-
-#define IFCFGRH1_DBUS_SERVICE_NAME "com.redhat.ifcfgrh1"
-#define IFCFGRH1_DBUS_OBJECT_PATH "/com/redhat/ifcfgrh1"
+#define IFCFGRH1_BUS_NAME                               "com.redhat.ifcfgrh1"
+#define IFCFGRH1_OBJECT_PATH                            "/com/redhat/ifcfgrh1"
+#define IFCFGRH1_IFACE1_NAME                            "com.redhat.ifcfgrh1"
+#define IFCFGRH1_IFACE1_METHOD_GET_IFCFG_DETAILS        "GetIfcfgDetails"
 
 /*****************************************************************************/
 
@@ -58,9 +57,9 @@ typedef struct {
 
 	struct {
 		GDBusConnection *connection;
-		GDBusInterfaceSkeleton *interface;
 		GCancellable *cancellable;
 		gulong signal_id;
+		guint regist_id;
 	} dbus;
 
 	GHashTable *connections;  /* uuid::connection */
@@ -161,7 +160,7 @@ remove_connection (SettingsPluginIfcfg *self, NMIfcfgConnection *connection)
 	g_object_ref (connection);
 	g_hash_table_remove (priv->connections, nm_connection_get_uuid (NM_CONNECTION (connection)));
 	if (!unmanaged && !unrecognized)
-		nm_settings_connection_signal_remove (NM_SETTINGS_CONNECTION (connection), FALSE);
+		nm_settings_connection_signal_remove (NM_SETTINGS_CONNECTION (connection));
 	g_object_unref (connection);
 
 	/* Emit changes _after_ removing the connection */
@@ -313,11 +312,12 @@ update_connection (SettingsPluginIfcfg *self,
 			              NM_IFCFG_CONNECTION_UNRECOGNIZED_SPEC, new_unrecognized,
 			              NULL);
 
-			if (!nm_settings_connection_replace_settings (NM_SETTINGS_CONNECTION (connection_by_uuid),
-			                                              NM_CONNECTION (connection_new),
-			                                              FALSE,  /* don't set Unsaved */
-			                                              "ifcfg-update",
-			                                              &local)) {
+			if (!nm_settings_connection_update (NM_SETTINGS_CONNECTION (connection_by_uuid),
+			                                    NM_CONNECTION (connection_new),
+			                                    NM_SETTINGS_CONNECTION_PERSIST_MODE_KEEP_SAVED,
+			                                    NM_SETTINGS_CONNECTION_COMMIT_REASON_NONE,
+			                                    "ifcfg-update",
+			                                    &local)) {
 				/* Shouldn't ever get here as 'connection_new' was verified by the reader already
 				 * and the UUID did not change. */
 				g_assert_not_reached ();
@@ -330,7 +330,7 @@ update_connection (SettingsPluginIfcfg *self,
 					/* Unexport the connection by telling the settings service it's
 					 * been removed.
 					 */
-					nm_settings_connection_signal_remove (NM_SETTINGS_CONNECTION (connection_by_uuid), TRUE);
+					nm_settings_connection_signal_remove (NM_SETTINGS_CONNECTION (connection_by_uuid));
 					/* Remove the path so that claim_connection() doesn't complain later when
 					 * interface gets managed and connection is re-added. */
 					nm_connection_set_path (NM_CONNECTION (connection_by_uuid), NULL);
@@ -515,7 +515,7 @@ read_connections (SettingsPluginIfcfg *plugin)
 		return;
 	}
 
-	alive_connections = g_hash_table_new (NULL, NULL);
+	alive_connections = g_hash_table_new (nm_direct_hash, NULL);
 
 	filenames = g_ptr_array_new_with_free_func (g_free);
 	while ((item = g_dir_read_name (dir))) {
@@ -767,15 +767,15 @@ static void
 _dbus_clear (SettingsPluginIfcfg *self)
 {
 	SettingsPluginIfcfgPrivate *priv = SETTINGS_PLUGIN_IFCFG_GET_PRIVATE (self);
+	guint id;
 
 	nm_clear_g_signal_handler (priv->dbus.connection, &priv->dbus.signal_id);
 
 	nm_clear_g_cancellable (&priv->dbus.cancellable);
 
-	if (priv->dbus.interface) {
-		g_dbus_interface_skeleton_unexport (priv->dbus.interface);
-		nm_exported_object_skeleton_release (priv->dbus.interface);
-		priv->dbus.interface = NULL;
+	if ((id = nm_steal_int (&priv->dbus.regist_id))) {
+		if (!g_dbus_connection_unregister_object (priv->dbus.connection, id))
+			_LOGW ("dbus: unexpected failure to unregister object");
 	}
 
 	g_clear_object (&priv->dbus.connection);
@@ -787,11 +787,54 @@ _dbus_connection_closed (GDBusConnection *connection,
                          GError          *error,
                          gpointer         user_data)
 {
-	_LOGW ("dbus: %s bus closed", IFCFGRH1_DBUS_SERVICE_NAME);
+	_LOGW ("dbus: %s bus closed", IFCFGRH1_BUS_NAME);
 	_dbus_clear (SETTINGS_PLUGIN_IFCFG (user_data));
 
 	/* Retry or recover? */
 }
+
+static void
+_method_call (GDBusConnection *connection,
+              const char *sender,
+              const char *object_path,
+              const char *interface_name,
+              const char *method_name,
+              GVariant *parameters,
+              GDBusMethodInvocation *invocation,
+              gpointer user_data)
+{
+	SettingsPluginIfcfg *self = SETTINGS_PLUGIN_IFCFG (user_data);
+	const char *ifcfg;
+
+	if (   !nm_streq (interface_name, IFCFGRH1_IFACE1_NAME)
+	    || !nm_streq (method_name, IFCFGRH1_IFACE1_METHOD_GET_IFCFG_DETAILS)) {
+		g_dbus_method_invocation_return_error (invocation,
+		                                       G_DBUS_ERROR,
+		                                       G_DBUS_ERROR_UNKNOWN_METHOD,
+		                                       "Unknown method %s",
+		                                       method_name);
+		return;
+	}
+
+	g_variant_get (parameters, "(&s)", &ifcfg);
+	impl_ifcfgrh_get_ifcfg_details (self, invocation, ifcfg);
+}
+
+static GDBusInterfaceInfo *const interface_info = NM_DEFINE_GDBUS_INTERFACE_INFO (
+	IFCFGRH1_BUS_NAME,
+	.methods = NM_DEFINE_GDBUS_METHOD_INFOS (
+		NM_DEFINE_GDBUS_METHOD_INFO (
+			IFCFGRH1_IFACE1_METHOD_GET_IFCFG_DETAILS,
+			.in_args = NM_DEFINE_GDBUS_ARG_INFOS (
+				NM_DEFINE_GDBUS_ARG_INFO ("ifcfg", "s"),
+			),
+			.out_args = NM_DEFINE_GDBUS_ARG_INFOS (
+				NM_DEFINE_GDBUS_ARG_INFO ("uuid", "s"),
+				NM_DEFINE_GDBUS_ARG_INFO ("path", "o"),
+			),
+		),
+	),
+);
 
 static void
 _dbus_request_name_done (GObject *source_object,
@@ -829,36 +872,27 @@ _dbus_request_name_done (GObject *source_object,
 	}
 
 	{
-		GType skeleton_type = NMDBUS_TYPE_IFCFGRH1_SKELETON;
-		gs_free char *method_name_get_ifcfg_details = NULL;
-		NMExportedObjectDBusMethodImpl methods[] = {
-			{
-				.method_name = (method_name_get_ifcfg_details = nm_exported_object_skeletonify_method_name ("GetIfcfgDetails")),
-				.impl = G_CALLBACK (impl_ifcfgrh_get_ifcfg_details),
-			},
+		static const GDBusInterfaceVTable interface_vtable = {
+			.method_call = _method_call,
 		};
 
-		priv->dbus.interface = nm_exported_object_skeleton_create (skeleton_type,
-		                                                           g_type_class_peek (SETTINGS_TYPE_PLUGIN_IFCFG),
-		                                                           methods,
-		                                                           G_N_ELEMENTS (methods),
-		                                                           (GObject *) self);
-
-		if (!g_dbus_interface_skeleton_export (priv->dbus.interface,
-		                                       priv->dbus.connection,
-		                                       IFCFGRH1_DBUS_OBJECT_PATH,
-		                                       &error)) {
-			nm_exported_object_skeleton_release (priv->dbus.interface);
-			priv->dbus.interface = NULL;
-			_LOGW ("dbus: failed exporting interface: %s", error->message);
+		priv->dbus.regist_id = g_dbus_connection_register_object (connection,
+		                                                          IFCFGRH1_OBJECT_PATH,
+		                                                          interface_info,
+		                                                          NM_UNCONST_PTR (GDBusInterfaceVTable, &interface_vtable),
+		                                                          self,
+		                                                          NULL,
+		                                                          &error);
+		if (!priv->dbus.regist_id) {
+			_LOGW ("dbus: couldn't register D-Bus service: %s", error->message);
 			_dbus_clear (self);
 			return;
 		}
 	}
 
 	_LOGD ("dbus: aquired D-Bus service %s and exported %s object",
-	       IFCFGRH1_DBUS_SERVICE_NAME,
-	       IFCFGRH1_DBUS_OBJECT_PATH);
+	       IFCFGRH1_BUS_NAME,
+	       IFCFGRH1_OBJECT_PATH);
 }
 
 static void
@@ -899,7 +933,7 @@ _dbus_create_done (GObject *source_object,
 	                        DBUS_INTERFACE_DBUS,
 	                        "RequestName",
 	                        g_variant_new ("(su)",
-	                                       IFCFGRH1_DBUS_SERVICE_NAME,
+	                                       IFCFGRH1_BUS_NAME,
 	                                       DBUS_NAME_FLAG_DO_NOT_QUEUE),
 	                        G_VARIANT_TYPE ("(u)"),
 	                        G_DBUS_CALL_FLAGS_NONE,
@@ -916,7 +950,7 @@ _dbus_setup (SettingsPluginIfcfg *self)
 	gs_free char *address = NULL;
 	gs_free_error GError *error = NULL;
 
-	g_return_if_fail (!priv->dbus.connection);
+	_dbus_clear (self);
 
 	address = g_dbus_address_get_for_bus_sync (G_BUS_TYPE_SYSTEM, NULL, &error);
 	if (address == NULL) {
@@ -942,17 +976,22 @@ config_changed_cb (NMConfig *config,
                    NMConfigData *old_data,
                    SettingsPluginIfcfg *self)
 {
+	SettingsPluginIfcfgPrivate *priv;
+
 	/* If the dbus connection for some reason is borked the D-Bus service
 	 * won't be offered.
 	 *
 	 * On SIGHUP and SIGUSR1 try to re-connect to D-Bus. So in the unlikely
 	 * event that the D-Bus conneciton is broken, that allows for recovery
 	 * without need for restarting NetworkManager. */
-	if (NM_FLAGS_ANY (changes,   NM_CONFIG_CHANGE_CAUSE_SIGHUP
-	                           | NM_CONFIG_CHANGE_CAUSE_SIGUSR1)) {
-		if (!SETTINGS_PLUGIN_IFCFG_GET_PRIVATE (self)->dbus.connection)
-			_dbus_setup (self);
-	}
+	if (!NM_FLAGS_ANY (changes,   NM_CONFIG_CHANGE_CAUSE_SIGHUP
+	                            | NM_CONFIG_CHANGE_CAUSE_SIGUSR1))
+		return;
+
+	priv = SETTINGS_PLUGIN_IFCFG_GET_PRIVATE (self);
+	if (   !priv->dbus.connection
+	    && !priv->dbus.cancellable)
+		_dbus_setup (self);
 }
 
 /*****************************************************************************/
@@ -1079,5 +1118,5 @@ settings_plugin_interface_init (NMSettingsPluginInterface *plugin_iface)
 G_MODULE_EXPORT GObject *
 nm_settings_plugin_factory (void)
 {
-	return g_object_ref (settings_plugin_ifcfg_get ());
+	return G_OBJECT (g_object_ref (settings_plugin_ifcfg_get ()));
 }

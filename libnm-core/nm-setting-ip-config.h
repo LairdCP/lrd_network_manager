@@ -32,6 +32,8 @@
 
 G_BEGIN_DECLS
 
+#define NM_IP_ADDRESS_ATTRIBUTE_LABEL        "label"
+
 typedef struct NMIPAddress NMIPAddress;
 
 GType        nm_ip_address_get_type            (void);
@@ -146,6 +148,7 @@ gboolean     nm_ip_route_attribute_validate  (const char *name,
 #define NM_IP_ROUTE_ATTRIBUTE_SRC            "src"
 #define NM_IP_ROUTE_ATTRIBUTE_FROM           "from"
 #define NM_IP_ROUTE_ATTRIBUTE_TOS            "tos"
+#define NM_IP_ROUTE_ATTRIBUTE_ONLINK         "onlink"
 #define NM_IP_ROUTE_ATTRIBUTE_WINDOW         "window"
 #define NM_IP_ROUTE_ATTRIBUTE_CWND           "cwnd"
 #define NM_IP_ROUTE_ATTRIBUTE_INITCWND       "initcwnd"

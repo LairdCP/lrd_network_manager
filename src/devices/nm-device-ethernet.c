@@ -28,7 +28,6 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <errno.h>
-
 #include <libudev.h>
 
 #include "nm-device-private.h"
@@ -51,8 +50,6 @@
 #include "nm-device-factory.h"
 #include "nm-core-internal.h"
 #include "NetworkManagerUtils.h"
-
-#include "introspection/org.freedesktop.NetworkManager.Device.Wired.h"
 
 #include "nm-device-logging.h"
 _LOG_DECLARE_SELF(NMDeviceEthernet);
@@ -104,7 +101,7 @@ typedef struct _NMDeviceEthernetPrivate {
 	char *              s390_nettype;
 	GHashTable *        s390_options;
 
-	NMActRequestGetSecretsCallId wired_secrets_id;
+	NMActRequestGetSecretsCallId *wired_secrets_id;
 
 	/* PPPoE */
 	NMPPPManager *ppp_manager;
@@ -416,7 +413,7 @@ supplicant_interface_release (NMDeviceEthernet *self)
 
 static void
 wired_secrets_cb (NMActRequest *req,
-                  NMActRequestGetSecretsCallId call_id,
+                  NMActRequestGetSecretsCallId *call_id,
                   NMSettingsConnection *connection,
                   GError *error,
                   gpointer user_data)
@@ -550,7 +547,7 @@ build_supplicant_config (NMDeviceEthernet *self,
 	mtu = nm_platform_link_get_mtu (nm_device_get_platform (NM_DEVICE (self)),
 	                                nm_device_get_ifindex (NM_DEVICE (self)));
 
-	config = nm_supplicant_config_new ();
+	config = nm_supplicant_config_new (FALSE, FALSE);
 
 	security = nm_connection_get_setting_802_1x (connection);
 	if (!nm_supplicant_config_add_setting_8021x (config, security, con_uuid, mtu, TRUE, error)) {
@@ -658,11 +655,8 @@ handle_auth_or_fail (NMDeviceEthernet *self,
                      NMActRequest *req,
                      gboolean new_secrets)
 {
-	NMDeviceEthernetPrivate *priv;
 	const char *setting_name;
 	NMConnection *applied_connection;
-
-	priv = NM_DEVICE_ETHERNET_GET_PRIVATE (self);
 
 	if (!nm_device_auth_retries_try_next (NM_DEVICE (self)))
 		return NM_ACT_STAGE_RETURN_FAILURE;
@@ -956,8 +950,22 @@ ppp_state_changed (NMPPPManager *ppp_manager, NMPPPStatus status, gpointer user_
 }
 
 static void
+ppp_ifindex_set (NMPPPManager *ppp_manager,
+                 int ifindex,
+                 const char *iface,
+                 gpointer user_data)
+{
+	NMDevice *device = NM_DEVICE (user_data);
+
+	if (!nm_device_set_ip_ifindex (device, ifindex)) {
+		nm_device_state_changed (device,
+		                         NM_DEVICE_STATE_FAILED,
+		                         NM_DEVICE_STATE_REASON_IP_CONFIG_UNAVAILABLE);
+	}
+}
+
+static void
 ppp_ip4_config (NMPPPManager *ppp_manager,
-                const char *iface,
                 NMIP4Config *config,
                 gpointer user_data)
 {
@@ -965,7 +973,6 @@ ppp_ip4_config (NMPPPManager *ppp_manager,
 
 	/* Ignore PPP IP4 events that come in after initial configuration */
 	if (nm_device_activate_ip4_state_in_conf (device)) {
-		nm_device_set_ip_iface (device, iface);
 		nm_device_activate_schedule_ip4_config_result (device, config);
 	}
 }
@@ -1011,6 +1018,9 @@ pppoe_stage3_ip4_config_start (NMDeviceEthernet *self, NMDeviceStateReason *out_
 
 	g_signal_connect (priv->ppp_manager, NM_PPP_MANAGER_SIGNAL_STATE_CHANGED,
 	                  G_CALLBACK (ppp_state_changed),
+	                  self);
+	g_signal_connect (priv->ppp_manager, NM_PPP_MANAGER_SIGNAL_IFINDEX_SET,
+	                  G_CALLBACK (ppp_ifindex_set),
 	                  self);
 	g_signal_connect (priv->ppp_manager, NM_PPP_MANAGER_SIGNAL_IP4_CONFIG,
 	                  G_CALLBACK (ppp_ip4_config),
@@ -1701,10 +1711,28 @@ set_property (GObject *object, guint prop_id,
 	}
 }
 
+static const NMDBusInterfaceInfoExtended interface_info_device_wired = {
+	.parent = NM_DEFINE_GDBUS_INTERFACE_INFO_INIT (
+		NM_DBUS_INTERFACE_DEVICE_WIRED,
+		.signals = NM_DEFINE_GDBUS_SIGNAL_INFOS (
+			&nm_signal_info_property_changed_legacy,
+		),
+		.properties = NM_DEFINE_GDBUS_PROPERTY_INFOS (
+			NM_DEFINE_DBUS_PROPERTY_INFO_EXTENDED_READABLE_L ("HwAddress",       "s",  NM_DEVICE_HW_ADDRESS),
+			NM_DEFINE_DBUS_PROPERTY_INFO_EXTENDED_READABLE_L ("PermHwAddress",   "s",  NM_DEVICE_PERM_HW_ADDRESS),
+			NM_DEFINE_DBUS_PROPERTY_INFO_EXTENDED_READABLE_L ("Speed",           "u",  NM_DEVICE_ETHERNET_SPEED),
+			NM_DEFINE_DBUS_PROPERTY_INFO_EXTENDED_READABLE_L ("S390Subchannels", "as", NM_DEVICE_ETHERNET_S390_SUBCHANNELS),
+			NM_DEFINE_DBUS_PROPERTY_INFO_EXTENDED_READABLE_L ("Carrier",         "b",  NM_DEVICE_CARRIER),
+		),
+	),
+	.legacy_property_changed = TRUE,
+};
+
 static void
 nm_device_ethernet_class_init (NMDeviceEthernetClass *klass)
 {
 	GObjectClass *object_class = G_OBJECT_CLASS (klass);
+	NMDBusObjectClass *dbus_object_class = NM_DBUS_OBJECT_CLASS (klass);
 	NMDeviceClass *parent_class = NM_DEVICE_CLASS (klass);
 
 	g_type_class_add_private (object_class, sizeof (NMDeviceEthernetPrivate));
@@ -1715,6 +1743,8 @@ nm_device_ethernet_class_init (NMDeviceEthernetClass *klass)
 	object_class->finalize = finalize;
 	object_class->get_property = get_property;
 	object_class->set_property = set_property;
+
+	dbus_object_class->interface_infos = NM_DBUS_INTERFACE_INFOS (&interface_info_device_wired);
 
 	parent_class->get_generic_capabilities = get_generic_capabilities;
 	parent_class->check_connection_compatible = check_connection_compatible;
@@ -1749,10 +1779,6 @@ nm_device_ethernet_class_init (NMDeviceEthernetClass *klass)
 	                        G_PARAM_STATIC_STRINGS);
 
 	g_object_class_install_properties (object_class, _PROPERTY_ENUMS_LAST, obj_properties);
-
-	nm_exported_object_class_add_interface (NM_EXPORTED_OBJECT_CLASS (klass),
-	                                        NMDBUS_TYPE_DEVICE_ETHERNET_SKELETON,
-	                                        NULL);
 }
 
 /*****************************************************************************/

@@ -35,6 +35,12 @@
 #define _nm_alignof(type)    __alignof (type)
 #define _nm_alignas(type)    _nm_align (_nm_alignof (type))
 
+#if __GNUC__ >= 7
+#define _nm_fallthrough      __attribute__ ((fallthrough))
+#else
+#define _nm_fallthrough
+#endif
+
 /*****************************************************************************/
 
 #ifdef thread_local
@@ -68,6 +74,30 @@ static inline int nm_close (int fd);
  */
 #define nm_auto_free nm_auto(_nm_auto_free_impl)
 GS_DEFINE_CLEANUP_FUNCTION(void*, _nm_auto_free_impl, free)
+
+static inline void
+nm_free_secret (char *secret)
+{
+	if (secret) {
+		memset (secret, 0, strlen (secret));
+		g_free (secret);
+	}
+}
+
+static inline void
+_nm_auto_free_secret_impl (char **v)
+{
+	nm_free_secret (*v);
+}
+
+/**
+ * nm_auto_free_secret:
+ *
+ * Call g_free() on a variable location when it goes out of scope.
+ * Also, previously, calls memset(loc, 0, strlen(loc)) to clear out
+ * the secret.
+ */
+#define nm_auto_free_secret nm_auto(_nm_auto_free_secret_impl)
 
 static inline void
 _nm_auto_unset_gvalue_impl (GValue *v)
@@ -190,6 +220,7 @@ _nm_auto_protect_errno (int *p_saved_errno)
 #elif defined (__clang__)
 #define NM_PRAGMA_WARNING_DISABLE(warning) \
         _Pragma("clang diagnostic push") \
+        _Pragma(_NM_PRAGMA_WARNING_DO("-Wunknown-warning-option")) \
         _Pragma(_NM_PRAGMA_WARNING_DO(warning))
 #else
 #define NM_PRAGMA_WARNING_DISABLE(warning)
@@ -263,32 +294,138 @@ NM_G_ERROR_MSG (GError *error)
 
 /*****************************************************************************/
 
-#if (defined (__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 3 && __GNUC_MINOR__ >= 9 ))) || (defined (__clang__))
+#ifndef _NM_CC_SUPPORT_AUTO_TYPE
+#if (defined (__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 9 )))
+#define _NM_CC_SUPPORT_AUTO_TYPE 1
+#else
+#define _NM_CC_SUPPORT_AUTO_TYPE 0
+#endif
+#endif
+
+#ifndef _NM_CC_SUPPORT_GENERIC
+#if (defined (__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 9 ))) || (defined (__clang__))
 #define _NM_CC_SUPPORT_GENERIC 1
 #else
 #define _NM_CC_SUPPORT_GENERIC 0
 #endif
+#endif
+
+#if _NM_CC_SUPPORT_AUTO_TYPE
+#define _nm_auto_type __auto_type
+#endif
 
 #if _NM_CC_SUPPORT_GENERIC
-#define _NM_CONSTCAST(type, obj) \
-	(_Generic ((obj), \
-	           void *           : ((type *) (obj)), \
-	           void *const      : ((type *) (obj)), \
-	           const void *     : ((const type *) (obj)), \
-	           const void *const: ((const type *) (obj)), \
-	           const type *     : (obj), \
-	           const type *const: (obj), \
-	           type *           : (obj), \
-	           type *const      : (obj)))
+#define _NM_CONSTCAST_FULL_1(type, obj_expr, obj) \
+	(_Generic ((obj_expr), \
+	           const void        *const: ((const type *) (obj)), \
+	           const void        *     : ((const type *) (obj)), \
+	                 void        *const: ((      type *) (obj)), \
+	                 void        *     : ((      type *) (obj)), \
+	           const type        *const: ((const type *) (obj)), \
+	           const type        *     : ((const type *) (obj)), \
+	                 type        *const: ((      type *) (obj)), \
+	                 type        *     : ((      type *) (obj))))
+#define _NM_CONSTCAST_FULL_2(type, obj_expr, obj, alias_type2) \
+	(_Generic ((obj_expr), \
+	           const void        *const: ((const type *) (obj)), \
+	           const void        *     : ((const type *) (obj)), \
+	                 void        *const: ((      type *) (obj)), \
+	                 void        *     : ((      type *) (obj)), \
+	           const alias_type2 *const: ((const type *) (obj)), \
+	           const alias_type2 *     : ((const type *) (obj)), \
+	                 alias_type2 *const: ((      type *) (obj)), \
+	                 alias_type2 *     : ((      type *) (obj)), \
+	           const type        *const: ((const type *) (obj)), \
+	           const type        *     : ((const type *) (obj)), \
+	                 type        *const: ((      type *) (obj)), \
+	                 type        *     : ((      type *) (obj))))
+#define _NM_CONSTCAST_FULL_3(type, obj_expr, obj, alias_type2, alias_type3) \
+	(_Generic ((obj_expr), \
+	           const void        *const: ((const type *) (obj)), \
+	           const void        *     : ((const type *) (obj)), \
+	                 void        *const: ((      type *) (obj)), \
+	                 void        *     : ((      type *) (obj)), \
+	           const alias_type2 *const: ((const type *) (obj)), \
+	           const alias_type2 *     : ((const type *) (obj)), \
+	                 alias_type2 *const: ((      type *) (obj)), \
+	                 alias_type2 *     : ((      type *) (obj)), \
+	           const alias_type3 *const: ((const type *) (obj)), \
+	           const alias_type3 *     : ((const type *) (obj)), \
+	                 alias_type3 *const: ((      type *) (obj)), \
+	                 alias_type3 *     : ((      type *) (obj)), \
+	           const type        *const: ((const type *) (obj)), \
+	           const type        *     : ((const type *) (obj)), \
+	                 type        *const: ((      type *) (obj)), \
+	                 type        *     : ((      type *) (obj))))
+#define _NM_CONSTCAST_FULL_4(type, obj_expr, obj, alias_type2, alias_type3, alias_type4) \
+	(_Generic ((obj_expr), \
+	           const void        *const: ((const type *) (obj)), \
+	           const void        *     : ((const type *) (obj)), \
+	                 void        *const: ((      type *) (obj)), \
+	                 void        *     : ((      type *) (obj)), \
+	           const alias_type2 *const: ((const type *) (obj)), \
+	           const alias_type2 *     : ((const type *) (obj)), \
+	                 alias_type2 *const: ((      type *) (obj)), \
+	                 alias_type2 *     : ((      type *) (obj)), \
+	           const alias_type3 *const: ((const type *) (obj)), \
+	           const alias_type3 *     : ((const type *) (obj)), \
+	                 alias_type3 *const: ((      type *) (obj)), \
+	                 alias_type3 *     : ((      type *) (obj)), \
+	           const alias_type4 *const: ((const type *) (obj)), \
+	           const alias_type4 *     : ((const type *) (obj)), \
+	                 alias_type4 *const: ((      type *) (obj)), \
+	                 alias_type4 *     : ((      type *) (obj)), \
+	           const type        *const: ((const type *) (obj)), \
+	           const type        *     : ((const type *) (obj)), \
+	                 type        *const: ((      type *) (obj)), \
+	                 type        *     : ((      type *) (obj))))
+#define _NM_CONSTCAST_FULL_x(type, obj_expr, obj, n, ...)   (_NM_CONSTCAST_FULL_##n (type, obj_expr, obj,                        ##__VA_ARGS__))
+#define _NM_CONSTCAST_FULL_y(type, obj_expr, obj, n, ...)   (_NM_CONSTCAST_FULL_x   (type, obj_expr, obj, n,                     ##__VA_ARGS__))
+#define NM_CONSTCAST_FULL(   type, obj_expr, obj,    ...)   (_NM_CONSTCAST_FULL_y   (type, obj_expr, obj, NM_NARG (dummy, ##__VA_ARGS__), ##__VA_ARGS__))
 #else
-/* _NM_CONSTCAST() is there to preserve constness of a pointer.
- * It uses C11's _Generic(). If that is not supported, we fall back
- * to casting away constness. So, with _Generic, we get some additional
- * static type checking by preserving constness, without, we cast it
- * to a non-const pointer. */
-#define _NM_CONSTCAST(type, obj) \
-	((type *) (obj))
+#define NM_CONSTCAST_FULL(   type, obj_expr, obj,    ...)   ((type *) (obj))
 #endif
+
+#define NM_CONSTCAST(type, obj, ...) \
+	NM_CONSTCAST_FULL(type, (obj), (obj), ##__VA_ARGS__)
+
+#if _NM_CC_SUPPORT_GENERIC
+#define NM_UNCONST_PTR(type, arg) \
+	_Generic ((arg), \
+	          const type *: ((type *) (arg)), \
+	                type *: ((type *) (arg)))
+#else
+#define NM_UNCONST_PTR(type, arg) \
+	((type *) (arg))
+#endif
+
+#if _NM_CC_SUPPORT_GENERIC
+#define NM_UNCONST_PPTR(type, arg) \
+	_Generic ((arg), \
+	          const type *     *: ((type **) (arg)), \
+	                type *     *: ((type **) (arg)), \
+	          const type *const*: ((type **) (arg)), \
+	                type *const*: ((type **) (arg)))
+#else
+#define NM_UNCONST_PPTR(type, arg) \
+	((type **) (arg))
+#endif
+
+#define NM_GOBJECT_CAST(type, obj, is_check, ...) \
+	({ \
+		const void *_obj = (obj); \
+		\
+		nm_assert (_obj || (is_check (_obj))); \
+		NM_CONSTCAST_FULL (type, (obj), _obj, GObject, ##__VA_ARGS__); \
+	})
+
+#define NM_GOBJECT_CAST_NON_NULL(type, obj, is_check, ...) \
+	({ \
+		const void *_obj = (obj); \
+		\
+		nm_assert (is_check (_obj)); \
+		NM_CONSTCAST_FULL (type, (obj), _obj, GObject, ##__VA_ARGS__); \
+	})
 
 #if _NM_CC_SUPPORT_GENERIC
 /* returns @value, if the type of @value matches @type.
@@ -300,6 +437,16 @@ NM_G_ERROR_MSG (GError *error)
 #define _NM_ENSURE_TYPE(type, value) (_Generic ((value), type: (value)))
 #else
 #define _NM_ENSURE_TYPE(type, value) (value)
+#endif
+
+#if _NM_CC_SUPPORT_GENERIC
+#define NM_PROPAGATE_CONST(test_expr, ptr) \
+	(_Generic ((test_expr), \
+	           const typeof (*(test_expr)) *: ((const typeof (*(ptr)) *) (ptr)), \
+	                                 default: (_Generic ((test_expr), \
+	                                                     typeof (*(test_expr)) *: (ptr)))))
+#else
+#define NM_PROPAGATE_CONST(test_expr, ptr) (ptr)
 #endif
 
 /*****************************************************************************/
@@ -459,7 +606,7 @@ _NM_IN_STRSET_streq (const char *x, const char *s)
 
 /* NM_CACHED_QUARK_FCN() is essentially the same as G_DEFINE_QUARK
  * with two differences:
- * - @string must be a quited string-literal
+ * - @string must be a quoted string-literal
  * - @fcn must be the full function name, while G_DEFINE_QUARK() appends
  *   "_quark" to the function name.
  * Both properties of G_DEFINE_QUARK() are non favorable, because you can no
@@ -581,39 +728,17 @@ _notify (obj_type *obj, _PropertyEnums prop) \
 
 /*****************************************************************************/
 
-/* these are implemented as a macro, because they accept self
- * as both (type*) and (const type*), and return a const
- * private pointer accordingly. */
-#define __NM_GET_PRIVATE(self, type, is_check, addrop) \
+#define _NM_GET_PRIVATE(self, type, is_check, ...) (&(NM_GOBJECT_CAST_NON_NULL (type, (self), is_check, ##__VA_ARGS__)->_priv))
+#if _NM_CC_SUPPORT_AUTO_TYPE
+#define _NM_GET_PRIVATE_PTR(self, type, is_check, ...) \
 	({ \
-		/* preserve the const-ness of self. Unfortunately, that
-		 * way, @self cannot be a void pointer */ \
-		typeof (self) _self = (self); \
+		_nm_auto_type _self = NM_GOBJECT_CAST_NON_NULL (type, (self), is_check, ##__VA_ARGS__); \
 		\
-		/* Get compiler error if variable is of wrong type */ \
-		_nm_unused const type *const _self2 = (_self); \
-		\
-		nm_assert (is_check (_self)); \
-		( addrop ( _NM_CONSTCAST (type, _self)->_priv) ); \
+		NM_PROPAGATE_CONST (_self, _self->_priv); \
 	})
-
-#define _NM_GET_PRIVATE(self, type, is_check)     __NM_GET_PRIVATE(self, type, is_check, &)
-#define _NM_GET_PRIVATE_PTR(self, type, is_check) __NM_GET_PRIVATE(self, type, is_check,  )
-
-#define __NM_GET_PRIVATE_VOID(self, type, is_check, result_cmd) \
-	({ \
-		/* (self) can be any non-const pointer. It will be cast to "type *".
-		 * We don't explicitly cast but assign first to (void *) which
-		 * will fail if @self is pointing to const. */ \
-		void *const _self1 = (self); \
-		type *const _self = _self1; \
-		\
-		nm_assert (is_check (_self)); \
-		( result_cmd ); \
-	})
-
-#define _NM_GET_PRIVATE_VOID(self, type, is_check)     __NM_GET_PRIVATE_VOID(self, type, is_check, &_self->_priv)
-#define _NM_GET_PRIVATE_PTR_VOID(self, type, is_check) __NM_GET_PRIVATE_VOID(self, type, is_check,  _self->_priv)
+#else
+#define _NM_GET_PRIVATE_PTR(self, type, is_check, ...) (NM_GOBJECT_CAST_NON_NULL (type, (self), is_check, ##__VA_ARGS__)->_priv)
+#endif
 
 /*****************************************************************************/
 
@@ -625,6 +750,7 @@ nm_g_object_ref (gpointer obj)
 		g_object_ref (obj);
 	return obj;
 }
+#define nm_g_object_ref(obj) ((typeof (obj)) nm_g_object_ref (obj))
 
 static inline void
 nm_g_object_unref (gpointer obj)
@@ -946,6 +1072,25 @@ nm_cmp_uint32_p_with_data (gconstpointer p_a, gconstpointer p_b, gpointer user_d
 	return 0;
 }
 
+static inline int
+nm_cmp_int2ptr_p_with_data (gconstpointer p_a, gconstpointer p_b, gpointer user_data)
+{
+	/* p_a and p_b are two pointers to a pointer, where the pointer is
+	 * interpreted as a integer using GPOINTER_TO_INT().
+	 *
+	 * That is the case of a hash-table that uses GINT_TO_POINTER() to
+	 * convert integers as pointers, and the resulting keys-as-array
+	 * array. */
+	const int a = GPOINTER_TO_INT (*((gconstpointer *) p_a));
+	const int b = GPOINTER_TO_INT (*((gconstpointer *) p_b));
+
+	if (a < b)
+		return -1;
+	if (a > b)
+		return 1;
+	return 0;
+}
+
 /*****************************************************************************/
 
 /* Taken from systemd's UNIQ_T and UNIQ macros. */
@@ -1076,6 +1221,28 @@ nm_decode_version (guint version, guint *major, guint *minor, guint *micro)
 		_buf; \
 	})
 
+/* aims to alloca() a buffer and fill it with printf(format, name).
+ * Note that format must not contain any format specifier except
+ * "%s".
+ * If the resulting string would be too large for stack allocation,
+ * it allocates a buffer with g_malloc() and assigns it to *p_val_to_free. */
+#define nm_construct_name_a(format, name, p_val_to_free) \
+	({ \
+		const char *const _name = (name); \
+		char **const _p_val_to_free = (p_val_to_free); \
+		const gsize _name_len = strlen (_name); \
+		char *_buf2; \
+		\
+		nm_assert (_p_val_to_free && !*_p_val_to_free); \
+		if (NM_STRLEN (format) + _name_len < 200) \
+			_buf2 = nm_sprintf_bufa (NM_STRLEN (format) + _name_len, format, _name); \
+		else { \
+			_buf2 = g_strdup_printf (format, _name); \
+			*_p_val_to_free = _buf2; \
+		} \
+		(const char *) _buf2; \
+	})
+
 /*****************************************************************************/
 
 /**
@@ -1151,6 +1318,25 @@ nm_decode_version (guint version, guint *major, guint *minor, guint *micro)
 
 /*****************************************************************************/
 
+/**
+ * nm_steal_int:
+ * @p_val: pointer to an int type.
+ *
+ * Returns: *p_val and sets *p_val to zero the same time.
+ *   Accepts %NULL, in which case also numeric 0 will be returned.
+ */
+#define nm_steal_int(p_val) \
+	({ \
+		typeof (p_val) const _p_val = (p_val); \
+		typeof (*_p_val) _val = 0; \
+		\
+		if (   _p_val \
+		    && (_val = *_p_val)) { \
+			*_p_val = 0; \
+		} \
+		_val; \
+	})
+
 static inline int
 nm_steal_fd (int *p_fd)
 {
@@ -1174,12 +1360,11 @@ nm_steal_fd (int *p_fd)
 static inline int
 nm_close (int fd)
 {
-	if (fd >= 0) {
-		if (close (fd) == 0)
-			return 0;
-		nm_assert (errno != EBADF);
-	}
-	return -1;
+	int r;
+
+	r = close (fd);
+	nm_assert (r != -1 || fd < 0 || errno != EBADF);
+	return r;
 }
 
 #endif /* __NM_MACROS_INTERNAL_H__ */

@@ -28,10 +28,8 @@
 #include "nm-setting-ovs-port.h"
 #include "nm-setting-ovs-port.h"
 
-#include "introspection/org.freedesktop.NetworkManager.Device.OvsPort.h"
-
 #include "devices/nm-device-logging.h"
-_LOG_DECLARE_SELF(NMDeviceOvsPort);
+_LOG_DECLARE_SELF (NMDeviceOvsPort);
 
 /*****************************************************************************/
 
@@ -114,12 +112,13 @@ add_iface_cb (GError *error, gpointer user_data)
 {
 	NMDevice *slave = user_data;
 
-	if (error) {
-	        nm_log_warn (LOGD_DEVICE, "device %s could not be added to a ovs port: %s",
+	if (   error
+	    && !g_error_matches (error, NM_UTILS_ERROR, NM_UTILS_ERROR_CANCELLED_DISPOSING)) {
+		nm_log_warn (LOGD_DEVICE, "device %s could not be added to a ovs port: %s",
 		             nm_device_get_iface (slave), error->message);
-	        nm_device_state_changed (slave,
-	                                 NM_DEVICE_STATE_FAILED,
-	                                 NM_DEVICE_STATE_REASON_OVSDB_FAILED);
+		nm_device_state_changed (slave,
+		                         NM_DEVICE_STATE_FAILED,
+		                         NM_DEVICE_STATE_REASON_OVSDB_FAILED);
 	}
 
 	g_object_unref (slave);
@@ -128,23 +127,22 @@ add_iface_cb (GError *error, gpointer user_data)
 static gboolean
 enslave_slave (NMDevice *device, NMDevice *slave, NMConnection *connection, gboolean configure)
 {
-        NMActiveConnection *ac_port = NULL;
-        NMActiveConnection *ac_bridge = NULL;
+	NMActiveConnection *ac_port = NULL;
+	NMActiveConnection *ac_bridge = NULL;
 
 	if (!configure)
 		return TRUE;
 
+	ac_port = NM_ACTIVE_CONNECTION (nm_device_get_act_request (device));
+	ac_bridge = nm_active_connection_get_master (ac_port);
+	if (!ac_bridge)
+		ac_bridge = ac_port;
 
-        ac_port = NM_ACTIVE_CONNECTION (nm_device_get_act_request (device));
-        ac_bridge = nm_active_connection_get_master (ac_port);
-        if (!ac_bridge)
-                ac_bridge = ac_port;
-
-        nm_ovsdb_add_interface (nm_ovsdb_get (),
-                                nm_active_connection_get_applied_connection (ac_bridge),
-                                nm_device_get_applied_connection (device),
-                                nm_device_get_applied_connection (slave),
-                                add_iface_cb, g_object_ref (slave));
+	nm_ovsdb_add_interface (nm_ovsdb_get (),
+	                        nm_active_connection_get_applied_connection (ac_bridge),
+	                        nm_device_get_applied_connection (device),
+	                        nm_device_get_applied_connection (slave),
+	                        add_iface_cb, g_object_ref (slave));
 
 	return TRUE;
 }
@@ -154,12 +152,13 @@ del_iface_cb (GError *error, gpointer user_data)
 {
 	NMDevice *slave = user_data;
 
-	if (error) {
-	        nm_log_warn (LOGD_DEVICE, "device %s could not be removed from a ovs port: %s",
+	if (   error
+	    && !g_error_matches (error, NM_UTILS_ERROR, NM_UTILS_ERROR_CANCELLED_DISPOSING)) {
+		nm_log_warn (LOGD_DEVICE, "device %s could not be removed from a ovs port: %s",
 		             nm_device_get_iface (slave), error->message);
-	        nm_device_state_changed (slave,
-	                                 NM_DEVICE_STATE_FAILED,
-	                                 NM_DEVICE_STATE_REASON_OVSDB_FAILED);
+		nm_device_state_changed (slave,
+		                         NM_DEVICE_STATE_FAILED,
+		                         NM_DEVICE_STATE_REASON_OVSDB_FAILED);
 	}
 
 	g_object_unref (slave);
@@ -169,7 +168,7 @@ static void
 release_slave (NMDevice *device, NMDevice *slave, gboolean configure)
 {
 	nm_ovsdb_del_interface (nm_ovsdb_get (), nm_device_get_iface (slave),
-				del_iface_cb, g_object_ref (slave));
+	                        del_iface_cb, g_object_ref (slave));
 }
 
 /*****************************************************************************/
@@ -179,10 +178,23 @@ nm_device_ovs_port_init (NMDeviceOvsPort *self)
 {
 }
 
+static const NMDBusInterfaceInfoExtended interface_info_device_ovs_port = {
+	.parent = NM_DEFINE_GDBUS_INTERFACE_INFO_INIT (
+		NM_DBUS_INTERFACE_DEVICE_OVS_PORT,
+		.signals = NM_DEFINE_GDBUS_SIGNAL_INFOS (
+			&nm_signal_info_property_changed_legacy,
+		),
+	),
+	.legacy_property_changed = TRUE,
+};
+
 static void
 nm_device_ovs_port_class_init (NMDeviceOvsPortClass *klass)
 {
+	NMDBusObjectClass *dbus_object_class = NM_DBUS_OBJECT_CLASS (klass);
 	NMDeviceClass *device_class = NM_DEVICE_CLASS (klass);
+
+	dbus_object_class->interface_infos = NM_DBUS_INTERFACE_INFOS (&interface_info_device_ovs_port);
 
 	device_class->connection_type = NM_SETTING_OVS_PORT_SETTING_NAME;
 	device_class->is_master = TRUE;
@@ -194,8 +206,4 @@ nm_device_ovs_port_class_init (NMDeviceOvsPortClass *klass)
 	device_class->act_stage3_ip6_config_start = act_stage3_ip6_config_start;
 	device_class->enslave_slave = enslave_slave;
 	device_class->release_slave = release_slave;
-
-	nm_exported_object_class_add_interface (NM_EXPORTED_OBJECT_CLASS (klass),
-	                                        NMDBUS_TYPE_DEVICE_OVS_PORT_SKELETON,
-	                                        NULL);
 }

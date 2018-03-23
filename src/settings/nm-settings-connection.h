@@ -24,7 +24,7 @@
 
 #include <net/ethernet.h>
 
-#include "nm-exported-object.h"
+#include "nm-dbus-object.h"
 #include "nm-connection.h"
 
 #define NM_TYPE_SETTINGS_CONNECTION            (nm_settings_connection_get_type ())
@@ -34,18 +34,15 @@
 #define NM_IS_SETTINGS_CONNECTION_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE ((klass), NM_TYPE_SETTINGS_CONNECTION))
 #define NM_SETTINGS_CONNECTION_GET_CLASS(obj)  (G_TYPE_INSTANCE_GET_CLASS ((obj), NM_TYPE_SETTINGS_CONNECTION, NMSettingsConnectionClass))
 
-/* Signals */
-#define NM_SETTINGS_CONNECTION_UPDATED "updated"
 #define NM_SETTINGS_CONNECTION_REMOVED "removed"
 #define NM_SETTINGS_CONNECTION_GET_SECRETS "get-secrets"
 #define NM_SETTINGS_CONNECTION_CANCEL_SECRETS "cancel-secrets"
-
-/* Internal signals */
 #define NM_SETTINGS_CONNECTION_UPDATED_INTERNAL "updated-internal"
 
 /* Properties */
-#define NM_SETTINGS_CONNECTION_VISIBLE  "visible"
 #define NM_SETTINGS_CONNECTION_UNSAVED  "unsaved"
+
+/* Internal properties */
 #define NM_SETTINGS_CONNECTION_READY    "ready"
 #define NM_SETTINGS_CONNECTION_FLAGS    "flags"
 #define NM_SETTINGS_CONNECTION_FILENAME "filename"
@@ -61,22 +58,25 @@
  * @NM_SETTINGS_CONNECTION_FLAGS_VOLATILE: The connection will be deleted
  *  when it disconnects. That is for in-memory connections (unsaved), which are
  *  currently active but cleanup on disconnect.
+ * @NM_SETTINGS_CONNECTION_FLAGS_VISIBLE: The connection is visible
  * @NM_SETTINGS_CONNECTION_FLAGS_ALL: special mask, for all known flags
  *
  * #NMSettingsConnection flags.
  **/
-typedef enum
-{
-	NM_SETTINGS_CONNECTION_FLAGS_NONE                               = 0x00,
-	NM_SETTINGS_CONNECTION_FLAGS_UNSAVED                            = 0x01,
-	NM_SETTINGS_CONNECTION_FLAGS_NM_GENERATED                       = 0x02,
-	NM_SETTINGS_CONNECTION_FLAGS_VOLATILE                           = 0x04,
+typedef enum {
+	NM_SETTINGS_CONNECTION_FLAGS_NONE                               = 0,
+
+	NM_SETTINGS_CONNECTION_FLAGS_UNSAVED                            = (1LL <<  0),
+	NM_SETTINGS_CONNECTION_FLAGS_NM_GENERATED                       = (1LL <<  1),
+	NM_SETTINGS_CONNECTION_FLAGS_VOLATILE                           = (1LL <<  2),
+
+	NM_SETTINGS_CONNECTION_FLAGS_VISIBLE                            = (1LL <<  3),
 
 	__NM_SETTINGS_CONNECTION_FLAGS_LAST,
 	NM_SETTINGS_CONNECTION_FLAGS_ALL = ((__NM_SETTINGS_CONNECTION_FLAGS_LAST - 1) << 1) - 1,
 } NMSettingsConnectionFlags;
 
-typedef enum { /*< skip >*/
+typedef enum {
 	NM_SETTINGS_CONNECTION_COMMIT_REASON_NONE                       = 0,
 	NM_SETTINGS_CONNECTION_COMMIT_REASON_USER_ACTION                = (1LL << 0),
 	NM_SETTINGS_CONNECTION_COMMIT_REASON_ID_CHANGED                 = (1LL << 1),
@@ -84,25 +84,30 @@ typedef enum { /*< skip >*/
 
 typedef enum {
 	NM_SETTINGS_AUTO_CONNECT_BLOCKED_REASON_NONE                    = 0,
-	NM_SETTINGS_AUTO_CONNECT_BLOCKED_REASON_USER_REQUEST            = 1,
-	NM_SETTINGS_AUTO_CONNECT_BLOCKED_REASON_FAILED                  = 2,
-	NM_SETTINGS_AUTO_CONNECT_BLOCKED_REASON_NO_SECRETS              = 3,
+
+	NM_SETTINGS_AUTO_CONNECT_BLOCKED_REASON_USER_REQUEST            = (1LL << 0),
+	NM_SETTINGS_AUTO_CONNECT_BLOCKED_REASON_FAILED                  = (1LL << 1),
+	NM_SETTINGS_AUTO_CONNECT_BLOCKED_REASON_NO_SECRETS              = (1LL << 2),
+
+	NM_SETTINGS_AUTO_CONNECT_BLOCKED_REASON_ALL                     = (  NM_SETTINGS_AUTO_CONNECT_BLOCKED_REASON_USER_REQUEST
+	                                                                   | NM_SETTINGS_AUTO_CONNECT_BLOCKED_REASON_FAILED
+	                                                                   | NM_SETTINGS_AUTO_CONNECT_BLOCKED_REASON_NO_SECRETS),
 } NMSettingsAutoconnectBlockedReason;
 
 struct _NMSettingsConnectionCallId;
-typedef struct _NMSettingsConnectionCallId *NMSettingsConnectionCallId;
+typedef struct _NMSettingsConnectionCallId NMSettingsConnectionCallId;
 
 typedef struct _NMSettingsConnectionClass NMSettingsConnectionClass;
 
 struct _NMSettingsConnectionPrivate;
 
 struct _NMSettingsConnection {
-	NMExportedObject parent;
+	NMDBusObject parent;
 	struct _NMSettingsConnectionPrivate *_priv;
 };
 
 struct _NMSettingsConnectionClass {
-	NMExportedObjectClass parent;
+	NMDBusObjectClass parent;
 
 	gboolean (*commit_changes) (NMSettingsConnection *self,
 	                            NMConnection *new_connection,
@@ -120,37 +125,42 @@ struct _NMSettingsConnectionClass {
 
 GType nm_settings_connection_get_type (void);
 
+guint64 nm_settings_connection_get_last_secret_agent_version_id (NMSettingsConnection *self);
+
 gboolean nm_settings_connection_has_unmodified_applied_connection (NMSettingsConnection *self,
                                                                    NMConnection *applied_connection,
                                                                    NMSettingCompareFlags compare_flage);
 
-gboolean  nm_settings_connection_commit_changes (NMSettingsConnection *self,
-                                                 NMConnection *new_connection,
-                                                 NMSettingsConnectionCommitReason commit_reason,
-                                                 GError **error);
+typedef enum {
+	NM_SETTINGS_CONNECTION_PERSIST_MODE_KEEP,
 
-gboolean nm_settings_connection_replace_settings_prepare (NMSettingsConnection *self,
-                                                          NMConnection *new_connection,
-                                                          GError **error);
+	/* like KEEP, but always clears the UNSAVED flag */
+	NM_SETTINGS_CONNECTION_PERSIST_MODE_KEEP_SAVED,
+	NM_SETTINGS_CONNECTION_PERSIST_MODE_DISK,
 
-gboolean nm_settings_connection_replace_settings (NMSettingsConnection *self,
-                                                  NMConnection *new_connection,
-                                                  gboolean update_unsaved,
-                                                  const char *log_diff_name,
-                                                  GError **error);
+	/* unsaved, only sets the unsaved flag, but it doesn't touch
+	 * the NM_GENERATED nor VOLATILE flag. */
+	NM_SETTINGS_CONNECTION_PERSIST_MODE_UNSAVED,
 
-gboolean nm_settings_connection_replace_settings_full (NMSettingsConnection *self,
-                                                       NMConnection *new_connection,
-                                                       gboolean prepare_new_connection,
-                                                       gboolean update_unsaved,
-                                                       const char *log_diff_name,
-                                                       GError **error);
+	NM_SETTINGS_CONNECTION_PERSIST_MODE_IN_MEMORY,
+	NM_SETTINGS_CONNECTION_PERSIST_MODE_IN_MEMORY_DETACHED,
+	NM_SETTINGS_CONNECTION_PERSIST_MODE_IN_MEMORY_ONLY,
+	NM_SETTINGS_CONNECTION_PERSIST_MODE_VOLATILE_DETACHED,
+	NM_SETTINGS_CONNECTION_PERSIST_MODE_VOLATILE_ONLY,
+} NMSettingsConnectionPersistMode;
+
+gboolean  nm_settings_connection_update (NMSettingsConnection *self,
+                                         NMConnection *new_connection,
+                                         NMSettingsConnectionPersistMode persist_mode,
+                                         NMSettingsConnectionCommitReason commit_reason,
+                                         const char *log_diff_name,
+                                         GError **error);
 
 gboolean nm_settings_connection_delete (NMSettingsConnection *self,
                                         GError **error);
 
 typedef void (*NMSettingsConnectionSecretsFunc) (NMSettingsConnection *self,
-                                                 NMSettingsConnectionCallId call_id,
+                                                 NMSettingsConnectionCallId *call_id,
                                                  const char *agent_username,
                                                  const char *setting_name,
                                                  GError *error,
@@ -162,32 +172,32 @@ gboolean nm_settings_connection_new_secrets (NMSettingsConnection *self,
                                              GVariant *secrets,
                                              GError **error);
 
-NMSettingsConnectionCallId nm_settings_connection_get_secrets (NMSettingsConnection *self,
-                                                               NMConnection *applied_connection,
-                                                               NMAuthSubject *subject,
-                                                               const char *setting_name,
-                                                               NMSecretAgentGetSecretsFlags flags,
-                                                               const char **hints,
-                                                               NMSettingsConnectionSecretsFunc callback,
-                                                               gpointer callback_data);
+NMSettingsConnectionCallId *nm_settings_connection_get_secrets (NMSettingsConnection *self,
+                                                                NMConnection *applied_connection,
+                                                                NMAuthSubject *subject,
+                                                                const char *setting_name,
+                                                                NMSecretAgentGetSecretsFlags flags,
+                                                                const char *const*hints,
+                                                                NMSettingsConnectionSecretsFunc callback,
+                                                                gpointer callback_data);
 
 void nm_settings_connection_cancel_secrets (NMSettingsConnection *self,
-                                            NMSettingsConnectionCallId call_id);
-
-gboolean nm_settings_connection_is_visible (NMSettingsConnection *self);
+                                            NMSettingsConnectionCallId *call_id);
 
 void nm_settings_connection_recheck_visibility (NMSettingsConnection *self);
 
 gboolean nm_settings_connection_check_permission (NMSettingsConnection *self,
                                                   const char *permission);
 
-void nm_settings_connection_signal_remove (NMSettingsConnection *self, gboolean allow_reuse);
+void nm_settings_connection_added (NMSettingsConnection *self);
+
+void nm_settings_connection_signal_remove (NMSettingsConnection *self);
 
 gboolean nm_settings_connection_get_unsaved (NMSettingsConnection *self);
 
 NMSettingsConnectionFlags nm_settings_connection_get_flags (NMSettingsConnection *self);
 NMSettingsConnectionFlags nm_settings_connection_set_flags (NMSettingsConnection *self, NMSettingsConnectionFlags flags, gboolean set);
-NMSettingsConnectionFlags nm_settings_connection_set_flags_all (NMSettingsConnection *self, NMSettingsConnectionFlags flags);
+NMSettingsConnectionFlags nm_settings_connection_set_flags_full (NMSettingsConnection *self, NMSettingsConnectionFlags mask, NMSettingsConnectionFlags value);
 
 int nm_settings_connection_cmp_timestamp (NMSettingsConnection *ac, NMSettingsConnection *ab);
 int nm_settings_connection_cmp_timestamp_p_with_data (gconstpointer pa, gconstpointer pb, gpointer user_data);
@@ -218,14 +228,23 @@ void nm_settings_connection_autoconnect_retries_set (NMSettingsConnection *self,
                                                      int retries);
 void nm_settings_connection_autoconnect_retries_reset (NMSettingsConnection *self);
 
-gint32 nm_settings_connection_autoconnect_blocked_until_get (NMSettingsConnection *self);
+gint32 nm_settings_connection_autoconnect_retries_blocked_until (NMSettingsConnection *self);
 
-NMSettingsAutoconnectBlockedReason nm_settings_connection_autoconnect_blocked_reason_get (NMSettingsConnection *self);
-void                               nm_settings_connection_autoconnect_blocked_reason_set (NMSettingsConnection *self,
-                                                                                          NMSettingsAutoconnectBlockedReason reason);
+NMSettingsAutoconnectBlockedReason nm_settings_connection_autoconnect_blocked_reason_get (NMSettingsConnection *self,
+                                                                                          NMSettingsAutoconnectBlockedReason mask);
+gboolean nm_settings_connection_autoconnect_blocked_reason_set_full (NMSettingsConnection *self,
+                                                                     NMSettingsAutoconnectBlockedReason mask,
+                                                                     NMSettingsAutoconnectBlockedReason value);
 
-gboolean nm_settings_connection_get_nm_generated (NMSettingsConnection *self);
-gboolean nm_settings_connection_get_volatile (NMSettingsConnection *self);
+static inline gboolean
+nm_settings_connection_autoconnect_blocked_reason_set (NMSettingsConnection *self,
+                                                       NMSettingsAutoconnectBlockedReason mask,
+                                                       gboolean set)
+{
+	return nm_settings_connection_autoconnect_blocked_reason_set_full (self, mask, set ? mask : NM_SETTINGS_AUTO_CONNECT_BLOCKED_REASON_NONE);
+}
+
+gboolean nm_settings_connection_autoconnect_is_blocked (NMSettingsConnection *self);
 
 gboolean nm_settings_connection_get_ready (NMSettingsConnection *self);
 void     nm_settings_connection_set_ready (NMSettingsConnection *self,

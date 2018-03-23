@@ -25,10 +25,8 @@
 #include <arpa/inet.h>
 
 #include "nm-common-macros.h"
-#include "nm-utils/nm-hash-utils.h"
 #include "nm-utils/nm-enum-utils.h"
 
-#include "NetworkManager.h"
 #include "nm-vpn-helpers.h"
 #include "nm-client-utils.h"
 #include "nm-meta-setting-access.h"
@@ -118,7 +116,6 @@ _parse_ip_route (int family,
                  GError **error)
 {
 	const int MAX_PREFIX = (family == AF_INET) ? 32 : 128;
-	char *plen = NULL;
 	const char *next_hop = NULL;
 	const char *canon_dest;
 	int prefix;
@@ -126,9 +123,11 @@ _parse_ip_route (int family,
 	GError *local = NULL;
 	gint64 metric = -1;
 	guint i;
-	gs_strfreev char **routev = NULL;
+	gs_free const char **routev = NULL;
 	gs_free char *str_clean = NULL;
-	char *dest;
+	gs_free char *dest_clone = NULL;
+	const char *dest;
+	const char *plen;
 	gs_unref_hashtable GHashTable *attrs = NULL;
 	GHashTable *tmp_attrs;
 #define ROUTE_SYNTAX _("The valid syntax is: 'ip[/prefix] [next-hop] [metric] [attribute=val]... [,ip[/prefix] ...]'")
@@ -138,8 +137,8 @@ _parse_ip_route (int family,
 	nm_assert (!error || !*error);
 
 	str_clean = g_strstrip (g_strdup (str));
-	routev = nmc_strsplit_set (str_clean, " \t", 0);
-	if (!routev || !routev[0]) {
+	routev = nm_utils_strsplit_set (str_clean, " \t");
+	if (!routev) {
 		g_set_error (error, 1, 0,
 		             "'%s' is not valid. %s",
 		             str, ROUTE_SYNTAX);
@@ -148,8 +147,13 @@ _parse_ip_route (int family,
 
 	dest = routev[0];
 	plen = strchr (dest, '/');  /* prefix delimiter */
-	if (plen)
-		*plen++ = '\0';
+	if (plen) {
+		dest_clone = g_strdup (dest);
+		plen = &dest_clone[plen - dest];
+		dest = dest_clone;
+		*((char *) plen) = '\0';
+		plen++;
+	}
 	prefix = MAX_PREFIX;
 	if (plen) {
 		if ((prefix = _nm_utils_ascii_str_to_int64 (plen, 10, 1, MAX_PREFIX, -1)) == -1) {
@@ -239,6 +243,150 @@ _parse_ip_route (int family,
 	}
 
 	return route;
+}
+
+static char *
+_dump_team_link_watcher (NMTeamLinkWatcher *watcher)
+{
+	const char *name;
+	NMTeamLinkWatcherArpPingFlags flags;
+	GString *w_dump;
+
+	if (!watcher)
+		return NULL;
+
+	w_dump = g_string_new (NULL);
+	name = nm_team_link_watcher_get_name (watcher);
+	g_string_append_printf (w_dump, "name=%s", name);
+
+#define DUMP_WATCHER_INT(str, watcher, name, key) \
+	G_STMT_START { \
+		int _val = nm_team_link_watcher_get_##key (watcher); \
+		\
+		if (_val) \
+			g_string_append_printf (str, " %s=%d", name, _val); \
+	} G_STMT_END;
+
+	if (nm_streq (name, NM_TEAM_LINK_WATCHER_ETHTOOL)) {
+		DUMP_WATCHER_INT (w_dump, watcher, "delay-up", delay_up);
+		DUMP_WATCHER_INT (w_dump, watcher, "delay-down", delay_down);
+		return g_string_free (w_dump, FALSE);
+	}
+	/* NM_TEAM_LINK_WATCHER_NSNA_PING and NM_TEAM_LINK_WATCHER_ARP_PING */
+	DUMP_WATCHER_INT (w_dump, watcher, "init-wait", init_wait);
+	DUMP_WATCHER_INT (w_dump, watcher, "initerval", interval);
+	DUMP_WATCHER_INT (w_dump, watcher, "missed-max", missed_max);
+#undef DUMP_WATCHER_INT
+	g_string_append_printf (w_dump, " target-host=%s",
+	                        nm_team_link_watcher_get_target_host (watcher));
+
+	if (nm_streq (name, NM_TEAM_LINK_WATCHER_NSNA_PING))
+		return g_string_free (w_dump, FALSE);
+
+	g_string_append_printf (w_dump, " source-host=%s",
+	                        nm_team_link_watcher_get_source_host (watcher));
+	flags = nm_team_link_watcher_get_flags (watcher);
+	if (flags & NM_TEAM_LINK_WATCHER_ARP_PING_FLAG_VALIDATE_ACTIVE)
+		g_string_append_printf (w_dump, " validate-active=true");
+	if (flags & NM_TEAM_LINK_WATCHER_ARP_PING_FLAG_VALIDATE_INACTIVE)
+		g_string_append_printf (w_dump, " validate-inactive=true");
+	if (flags & NM_TEAM_LINK_WATCHER_ARP_PING_FLAG_SEND_ALWAYS)
+		g_string_append_printf (w_dump, "send-always=true");
+
+	return g_string_free (w_dump, FALSE);
+}
+
+static NMTeamLinkWatcher *
+_parse_team_link_watcher (const char *str,
+                          GError **error)
+{
+	gs_free const char **watcherv = NULL;
+	gs_free char *str_clean = NULL;
+	guint i;
+	gs_free const char *name = NULL;
+	int val1 = 0, val2 = 0, val3 = 3;
+	gs_free const char *target_host = NULL;
+	gs_free const char *source_host = NULL;
+	NMTeamLinkWatcherArpPingFlags flags = 0;
+
+	nm_assert (str);
+	nm_assert (!error || !*error);
+
+	str_clean = g_strstrip (g_strdup (str));
+	watcherv = nm_utils_strsplit_set (str_clean, " \t");
+	if (!watcherv) {
+		g_set_error (error, 1, 0, "'%s' is not valid", str);
+		return NULL;
+	}
+
+	for (i = 0; watcherv[i]; i++) {
+		gs_free const char **pair = NULL;
+
+		pair = nm_utils_strsplit_set (watcherv[i], "=");
+		if (!pair) {
+			g_set_error (error, 1, 0, "'%s' is not valid: %s", watcherv[i],
+			             "properties should be specified as 'key=value'");
+			return NULL;
+		}
+		if (!pair[1]) {
+			g_set_error (error, 1, 0, "'%s' is not valid: %s", watcherv[i],
+			             "missing key value");
+			return NULL;
+		}
+		if (pair[2]) {
+			g_set_error (error, 1, 0, "'%s' is not valid: %s", watcherv[i],
+			             "properties should be specified as 'key=value'");
+			return NULL;
+		}
+
+		if (nm_streq (pair[0], "name"))
+			name = g_strdup (pair[1]);
+		else if (   nm_streq (pair[0], "delay-up")
+		         || nm_streq (pair[0], "init-wait"))
+			val1 = _nm_utils_ascii_str_to_int64 (pair[1], 10, 0, G_MAXINT32, -1);
+		else if (   nm_streq (pair[0], "delay-down")
+		         || nm_streq (pair[0], "interval"))
+			val2 = _nm_utils_ascii_str_to_int64 (pair[1], 10, 0, G_MAXINT32, -1);
+		else if (nm_streq (pair[0], "missed-max"))
+			val3 = _nm_utils_ascii_str_to_int64 (pair[1], 10, 0, G_MAXINT32, -1);
+		else if (nm_streq (pair[0], "target-host"))
+			target_host = g_strdup (pair[1]);
+		else if (nm_streq (pair[0], "source-host"))
+			source_host = g_strdup (pair[1]);
+		else if (nm_streq (pair[0], "validate-active")) {
+			if (nm_streq (pair[1], "true"))
+				flags |= NM_TEAM_LINK_WATCHER_ARP_PING_FLAG_VALIDATE_ACTIVE;
+		} else if (nm_streq (pair[0], "validate-inactive")) {
+			if (nm_streq (pair[1], "true"))
+				flags |= NM_TEAM_LINK_WATCHER_ARP_PING_FLAG_VALIDATE_INACTIVE;
+		} else if (nm_streq (pair[0], "send-always")) {
+			if (nm_streq (pair[1], "true"))
+				flags |= NM_TEAM_LINK_WATCHER_ARP_PING_FLAG_SEND_ALWAYS;
+		} else {
+			g_set_error (error, 1, 0, "'%s' is not valid: %s", watcherv[i],
+			             "unknown key");
+			return NULL;
+		}
+
+		if ((val1 < 0) || (val2 < 0) || (val3 < 0)) {
+			g_set_error (error, 1, 0, "'%s' is not valid: %s", watcherv[i],
+			             "value is not a valid number [0, MAXINT]");
+			return NULL;
+		}
+	}
+
+	if (nm_streq0 (name, NM_TEAM_LINK_WATCHER_ETHTOOL))
+		return nm_team_link_watcher_new_ethtool (val1, val2, error);
+	else if (nm_streq0 (name, NM_TEAM_LINK_WATCHER_NSNA_PING))
+		return nm_team_link_watcher_new_nsna_ping (val1, val2, val3, target_host, error);
+	else if (nm_streq0 (name, NM_TEAM_LINK_WATCHER_ARP_PING))
+		return nm_team_link_watcher_new_arp_ping (val1, val2, val3, target_host, source_host, flags, error);
+
+	if (!name)
+		g_set_error (error, 1, 0, "link watcher name missing");
+	else
+		g_set_error (error, 1, 0, "unknown link watcher name: '%s'", name);
+	return NULL;
 }
 
 /* Max priority values from libnm-core/nm-setting-vlan.c */
@@ -460,6 +608,7 @@ _get_text_hidden (NMMetaAccessorGetType get_type)
 		return _(NM_META_TEXT_HIDDEN);
 	return NM_META_TEXT_HIDDEN;
 }
+
 
 /*****************************************************************************/
 
@@ -1026,22 +1175,25 @@ _set_fcn_gobject_mac (ARGS_SET_FCN)
 static gboolean
 _set_fcn_gobject_secret_flags (ARGS_SET_FCN)
 {
-	char **strv = NULL, **iter;
-	unsigned long flags = 0, val_int;
+	gs_free char *err_token = NULL;
+	gs_free char *str_all = NULL;
+	int flags;
 
-	g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+	nm_assert (!error || !*error);
 
-	strv = nmc_strsplit_set (value, " \t,", 0);
-	for (iter = strv; iter && *iter; iter++) {
-		if (!nmc_string_to_uint (*iter, TRUE, 0, ALL_SECRET_FLAGS, &val_int)) {
-			g_set_error (error, 1, 0, _("'%s' is not a valid flag number; use <0-%d>"),
-			             *iter, ALL_SECRET_FLAGS);
-			g_strfreev (strv);
-			return FALSE;
-		}
-		flags += val_int;
+	if (!nm_utils_enum_from_str (nm_setting_secret_flags_get_type (),
+	                             value,
+	                             &flags,
+	                             &err_token)) {
+		str_all = nm_utils_enum_to_str (nm_setting_secret_flags_get_type (),
+		                                ALL_SECRET_FLAGS);
+		g_set_error (error, 1, 0,
+		             _("'%s' is not a valid flag; use <0-%d> or a combination of '%s'"),
+		             err_token,
+		             ALL_SECRET_FLAGS,
+		             str_all);
+		return FALSE;
 	}
-	g_strfreev (strv);
 
 	/* Validate the flags number */
 	if (flags > ALL_SECRET_FLAGS) {
@@ -1428,18 +1580,19 @@ vpn_data_item (const char *key, const char *value, gpointer user_data)
 	          const char **valid_strv, \
 	          GError **error) \
 	{ \
-		char **strv = NULL, **iter; \
+		gs_free const char **strv = NULL; \
+		gsize i; \
 		const char *item; \
-		g_return_val_if_fail (error == NULL || *error == NULL, FALSE); \
-		strv = nmc_strsplit_set (value, " \t,", 0); \
-		for (iter = strv; iter && *iter; iter++) { \
-			if (!(item = nmc_string_is_valid (g_strstrip (*iter), valid_strv, error))) { \
-				g_strfreev (strv); \
-				return FALSE; \
+		nm_assert (!error || !*error); \
+		strv = nm_utils_strsplit_set (value, " \t,"); \
+		if (strv) { \
+			for (i = 0; strv[i]; i++) { \
+				if (!(item = nmc_string_is_valid (strv[i], valid_strv, error))) { \
+					return FALSE; \
+				} \
+				set_func (s_macro (setting), item); \
 			} \
-			set_func (s_macro (setting), item); \
 		} \
-		g_strfreev (strv); \
 		return TRUE; \
 	}
 
@@ -1447,43 +1600,42 @@ vpn_data_item (const char *key, const char *value, gpointer user_data)
 	static gboolean \
 	def_func (ARGS_SET_FCN) \
 	{ \
-		char **strv = NULL, **iter; \
+		gs_free const char **strv = NULL; \
+		const char **iter; \
 		const char **(*valid_func1_p) (s_type *) = valid_func1; \
 		const char * (*valid_func2_p) (const char *, const char *, GError **) = valid_func2; \
 		const char *opt_name, *opt_val; \
 		\
-		g_return_val_if_fail (error == NULL || *error == NULL, FALSE); \
+		nm_assert (!error || !*error); \
 		\
-		strv = nmc_strsplit_set (value, ",", 0); \
+		strv = nm_utils_strsplit_set (value, ","); \
 		for (iter = strv; iter && *iter; iter++) { \
-			char *left = g_strstrip (*iter); \
+			gs_free char *left_clone = g_strstrip (g_strdup (*iter)); \
+			char *left = left_clone; \
 			char *right = strchr (left, '='); \
 			if (!right) { \
 				g_set_error (error, 1, 0, _("'%s' is not valid; use <option>=<value>"), *iter); \
-				g_strfreev (strv); \
 				return FALSE; \
 			} \
 			*right++ = '\0'; \
+			g_strchomp (left); \
 			\
 			if (valid_func1_p) { \
 				const char **valid_options = valid_func1_p (s_macro (setting)); \
-				if (!(opt_name = nmc_string_is_valid (g_strstrip (left), valid_options, error))) { \
-					g_strfreev (strv); \
+				if (!(opt_name = nmc_string_is_valid (left, valid_options, error))) { \
 					return FALSE; \
 				} \
 			} else \
-				opt_name = g_strstrip (left);\
+				opt_name = left;\
 			\
-			opt_val = g_strstrip (right); \
+			opt_val = g_strchug (right); \
 			if (valid_func2_p) { \
 				if (!(opt_val = valid_func2_p ((const char *) left, (const char *) opt_val, error))) { \
-					g_strfreev (strv); \
 					return FALSE; \
 				}\
 			}\
 			add_func (s_macro (setting), opt_name, opt_val); \
 		} \
-		g_strfreev (strv); \
 		return TRUE; \
 	}
 
@@ -1538,47 +1690,46 @@ vpn_data_item (const char *key, const char *value, gpointer user_data)
 	def_func (ARGS_SET_FCN) \
 	{ \
 		guint8 buf[32]; \
-		char **list = NULL, **iter; \
-		GSList *macaddr_blacklist = NULL; \
+		gs_free const char **strv = NULL; \
+		const char *const*iter; \
 		\
-		g_return_val_if_fail (error == NULL || *error == NULL, FALSE); \
+		nm_assert (!error || !*error); \
 		\
-		list = nmc_strsplit_set (value, " \t,", 0); \
-		for (iter = list; iter && *iter; iter++) { \
+		strv = nm_utils_strsplit_set (value, " \t,"); \
+		for (iter = strv; strv && *iter; iter++) { \
 			if (!nm_utils_hwaddr_aton (*iter, buf, ETH_ALEN)) { \
 				g_set_error (error, 1, 0, _("'%s' is not a valid MAC"), *iter); \
-				g_strfreev (list); \
-				g_slist_free (macaddr_blacklist); \
 				return FALSE; \
 			} \
 		} \
 		\
-		for (iter = list; iter && *iter; iter++) \
+		for (iter = strv; strv && *iter; iter++) \
 			add_func (s_macro (setting), *iter); \
 		\
-		g_strfreev (list); \
 		return TRUE; \
 	}
 
 
 static gboolean
-verify_string_list (char **strv,
+verify_string_list (const char *const*strv,
                     const char *prop,
                     gboolean (*validate_func) (const char *),
                     GError **error)
 {
-	char **iter;
+	const char *const*iter;
 
-	g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+	nm_assert (!error || !*error);
 
-	for (iter = strv; iter && *iter; iter++) {
-		if (**iter == '\0')
-			continue;
-		if (validate_func) {
-			if (!validate_func (*iter)) {
-				g_set_error (error, 1, 0, _("'%s' is not valid"),
-				             *iter);
-				return FALSE;
+	if (strv) {
+		for (iter = strv; *iter; iter++) {
+			if (**iter == '\0')
+				continue;
+			if (validate_func) {
+				if (!validate_func (*iter)) {
+					g_set_error (error, 1, 0, _("'%s' is not valid"),
+					             *iter);
+					return FALSE;
+				}
 			}
 		}
 	}
@@ -1634,7 +1785,7 @@ check_and_set_string (NMSetting *setting,
 {
 	const char *checked_val;
 
-	g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+	nm_assert (!error || !*error);
 
 	checked_val = nmc_string_is_valid (val, valid_strv, error);
 	if (!checked_val)
@@ -1649,7 +1800,7 @@ _set_fcn_gobject_flags (ARGS_SET_FCN)
 {
 	unsigned long val_int;
 
-	g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+	nm_assert (!error || !*error);
 
 	if (!nmc_string_to_uint (value, TRUE, 0, G_MAXUINT, &val_int)) {
 		g_set_error (error, 1, 0, _("'%s' is not a valid number (or out of range)"), value);
@@ -1669,7 +1820,7 @@ _set_fcn_gobject_ssid (ARGS_SET_FCN)
 {
 	GBytes *ssid;
 
-	g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+	nm_assert (!error || !*error);
 
 	if (strlen (value) > 32) {
 		g_set_error (error, 1, 0, _("'%s' is not valid"), value);
@@ -1685,7 +1836,7 @@ _set_fcn_gobject_ssid (ARGS_SET_FCN)
 static gboolean
 _set_fcn_gobject_ifname (ARGS_SET_FCN)
 {
-	g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+	nm_assert (!error || !*error);
 
 	if (!nm_utils_is_valid_iface_name (value, error))
 		return FALSE;
@@ -1747,14 +1898,13 @@ static gboolean
 nmc_property_set_bytes (NMSetting *setting, const char *prop, const char *value, GError **error)
 {
 	gs_free char *val_strip = NULL;
-	gs_strfreev char **strv = NULL;
-	const char *delimiters = " \t,";
-	char **iter;
+	gs_free const char **strv = NULL;
+	const char **iter;
 	GBytes *bytes;
 	GByteArray *array = NULL;
 	gboolean success = TRUE;
 
-	g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+	nm_assert (!error || !*error);
 
 	val_strip = g_strstrip (g_strdup (value));
 
@@ -1764,8 +1914,8 @@ nmc_property_set_bytes (NMSetting *setting, const char *prop, const char *value,
 		goto done;
 
 	/* Otherwise, consider the following format: AA b 0xCc D */
-	strv = nmc_strsplit_set (val_strip, delimiters, 0);
-	array = g_byte_array_sized_new (g_strv_length (strv));
+	strv = nm_utils_strsplit_set (val_strip, " \t");
+	array = g_byte_array_sized_new (NM_PTRARRAY_LEN (strv));
 	for (iter = strv; iter && *iter; iter++) {
 		int v;
 		guint8 v8;
@@ -1969,15 +2119,16 @@ _get_fcn_802_1x_phase2_private_key (ARGS_GET_FCN)
 	static gboolean \
 	def_func (ARGS_SET_FCN) \
 	{ \
-		char **strv = NULL; \
-		guint i = 0; \
+		const char **strv = NULL; \
+		gsize i; \
 		\
-		g_return_val_if_fail (error == NULL || *error == NULL, FALSE); \
+		nm_assert (error == NULL || *error == NULL); \
 		\
-		strv = nmc_strsplit_set (value, " \t,", 0); \
-		while (strv && strv[i]) \
-			set_func (NM_SETTING_802_1X (setting), strv[i++]); \
-		g_strfreev (strv); \
+		strv = nm_utils_strsplit_set (value, " \t,"); \
+		if (strv) { \
+			for (i = 0; strv[i]; i++) \
+				set_func (NM_SETTING_802_1X (setting), strv[i++]); \
+		} \
 		return TRUE; \
 	}
 
@@ -2004,29 +2155,27 @@ _get_fcn_802_1x_phase2_private_key (ARGS_GET_FCN)
 	static gboolean \
 	def_func (ARGS_SET_FCN) \
 	{ \
-		char **strv = NULL; \
-		char *val_strip = g_strstrip (g_strdup (value)); \
-		char *p = val_strip; \
-		const char *path, *password; \
+		gs_free char *path = NULL; \
 		gs_free char *password_free = NULL; \
+		char *password; \
 		NMSetting8021xCKScheme scheme = NM_SETTING_802_1X_CK_SCHEME_PATH; \
-		gboolean success; \
 		\
-		if (strncmp (val_strip, NM_SETTING_802_1X_CERT_SCHEME_PREFIX_PKCS11, NM_STRLEN (NM_SETTING_802_1X_CERT_SCHEME_PREFIX_PKCS11)) == 0) \
+		value = nm_str_skip_leading_spaces (value); \
+		\
+		if (strncmp (value, NM_SETTING_802_1X_CERT_SCHEME_PREFIX_PKCS11, NM_STRLEN (NM_SETTING_802_1X_CERT_SCHEME_PREFIX_PKCS11)) == 0) \
 			scheme = NM_SETTING_802_1X_CK_SCHEME_PKCS11; \
-		else if (strncmp (val_strip, NM_SETTING_802_1X_CERT_SCHEME_PREFIX_PATH, NM_STRLEN (NM_SETTING_802_1X_CERT_SCHEME_PREFIX_PATH)) == 0) \
-			p += NM_STRLEN (NM_SETTING_802_1X_CERT_SCHEME_PREFIX_PATH); \
+		else if (strncmp (value, NM_SETTING_802_1X_CERT_SCHEME_PREFIX_PATH, NM_STRLEN (NM_SETTING_802_1X_CERT_SCHEME_PREFIX_PATH)) == 0) \
+			value += NM_STRLEN (NM_SETTING_802_1X_CERT_SCHEME_PREFIX_PATH); \
 		\
-		strv = nmc_strsplit_set (p, " \t,", 2); \
-		path = strv[0]; \
-		if (g_strv_length (strv) == 2) \
-			password = strv[1]; \
-		else \
+		path = g_strdup (value); \
+		password = path + strcspn (path, " \t"); \
+		if (password[0] != '\0') { \
+			password[0] = '\0'; \
+			while (NM_IN_SET (password[0], ' ', '\t')) \
+				password++; \
+		} else \
 			password = password_free = g_strdup (pwd_func (NM_SETTING_802_1X (setting))); \
-		success = set_func (NM_SETTING_802_1X (setting), path, password, scheme, NULL, error); \
-		g_free (val_strip); \
-		g_strfreev (strv); \
-		return success; \
+		return set_func (NM_SETTING_802_1X (setting), path, password, scheme, NULL, error); \
 	}
 
 DEFINE_SETTER_STR_LIST_MULTI (check_and_add_eap_method,
@@ -2375,6 +2524,9 @@ _complete_fcn_connection_type (ARGS_COMPLETE_FCN)
 		const NMMetaSettingInfoEditor *setting_info = &nm_meta_setting_infos_editor[i];
 		const char *v;
 
+		if (!setting_info->valid_parts)
+			continue;
+
 		v = setting_info->alias;
 		if (v) {
 			if (!text || strncmp (text, v, text_len) == 0)
@@ -2420,25 +2572,20 @@ permissions_valid (const char *perm)
 static gboolean
 _set_fcn_connection_permissions (ARGS_SET_FCN)
 {
-	char **strv = NULL;
-	guint i = 0;
+	gs_free const char **strv = NULL;
+	gsize i;
 
-	g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+	nm_assert (!error || !*error);
 
-	strv = nmc_strsplit_set (value, " \t,", 0);
-	if (!verify_string_list (strv, property_info->property_name, permissions_valid, error)) {
-		g_strfreev (strv);
+	strv = nm_utils_strsplit_set (value, " \t,");
+	if (!verify_string_list (strv, property_info->property_name, permissions_valid, error))
 		return FALSE;
-	}
 
 	for (i = 0; strv && strv[i]; i++) {
-		const char *user;
+		const char *user = strv[i];
 
-		if (strncmp (strv[i], PERM_USER_PREFIX, strlen (PERM_USER_PREFIX)) == 0)
-			user = strv[i]+strlen (PERM_USER_PREFIX);
-		else
-			user = strv[i];
-
+		if (strncmp (user, PERM_USER_PREFIX, NM_STRLEN (PERM_USER_PREFIX)) == 0)
+			user += NM_STRLEN (PERM_USER_PREFIX);
 		nm_setting_connection_add_permission (NM_SETTING_CONNECTION (setting), "user", user, NULL);
 	}
 
@@ -2466,7 +2613,7 @@ DEFINE_REMOVER_INDEX_OR_VALUE (_remove_fcn_connection_permissions,
 static gboolean
 _set_fcn_connection_master (ARGS_SET_FCN)
 {
-	g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+	nm_assert (!error || !*error);
 
 	if (!value)
 		;
@@ -2513,7 +2660,7 @@ _complete_fcn_connection_master (ARGS_COMPLETE_FCN)
 			expected_type = nm_setting_connection_get_slave_type (s_con);
 	}
 
-	text_len = strlen (text);
+	text_len = text ? strlen (text) : 0;
 
 	result = g_new (char *, (2 * len) + 1);
 	for (i = 0, j = 0; i < len; i++) {
@@ -2552,15 +2699,13 @@ _complete_fcn_connection_master (ARGS_COMPLETE_FCN)
 static gboolean
 _set_fcn_connection_secondaries (ARGS_SET_FCN)
 {
-	gs_strfreev char **strv = NULL;
-	char **iter;
+	gs_free const char **strv = NULL;
+	const char *const*iter;
 
-	strv = nmc_strsplit_set (value, " \t,", 0);
+	strv = nm_utils_strsplit_set (value, " \t,");
 	if (strv) {
-		for (iter = strv; *iter; iter++) {
-			if (**iter)
-				nm_setting_connection_add_secondary (NM_SETTING_CONNECTION (setting), *iter);
-		}
+		for (iter = strv; *iter; iter++)
+			nm_setting_connection_add_secondary (NM_SETTING_CONNECTION (setting), *iter);
 	}
 	return TRUE;
 }
@@ -2747,19 +2892,21 @@ DEFINE_DCB_UINT_GETTER (_get_fcn_dcb_priority_traffic_class, nm_setting_dcb_get_
 static gboolean
 _set_fcn_dcb_flags (ARGS_SET_FCN)
 {
-	char **strv = NULL, **iter;
 	NMSettingDcbFlags flags = NM_SETTING_DCB_FLAG_NONE;
 	long int t;
 
-	g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+	nm_assert (!error || !*error);
 
 	/* Check for overall hex numeric value */
 	t = _nm_utils_ascii_str_to_int64 (value, 0, 0, DCB_ALL_FLAGS, -1);
 	if (t != -1)
 		flags = (guint) t;
 	else {
+		gs_free const char **strv = NULL;
+		const char *const*iter;
+
 		/* Check for individual flag numbers */
-		strv = nmc_strsplit_set (value, " \t,", 0);
+		strv = nm_utils_strsplit_set (value, " \t,");
 		for (iter = strv; iter && *iter; iter++) {
 			t = _nm_utils_ascii_str_to_int64 (*iter, 0, 0, DCB_ALL_FLAGS, -1);
 
@@ -2782,7 +2929,6 @@ _set_fcn_dcb_flags (ARGS_SET_FCN)
 				return FALSE;
 			}
 		}
-		g_strfreev (strv);
 	}
 
 	/* Validate the flags according to the property spec */
@@ -2859,7 +3005,7 @@ _set_fcn_dcb_priority_flow_control (ARGS_SET_FCN)
 	guint i = 0;
 	guint nums[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
 
-	g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+	nm_assert (!error || !*error);
 
 	if (!dcb_parse_uint_array (value, 1, 0, nums, error))
 		return FALSE;
@@ -2877,7 +3023,7 @@ _set_fcn_dcb_priority_group_id (ARGS_SET_FCN)
 	guint i = 0;
 	guint nums[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
 
-	g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+	nm_assert (!error || !*error);
 
 	if (!dcb_parse_uint_array (value, 7, 15, nums, error))
 		return FALSE;
@@ -2895,7 +3041,7 @@ _set_fcn_dcb_priority_group_bandwidth (ARGS_SET_FCN)
 	guint i = 0, sum = 0;
 	guint nums[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
 
-	g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+	nm_assert (!error || !*error);
 
 	if (!dcb_parse_uint_array (value, 100, 0, nums, error))
 		return FALSE;
@@ -2920,7 +3066,7 @@ _set_fcn_dcb_priority_bandwidth (ARGS_SET_FCN)
 	guint i = 0;
 	guint nums[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
 
-	g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+	nm_assert (!error || !*error);
 
 	if (!dcb_parse_uint_array (value, 100, 0, nums, error))
 		return FALSE;
@@ -2938,7 +3084,7 @@ _set_fcn_dcb_priority_strict (ARGS_SET_FCN)
 	guint i = 0;
 	guint nums[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
 
-	g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+	nm_assert (!error || !*error);
 
 	if (!dcb_parse_uint_array (value, 1, 0, nums, error))
 		return FALSE;
@@ -2956,7 +3102,7 @@ _set_fcn_dcb_priority_traffic_class (ARGS_SET_FCN)
 	guint i = 0;
 	guint nums[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
 
-	g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+	nm_assert (!error || !*error);
 
 	if (!dcb_parse_uint_array (value, 7, 0, nums, error))
 		return FALSE;
@@ -2973,7 +3119,7 @@ _set_fcn_gsm_sim_operator_id (ARGS_SET_FCN)
 {
 	const char *p = value;
 
-	g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+	nm_assert (!error || !*error);
 
 	if (strlen (value) != 5 && strlen (value) != 6) {
 		g_set_error_literal (error, 1, 0, _("SIM operator ID must be a 5 or 6 number MCCMNC code"));
@@ -2999,7 +3145,7 @@ _set_fcn_infiniband_p_key (ARGS_SET_FCN)
 	const gint64 INVALID = G_MININT64;
 	gint64 p_key;
 
-	g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+	nm_assert (!error || !*error);
 
 	if (nm_streq (value, "default"))
 		p_key = -1;
@@ -3039,14 +3185,14 @@ _get_fcn_ip_config_addresses (ARGS_GET_FCN)
 {
 	NMSettingIPConfig *s_ip = NM_SETTING_IP_CONFIG (setting);
 	GString *printable;
-	guint32 num_addresses, i;
+	guint num_addresses, i;
 	NMIPAddress *addr;
 
 	RETURN_UNSUPPORTED_GET_TYPE ();
 
 	printable = g_string_new (NULL);
 
-	num_addresses = nm_setting_ip_config_get_num_addresses (s_ip);
+	num_addresses = NM_MIN ((guint) G_MAXINT, nm_setting_ip_config_get_num_addresses (s_ip));
 	for (i = 0; i < num_addresses; i++) {
 		addr = nm_setting_ip_config_get_address (s_ip, i);
 
@@ -3066,14 +3212,14 @@ _get_fcn_ip_config_routes (ARGS_GET_FCN)
 {
 	NMSettingIPConfig *s_ip = NM_SETTING_IP_CONFIG (setting);
 	GString *printable;
-	guint32 num_routes, i;
+	guint num_routes, i;
 	NMIPRoute *route;
 
 	RETURN_UNSUPPORTED_GET_TYPE ();
 
 	printable = g_string_new (NULL);
 
-	num_routes = nm_setting_ip_config_get_num_routes (s_ip);
+	num_routes = NM_MIN ((guint) G_MAXINT, nm_setting_ip_config_get_num_routes (s_ip));
 	for (i = 0; i < num_routes; i++) {
 		gs_free char *attr_str = NULL;
 		gs_strfreev char **attr_names = NULL;
@@ -3154,22 +3300,22 @@ _set_fcn_ip4_config_method (ARGS_SET_FCN)
 static gboolean
 _set_fcn_ip4_config_dns (ARGS_SET_FCN)
 {
-	char **strv = NULL, **iter, *addr;
-	guint32 ip4_addr;
+	const char **strv = NULL;
+	const char *const*iter;
+	in_addr_t ip4_addr;
 
-	g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+	nm_assert (!error || !*error);
 
-	strv = nmc_strsplit_set (value, " \t,", 0);
+	strv = nm_utils_strsplit_set (value, " \t,");
 	for (iter = strv; iter && *iter; iter++) {
-		addr = g_strstrip (*iter);
+		gs_free char *addr = g_strstrip (g_strdup (*iter));
+
 		if (inet_pton (AF_INET, addr, &ip4_addr) < 1) {
 			g_set_error (error, 1, 0, _("invalid IPv4 address '%s'"), addr);
-			g_strfreev (strv);
 			return FALSE;
 		}
 		nm_setting_ip_config_add_dns (NM_SETTING_IP_CONFIG (setting), addr);
 	}
-	g_strfreev (strv);
 	return TRUE;
 }
 
@@ -3200,21 +3346,19 @@ DEFINE_REMOVER_INDEX_OR_VALUE (_remove_fcn_ipv4_config_dns,
 static gboolean
 _set_fcn_ip4_config_dns_search (ARGS_SET_FCN)
 {
-	char **strv = NULL;
-	guint i = 0;
+	gs_free const char **strv = NULL;
+	gsize i;
 
-	g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+	nm_assert (!error || !*error);
 
-	strv = nmc_strsplit_set (value, " \t,", 0);
-	if (!verify_string_list (strv, property_info->property_name, nmc_util_is_domain, error)) {
-		g_strfreev (strv);
+	strv = nm_utils_strsplit_set (value, " \t,");
+	if (!verify_string_list (strv, property_info->property_name, nmc_util_is_domain, error))
 		return FALSE;
+
+	if (strv) {
+		for (i = 0; strv[i]; i++)
+			nm_setting_ip_config_add_dns_search (NM_SETTING_IP_CONFIG (setting), strv[i]);
 	}
-
-	while (strv && strv[i])
-		nm_setting_ip_config_add_dns_search (NM_SETTING_IP_CONFIG (setting), strv[i++]);
-	g_strfreev (strv);
-
 	return TRUE;
 }
 
@@ -3241,17 +3385,17 @@ DEFINE_REMOVER_INDEX_OR_VALUE (_remove_fcn_ipv4_config_dns_search,
 static gboolean
 _set_fcn_ip4_config_dns_options (ARGS_SET_FCN)
 {
-	char **strv = NULL;
-	guint i = 0;
+	gs_free const char **strv = NULL;
+	gsize i;
 
-	g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+	nm_assert (!error || !*error);
 
 	nm_setting_ip_config_clear_dns_options (NM_SETTING_IP_CONFIG (setting), TRUE);
-	strv = nmc_strsplit_set (value, " \t,", 0);
-	while (strv && strv[i])
-		nm_setting_ip_config_add_dns_option (NM_SETTING_IP_CONFIG (setting), strv[i++]);
-	g_strfreev (strv);
-
+	strv = nm_utils_strsplit_set (value, " \t,");
+	if (strv) {
+		for (i = 0; strv[i]; i++)
+			nm_setting_ip_config_add_dns_option (NM_SETTING_IP_CONFIG (setting), strv[i]);
+	}
 	return TRUE;
 }
 
@@ -3278,12 +3422,12 @@ DEFINE_REMOVER_INDEX_OR_VALUE (_remove_fcn_ipv4_config_dns_options,
 static gboolean
 _set_fcn_ip4_config_addresses (ARGS_SET_FCN)
 {
-	gs_strfreev char **strv = NULL;
+	gs_free const char **strv = NULL;
 	const char *const*iter;
 	NMIPAddress *ip4addr;
 
-	strv = nmc_strsplit_set (value, ",", 0);
-	for (iter = (const char *const*) strv; *iter; iter++) {
+	strv = nm_utils_strsplit_set (value, ",");
+	for (iter = strv; *iter; iter++) {
 		ip4addr = _parse_ip_address (AF_INET, *iter, error);
 		if (!ip4addr)
 			return FALSE;
@@ -3338,12 +3482,12 @@ _set_fcn_ip4_config_gateway (ARGS_SET_FCN)
 static gboolean
 _set_fcn_ip4_config_routes (ARGS_SET_FCN)
 {
-	gs_strfreev char **strv = NULL;
+	gs_free const char **strv = NULL;
 	const char *const*iter;
 	NMIPRoute *ip4route;
 
-	strv = nmc_strsplit_set (value, ",", 0);
-	for (iter = (const char *const*) strv; *iter; iter++) {
+	strv = nm_utils_strsplit_set (value, ",");
+	for (iter = strv; *iter; iter++) {
 		ip4route = _parse_ip_route (AF_INET, *iter, error);
 		if (!ip4route)
 			return FALSE;
@@ -3408,22 +3552,22 @@ _set_fcn_ip6_config_method (ARGS_SET_FCN)
 static gboolean
 _set_fcn_ip6_config_dns (ARGS_SET_FCN)
 {
-	char **strv = NULL, **iter, *addr;
+	gs_free const char **strv = NULL;
+	const char *const*iter;
 	struct in6_addr ip6_addr;
 
-	g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+	nm_assert (!error || !*error);
 
-	strv = nmc_strsplit_set (value, " \t,", 0);
+	strv = nm_utils_strsplit_set (value, " \t,");
 	for (iter = strv; iter && *iter; iter++) {
-		addr = g_strstrip (*iter);
+		gs_free char *addr  = g_strstrip (g_strdup (*iter));
+
 		if (inet_pton (AF_INET6, addr, &ip6_addr) < 1) {
 			g_set_error (error, 1, 0, _("invalid IPv6 address '%s'"), addr);
-			g_strfreev (strv);
 			return FALSE;
 		}
 		nm_setting_ip_config_add_dns (NM_SETTING_IP_CONFIG (setting), addr);
 	}
-	g_strfreev (strv);
 	return TRUE;
 }
 
@@ -3454,21 +3598,19 @@ DEFINE_REMOVER_INDEX_OR_VALUE (_remove_fcn_ipv6_config_dns,
 static gboolean
 _set_fcn_ip6_config_dns_search (ARGS_SET_FCN)
 {
-	char **strv = NULL;
-	guint i = 0;
+	gs_free const char **strv = NULL;
+	gsize i;
 
-	g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+	nm_assert (!error || !*error);
 
-	strv = nmc_strsplit_set (value, " \t,", 0);
-	if (!verify_string_list (strv, property_info->property_name, nmc_util_is_domain, error)) {
-		g_strfreev (strv);
+	strv = nm_utils_strsplit_set (value, " \t,");
+	if (!verify_string_list (strv, property_info->property_name, nmc_util_is_domain, error))
 		return FALSE;
+
+	if (strv) {
+		for (i = 0; strv[i]; i++)
+			nm_setting_ip_config_add_dns_search (NM_SETTING_IP_CONFIG (setting), strv[i]);
 	}
-
-	while (strv && strv[i])
-		nm_setting_ip_config_add_dns_search (NM_SETTING_IP_CONFIG (setting), strv[i++]);
-	g_strfreev (strv);
-
 	return TRUE;
 }
 
@@ -3495,17 +3637,17 @@ DEFINE_REMOVER_INDEX_OR_VALUE (_remove_fcn_ipv6_config_dns_search,
 static gboolean
 _set_fcn_ip6_config_dns_options (ARGS_SET_FCN)
 {
-	char **strv = NULL;
-	guint i = 0;
+	gs_free const char **strv = NULL;
+	gsize i;
 
-	g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+	nm_assert (!error || !*error);
 
 	nm_setting_ip_config_clear_dns_options (NM_SETTING_IP_CONFIG (setting), TRUE);
-	strv = nmc_strsplit_set (value, " \t,", 0);
-	while (strv && strv[i])
-		nm_setting_ip_config_add_dns_option (NM_SETTING_IP_CONFIG (setting), strv[i++]);
-	g_strfreev (strv);
-
+	strv = nm_utils_strsplit_set (value, " \t,");
+	if (strv) {
+		for (i = 0; strv[i]; i++)
+			nm_setting_ip_config_add_dns_option (NM_SETTING_IP_CONFIG (setting), strv[i]);
+	}
 	return TRUE;
 }
 
@@ -3530,14 +3672,21 @@ DEFINE_REMOVER_INDEX_OR_VALUE (_remove_fcn_ipv6_config_dns_options,
                                _validate_and_remove_ipv6_dns_option)
 
 static gboolean
+_dns_options_is_default (NMSettingIPConfig *setting)
+{
+	return    nm_setting_ip_config_has_dns_options (setting)
+	       && !nm_setting_ip_config_get_num_dns_options (setting);
+}
+
+static gboolean
 _set_fcn_ip6_config_addresses (ARGS_SET_FCN)
 {
-	gs_strfreev char **strv = NULL;
+	gs_free const char **strv = NULL;
 	const char *const*iter;
 	NMIPAddress *ip6addr;
 
-	strv = nmc_strsplit_set (value, ",", 0);
-	for (iter = (const char *const*) strv; *iter; iter++) {
+	strv = nm_utils_strsplit_set (value, ",");
+	for (iter = strv; strv && *iter; iter++) {
 		ip6addr = _parse_ip_address (AF_INET6, *iter, error);
 		if (!ip6addr)
 			return FALSE;
@@ -3592,12 +3741,12 @@ _set_fcn_ip6_config_gateway (ARGS_SET_FCN)
 static gboolean
 _set_fcn_ip6_config_routes (ARGS_SET_FCN)
 {
-	gs_strfreev char **strv = NULL;
+	gs_free const char **strv = NULL;
 	const char *const*iter;
 	NMIPRoute *ip6route;
 
-	strv = nmc_strsplit_set (value, ",", 0);
-	for (iter = (const char *const*) strv; *iter; iter++) {
+	strv = nm_utils_strsplit_set (value, ",");
+	for (iter = strv; strv && *iter; iter++) {
 		ip6route = _parse_ip_route (AF_INET6, *iter, error);
 		if (!ip6route)
 			return FALSE;
@@ -3636,7 +3785,7 @@ _set_fcn_ip6_config_ip6_privacy (ARGS_SET_FCN)
 {
 	unsigned long val_int;
 
-	g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+	nm_assert (!error || !*error);
 
 	if (!nmc_string_to_uint (value, FALSE, 0, 0, &val_int)) {
 		g_set_error (error, 1, 0, _("'%s' is not a number"), value);
@@ -3677,7 +3826,7 @@ _set_fcn_olpc_mesh_channel (ARGS_SET_FCN)
 {
 	unsigned long chan_int;
 
-	g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+	nm_assert (!error || !*error);
 
 	if (!nmc_string_to_uint (value, TRUE, 1, 13, &chan_int)) {
 		g_set_error (error, 1, 0, _("'%s' is not a valid channel; use <1-13>"), value);
@@ -3697,6 +3846,158 @@ _validate_fcn_proxy_pac_script (const char *value, char **out_to_free, GError **
 	RETURN_STR_TO_FREE (script);
 }
 
+static gconstpointer
+_get_fcn_tc_config_qdiscs (ARGS_GET_FCN)
+{
+	NMSettingTCConfig *s_tc = NM_SETTING_TC_CONFIG (setting);
+	GString *printable;
+	guint num_qdiscs, i;
+	NMTCQdisc *qdisc;
+	char *str;
+
+	RETURN_UNSUPPORTED_GET_TYPE ();
+
+	printable = g_string_new (NULL);
+
+	num_qdiscs = nm_setting_tc_config_get_num_qdiscs (s_tc);
+	for (i = 0; i < num_qdiscs; i++) {
+		qdisc = nm_setting_tc_config_get_qdisc (s_tc, i);
+
+		if (printable->len > 0)
+			g_string_append (printable, ", ");
+
+		str = nm_utils_tc_qdisc_to_str (qdisc, NULL);
+		if (str) {
+			g_string_append (printable, str);
+			g_free (str);
+		}
+	}
+
+	RETURN_STR_TO_FREE (g_string_free (printable, FALSE));
+}
+
+static gboolean
+_set_fcn_tc_config_qdiscs (ARGS_SET_FCN)
+{
+	gs_free const char **strv = NULL;
+	const char *const*iter;
+	NMTCQdisc *tc_qdisc;
+	GError *local = NULL;
+
+	strv = nm_utils_strsplit_set (value, ",");
+	for (iter = strv; strv && *iter; iter++) {
+		tc_qdisc = nm_utils_tc_qdisc_from_str (*iter, &local);
+		if (!tc_qdisc) {
+			g_set_error (error, 1, 0, "%s %s", local->message,
+			             _("The valid syntax is: '[root | parent <handle>] [handle <handle>] <qdisc>'"));
+			return FALSE;
+		}
+		nm_setting_tc_config_add_qdisc (NM_SETTING_TC_CONFIG (setting), tc_qdisc);
+		nm_tc_qdisc_unref (tc_qdisc);
+	}
+	return TRUE;
+}
+
+static gboolean
+_validate_and_remove_tc_qdisc (NMSettingTCConfig *setting,
+                               const char *value,
+                               GError **error)
+{
+	NMTCQdisc *qdisc;
+	gboolean ret;
+
+	qdisc = nm_utils_tc_qdisc_from_str (value, error);
+	if (!qdisc)
+		return FALSE;
+
+	ret = nm_setting_tc_config_remove_qdisc_by_value (setting, qdisc);
+	if (!ret)
+		g_set_error (error, 1, 0, _("the property doesn't contain qdisc '%s'"), value);
+	nm_tc_qdisc_unref (qdisc);
+	return ret;
+}
+DEFINE_REMOVER_INDEX_OR_VALUE (_remove_fcn_tc_config_qdiscs,
+                               NM_SETTING_TC_CONFIG,
+                               nm_setting_tc_config_get_num_qdiscs,
+                               nm_setting_tc_config_remove_qdisc,
+                               _validate_and_remove_tc_qdisc)
+
+static gconstpointer
+_get_fcn_tc_config_tfilters (ARGS_GET_FCN)
+{
+	NMSettingTCConfig *s_tc = NM_SETTING_TC_CONFIG (setting);
+	GString *printable;
+	guint num_tfilters, i;
+	NMTCTfilter *tfilter;
+	char *str;
+
+	RETURN_UNSUPPORTED_GET_TYPE ();
+
+	printable = g_string_new (NULL);
+
+	num_tfilters = nm_setting_tc_config_get_num_tfilters (s_tc);
+	for (i = 0; i < num_tfilters; i++) {
+		tfilter = nm_setting_tc_config_get_tfilter (s_tc, i);
+
+		if (printable->len > 0)
+			g_string_append (printable, ", ");
+
+		str = nm_utils_tc_tfilter_to_str (tfilter, NULL);
+		if (str) {
+			g_string_append (printable, str);
+			g_free (str);
+		}
+	}
+
+	RETURN_STR_TO_FREE (g_string_free (printable, FALSE));
+}
+
+static gboolean
+_set_fcn_tc_config_tfilters (ARGS_SET_FCN)
+{
+	gs_free const char **strv = NULL;
+	const char *const*iter;
+	NMTCTfilter *tc_tfilter;
+	GError *local = NULL;
+
+	strv = nm_utils_strsplit_set (value, ",");
+	for (iter = strv; strv && *iter; iter++) {
+		tc_tfilter = nm_utils_tc_tfilter_from_str (*iter, &local);
+		if (!tc_tfilter) {
+			g_set_error (error, 1, 0, "%s %s", local->message,
+			             _("The valid syntax is: '[root | parent <handle>] [handle <handle>] <tfilter>'"));
+			return FALSE;
+		}
+		nm_setting_tc_config_add_tfilter (NM_SETTING_TC_CONFIG (setting), tc_tfilter);
+		nm_tc_tfilter_unref (tc_tfilter);
+	}
+	return TRUE;
+}
+
+static gboolean
+_validate_and_remove_tc_tfilter (NMSettingTCConfig *setting,
+                               const char *value,
+                               GError **error)
+{
+	NMTCTfilter *tfilter;
+	gboolean ret;
+
+	tfilter = nm_utils_tc_tfilter_from_str (value, error);
+	if (!tfilter)
+		return FALSE;
+
+	ret = nm_setting_tc_config_remove_tfilter_by_value (setting, tfilter);
+	if (!ret)
+		g_set_error (error, 1, 0, _("the property doesn't contain tfilter '%s'"), value);
+	nm_tc_tfilter_unref (tfilter);
+	return ret;
+}
+DEFINE_REMOVER_INDEX_OR_VALUE (_remove_fcn_tc_config_tfilters,
+                               NM_SETTING_TC_CONFIG,
+                               nm_setting_tc_config_get_num_tfilters,
+                               nm_setting_tc_config_remove_tfilter,
+                               _validate_and_remove_tc_tfilter)
+
 static const char *
 _validate_fcn_team_config (const char *value, char **out_to_free, GError **error)
 {
@@ -3706,6 +4007,212 @@ _validate_fcn_team_config (const char *value, char **out_to_free, GError **error
 		return NULL;
 	RETURN_STR_TO_FREE (json);
 }
+
+static gboolean
+_is_valid_team_runner_tx_hash_element (const char *tx_hash_element,
+                                       GError **error)
+{
+	nm_assert (!error || !*error);
+
+	if (NM_IN_STRSET (tx_hash_element,
+	                  "eth", "vlan", "ipv4", "ipv6", "ip",
+	                  "l3", "tcp", "udp", "sctp", "l4")) {
+		return TRUE;
+	}
+
+	g_set_error (error, 1, 0, "'%s' is not valid. %s", tx_hash_element,
+	             "Valid tx-hashes: [eth, vlan, ipv4, ipv6, ip, l3, tcp, udp, sctp, l4]");
+	return FALSE;
+}
+
+static gboolean
+_set_fcn_team_runner_tx_hash (ARGS_SET_FCN)
+{
+	gs_free const char **strv = NULL;
+	const char *const*iter;
+
+	nm_assert (!error || !*error);
+
+	strv = nm_utils_strsplit_set (value, " \t,");
+	for (iter = strv; strv && *iter; iter++) {
+		if (!_is_valid_team_runner_tx_hash_element (*iter, error))
+			return FALSE;
+	}
+
+	while (nm_setting_team_get_num_runner_tx_hash (NM_SETTING_TEAM (setting)))
+		nm_setting_team_remove_runner_tx_hash (NM_SETTING_TEAM (setting), 0);
+
+	for (iter = strv; strv && *iter; iter++)
+		nm_setting_team_add_runner_tx_hash (NM_SETTING_TEAM (setting), *iter);
+
+	return TRUE;
+}
+
+static gboolean
+_validate_and_remove_team_runner_tx_hash (NMSettingTeam *setting,
+                                         const char *tx_hash,
+                                         GError **error)
+{
+	if (!nm_setting_team_remove_runner_tx_hash_by_value (setting, tx_hash)) {
+		g_set_error (error, 1, 0,
+		             _("the property doesn't contain string '%s'"),
+		             tx_hash);
+		return FALSE;
+	}
+
+	return TRUE;
+}
+DEFINE_REMOVER_INDEX_OR_VALUE (_remove_fcn_team_runner_tx_hash,
+                               NM_SETTING_TEAM,
+                               nm_setting_team_get_num_runner_tx_hash,
+                               nm_setting_team_remove_runner_tx_hash,
+                               _validate_and_remove_team_runner_tx_hash)
+
+static gconstpointer
+_get_fcn_team_link_watchers (ARGS_GET_FCN)
+{
+	NMSettingTeam *s_team = NM_SETTING_TEAM (setting);
+	GString *printable;
+	guint num_watchers, i;
+	NMTeamLinkWatcher *watcher;
+	char *watcher_str;
+
+	RETURN_UNSUPPORTED_GET_TYPE ();
+
+	printable = g_string_new (NULL);
+
+	num_watchers = nm_setting_team_get_num_link_watchers (s_team);
+	for (i = 0; i < num_watchers; i++) {
+		watcher = nm_setting_team_get_link_watcher (s_team, i);
+		watcher_str = _dump_team_link_watcher (watcher);
+		if (watcher_str) {
+			if (printable->len > 0)
+				g_string_append (printable, ", ");
+			g_string_append (printable, watcher_str);
+			g_free (watcher_str);
+		}
+	}
+
+	RETURN_STR_TO_FREE (g_string_free (printable, FALSE));
+}
+
+static gboolean
+_set_fcn_team_link_watchers (ARGS_SET_FCN)
+{
+	gs_free const char **strv = NULL;
+	const char *const*iter;
+	NMTeamLinkWatcher *watcher;
+
+	nm_setting_team_clear_link_watchers (NM_SETTING_TEAM (setting));
+	strv = nm_utils_strsplit_set (value, ",");
+	for (iter = strv; strv && *iter; iter++) {
+		watcher = _parse_team_link_watcher (*iter, error);
+		if (!watcher)
+			return FALSE;
+		nm_setting_team_add_link_watcher (NM_SETTING_TEAM (setting), watcher);
+		nm_team_link_watcher_unref (watcher);
+	}
+	return TRUE;
+}
+
+static gboolean
+_validate_and_remove_team_link_watcher (NMSettingTeam *setting,
+                                        const char *watcher_str,
+                                        GError **error)
+{
+	NMTeamLinkWatcher *watcher;
+	gboolean ret;
+
+	watcher = _parse_team_link_watcher (watcher_str, error);
+	if (!watcher)
+		return FALSE;
+
+	ret = nm_setting_team_remove_link_watcher_by_value (setting, watcher);
+	if (!ret) {
+		g_set_error (error, 1, 0, _("the property doesn't contain link watcher '%s'"),
+		             watcher_str);
+	}
+	nm_team_link_watcher_unref (watcher);
+	return ret;
+}
+DEFINE_REMOVER_INDEX_OR_VALUE (_remove_fcn_team_link_watchers,
+                               NM_SETTING_TEAM,
+                               nm_setting_team_get_num_link_watchers,
+                               nm_setting_team_remove_link_watcher,
+                               _validate_and_remove_team_link_watcher)
+
+static gconstpointer
+_get_fcn_team_port_link_watchers (ARGS_GET_FCN)
+{
+	NMSettingTeamPort *s_team_port = NM_SETTING_TEAM_PORT (setting);
+	GString *printable;
+	guint num_watchers, i;
+	NMTeamLinkWatcher *watcher;
+	char *watcher_str;
+
+	RETURN_UNSUPPORTED_GET_TYPE ();
+
+	printable = g_string_new (NULL);
+
+	num_watchers = nm_setting_team_port_get_num_link_watchers (s_team_port);
+	for (i = 0; i < num_watchers; i++) {
+		watcher = nm_setting_team_port_get_link_watcher (s_team_port, i);
+		watcher_str = _dump_team_link_watcher (watcher);
+		if (watcher_str) {
+			if (printable->len > 0)
+				g_string_append (printable, ", ");
+			g_string_append (printable, watcher_str);
+			g_free (watcher_str);
+		}
+	}
+
+	RETURN_STR_TO_FREE (g_string_free (printable, FALSE));
+}
+
+static gboolean
+_set_fcn_team_port_link_watchers (ARGS_SET_FCN)
+{
+	gs_free const char **strv = NULL;
+	const char *const*iter;
+	NMTeamLinkWatcher *watcher;
+
+	nm_setting_team_port_clear_link_watchers (NM_SETTING_TEAM_PORT (setting));
+	strv = nm_utils_strsplit_set (value, ",");
+	for (iter = strv; strv && *iter; iter++) {
+		watcher = _parse_team_link_watcher (*iter, error);
+		if (!watcher)
+			return FALSE;
+		nm_setting_team_port_add_link_watcher (NM_SETTING_TEAM_PORT (setting), watcher);
+		nm_team_link_watcher_unref (watcher);
+	}
+	return TRUE;
+}
+
+static gboolean
+_validate_and_remove_team_port_link_watcher (NMSettingTeamPort *setting,
+                                             const char *watcher_str,
+                                             GError **error)
+{
+	NMTeamLinkWatcher *watcher;
+	gboolean ret;
+
+	watcher = _parse_team_link_watcher (watcher_str, error);
+	if (!watcher)
+		return FALSE;
+
+	ret = nm_setting_team_port_remove_link_watcher_by_value (setting, watcher);
+	if (!ret) {
+		g_set_error (error, 1, 0, _("the property doesn't contain link watcher '%s'"),
+		             watcher_str);
+	}
+	nm_team_link_watcher_unref (watcher);
+	return ret;
+}
+DEFINE_REMOVER_INDEX_OR_VALUE (_remove_fcn_team_port_link_watchers,
+                               NM_SETTING_TEAM_PORT,
+                               nm_setting_team_port_get_num_link_watchers,
+                               nm_setting_team_port_remove_link_watcher,
+                               _validate_and_remove_team_port_link_watcher)
 
 static gconstpointer
 _get_fcn_vlan_flags (ARGS_GET_FCN)
@@ -3932,20 +4439,18 @@ DEFINE_REMOVER_INDEX_OR_VALUE (_remove_fcn_wired_mac_address_blacklist,
 static gboolean
 _set_fcn_wired_s390_subchannels (ARGS_SET_FCN)
 {
-	char **strv = NULL;
-	int len;
+	gs_free const char **strv = NULL;
+	gsize len;
 
-	strv = nmc_strsplit_set (value, " ,\t", 0);
-	len = g_strv_length (strv);
+	strv = nm_utils_strsplit_set (value, " ,\t");
+	len = NM_PTRARRAY_LEN (strv);
 	if (len != 2 && len != 3) {
 		g_set_error (error, 1, 0, _("'%s' is not valid; 2 or 3 strings should be provided"),
 		             value);
-		g_strfreev (strv);
 		return FALSE;
 	}
 
 	g_object_set (setting, property_info->property_name, strv, NULL);
-	g_strfreev (strv);
 	return TRUE;
 }
 
@@ -4017,7 +4522,7 @@ _set_fcn_wireless_channel (ARGS_SET_FCN)
 {
 	unsigned long chan_int;
 
-	g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+	nm_assert (!error || !*error);
 
 	if (!nmc_string_to_uint (value, FALSE, 0, 0, &chan_int)) {
 		g_set_error (error, 1, 0, _("'%s' is not a valid channel"), value);
@@ -4213,7 +4718,7 @@ _set_fcn_wireless_wep_key (ARGS_SET_FCN)
 	NMWepKeyType type;
 	guint32 prev_idx, idx;
 
-	g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+	nm_assert (!error || !*error);
 
 	/* Get currently set type */
 	type = nm_setting_wireless_security_get_wep_key_type (NM_SETTING_WIRELESS_SECURITY (setting));
@@ -4494,6 +4999,7 @@ static const NMMetaPropertyType _pt_gobject_mac = {
 static const NMMetaPropertyType _pt_gobject_secret_flags = {
 	.get_fcn =                      _get_fcn_gobject_secret_flags,
 	.set_fcn =                      _set_fcn_gobject_secret_flags,
+	.values_fcn =                   _values_fcn_gobject_enum,
 };
 
 static const NMMetaPropertyType _pt_gobject_enum = {
@@ -4510,7 +5016,7 @@ static const NMMetaPropertyType _pt_gobject_devices = {
 
 /*****************************************************************************/
 
-#include "settings-docs.c"
+#include "settings-docs.h"
 #include "settings-docs-laird.c"
 
 /*****************************************************************************/
@@ -4552,6 +5058,24 @@ static const NMMetaPropertyType _pt_gobject_devices = {
 	   "Examples: set team.config " \
 	   "{ \"device\": \"team0\", \"runner\": {\"name\": \"roundrobin\"}, \"ports\": {\"eth1\": {}, \"eth2\": {}} }\n" \
 	   "          set team.config /etc/my-team.conf\n")
+
+#define TEAM_LINK_WATCHERS_DESCRIBE_MESSAGE \
+	N_("Enter a list of link watchers formatted as dictionaries where the keys " \
+	   "are teamd properties. Dictionary pairs are in the form: key=value and pairs " \
+	   "are separated by ' '. Dictionaries are separated with ','.\n" \
+	   "The keys allowed/required in the dictionary change on the basis of the link " \
+	   "watcher type, while the only property common to all the link watchers is " \
+	   " 'name'*, which defines the link watcher to be specified.\n\n" \
+	   "Properties available for the 'ethtool' link watcher:\n" \
+	   "  'delay-up', 'delay-down'\n\n" \
+	   "Properties available for the 'nsna_ping' link watcher:\n" \
+	   "  'init-wait', 'interval', 'missed-max', 'target-host'*\n\n" \
+	   "Properties available for the 'arp_ping' include all the ones for 'nsna_ping' and:\n" \
+	   "  'source-host'*, 'validate-active', 'validate-inactive', 'send-always'.\n\n" \
+	   "Properties flagged with a '*' are mandatory.\n\n" \
+	   "Example:\n" \
+	   "   name=arp_ping source-host=172.16.1.1 target-host=172.16.1.254, name=ethtool delay-up=3\n")
+
 
 #define DEFINE_DCB_PROPRITY_PROPERTY_TYPE \
 		.property_type =                &_pt_gobject_int, \
@@ -5198,6 +5722,14 @@ static const NMMetaPropertyInfo *const property_infos_CONNECTION[] = {
 			                            | NM_META_PROPERTY_TYP_FLAG_ENUM_GET_PRETTY_TEXT,
 		),
 	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_CONNECTION_MDNS,
+		.property_type =                &_pt_gobject_enum,
+		.property_typ_data = DEFINE_PROPERTY_TYP_DATA (
+			PROPERTY_TYP_DATA_SUBTYPE (gobject_enum,
+				.get_gtype =            nm_setting_connection_mdns_get_type,
+			),
+		),
+	),
 	NULL
 };
 
@@ -5440,7 +5972,7 @@ static const NMMetaPropertyInfo *const property_infos_IP4_CONFIG[] = {
 			.remove_fcn =               _remove_fcn_ipv4_config_dns_options,
 		),
 		.property_typ_data = DEFINE_PROPERTY_TYP_DATA_SUBTYPE (get_with_default,
-			.fcn =                      GET_FCN_WITH_DEFAULT (NMSettingIPConfig, nm_setting_ip_config_has_dns_options),
+			.fcn =                      GET_FCN_WITH_DEFAULT (NMSettingIPConfig, _dns_options_is_default),
 		),
 	),
 	PROPERTY_INFO (NM_SETTING_IP_CONFIG_DNS_PRIORITY, DESCRIBE_DOC_NM_SETTING_IP4_CONFIG_DNS_PRIORITY,
@@ -5603,7 +6135,7 @@ static const NMMetaPropertyInfo *const property_infos_IP6_CONFIG[] = {
 			.remove_fcn =               _remove_fcn_ipv6_config_dns_options,
 		),
 		.property_typ_data = DEFINE_PROPERTY_TYP_DATA_SUBTYPE (get_with_default,
-			.fcn =     GET_FCN_WITH_DEFAULT (NMSettingIPConfig, nm_setting_ip_config_has_dns_options),
+			.fcn =     GET_FCN_WITH_DEFAULT (NMSettingIPConfig, _dns_options_is_default),
 		),
 	),
 	PROPERTY_INFO (NM_SETTING_IP_CONFIG_DNS_PRIORITY, DESCRIBE_DOC_NM_SETTING_IP6_CONFIG_DNS_PRIORITY,
@@ -5768,6 +6300,14 @@ static const NMMetaPropertyInfo *const property_infos_IP_TUNNEL[] = {
 	),
 	PROPERTY_INFO_WITH_DESC (NM_SETTING_IP_TUNNEL_MTU,
 		.property_type =                &_pt_gobject_mtu,
+	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_IP_TUNNEL_FLAGS,
+		.property_type =                &_pt_gobject_enum,
+		.property_typ_data = DEFINE_PROPERTY_TYP_DATA (
+			PROPERTY_TYP_DATA_SUBTYPE (gobject_enum,
+				.get_gtype =            nm_ip_tunnel_flags_get_type,
+			),
+		),
 	),
 	NULL
 };
@@ -6118,6 +6658,26 @@ static const NMMetaPropertyInfo *const property_infos_PROXY[] = {
 };
 
 #undef  _CURRENT_NM_META_SETTING_TYPE
+#define _CURRENT_NM_META_SETTING_TYPE NM_META_SETTING_TYPE_TC_CONFIG
+static const NMMetaPropertyInfo *const property_infos_TC_CONFIG[] = {
+	PROPERTY_INFO (NM_SETTING_TC_CONFIG_QDISCS, DESCRIBE_DOC_NM_SETTING_TC_CONFIG_QDISCS,
+		.property_type = DEFINE_PROPERTY_TYPE (
+			.get_fcn =                  _get_fcn_tc_config_qdiscs,
+			.set_fcn =                  _set_fcn_tc_config_qdiscs,
+			.remove_fcn =               _remove_fcn_tc_config_qdiscs,
+		),
+	),
+	PROPERTY_INFO (NM_SETTING_TC_CONFIG_TFILTERS, DESCRIBE_DOC_NM_SETTING_TC_CONFIG_TFILTERS,
+		.property_type = DEFINE_PROPERTY_TYPE (
+			.get_fcn =                  _get_fcn_tc_config_tfilters,
+			.set_fcn =                  _set_fcn_tc_config_tfilters,
+			.remove_fcn =               _remove_fcn_tc_config_tfilters,
+		),
+	),
+	NULL
+};
+
+#undef  _CURRENT_NM_META_SETTING_TYPE
 #define _CURRENT_NM_META_SETTING_TYPE NM_META_SETTING_TYPE_TEAM
 static const NMMetaPropertyInfo *const property_infos_TEAM[] = {
 	PROPERTY_INFO_WITH_DESC (NM_SETTING_TEAM_CONFIG,
@@ -6128,6 +6688,139 @@ static const NMMetaPropertyInfo *const property_infos_TEAM[] = {
 		.property_type =                &_pt_gobject_string,
 		.property_typ_data = DEFINE_PROPERTY_TYP_DATA_SUBTYPE (gobject_string,
 			.validate_fcn =             _validate_fcn_team_config,
+		),
+	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_TEAM_NOTIFY_PEERS_COUNT,
+		.property_type =                &_pt_gobject_int,
+		.property_typ_data = DEFINE_PROPERTY_TYP_DATA_SUBTYPE (gobject_int,
+		        .value_infos =          INT_VALUE_INFOS (
+				{
+					.value = 0,
+					.nick = "disabled",
+				}
+			),
+		),
+	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_TEAM_NOTIFY_PEERS_INTERVAL,
+		.property_type =                &_pt_gobject_int,
+		.property_typ_data = DEFINE_PROPERTY_TYP_DATA_SUBTYPE (gobject_int,
+		        .value_infos =          INT_VALUE_INFOS (
+				{
+					.value = 0,
+					.nick = "default",
+				}
+			),
+		),
+	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_TEAM_MCAST_REJOIN_COUNT,
+		.property_type =                &_pt_gobject_int,
+		.property_typ_data = DEFINE_PROPERTY_TYP_DATA_SUBTYPE (gobject_int,
+		        .value_infos =          INT_VALUE_INFOS (
+				{
+					.value = 0,
+					.nick = "disabled",
+				}
+			),
+		),
+	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_TEAM_MCAST_REJOIN_INTERVAL,
+		.property_type =                &_pt_gobject_int,
+		.property_typ_data = DEFINE_PROPERTY_TYP_DATA_SUBTYPE (gobject_int,
+		        .value_infos =          INT_VALUE_INFOS (
+				{
+					.value = 0,
+					.nick = "default",
+				}
+			),
+		),
+	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_TEAM_RUNNER,
+		.property_type =                &_pt_gobject_string,
+		.property_typ_data = DEFINE_PROPERTY_TYP_DATA (
+			.values_static =            VALUES_STATIC (NM_SETTING_TEAM_RUNNER_BROADCAST,
+			                                           NM_SETTING_TEAM_RUNNER_ROUNDROBIN,
+			                                           NM_SETTING_TEAM_RUNNER_RANDOM,
+			                                           NM_SETTING_TEAM_RUNNER_ACTIVEBACKUP,
+			                                           NM_SETTING_TEAM_RUNNER_LOADBALANCE,
+			                                           NM_SETTING_TEAM_RUNNER_LACP),
+		),
+	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_TEAM_RUNNER_HWADDR_POLICY,
+		.property_type =                &_pt_gobject_string,
+		.property_typ_data = DEFINE_PROPERTY_TYP_DATA (
+			.values_static =            VALUES_STATIC (NM_SETTING_TEAM_RUNNER_HWADDR_POLICY_SAME_ALL,
+			                                           NM_SETTING_TEAM_RUNNER_HWADDR_POLICY_BY_ACTIVE,
+			                                           NM_SETTING_TEAM_RUNNER_HWADDR_POLICY_ONLY_ACTIVE),
+		),
+	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_TEAM_RUNNER_TX_HASH,
+		.property_type =  DEFINE_PROPERTY_TYPE (
+			.get_fcn =                   _get_fcn_gobject,
+			.set_fcn =                   _set_fcn_team_runner_tx_hash,
+			.remove_fcn =                _remove_fcn_team_runner_tx_hash,
+		),
+	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_TEAM_RUNNER_TX_BALANCER,
+		.property_type =                &_pt_gobject_string,
+		.property_typ_data = DEFINE_PROPERTY_TYP_DATA (
+			.values_static =            VALUES_STATIC ("basic"),
+		),
+	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_TEAM_RUNNER_TX_BALANCER_INTERVAL,
+		.property_type =                &_pt_gobject_int,
+		.property_typ_data = DEFINE_PROPERTY_TYP_DATA_SUBTYPE (gobject_int,
+		        .value_infos =          INT_VALUE_INFOS (
+				{
+					.value = NM_SETTING_TEAM_RUNNER_TX_BALANCER_INTERVAL_DEFAULT,
+					.nick = "default",
+				}
+			),
+		),
+	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_TEAM_RUNNER_ACTIVE,
+		.property_type =                & _pt_gobject_bool,
+	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_TEAM_RUNNER_FAST_RATE,
+		.property_type =                & _pt_gobject_bool,
+	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_TEAM_RUNNER_SYS_PRIO,
+		.property_type =                &_pt_gobject_int,
+		.property_typ_data = DEFINE_PROPERTY_TYP_DATA_SUBTYPE (gobject_int,
+		        .value_infos =          INT_VALUE_INFOS (
+				{
+					.value = NM_SETTING_TEAM_RUNNER_SYS_PRIO_DEFAULT,
+					.nick = "default",
+				}
+			),
+		),
+	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_TEAM_RUNNER_MIN_PORTS,
+		.property_type =                &_pt_gobject_int,
+		.property_typ_data = DEFINE_PROPERTY_TYP_DATA_SUBTYPE (gobject_int,
+		        .value_infos =          INT_VALUE_INFOS (
+				{
+					.value = 0,
+					.nick = "default",
+				}
+			),
+		),
+	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_TEAM_RUNNER_AGG_SELECT_POLICY,
+		.property_type =                &_pt_gobject_string,
+		.property_typ_data = DEFINE_PROPERTY_TYP_DATA (
+			.values_static =            VALUES_STATIC (NM_SETTING_TEAM_RUNNER_AGG_SELECT_POLICY_LACP_PRIO,
+			                                           NM_SETTING_TEAM_RUNNER_AGG_SELECT_POLICY_LACP_PRIO_STABLE,
+			                                           NM_SETTING_TEAM_RUNNER_AGG_SELECT_POLICY_BANDWIDTH,
+			                                           NM_SETTING_TEAM_RUNNER_AGG_SELECT_POLICY_COUNT,
+			                                           NM_SETTING_TEAM_RUNNER_AGG_SELECT_POLICY_PORT_CONFIG),
+		),
+	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_TEAM_LINK_WATCHERS,
+		.describe_message =             TEAM_LINK_WATCHERS_DESCRIBE_MESSAGE,
+		.property_type = DEFINE_PROPERTY_TYPE (
+			.get_fcn =                  _get_fcn_team_link_watchers,
+			.set_fcn =                  _set_fcn_team_link_watchers,
+			.remove_fcn =               _remove_fcn_team_link_watchers,
 		),
 	),
 	NULL
@@ -6144,6 +6837,61 @@ static const NMMetaPropertyInfo *const property_infos_TEAM_PORT[] = {
 		.property_type =                &_pt_gobject_string,
 		.property_typ_data = DEFINE_PROPERTY_TYP_DATA_SUBTYPE (gobject_string,
 			.validate_fcn =             _validate_fcn_team_config,
+		),
+	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_TEAM_PORT_QUEUE_ID,
+		.property_type =                &_pt_gobject_int,
+		.property_typ_data = DEFINE_PROPERTY_TYP_DATA_SUBTYPE (gobject_int,
+			.value_infos =          INT_VALUE_INFOS (
+				{
+					.value = NM_SETTING_TEAM_PORT_QUEUE_ID_DEFAULT,
+					.nick = "default",
+				}
+			),
+		),
+	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_TEAM_PORT_PRIO,
+		.property_type =                &_pt_gobject_int,
+		.property_typ_data = DEFINE_PROPERTY_TYP_DATA_SUBTYPE (gobject_int,
+			.value_infos =          INT_VALUE_INFOS (
+				{
+					.value = 0,
+					.nick = "default",
+				}
+			),
+		),
+	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_TEAM_PORT_STICKY,
+		.property_type =                &_pt_gobject_bool,
+	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_TEAM_PORT_LACP_PRIO,
+		.property_type =                &_pt_gobject_int,
+		.property_typ_data = DEFINE_PROPERTY_TYP_DATA_SUBTYPE (gobject_int,
+			.value_infos =          INT_VALUE_INFOS (
+				{
+					.value = NM_SETTING_TEAM_PORT_LACP_PRIO_DEFAULT,
+					.nick = "default",
+				}
+			),
+		),
+	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_TEAM_PORT_LACP_KEY,
+		.property_type =                &_pt_gobject_int,
+		.property_typ_data = DEFINE_PROPERTY_TYP_DATA_SUBTYPE (gobject_int,
+			.value_infos =          INT_VALUE_INFOS (
+				{
+					.value = 0,
+					.nick = "default",
+				}
+			),
+		),
+	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_TEAM_PORT_LINK_WATCHERS,
+		.describe_message =             TEAM_LINK_WATCHERS_DESCRIBE_MESSAGE,
+		.property_type = DEFINE_PROPERTY_TYPE (
+			.get_fcn =                  _get_fcn_team_port_link_watchers,
+			.set_fcn =                  _set_fcn_team_port_link_watchers,
+			.remove_fcn =               _remove_fcn_team_port_link_watchers,
 		),
 	),
 	NULL
@@ -6831,6 +7579,14 @@ static const NMMetaPropertyInfo *const property_infos_WIRELESS_SECURITY[] = {
 			),
 		),
 	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_WIRELESS_SECURITY_FILS,
+		.property_type =                &_pt_gobject_enum,
+		.property_typ_data = DEFINE_PROPERTY_TYP_DATA (
+			PROPERTY_TYP_DATA_SUBTYPE (gobject_enum,
+				.get_gtype =            nm_setting_wireless_security_fils_get_type,
+			),
+		),
+	),
 	PROPERTY_INFO_WITH_DESC (NM_SETTING_WIRELESS_SECURITY_PROACTIVE_KEY_CACHING,
 		.property_type =                &_pt_gobject_string,
 		.property_typ_data = DEFINE_PROPERTY_TYP_DATA (
@@ -6988,6 +7744,7 @@ _setting_init_fcn_wireless (ARGS_SETTING_INIT_FCN)
 #define SETTING_PRETTY_NAME_PPPOE               N_("PPPoE")
 #define SETTING_PRETTY_NAME_PROXY               N_("Proxy")
 #define SETTING_PRETTY_NAME_SERIAL              N_("Serial settings")
+#define SETTING_PRETTY_NAME_TC_CONFIG           N_("Traffic controls")
 #define SETTING_PRETTY_NAME_TEAM                N_("Team device")
 #define SETTING_PRETTY_NAME_TEAM_PORT           N_("Team port")
 #define SETTING_PRETTY_NAME_TUN                 N_("Tun device")
@@ -7173,6 +7930,7 @@ const NMMetaSettingInfoEditor nm_meta_setting_infos_editor[] = {
 		.setting_init_fcn =             _setting_init_fcn_proxy,
 	),
 	SETTING_INFO (SERIAL),
+	SETTING_INFO (TC_CONFIG),
 	SETTING_INFO (TEAM,
 		.valid_parts = NM_META_SETTING_VALID_PARTS (
 			NM_META_SETTING_VALID_PART_ITEM (CONNECTION,            TRUE),
@@ -7253,6 +8011,7 @@ const NMMetaSettingValidPartItem *const nm_meta_setting_info_valid_parts_default
 static const NMMetaSettingValidPartItem *const valid_settings_noslave[] = {
 	NM_META_SETTING_VALID_PART_ITEM (IP4_CONFIG, FALSE),
 	NM_META_SETTING_VALID_PART_ITEM (IP6_CONFIG, FALSE),
+	NM_META_SETTING_VALID_PART_ITEM (TC_CONFIG,  FALSE),
 	NM_META_SETTING_VALID_PART_ITEM (PROXY,      FALSE),
 	NULL,
 };

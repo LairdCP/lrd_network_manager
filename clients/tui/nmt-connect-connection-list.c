@@ -13,7 +13,7 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  *
- * Copyright 2013 Red Hat, Inc.
+ * Copyright 2013 - 2017 Red Hat, Inc.
  */
 
 /**
@@ -28,12 +28,9 @@
 
 #include <stdlib.h>
 
-#include "NetworkManager.h"
-
-#include "nm-utils/nm-hash-utils.h"
-
 #include "nmtui.h"
 #include "nmt-connect-connection-list.h"
+#include "nm-client-utils.h"
 
 G_DEFINE_TYPE (NmtConnectConnectionList, nmt_connect_connection_list, NMT_TYPE_NEWT_LISTBOX)
 
@@ -527,7 +524,7 @@ nmt_connect_connection_list_rebuild (NmtConnectConnectionList *list)
 			if (nmtconn->ap) {
 				guint8 strength = nm_access_point_get_strength (nmtconn->ap);
 
-				strength_col = nm_utils_wifi_strength_bars (strength);
+				strength_col = nmc_wifi_strength_bars (strength);
 			} else
 				strength_col = NULL;
 

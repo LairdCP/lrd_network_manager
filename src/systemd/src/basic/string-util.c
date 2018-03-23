@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: LGPL-2.1+ */
 /***
   This file is part of systemd.
 
@@ -23,6 +24,7 @@
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdio_ext.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -30,6 +32,7 @@
 #include "gunicode.h"
 #include "macro.h"
 #include "string-util.h"
+#include "terminal-util.h"
 #include "utf8.h"
 #include "util.h"
 
@@ -220,6 +223,7 @@ char *strappend(const char *s, const char *suffix) {
         return strnappend(s, suffix, strlen_ptr(suffix));
 }
 
+#if 0 /* NM_IGNORED */
 char *strjoin_real(const char *x, ...) {
         va_list ap;
         size_t l;
@@ -280,6 +284,9 @@ char *strjoin_real(const char *x, ...) {
 char *strstrip(char *s) {
         char *e;
 
+        if (!s)
+                return NULL;
+
         /* Drops trailing whitespace. Modifies the string in
          * place. Returns pointer to first non-space character */
 
@@ -297,7 +304,13 @@ char *strstrip(char *s) {
 char *delete_chars(char *s, const char *bad) {
         char *f, *t;
 
-        /* Drops all whitespace, regardless where in the string */
+        /* Drops all specified bad characters, regardless where in the string */
+
+        if (!s)
+                return NULL;
+
+        if (!bad)
+                bad = WHITESPACE;
 
         for (f = s, t = s; *f; f++) {
                 if (strchr(bad, *f))
@@ -310,6 +323,27 @@ char *delete_chars(char *s, const char *bad) {
 
         return s;
 }
+
+char *delete_trailing_chars(char *s, const char *bad) {
+        char *p, *c = s;
+
+        /* Drops all specified bad characters, at the end of the string */
+
+        if (!s)
+                return NULL;
+
+        if (!bad)
+                bad = WHITESPACE;
+
+        for (p = s; *p; p++)
+                if (!strchr(bad, *p))
+                        c = p + 1;
+
+        *c = 0;
+
+        return s;
+}
+#endif /* NM_IGNORED */
 
 char *truncate_nl(char *s) {
         assert(s);
@@ -475,6 +509,10 @@ char *ellipsize_mem(const char *s, size_t old_length, size_t new_length, unsigne
 
         assert(s);
         assert(percent <= 100);
+
+        if (new_length == (size_t) -1)
+                return strndup(s, old_length);
+
         assert(new_length >= 3);
 
         /* if no multibyte characters use ascii_ellipsize_mem for speed */
@@ -542,6 +580,10 @@ char *ellipsize_mem(const char *s, size_t old_length, size_t new_length, unsigne
 }
 
 char *ellipsize(const char *s, size_t length, unsigned percent) {
+
+        if (length == (size_t) -1)
+                return strdup(s);
+
         return ellipsize_mem(s, strlen(s), length, percent);
 }
 #endif /* NM_IGNORED */
@@ -569,26 +611,26 @@ char* strshorten(char *s, size_t l) {
 }
 
 char *strreplace(const char *text, const char *old_string, const char *new_string) {
+        size_t l, old_len, new_len, allocated = 0;
+        char *t, *ret = NULL;
         const char *f;
-        char *t, *r;
-        size_t l, old_len, new_len;
 
-        assert(text);
         assert(old_string);
         assert(new_string);
+
+        if (!text)
+                return NULL;
 
         old_len = strlen(old_string);
         new_len = strlen(new_string);
 
         l = strlen(text);
-        r = new(char, l+1);
-        if (!r)
+        if (!GREEDY_REALLOC(ret, allocated, l+1))
                 return NULL;
 
         f = text;
-        t = r;
+        t = ret;
         while (*f) {
-                char *a;
                 size_t d, nl;
 
                 if (!startswith(f, old_string)) {
@@ -596,28 +638,34 @@ char *strreplace(const char *text, const char *old_string, const char *new_strin
                         continue;
                 }
 
-                d = t - r;
+                d = t - ret;
                 nl = l - old_len + new_len;
-                a = realloc(r, nl + 1);
-                if (!a)
-                        goto oom;
+
+                if (!GREEDY_REALLOC(ret, allocated, nl + 1))
+                        return mfree(ret);
 
                 l = nl;
-                r = a;
-                t = r + d;
+                t = ret + d;
 
                 t = stpcpy(t, new_string);
                 f += old_len;
         }
 
         *t = 0;
-        return r;
-
-oom:
-        return mfree(r);
+        return ret;
 }
 
-char *strip_tab_ansi(char **ibuf, size_t *_isz) {
+static void advance_offsets(ssize_t diff, size_t offsets[2], size_t shift[2], size_t size) {
+        if (!offsets)
+                return;
+
+        if ((size_t) diff < offsets[0])
+                shift[0] += size;
+        if ((size_t) diff < offsets[1])
+                shift[1] += size;
+}
+
+char *strip_tab_ansi(char **ibuf, size_t *_isz, size_t highlight[2]) {
         const char *i, *begin = NULL;
         enum {
                 STATE_OTHER,
@@ -625,7 +673,7 @@ char *strip_tab_ansi(char **ibuf, size_t *_isz) {
                 STATE_BRACKET
         } state = STATE_OTHER;
         char *obuf = NULL;
-        size_t osz = 0, isz;
+        size_t osz = 0, isz, shift[2] = {};
         FILE *f;
 
         assert(ibuf);
@@ -639,10 +687,10 @@ char *strip_tab_ansi(char **ibuf, size_t *_isz) {
         if (!f)
                 return NULL;
 
-        /* Note we use the _unlocked() stdio variants on f for performance
-         * reasons.  It's safe to do so since we created f here and it
-         * doesn't leave our scope.
-         */
+        /* Note we turn off internal locking on f for performance reasons.  It's safe to do so since we created f here
+         * and it doesn't leave our scope. */
+
+        (void) __fsetlocking(f, FSETLOCKING_BYCALLER);
 
         for (i = *ibuf; i < *ibuf + isz + 1; i++) {
 
@@ -653,22 +701,26 @@ char *strip_tab_ansi(char **ibuf, size_t *_isz) {
                                 break;
                         else if (*i == '\x1B')
                                 state = STATE_ESCAPE;
-                        else if (*i == '\t')
-                                fputs_unlocked("        ", f);
-                        else
-                                fputc_unlocked(*i, f);
+                        else if (*i == '\t') {
+                                fputs("        ", f);
+                                advance_offsets(i - *ibuf, highlight, shift, 7);
+                        } else
+                                fputc(*i, f);
+
                         break;
 
                 case STATE_ESCAPE:
                         if (i >= *ibuf + isz) { /* EOT */
-                                fputc_unlocked('\x1B', f);
+                                fputc('\x1B', f);
+                                advance_offsets(i - *ibuf, highlight, shift, 1);
                                 break;
                         } else if (*i == '[') {
                                 state = STATE_BRACKET;
                                 begin = i + 1;
                         } else {
-                                fputc_unlocked('\x1B', f);
-                                fputc_unlocked(*i, f);
+                                fputc('\x1B', f);
+                                fputc(*i, f);
+                                advance_offsets(i - *ibuf, highlight, shift, 1);
                                 state = STATE_OTHER;
                         }
 
@@ -678,8 +730,9 @@ char *strip_tab_ansi(char **ibuf, size_t *_isz) {
 
                         if (i >= *ibuf + isz || /* EOT */
                             (!(*i >= '0' && *i <= '9') && !IN_SET(*i, ';', 'm'))) {
-                                fputc_unlocked('\x1B', f);
-                                fputc_unlocked('[', f);
+                                fputc('\x1B', f);
+                                fputc('[', f);
+                                advance_offsets(i - *ibuf, highlight, shift, 2);
                                 state = STATE_OTHER;
                                 i = begin-1;
                         } else if (*i == 'm')
@@ -701,19 +754,29 @@ char *strip_tab_ansi(char **ibuf, size_t *_isz) {
         if (_isz)
                 *_isz = osz;
 
+        if (highlight) {
+                highlight[0] += shift[0];
+                highlight[1] += shift[1];
+        }
+
         return obuf;
 }
 
-char *strextend(char **x, ...) {
-        va_list ap;
-        size_t f, l;
+#if 0 /* NM_IGNORED */
+char *strextend_with_separator(char **x, const char *separator, ...) {
+        bool need_separator;
+        size_t f, l, l_separator;
         char *r, *p;
+        va_list ap;
 
         assert(x);
 
         l = f = strlen_ptr(*x);
 
-        va_start(ap, x);
+        need_separator = !isempty(*x);
+        l_separator = strlen_ptr(separator);
+
+        va_start(ap, separator);
         for (;;) {
                 const char *t;
                 size_t n;
@@ -723,14 +786,21 @@ char *strextend(char **x, ...) {
                         break;
 
                 n = strlen(t);
+
+                if (need_separator)
+                        n += l_separator;
+
                 if (n > ((size_t) -1) - l) {
                         va_end(ap);
                         return NULL;
                 }
 
                 l += n;
+                need_separator = true;
         }
         va_end(ap);
+
+        need_separator = !isempty(*x);
 
         r = realloc(*x, l+1);
         if (!r)
@@ -738,7 +808,7 @@ char *strextend(char **x, ...) {
 
         p = r + f;
 
-        va_start(ap, x);
+        va_start(ap, separator);
         for (;;) {
                 const char *t;
 
@@ -746,15 +816,23 @@ char *strextend(char **x, ...) {
                 if (!t)
                         break;
 
+                if (need_separator && separator)
+                        p = stpcpy(p, separator);
+
                 p = stpcpy(p, t);
+
+                need_separator = true;
         }
         va_end(ap);
+
+        assert(p == r + l);
 
         *p = 0;
         *x = r;
 
         return r + l;
 }
+#endif /* NM_IGNORED */
 
 char *strrep(const char *s, unsigned n) {
         size_t l;

@@ -14,7 +14,7 @@
 # Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
 # Boston, MA 02110-1301 USA.
 #
-# Copyright 2009 - 2014 Red Hat, Inc.
+# Copyright 2009 - 2017 Red Hat, Inc.
 
 from __future__ import print_function
 
@@ -54,10 +54,12 @@ dbus_type_name_map = {
     'ay': 'byte array',
     'a{ss}': 'dict of string to string',
     'a{sv}': 'vardict',
+    'aa{sv}': 'array of vardict',
     'aau': 'array of array of uint32',
     'aay': 'array of byte array',
     'a(ayuay)': 'array of legacy IPv6 address struct',
     'a(ayuayu)': 'array of legacy IPv6 route struct',
+    'aa{sv}': 'array of vardict',
 }
 
 ns_map = {
@@ -181,6 +183,7 @@ def usage():
     exit()
 
 parser = argparse.ArgumentParser()
+parser.add_argument('-l', '--lib-path', metavar='PATH', action='append', help='path to scan for shared libraries')
 parser.add_argument('-g', '--gir', metavar='FILE', help='NM-1.0.gir file')
 parser.add_argument('-x', '--overrides', metavar='FILE', help='documentation overrides file')
 parser.add_argument('-o', '--output', metavar='FILE', help='output file')
@@ -188,6 +191,10 @@ parser.add_argument('-o', '--output', metavar='FILE', help='output file')
 args = parser.parse_args()
 if args.gir is None or args.output is None:
     usage()
+
+if args.lib_path:
+    for lib in args.lib_path:
+        GIRepository.Repository.prepend_library_path(lib)
 
 girxml = ET.parse(args.gir).getroot()
 outfile = open(args.output, mode='w')

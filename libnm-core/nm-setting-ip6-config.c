@@ -550,7 +550,7 @@ nm_setting_ip6_config_class_init (NMSettingIP6ConfigClass *ip6_class)
 
 	/* ---ifcfg-rh---
 	 * property: dns-search
-	 * variable: DOMAIN
+	 * variable: IPV6_DOMAIN
 	 * format:   string (space-separated domains)
 	 * description: List of DNS search domains.
 	 * ---end---
@@ -668,6 +668,14 @@ nm_setting_ip6_config_class_init (NMSettingIP6ConfigClass *ip6_class)
 	 *    A negative value prevents DNS from other connections with greater values to be used.
 	 * default: 0
 	 * example: IPV6_DNS_PRIORITY=20
+	 * ---end---
+	 */
+
+	/* ---ifcfg-rh---
+	 * property: dns-options
+	 * variable: IPV6_RES_OPTIONS(+)
+	 * description: List of DNS options to be added to /etc/resolv.conf
+	 * example: IPV6_RES_OPTIONS=ndots:2 timeout:3
 	 * ---end---
 	 */
 

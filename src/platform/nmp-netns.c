@@ -200,8 +200,8 @@ _stack_current_ns_types (NMPNetns *netns, int ns_types)
 		}
 
 		for (i = 0; i < G_N_ELEMENTS (ns_types_check); i++) {
-			if (   NM_FLAGS_HAS (ns_types, ns_types_check[i])
-			    && NM_FLAGS_HAS (info->ns_types, ns_types_check[i])) {
+			if (   NM_FLAGS_ANY (ns_types, ns_types_check[i])
+			    && NM_FLAGS_ANY (info->ns_types, ns_types_check[i])) {
 				res = NM_FLAGS_SET (res, ns_types_check[i]);
 				ns_types = NM_FLAGS_UNSET (ns_types, ns_types_check[i]);
 			}
@@ -290,6 +290,7 @@ _netns_new (GError **error)
 		g_set_error (error, NM_UTILS_ERROR, NM_UTILS_ERROR_UNKNOWN,
 		             "Failed opening netns: %s",
 		             g_strerror (errsv));
+		errno = errsv;
 		return NULL;
 	}
 
@@ -300,6 +301,7 @@ _netns_new (GError **error)
 		             "Failed opening mntns: %s",
 		             g_strerror (errsv));
 		nm_close (fd_net);
+		errno = errsv;
 		return NULL;
 	}
 
@@ -473,12 +475,14 @@ nmp_netns_new (void)
 	NMPNetns *self;
 	int errsv;
 	GError *error = NULL;
+	unsigned long mountflags = 0;
 
 	_stack_ensure_init ();
 
 	if (!_stack_peek ()) {
 		/* there are no netns instances. We cannot create a new one
 		 * (because after unshare we couldn't return to the original one). */
+		errno = ENOTSUP;
 		return NULL;
 	}
 
@@ -500,7 +504,10 @@ nmp_netns_new (void)
 		goto err_out;
 	}
 
-	if (mount ("sysfs", "/sys", "sysfs", 0, NULL) != 0) {
+	if (access ("/sys", W_OK) == -1)
+		mountflags = MS_RDONLY;
+
+	if (mount ("sysfs", "/sys", "sysfs", mountflags, NULL) != 0) {
 		errsv = errno;
 		_LOGE (NULL, "failed mount /sys: %s", g_strerror (errsv));
 		goto err_out;
@@ -508,6 +515,7 @@ nmp_netns_new (void)
 
 	self = _netns_new (&error);
 	if (!self) {
+		errsv = errno;
 		_LOGE (NULL, "failed to create netns after unshare: %s", error->message);
 		g_clear_error (&error);
 		goto err_out;
@@ -518,6 +526,7 @@ nmp_netns_new (void)
 	return self;
 err_out:
 	_netns_switch_pop (NULL, _CLONE_NS_ALL);
+	errno = errsv;
 	return NULL;
 }
 

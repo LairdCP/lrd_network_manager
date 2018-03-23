@@ -41,27 +41,17 @@ typedef gboolean (NMUtilsMatchFilterFunc) (NMConnection *connection, gpointer us
 
 NMConnection *nm_utils_match_connection (NMConnection *const*connections,
                                          NMConnection *original,
+                                         gboolean indicated,
                                          gboolean device_has_carrier,
                                          gint64 default_v4_metric,
                                          gint64 default_v6_metric,
                                          NMUtilsMatchFilterFunc match_filter_func,
                                          gpointer match_filter_data);
 
-void nm_utils_g_value_set_object_path (GValue *value, gpointer object);
-
-/**
- * NMUtilsObjectFunc:
- * @object: the object to filter on
- * @user_data: data passed to the function from the caller
- *
- * Returns: %TRUE if the object should be used, %FALSE if not
- */
-typedef gboolean (*NMUtilsObjectFunc) (GObject *object, gpointer user_data);
-
-void nm_utils_g_value_set_object_path_array (GValue *value,
-                                             GSList *objects,
-                                             NMUtilsObjectFunc filter_func,
-                                             gpointer user_data);
+int nm_match_spec_device_by_pllink (const NMPlatformLink *pllink,
+                                    const char *match_device_type,
+                                    const GSList *specs,
+                                    int no_match_value);
 
 /*****************************************************************************/
 

@@ -24,7 +24,8 @@
 
 #include <netinet/in.h>
 
-#include "nm-exported-object.h"
+#include "nm-setting-connection.h"
+#include "nm-dbus-object.h"
 #include "nm-dbus-interface.h"
 #include "nm-connection.h"
 #include "nm-rfkill-manager.h"
@@ -113,8 +114,7 @@ nm_device_state_reason_check (NMDeviceStateReason reason)
 #define NM_DEVICE_PARENT           "parent"
 
 /* the "slaves" property is internal in the parent class, but exposed
- * by the derived classes NMDeviceBond, NMDeviceBridge and NMDeviceTeam.
- * It is thus important that the property name matches. */
+ * by the derived classes NMDeviceBond, NMDeviceBridge and NMDeviceTeam. */
 #define NM_DEVICE_SLAVES           "slaves"         /* partially internal */
 
 #define NM_DEVICE_TYPE_DESC        "type-desc"      /* Internal only */
@@ -172,9 +172,7 @@ typedef enum { /*< skip >*/
 struct _NMDevicePrivate;
 
 struct _NMDevice {
-	NMExportedObject parent;
-
-	/* private */
+	NMDBusObject parent;
 	struct _NMDevicePrivate *_priv;
 };
 
@@ -190,7 +188,9 @@ typedef enum { /*< skip >*/
 } NMDeviceCheckDevAvailableFlags;
 
 typedef struct {
-	NMExportedObjectClass parent;
+	NMDBusObjectClass parent;
+
+	const char *default_type_description;
 
 	const char *connection_type;
 	const NMLinkType *link_types;
@@ -438,7 +438,7 @@ int             nm_device_get_ifindex           (NMDevice *dev);
 gboolean        nm_device_is_software           (NMDevice *dev);
 gboolean        nm_device_is_real               (NMDevice *dev);
 const char *    nm_device_get_ip_iface          (NMDevice *dev);
-int             nm_device_get_ip_ifindex        (NMDevice *dev);
+int             nm_device_get_ip_ifindex        (const NMDevice *dev);
 const char *    nm_device_get_driver            (NMDevice *dev);
 const char *    nm_device_get_driver_version    (NMDevice *dev);
 const char *    nm_device_get_type_desc         (NMDevice *dev);
@@ -449,6 +449,8 @@ NMMetered       nm_device_get_metered           (NMDevice *dev);
 
 guint32         nm_device_get_route_table       (NMDevice *self, int addr_family, gboolean fallback_main);
 guint32         nm_device_get_route_metric      (NMDevice *dev, int addr_family);
+
+guint32         nm_device_get_route_metric_default (NMDeviceType device_type);
 
 const char *    nm_device_get_hw_address        (NMDevice *dev);
 const char *    nm_device_get_permanent_hw_address (NMDevice *self);
@@ -752,12 +754,10 @@ void nm_device_update_firewall_zone (NMDevice *self);
 void nm_device_update_metered (NMDevice *self);
 void nm_device_reactivate_ip4_config (NMDevice *device,
                                       NMSettingIPConfig *s_ip4_old,
-                                      NMSettingIPConfig *s_ip4_new,
-                                      gboolean force_restart);
+                                      NMSettingIPConfig *s_ip4_new);
 void nm_device_reactivate_ip6_config (NMDevice *device,
                                       NMSettingIPConfig *s_ip6_old,
-                                      NMSettingIPConfig *s_ip6_new,
-                                      gboolean force_restart);
+                                      NMSettingIPConfig *s_ip6_new);
 
 gboolean nm_device_update_hw_address (NMDevice *self);
 void nm_device_update_initial_hw_address (NMDevice *self);
@@ -794,5 +794,6 @@ struct _NMBtVTableNetworkServer {
 };
 
 const char *nm_device_state_to_str (NMDeviceState state);
+const char *nm_device_state_reason_to_str (NMDeviceStateReason reason);
 
 #endif /* __NETWORKMANAGER_DEVICE_H__ */

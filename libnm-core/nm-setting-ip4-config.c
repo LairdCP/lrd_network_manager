@@ -191,7 +191,7 @@ verify (NMSetting *setting, NMConnection *connection, GError **error)
 		return FALSE;
 	}
 
-	if (priv->dhcp_client_id && !strlen (priv->dhcp_client_id)) {
+	if (priv->dhcp_client_id && !priv->dhcp_client_id[0]) {
 		g_set_error_literal (error,
 		                     NM_CONNECTION_ERROR,
 		                     NM_CONNECTION_ERROR_INVALID_PROPERTY,
@@ -363,7 +363,7 @@ ip4_addresses_set (NMSetting  *setting,
 	if (g_variant_lookup (s_ip4, "address-labels", "^as", &labels)) {
 		for (i = 0; i < addrs->len && labels[i]; i++)
 			if (*labels[i])
-				nm_ip_address_set_attribute (addrs->pdata[i], "label", g_variant_new_string (labels[i]));
+				nm_ip_address_set_attribute (addrs->pdata[i], NM_IP_ADDRESS_ATTRIBUTE_LABEL, g_variant_new_string (labels[i]));
 		g_strfreev (labels);
 	}
 	g_variant_unref (s_ip4);
@@ -391,7 +391,7 @@ ip4_address_labels_get (NMSetting    *setting,
 	num_addrs = nm_setting_ip_config_get_num_addresses (s_ip);
 	for (i = 0; i < num_addrs; i++) {
 		NMIPAddress *addr = nm_setting_ip_config_get_address (s_ip, i);
-		GVariant *label = nm_ip_address_get_attribute (addr, "label");
+		GVariant *label = nm_ip_address_get_attribute (addr, NM_IP_ADDRESS_ATTRIBUTE_LABEL);
 
 		if (label) {
 			have_labels = TRUE;
@@ -404,7 +404,7 @@ ip4_address_labels_get (NMSetting    *setting,
 	labels = g_ptr_array_sized_new (num_addrs);
 	for (i = 0; i < num_addrs; i++) {
 		NMIPAddress *addr = nm_setting_ip_config_get_address (s_ip, i);
-		GVariant *label = nm_ip_address_get_attribute (addr, "label");
+		GVariant *label = nm_ip_address_get_attribute (addr, NM_IP_ADDRESS_ATTRIBUTE_LABEL);
 
 		g_ptr_array_add (labels, (char *) (label ? g_variant_get_string (label, NULL) : ""));
 	}
@@ -689,6 +689,14 @@ nm_setting_ip4_config_class_init (NMSettingIP4ConfigClass *ip4_class)
 	 */
 
 	/* ---ifcfg-rh---
+	 * property: dns-options
+	 * variable: RES_OPTIONS(+)
+	 * description: List of DNS options to be added to /etc/resolv.conf
+	 * example: RES_OPTIONS=ndots:2 timeout:3
+	 * ---end---
+	 */
+
+	/* ---ifcfg-rh---
 	 * property: dns-priority
 	 * variable: IPV4_DNS_PRIORITY(+)
 	 * description: The priority for DNS servers of this connection. Lower values have higher priority.
@@ -711,6 +719,17 @@ nm_setting_ip4_config_class_init (NMSettingIP4ConfigClass *ip4_class)
 	 * ARP type and the rest is a MAC address).
 	 * If the property is not a hex string it is considered as a
 	 * non-hardware-address client ID and the 'type' field is set to 0.
+	 *
+	 * The special values "mac" and "perm-mac" are supported, which use the
+	 * current or permanent MAC address of the device to generate a client identifier
+	 * with type ethernet type (01). Currently, these options only work for ethernet
+	 * type of links.
+	 *
+	 * The special value "stable" is supported to generate a type 0 client identifier based
+	 * on the stable-id (see connection.stable-id).
+	 *
+	 * If unset, a globally configured default is used. If still unset, the
+	 * client-id from the last lease is reused.
 	 **/
 	/* ---ifcfg-rh---
 	 * property: dhcp-client-id

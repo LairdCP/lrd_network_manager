@@ -10,7 +10,6 @@
 %global dbus_glib_version 0.100
 
 %global wireless_tools_version 1:28-0pre9
-%global libnl3_version 3.2.7
 
 %global ppp_version %(sed -n 's/^#define\\s*VERSION\\s*"\\([^\\s]*\\)"$/\\1/p' %{_includedir}/pppd/patchlevel.h 2>/dev/null | grep . || echo bad)
 %global glib2_version %(pkg-config --modversion glib-2.0 2>/dev/null || echo bad)
@@ -19,7 +18,7 @@
 %global rpm_version __VERSION__
 %global real_version __VERSION__
 %global release_version __RELEASE_VERSION__
-%global snapshot %{nil}
+%global snapshot __SNAPSHOT__
 %global git_sha __COMMIT__
 
 %global obsoletes_device_plugins 1:0.9.9.95-1
@@ -50,6 +49,7 @@
 %bcond_without wwan
 %bcond_without team
 %bcond_without wifi
+%bcond_with iwd
 %bcond_without ovs
 %bcond_without ppp
 %bcond_without nmtui
@@ -61,6 +61,11 @@
 %endif
 %bcond_without test
 %bcond_with    sanitizer
+%if 0%{?fedora} > 28 || 0%{?rhel} > 7
+%bcond_with libnm_glib
+%else
+%bcond_without libnm_glib
+%endif
 
 ###############################################################################
 
@@ -120,11 +125,10 @@ BuildRequires: dbus-glib-devel >= %{dbus_glib_version}
 %if 0%{?fedora}
 BuildRequires: wireless-tools-devel >= %{wireless_tools_version}
 %endif
-BuildRequires: glib2-devel >= 2.32.0
+BuildRequires: glib2-devel >= 2.40.0
 BuildRequires: gobject-introspection-devel >= 0.10.3
 BuildRequires: gettext-devel
 BuildRequires: pkgconfig
-BuildRequires: libnl3-devel >= %{libnl3_version}
 BuildRequires: automake autoconf intltool libtool
 %if %{with ppp}
 BuildRequires: ppp-devel >= 2.4.5
@@ -162,6 +166,12 @@ BuildRequires: dbus-python
 BuildRequires: libselinux-devel
 BuildRequires: polkit-devel
 BuildRequires: jansson-devel
+%if %{with sanitizer}
+BuildRequires: libasan
+%if 0%{?fedora}
+BuildRequires: libubsan
+%endif
+%endif
 
 
 %description
@@ -221,6 +231,11 @@ Summary: Wifi plugin for NetworkManager
 Group: System Environment/Base
 Requires: %{name}%{?_isa} = %{epoch}:%{version}-%{release}
 Requires: wpa_supplicant >= 1:1.1
+# the wifi plugin doesn't require iwd, even if it was build with
+# iwd support. Note that the plugin supports both supplicant and
+# iwd backend, that doesn't mean that the user requires to have them
+# both installed. Maybe both iwd and supplicant should Provide a "wireless-daemon"
+# meta package.
 Obsoletes: NetworkManager < %{obsoletes_device_plugins}
 
 %description wifi
@@ -384,22 +399,20 @@ gtkdocize
 autoreconf --install --force
 intltoolize --automake --copy --force
 %configure \
+	--disable-silent-rules \
 	--disable-static \
 	--with-dhclient=yes \
 	--with-dhcpcd=no \
 	--with-dhcpcanon=no \
 	--with-config-dhcp-default=dhclient \
 	--with-crypto=nss \
-%if %{with test}
-	--enable-more-warnings=error \
-%else
-	--enable-more-warnings=yes \
-%endif
 %if %{with sanitizer}
-	--enable-address-sanitizer \
+	--with-address-sanitizer=exec \
+%if 0%{?fedora}
 	--enable-undefined-sanitizer \
+%endif
 %else
-	--disable-address-sanitizer \
+	--with-address-sanitizer=no \
 	--disable-undefined-sanitizer \
 %endif
 %if %{with debug}
@@ -425,6 +438,11 @@ intltoolize --automake --copy --force
 %endif
 %else
 	--enable-wifi=no \
+%endif
+%if %{with iwd}
+	--with-iwd=yes \
+%else
+	--with-iwd=no \
 %endif
 	--enable-vala=yes \
 	--enable-introspection \
@@ -461,6 +479,7 @@ intltoolize --automake --copy --force
 %if %{with test}
 	--with-tests=yes \
 %else
+	--enable-more-warnings=yes \
 	--with-tests=no \
 %endif
 	--with-valgrind=no \
@@ -473,7 +492,12 @@ intltoolize --automake --copy --force
 	--with-config-plugins-default='ifcfg-rh,ibft' \
 	--with-config-dns-rc-manager-default=symlink \
 	--with-config-logging-backend-default=journal \
-	--enable-json-validation
+	--enable-json-validation \
+%if %{with libnm_glib}
+	--with-libnm-glib
+%else
+	--without-libnm-glib
+%endif
 
 make %{?_smp_mflags}
 
@@ -640,13 +664,16 @@ fi
 %{_libdir}/%{name}/libnm-ppp-plugin.so
 %endif
 
+%if %{with libnm_glib}
 %files glib -f %{name}.lang
 %{_libdir}/libnm-glib.so.*
 %{_libdir}/libnm-glib-vpn.so.*
 %{_libdir}/libnm-util.so.*
 %{_libdir}/girepository-1.0/NetworkManager-1.0.typelib
 %{_libdir}/girepository-1.0/NMClient-1.0.typelib
+%endif
 
+%if %{with libnm_glib}
 %files glib-devel
 %doc docs/api/html/*
 %dir %{_includedir}/libnm-glib
@@ -673,10 +700,9 @@ fi
 %{_datadir}/gtk-doc/html/libnm-glib/*
 %dir %{_datadir}/gtk-doc/html/libnm-util
 %{_datadir}/gtk-doc/html/libnm-util/*
-%dir %{_datadir}/gtk-doc/html/NetworkManager
-%{_datadir}/gtk-doc/html/NetworkManager/*
 %{_datadir}/vala/vapi/libnm-*.deps
 %{_datadir}/vala/vapi/libnm-*.vapi
+%endif
 
 %files libnm -f %{name}.lang
 %{_libdir}/libnm.so.*
@@ -691,6 +717,8 @@ fi
 %{_datadir}/gir-1.0/NM-1.0.gir
 %dir %{_datadir}/gtk-doc/html/libnm
 %{_datadir}/gtk-doc/html/libnm/*
+%dir %{_datadir}/gtk-doc/html/NetworkManager
+%{_datadir}/gtk-doc/html/NetworkManager/*
 %{_datadir}/vala/vapi/libnm.deps
 %{_datadir}/vala/vapi/libnm.vapi
 %{_datadir}/dbus-1/interfaces/*.xml

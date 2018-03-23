@@ -52,23 +52,24 @@ enum {
 static guint signals[LAST_SIGNAL] = { 0 };
 
 NM_GOBJECT_PROPERTIES_DEFINE_BASE (
-	PROP_MULTI_IDX,
 	PROP_ADDR_FAMILY,
+	PROP_FLAGS,
+	PROP_HWADDR,
 	PROP_IFACE,
 	PROP_IFINDEX,
-	PROP_HWADDR,
-	PROP_UUID,
-	PROP_ROUTE_TABLE,
+	PROP_MULTI_IDX,
 	PROP_ROUTE_METRIC,
+	PROP_ROUTE_TABLE,
 	PROP_TIMEOUT,
+	PROP_UUID,
 );
 
 typedef struct _NMDhcpClientPrivate {
 	NMDedupMultiIndex *multi_idx;
 	char *       iface;
-	GByteArray * hwaddr;
+	GBytes *     hwaddr;
 	char *       uuid;
-	GByteArray * duid;
+	GBytes *     duid;
 	GBytes *     client_id;
 	char *       hostname;
 	pid_t        pid;
@@ -138,7 +139,7 @@ nm_dhcp_client_get_uuid (NMDhcpClient *self)
 	return NM_DHCP_CLIENT_GET_PRIVATE (self)->uuid;
 }
 
-const GByteArray *
+GBytes *
 nm_dhcp_client_get_duid (NMDhcpClient *self)
 {
 	g_return_val_if_fail (NM_IS_DHCP_CLIENT (self), NULL);
@@ -146,7 +147,7 @@ nm_dhcp_client_get_duid (NMDhcpClient *self)
 	return NM_DHCP_CLIENT_GET_PRIVATE (self)->duid;
 }
 
-const GByteArray *
+GBytes *
 nm_dhcp_client_get_hw_addr (NMDhcpClient *self)
 {
 	g_return_val_if_fail (NM_IS_DHCP_CLIENT (self), NULL);
@@ -186,19 +187,56 @@ nm_dhcp_client_get_client_id (NMDhcpClient *self)
 	return NM_DHCP_CLIENT_GET_PRIVATE (self)->client_id;
 }
 
+static void
+_set_client_id (NMDhcpClient *self, GBytes *client_id, gboolean take)
+{
+	NMDhcpClientPrivate *priv = NM_DHCP_CLIENT_GET_PRIVATE (self);
+
+	nm_assert (!client_id || g_bytes_get_size (client_id) >= 2);
+
+	if (   priv->client_id == client_id
+	    || (   priv->client_id
+	        && client_id
+	        && g_bytes_equal (priv->client_id, client_id))) {
+		if (take && client_id)
+			g_bytes_unref (client_id);
+		return;
+	}
+
+	if (priv->client_id)
+		g_bytes_unref (priv->client_id);
+	priv->client_id = client_id;
+	if (!take && client_id)
+		g_bytes_ref (client_id);
+}
+
 void
 nm_dhcp_client_set_client_id (NMDhcpClient *self, GBytes *client_id)
 {
-	NMDhcpClientPrivate *priv;
+	g_return_if_fail (NM_IS_DHCP_CLIENT (self));
+	g_return_if_fail (!client_id || g_bytes_get_size (client_id) >= 2);
+
+	_set_client_id (self, client_id, FALSE);
+}
+
+void
+nm_dhcp_client_set_client_id_bin (NMDhcpClient *self,
+                                  guint8 type,
+                                  const guint8 *client_id,
+                                  gsize len)
+{
+	guint8 *buf;
+	GBytes *b;
 
 	g_return_if_fail (NM_IS_DHCP_CLIENT (self));
+	g_return_if_fail (client_id);
+	g_return_if_fail (len > 0);
 
-	priv = NM_DHCP_CLIENT_GET_PRIVATE (self);
-
-	if (priv->client_id && client_id && g_bytes_equal (priv->client_id, client_id))
-		return;
-	g_clear_pointer (&priv->client_id, g_bytes_unref);
-	priv->client_id = client_id ? g_bytes_ref (client_id) : NULL;
+	buf = g_malloc (len + 1);
+	buf[0] = type;
+	memcpy (buf + 1, client_id, len);
+	b = g_bytes_new_take (buf, len + 1);
+	_set_client_id (self, b, TRUE);
 }
 
 const char *
@@ -207,6 +245,14 @@ nm_dhcp_client_get_hostname (NMDhcpClient *self)
 	g_return_val_if_fail (NM_IS_DHCP_CLIENT (self), NULL);
 
 	return NM_DHCP_CLIENT_GET_PRIVATE (self)->hostname;
+}
+
+gboolean
+nm_dhcp_client_get_info_only (NMDhcpClient *self)
+{
+	g_return_val_if_fail (NM_IS_DHCP_CLIENT (self), FALSE);
+
+	return NM_DHCP_CLIENT_GET_PRIVATE (self)->info_only;
 }
 
 gboolean
@@ -294,7 +340,7 @@ nm_dhcp_client_stop_pid (pid_t pid, const char *iface)
 }
 
 static void
-stop (NMDhcpClient *self, gboolean release, const GByteArray *duid)
+stop (NMDhcpClient *self, gboolean release, GBytes *duid)
 {
 	NMDhcpClientPrivate *priv;
 
@@ -308,7 +354,6 @@ stop (NMDhcpClient *self, gboolean release, const GByteArray *duid)
 		nm_dhcp_client_stop_pid (priv->pid, priv->iface);
 	}
 	priv->pid = -1;
-	priv->info_only = FALSE;
 }
 
 void
@@ -441,14 +486,12 @@ nm_dhcp_client_watch_child (NMDhcpClient *self, pid_t pid)
 
 gboolean
 nm_dhcp_client_start_ip4 (NMDhcpClient *self,
-                          const char *dhcp_client_id,
+                          GBytes *client_id,
                           const char *dhcp_anycast_addr,
                           const char *hostname,
-                          gboolean use_fqdn,
                           const char *last_ip4_address)
 {
 	NMDhcpClientPrivate *priv;
-	gs_unref_bytes GBytes *tmp = NULL;
 
 	g_return_val_if_fail (NM_IS_DHCP_CLIENT (self), FALSE);
 
@@ -462,21 +505,19 @@ nm_dhcp_client_start_ip4 (NMDhcpClient *self,
 	else
 		_LOGI ("activation: beginning transaction (timeout in %u seconds)", (guint) priv->timeout);
 
-	if (dhcp_client_id)
-		tmp = nm_dhcp_utils_client_id_string_to_bytes (dhcp_client_id);
-	nm_dhcp_client_set_client_id (self, tmp);
+	nm_dhcp_client_set_client_id (self, client_id);
 
 	g_clear_pointer (&priv->hostname, g_free);
 	priv->hostname = g_strdup (hostname);
-	priv->use_fqdn = use_fqdn;
 
 	return NM_DHCP_CLIENT_GET_CLASS (self)->ip4_start (self, dhcp_anycast_addr, last_ip4_address);
 }
 
-static GByteArray *
+static GBytes *
 generate_duid_from_machine_id (void)
 {
-	GByteArray *duid;
+	const int DUID_SIZE = 18;
+	guint8 *duid_buffer;
 	GChecksum *sum;
 	guint8 buffer[32]; /* SHA256 digest size */
 	gsize sumlen = sizeof (buffer);
@@ -484,6 +525,7 @@ generate_duid_from_machine_id (void)
 	uuid_t uuid;
 	gs_free char *machine_id_s = NULL;
 	gs_free char *str = NULL;
+	GBytes *duid;
 
 	machine_id_s = nm_utils_machine_id_read ();
 	if (nm_utils_machine_id_parse (machine_id_s, uuid)) {
@@ -506,36 +548,31 @@ generate_duid_from_machine_id (void)
 	 * u16: type (DUID-UUID = 4)
 	 * u8[16]: UUID bytes
 	 */
-	duid = g_byte_array_sized_new (18);
-	g_byte_array_append (duid, (guint8 *) &duid_type, sizeof (duid_type));
+	duid_buffer = g_malloc (DUID_SIZE);
+
+	G_STATIC_ASSERT_EXPR (sizeof (duid_type) == 2);
+	memcpy (&duid_buffer[0], &duid_type, 2);
 
 	/* Since SHA256 is 256 bits, but UUID is 128 bits, we just take the first
 	 * 128 bits of the SHA256 as the DUID-UUID.
 	 */
-	g_byte_array_append (duid, buffer, 16);
+	memcpy (&duid_buffer[2], buffer, 16);
 
+	duid = g_bytes_new_take (duid_buffer, DUID_SIZE);
 	nm_log_dbg (LOGD_DHCP, "dhcp: generated DUID %s",
 	            (str = nm_dhcp_utils_duid_to_string (duid)));
 	return duid;
 }
 
-static GByteArray *
+static GBytes *
 get_duid (NMDhcpClient *self)
 {
-	static GByteArray *duid = NULL;
-	GByteArray *copy = NULL;
+	static GBytes *duid = NULL;
 
-	if (G_UNLIKELY (duid == NULL)) {
+	if (G_UNLIKELY (!duid))
 		duid = generate_duid_from_machine_id ();
-		g_assert (duid);
-	}
 
-	if (G_LIKELY (duid)) {
-		copy = g_byte_array_sized_new (duid->len);
-		g_byte_array_append (copy, duid->data, duid->len);
-	}
-
-	return copy;
+	return g_bytes_ref (duid);
 }
 
 gboolean
@@ -543,7 +580,6 @@ nm_dhcp_client_start_ip6 (NMDhcpClient *self,
                           const char *dhcp_anycast_addr,
                           const struct in6_addr *ll_addr,
                           const char *hostname,
-                          gboolean info_only,
                           NMSettingIP6ConfigPrivacy privacy,
                           guint needed_prefixes)
 {
@@ -568,8 +604,6 @@ nm_dhcp_client_start_ip6 (NMDhcpClient *self,
 	g_clear_pointer (&priv->hostname, g_free);
 	priv->hostname = g_strdup (hostname);
 
-	priv->info_only = info_only;
-
 	if (priv->timeout == NM_DHCP_TIMEOUT_INFINITY)
 		_LOGI ("activation: beginning transaction (no timeout)");
 	else
@@ -578,7 +612,6 @@ nm_dhcp_client_start_ip6 (NMDhcpClient *self,
 	return NM_DHCP_CLIENT_GET_CLASS (self)->ip6_start (self,
 	                                                   dhcp_anycast_addr,
 	                                                   ll_addr,
-	                                                   info_only,
 	                                                   privacy,
 	                                                   priv->duid,
 	                                                   needed_prefixes);
@@ -763,8 +796,8 @@ nm_dhcp_client_handle_event (gpointer unused,
 
 	old_state = priv->state;
 	new_state = reason_to_state (self, priv->iface, reason);
-	_LOGD ("DHCP reason '%s' -> state '%s'",
-	       reason, state_to_string (new_state));
+	_LOGD ("DHCP state '%s' -> '%s' (reason: '%s')",
+	       state_to_string (old_state), state_to_string (new_state), reason);
 
 	if (new_state == NM_DHCP_STATE_BOUND) {
 		GVariantIter iter;
@@ -875,8 +908,16 @@ set_property (GObject *object, guint prop_id,
               const GValue *value, GParamSpec *pspec)
 {
 	NMDhcpClientPrivate *priv = NM_DHCP_CLIENT_GET_PRIVATE ((NMDhcpClient *) object);
+	guint flags;
 
 	switch (prop_id) {
+	case PROP_FLAGS:
+		/* construct-only */
+		flags = g_value_get_uint (value);
+		nm_assert ((flags & ~((guint) (NM_DHCP_CLIENT_FLAGS_INFO_ONLY | NM_DHCP_CLIENT_FLAGS_USE_FQDN))) == 0);
+		priv->info_only = NM_FLAGS_HAS (flags, NM_DHCP_CLIENT_FLAGS_INFO_ONLY);
+		priv->use_fqdn = NM_FLAGS_HAS (flags, NM_DHCP_CLIENT_FLAGS_USE_FQDN);
+		break;
 	case PROP_MULTI_IDX:
 		/* construct-only */
 		priv->multi_idx = g_value_get_pointer (value);
@@ -935,6 +976,8 @@ nm_dhcp_client_init (NMDhcpClient *self)
 	priv = G_TYPE_INSTANCE_GET_PRIVATE (self, NM_TYPE_DHCP_CLIENT, NMDhcpClientPrivate);
 	self->_priv = priv;
 
+	c_list_init (&self->dhcp_client_lst);
+
 	priv->pid = -1;
 }
 
@@ -949,6 +992,8 @@ dispose (GObject *object)
 	 * the DHCP client.
 	 */
 
+	nm_assert (c_list_is_empty (&self->dhcp_client_lst));
+
 	watch_cleanup (self);
 	timeout_cleanup (self);
 
@@ -956,16 +1001,8 @@ dispose (GObject *object)
 	g_clear_pointer (&priv->hostname, g_free);
 	g_clear_pointer (&priv->uuid, g_free);
 	g_clear_pointer (&priv->client_id, g_bytes_unref);
-
-	if (priv->hwaddr) {
-		g_byte_array_free (priv->hwaddr, TRUE);
-		priv->hwaddr = NULL;
-	}
-
-	if (priv->duid) {
-		g_byte_array_free (priv->duid, TRUE);
-		priv->duid = NULL;
-	}
+	g_clear_pointer (&priv->hwaddr, g_bytes_unref);
+	g_clear_pointer (&priv->duid, g_bytes_unref);
 
 	G_OBJECT_CLASS (nm_dhcp_client_parent_class)->dispose (object);
 
@@ -1006,7 +1043,7 @@ nm_dhcp_client_class_init (NMDhcpClientClass *client_class)
 
 	obj_properties[PROP_HWADDR] =
 	    g_param_spec_boxed (NM_DHCP_CLIENT_HWADDR, "", "",
-	                        G_TYPE_BYTE_ARRAY,
+	                        G_TYPE_BYTES,
 	                        G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY |
 	                        G_PARAM_STATIC_STRINGS);
 
@@ -1038,6 +1075,12 @@ nm_dhcp_client_class_init (NMDhcpClientClass *client_class)
 	    g_param_spec_uint (NM_DHCP_CLIENT_TIMEOUT, "", "",
 	                       1, G_MAXINT32, NM_DHCP_TIMEOUT_DEFAULT,
 	                       G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY |
+	                       G_PARAM_STATIC_STRINGS);
+
+	obj_properties[PROP_FLAGS] =
+	    g_param_spec_uint (NM_DHCP_CLIENT_FLAGS, "", "",
+	                       0, G_MAXUINT32, 0,
+	                       G_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY |
 	                       G_PARAM_STATIC_STRINGS);
 
 	g_object_class_install_properties (object_class, _PROPERTY_ENUMS_LAST, obj_properties);

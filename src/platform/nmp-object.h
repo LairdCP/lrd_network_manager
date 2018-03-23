@@ -15,7 +15,7 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
- * Copyright (C) 2015 Red Hat, Inc.
+ * Copyright (C) 2015 - 2017 Red Hat, Inc.
  */
 
 #ifndef __NMP_OBJECT_H__
@@ -35,8 +35,8 @@ typedef enum { /*< skip >*/
 
 typedef enum { /*< skip >*/
 	NMP_CACHE_OPS_UNCHANGED       = NM_PLATFORM_SIGNAL_NONE,
-	NMP_CACHE_OPS_UPDATED         = NM_PLATFORM_SIGNAL_CHANGED,
 	NMP_CACHE_OPS_ADDED           = NM_PLATFORM_SIGNAL_ADDED,
+	NMP_CACHE_OPS_UPDATED         = NM_PLATFORM_SIGNAL_CHANGED,
 	NMP_CACHE_OPS_REMOVED         = NM_PLATFORM_SIGNAL_REMOVED,
 } NMPCacheOpsType;
 
@@ -48,12 +48,12 @@ typedef enum { /*< skip >*/
  * but only route objects can be indexed by NMP_CACHE_ID_TYPE_ROUTES_VISIBLE_NO_DEFAULT.
  *
  * Of one index type, there can be multiple indexes or not.
- * For example, of the index type NMP_CACHE_ID_TYPE_ADDRROUTE_BY_IFINDEX there
+ * For example, of the index type NMP_CACHE_ID_TYPE_OBJECT_BY_IFINDEX there
  * are multiple instances (for different route/addresses, v4/v6, per-ifindex).
  *
  * But one object, can only be indexed by one particular index of a
  * type. For example, a certain address instance is only indexed by
- * the index NMP_CACHE_ID_TYPE_ADDRROUTE_BY_IFINDEX with
+ * the index NMP_CACHE_ID_TYPE_OBJECT_BY_IFINDEX with
  * matching v4/v6 and ifindex -- or maybe not at all if it isn't visible.
  * */
 typedef enum { /*< skip >*/
@@ -82,8 +82,8 @@ typedef enum { /*< skip >*/
 	 * separate for IPv4 and IPv6. */
 	NMP_CACHE_ID_TYPE_DEFAULT_ROUTES,
 
-	/* all the addresses/routes (by object-type) for an ifindex. */
-	NMP_CACHE_ID_TYPE_ADDRROUTE_BY_IFINDEX,
+	/* all the objects that have an ifindex (by object-type) for an ifindex. */
+	NMP_CACHE_ID_TYPE_OBJECT_BY_IFINDEX,
 
 	/* Consider all the destination fields of a route, that is, the ID without the ifindex
 	 * and gateway (meaning: network/plen,metric).
@@ -225,6 +225,14 @@ typedef struct {
 	NMPlatformIP6Route _public;
 } NMPObjectIP6Route;
 
+typedef struct {
+	NMPlatformQdisc _public;
+} NMPObjectQdisc;
+
+typedef struct {
+	NMPlatformTfilter _public;
+} NMPObjectTfilter;
+
 struct _NMPObject {
 	union {
 		NMDedupMultiObj parent;
@@ -276,6 +284,11 @@ struct _NMPObject {
 		NMPlatformIP6Route      ip6_route;
 		NMPObjectIP4Route       _ip4_route;
 		NMPObjectIP6Route       _ip6_route;
+
+		NMPlatformQdisc         qdisc;
+		NMPObjectQdisc          _qdisc;
+		NMPlatformTfilter       tfilter;
+		NMPObjectTfilter        _tfilter;
 	};
 };
 
@@ -341,7 +354,7 @@ NMP_OBJECT_GET_TYPE (const NMPObject *obj)
 		typeof (obj) _obj = (obj); \
 		\
 		nm_assert (!_obj || NMP_OBJECT_GET_TYPE ((const NMPObject *) _obj) == NMP_OBJECT_TYPE_LINK); \
-		_obj ? &_NM_CONSTCAST (NMPObject, _obj)->link : NULL; \
+		_obj ? &NM_CONSTCAST (NMPObject, _obj)->link : NULL; \
 	})
 
 #define NMP_OBJECT_CAST_IP_ADDRESS(obj) \
@@ -349,7 +362,7 @@ NMP_OBJECT_GET_TYPE (const NMPObject *obj)
 		typeof (obj) _obj = (obj); \
 		\
 		nm_assert (!_obj || NM_IN_SET (NMP_OBJECT_GET_TYPE (_obj), NMP_OBJECT_TYPE_IP4_ADDRESS, NMP_OBJECT_TYPE_IP6_ADDRESS)); \
-		_obj ? &_NM_CONSTCAST (NMPObject, _obj)->ip_address : NULL; \
+		_obj ? &NM_CONSTCAST (NMPObject, _obj)->ip_address : NULL; \
 	})
 
 #define NMP_OBJECT_CAST_IPX_ADDRESS(obj) \
@@ -357,7 +370,7 @@ NMP_OBJECT_GET_TYPE (const NMPObject *obj)
 		typeof (obj) _obj = (obj); \
 		\
 		nm_assert (!_obj || NM_IN_SET (NMP_OBJECT_GET_TYPE (_obj), NMP_OBJECT_TYPE_IP4_ADDRESS, NMP_OBJECT_TYPE_IP6_ADDRESS)); \
-		_obj ? &_NM_CONSTCAST (NMPObject, _obj)->ipx_address : NULL; \
+		_obj ? &NM_CONSTCAST (NMPObject, _obj)->ipx_address : NULL; \
 	})
 
 #define NMP_OBJECT_CAST_IP4_ADDRESS(obj) \
@@ -365,7 +378,7 @@ NMP_OBJECT_GET_TYPE (const NMPObject *obj)
 		typeof (obj) _obj = (obj); \
 		\
 		nm_assert (!_obj || NMP_OBJECT_GET_TYPE ((const NMPObject *) _obj) == NMP_OBJECT_TYPE_IP4_ADDRESS); \
-		_obj ? &_NM_CONSTCAST (NMPObject, _obj)->ip4_address : NULL; \
+		_obj ? &NM_CONSTCAST (NMPObject, _obj)->ip4_address : NULL; \
 	})
 
 #define NMP_OBJECT_CAST_IP6_ADDRESS(obj) \
@@ -373,7 +386,7 @@ NMP_OBJECT_GET_TYPE (const NMPObject *obj)
 		typeof (obj) _obj = (obj); \
 		\
 		nm_assert (!_obj || NMP_OBJECT_GET_TYPE ((const NMPObject *) _obj) == NMP_OBJECT_TYPE_IP6_ADDRESS); \
-		_obj ? &_NM_CONSTCAST (NMPObject, _obj)->ip6_address : NULL; \
+		_obj ? &NM_CONSTCAST (NMPObject, _obj)->ip6_address : NULL; \
 	})
 
 #define NMP_OBJECT_CAST_IPX_ROUTE(obj) \
@@ -381,7 +394,7 @@ NMP_OBJECT_GET_TYPE (const NMPObject *obj)
 		typeof (obj) _obj = (obj); \
 		\
 		nm_assert (!_obj || NM_IN_SET (NMP_OBJECT_GET_TYPE (_obj), NMP_OBJECT_TYPE_IP4_ROUTE, NMP_OBJECT_TYPE_IP6_ROUTE)); \
-		_obj ? &_NM_CONSTCAST (NMPObject, _obj)->ipx_route : NULL; \
+		_obj ? &NM_CONSTCAST (NMPObject, _obj)->ipx_route : NULL; \
 	})
 
 #define NMP_OBJECT_CAST_IP_ROUTE(obj) \
@@ -389,7 +402,7 @@ NMP_OBJECT_GET_TYPE (const NMPObject *obj)
 		typeof (obj) _obj = (obj); \
 		\
 		nm_assert (!_obj || NM_IN_SET (NMP_OBJECT_GET_TYPE (_obj), NMP_OBJECT_TYPE_IP4_ROUTE, NMP_OBJECT_TYPE_IP6_ROUTE)); \
-		_obj ? &_NM_CONSTCAST (NMPObject, _obj)->ip_route : NULL; \
+		_obj ? &NM_CONSTCAST (NMPObject, _obj)->ip_route : NULL; \
 	})
 
 #define NMP_OBJECT_CAST_IP4_ROUTE(obj) \
@@ -397,7 +410,7 @@ NMP_OBJECT_GET_TYPE (const NMPObject *obj)
 		typeof (obj) _obj = (obj); \
 		\
 		nm_assert (!_obj || NMP_OBJECT_GET_TYPE ((const NMPObject *) _obj) == NMP_OBJECT_TYPE_IP4_ROUTE); \
-		_obj ? &_NM_CONSTCAST (NMPObject, _obj)->ip4_route : NULL; \
+		_obj ? &NM_CONSTCAST (NMPObject, _obj)->ip4_route : NULL; \
 	})
 
 #define NMP_OBJECT_CAST_IP6_ROUTE(obj) \
@@ -405,7 +418,23 @@ NMP_OBJECT_GET_TYPE (const NMPObject *obj)
 		typeof (obj) _obj = (obj); \
 		\
 		nm_assert (!_obj || NMP_OBJECT_GET_TYPE ((const NMPObject *) _obj) == NMP_OBJECT_TYPE_IP6_ROUTE); \
-		_obj ? &_NM_CONSTCAST (NMPObject, _obj)->ip6_route : NULL; \
+		_obj ? &NM_CONSTCAST (NMPObject, _obj)->ip6_route : NULL; \
+	})
+
+#define NMP_OBJECT_CAST_QDISC(obj) \
+	({ \
+		typeof (obj) _obj = (obj); \
+		\
+		nm_assert (!_obj || NMP_OBJECT_GET_TYPE ((const NMPObject *) _obj) == NMP_OBJECT_TYPE_QDISC); \
+		_obj ? &NM_CONSTCAST (NMPObject, _obj)->qdisc : NULL; \
+	})
+
+#define NMP_OBJECT_CAST_TFILTER(obj) \
+	({ \
+		typeof (obj) _obj = (obj); \
+		\
+		nm_assert (!_obj || NMP_OBJECT_GET_TYPE ((const NMPObject *) _obj) == NMP_OBJECT_TYPE_TFILTER); \
+		_obj ? &NM_CONSTCAST (NMPObject, _obj)->tfilter : NULL; \
 	})
 
 const NMPClass *nmp_class_from_type (NMPObjectType obj_type);
@@ -428,11 +457,10 @@ nmp_object_ref (const NMPObject *obj)
 	return (const NMPObject *) nm_dedup_multi_obj_ref ((const NMDedupMultiObj *) obj);
 }
 
-static inline const NMPObject *
+static inline void
 nmp_object_unref (const NMPObject *obj)
 {
 	nm_dedup_multi_obj_unref ((const NMDedupMultiObj *) obj);
-	return NULL;
 }
 
 #define nm_clear_nmp_object(ptr) \
@@ -471,7 +499,13 @@ const NMPObject *nmp_object_stackinit_id_ip6_address (NMPObject *obj, int ifinde
 const char *nmp_object_to_string (const NMPObject *obj, NMPObjectToStringMode to_string_mode, char *buf, gsize buf_size);
 void nmp_object_hash_update (const NMPObject *obj, NMHashState *h);
 int nmp_object_cmp (const NMPObject *obj1, const NMPObject *obj2);
-gboolean nmp_object_equal (const NMPObject *obj1, const NMPObject *obj2);
+
+static inline gboolean
+nmp_object_equal (const NMPObject *obj1, const NMPObject *obj2)
+{
+	return nmp_object_cmp (obj1, obj2) == 0;
+}
+
 void nmp_object_copy (NMPObject *dst, const NMPObject *src, gboolean id_only);
 NMPObject *nmp_object_clone (const NMPObject *obj, gboolean id_only);
 
@@ -536,9 +570,9 @@ const NMPLookup *nmp_lookup_init_obj_type (NMPLookup *lookup,
                                            NMPObjectType obj_type);
 const NMPLookup *nmp_lookup_init_link_by_ifname (NMPLookup *lookup,
                                                  const char *ifname);
-const NMPLookup *nmp_lookup_init_addrroute (NMPLookup *lookup,
-                                            NMPObjectType obj_type,
-                                            int ifindex);
+const NMPLookup *nmp_lookup_init_object (NMPLookup *lookup,
+                                         NMPObjectType obj_type,
+                                         int ifindex);
 const NMPLookup *nmp_lookup_init_route_default (NMPLookup *lookup,
                                                 NMPObjectType obj_type);
 const NMPLookup *nmp_lookup_init_route_by_weak_id (NMPLookup *lookup,
@@ -696,6 +730,16 @@ const NMDedupMultiEntry *nm_platform_lookup_entry (NMPlatform *platform,
                                                    NMPCacheIdType cache_id_type,
                                                    const NMPObject *obj);
 
+static inline const NMPObject *
+nm_platform_lookup_obj (NMPlatform *platform,
+                        NMPCacheIdType cache_id_type,
+                        const NMPObject *obj)
+{
+	return nm_dedup_multi_entry_get_obj (nm_platform_lookup_entry (platform,
+	                                                               cache_id_type,
+	                                                               obj));
+}
+
 static inline const NMDedupMultiHeadEntry *
 nm_platform_lookup_obj_type (NMPlatform *platform,
                              NMPObjectType obj_type)
@@ -717,26 +761,26 @@ nm_platform_lookup_link_by_ifname (NMPlatform *platform,
 }
 
 static inline const NMDedupMultiHeadEntry *
-nm_platform_lookup_addrroute (NMPlatform *platform,
-                              NMPObjectType obj_type,
-                              int ifindex)
+nm_platform_lookup_object (NMPlatform *platform,
+                           NMPObjectType obj_type,
+                           int ifindex)
 {
 	NMPLookup lookup;
 
-	nmp_lookup_init_addrroute (&lookup, obj_type, ifindex);
+	nmp_lookup_init_object (&lookup, obj_type, ifindex);
 	return nm_platform_lookup (platform, &lookup);
 }
 
 static inline GPtrArray *
-nm_platform_lookup_addrroute_clone (NMPlatform *platform,
-                                    NMPObjectType obj_type,
-                                    int ifindex,
-                                    NMPObjectPredicateFunc predicate,
-                                    gpointer user_data)
+nm_platform_lookup_object_clone (NMPlatform *platform,
+                                 NMPObjectType obj_type,
+                                 int ifindex,
+                                 NMPObjectPredicateFunc predicate,
+                                 gpointer user_data)
 {
 	NMPLookup lookup;
 
-	nmp_lookup_init_addrroute (&lookup, obj_type, ifindex);
+	nmp_lookup_init_object (&lookup, obj_type, ifindex);
 	return nm_platform_lookup_clone (platform, &lookup, predicate, user_data);
 }
 

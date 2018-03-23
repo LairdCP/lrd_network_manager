@@ -34,7 +34,6 @@
 #include "settings/nm-settings-connection.h"
 #include "nm-simple-connection.h"
 #include "nm-utils.h"
-#include "introspection/org.freedesktop.NetworkManager.Checkpoint.h"
 
 /*****************************************************************************/
 
@@ -68,15 +67,15 @@ typedef struct {
 } NMCheckpointPrivate;
 
 struct _NMCheckpoint {
-	NMExportedObject parent;
+	NMDBusObject parent;
 	NMCheckpointPrivate _priv;
 };
 
 struct _NMCheckpointClass {
-	NMExportedObjectClass parent;
+	NMDBusObjectClass parent;
 };
 
-G_DEFINE_TYPE (NMCheckpoint, nm_checkpoint, NM_TYPE_EXPORTED_OBJECT)
+G_DEFINE_TYPE (NMCheckpoint, nm_checkpoint, NM_TYPE_DBUS_OBJECT)
 
 #define NM_CHECKPOINT_GET_PRIVATE(self) _NM_GET_PRIVATE (self, NMCheckpoint, NM_IS_CHECKPOINT)
 
@@ -125,10 +124,10 @@ find_settings_connection (NMCheckpoint *self,
                           gboolean *need_activation)
 {
 	NMCheckpointPrivate *priv = NM_CHECKPOINT_GET_PRIVATE (self);
-	const GSList *active_connections, *iter;
-	NMActiveConnection *active = NULL;
+	NMActiveConnection *active;
 	NMSettingsConnection *connection;
 	const char *uuid, *ac_uuid;
+	const CList *tmp_clist;
 
 	*need_activation = FALSE;
 	*need_update = FALSE;
@@ -149,9 +148,7 @@ find_settings_connection (NMCheckpoint *self,
 	}
 
 	/* ... is active, ... */
-	active_connections = nm_manager_get_active_connections (priv->manager);
-	for (iter = active_connections; iter; iter = g_slist_next (iter)) {
-		active = iter->data;
+	nm_manager_for_each_active_connection (priv->manager, active, tmp_clist) {
 		ac_uuid = nm_settings_connection_get_uuid (nm_active_connection_get_settings_connection (active));
 		if (nm_streq (uuid, ac_uuid)) {
 			_LOGT ("rollback: connection %s is active", uuid);
@@ -159,7 +156,7 @@ find_settings_connection (NMCheckpoint *self,
 		}
 	}
 
-	if (!iter) {
+	if (!active) {
 		_LOGT ("rollback: connection %s is not active", uuid);
 		*need_activation = TRUE;
 		return connection;
@@ -185,7 +182,7 @@ nm_checkpoint_rollback (NMCheckpoint *self)
 	GError *local_error = NULL;
 	GVariantBuilder builder;
 
-	_LOGI ("rollback of %s", nm_exported_object_get_path ((NMExportedObject *) self));
+	_LOGI ("rollback of %s", nm_dbus_object_get_path (NM_DBUS_OBJECT (self)));
 	 g_variant_builder_init (&builder, G_VARIANT_TYPE ("a{su}"));
 
 	/* Start rolling-back each device */
@@ -256,12 +253,12 @@ activate:
 				if (need_update) {
 					_LOGD ("rollback: updating connection %s",
 					        nm_settings_connection_get_uuid (connection));
-					nm_connection_replace_settings_from_connection (NM_CONNECTION (connection),
-					                                                dev_checkpoint->settings_connection);
-					nm_settings_connection_commit_changes (connection,
-					                                       NULL,
-					                                       NM_SETTINGS_CONNECTION_COMMIT_REASON_NONE,
-					                                       NULL);
+					nm_settings_connection_update (connection,
+					                               dev_checkpoint->settings_connection,
+					                               NM_SETTINGS_CONNECTION_PERSIST_MODE_DISK,
+					                               NM_SETTINGS_CONNECTION_COMMIT_REASON_NONE,
+					                               "checkpoint-rollback",
+					                               NULL);
 				}
 			} else {
 				/* The connection was deleted, recreate it */
@@ -306,7 +303,7 @@ activate:
 				                                     &local_error)) {
 					_LOGW ("rollback: reactivation of connection %s/%s failed: %s",
 					       nm_connection_get_id ((NMConnection *) connection),
-					       nm_connection_get_uuid ((NMConnection *	) connection),
+					       nm_connection_get_uuid ((NMConnection *) connection),
 					       local_error->message);
 					g_clear_error (&local_error);
 					result = NM_ROLLBACK_RESULT_ERR_FAILED;
@@ -335,7 +332,9 @@ next_dev:
 		guint i;
 
 		g_return_val_if_fail (priv->connection_uuids, NULL);
-		list = nm_settings_get_connections_sorted (nm_settings_get (), NULL);
+		list = nm_settings_get_connections_clone (nm_settings_get (), NULL,
+		                                          NULL, NULL,
+		                                          nm_settings_connection_cmp_autoconnect_priority_p_with_data, NULL);
 
 		for (i = 0; list[i]; i++) {
 			con = list[i];
@@ -382,7 +381,7 @@ device_checkpoint_create (NMDevice *device,
 	const char *path;
 	NMActRequest *act_request;
 
-	path = nm_exported_object_get_path (NM_EXPORTED_OBJECT (device));
+	path = nm_dbus_object_get_path (NM_DBUS_OBJECT (device));
 
 	dev_checkpoint = g_slice_new0 (DeviceCheckpoint);
 	dev_checkpoint->device = g_object_ref (device);
@@ -392,7 +391,7 @@ device_checkpoint_create (NMDevice *device,
 
 	if (nm_device_get_unmanaged_mask (device, NM_UNMANAGED_USER_EXPLICIT)) {
 		dev_checkpoint->unmanaged_explicit =
-			!!nm_device_get_unmanaged_flags (device, NM_UNMANAGED_USER_EXPLICIT);
+		    !!nm_device_get_unmanaged_flags (device, NM_UNMANAGED_USER_EXPLICIT);
 	} else
 		dev_checkpoint->unmanaged_explicit = NM_UNMAN_FLAG_OP_FORGET;
 
@@ -445,7 +444,7 @@ get_property (GObject *object, guint prop_id,
 		g_hash_table_iter_init (&iter, priv->devices);
 		while (g_hash_table_iter_next (&iter, (gpointer *) &device, NULL))
 			devices = g_slist_append (devices, device);
-		nm_utils_g_value_set_object_path_array (value, devices, NULL, NULL);
+		nm_dbus_utils_g_value_set_object_path_array (value, devices, NULL, NULL);
 		break;
 	case PROP_CREATED:
 		g_value_set_int64 (value, priv->created);
@@ -466,7 +465,7 @@ nm_checkpoint_init (NMCheckpoint *self)
 {
 	NMCheckpointPrivate *priv = NM_CHECKPOINT_GET_PRIVATE (self);
 
-	priv->devices = g_hash_table_new_full (g_direct_hash, g_direct_equal,
+	priv->devices = g_hash_table_new_full (nm_direct_hash, NULL,
 	                                       NULL, device_checkpoint_destroy);
 }
 
@@ -538,14 +537,29 @@ dispose (GObject *object)
 	G_OBJECT_CLASS (nm_checkpoint_parent_class)->dispose (object);
 }
 
+static const NMDBusInterfaceInfoExtended interface_info_checkpoint = {
+	.parent = NM_DEFINE_GDBUS_INTERFACE_INFO_INIT (
+		NM_DBUS_INTERFACE_CHECKPOINT,
+		.signals = NM_DEFINE_GDBUS_SIGNAL_INFOS (
+			&nm_signal_info_property_changed_legacy,
+		),
+		.properties = NM_DEFINE_GDBUS_PROPERTY_INFOS (
+			NM_DEFINE_DBUS_PROPERTY_INFO_EXTENDED_READABLE_L ("Devices",         "ao", NM_CHECKPOINT_DEVICES),
+			NM_DEFINE_DBUS_PROPERTY_INFO_EXTENDED_READABLE_L ("Created",         "x",  NM_CHECKPOINT_CREATED),
+			NM_DEFINE_DBUS_PROPERTY_INFO_EXTENDED_READABLE_L ("RollbackTimeout", "u",  NM_CHECKPOINT_ROLLBACK_TIMEOUT),
+		),
+	),
+	.legacy_property_changed = TRUE,
+};
+
 static void
 nm_checkpoint_class_init (NMCheckpointClass *checkpoint_class)
 {
 	GObjectClass *object_class = G_OBJECT_CLASS (checkpoint_class);
-	NMExportedObjectClass *exported_object_class = NM_EXPORTED_OBJECT_CLASS (checkpoint_class);
+	NMDBusObjectClass *dbus_object_class = NM_DBUS_OBJECT_CLASS (checkpoint_class);
 
-	exported_object_class->export_path = NM_EXPORT_PATH_NUMBERED (NM_DBUS_PATH"/Checkpoint");
-	exported_object_class->export_on_construction = FALSE;
+	dbus_object_class->export_path = NM_DBUS_EXPORT_PATH_NUMBERED (NM_DBUS_PATH"/Checkpoint");
+	dbus_object_class->interface_infos = NM_DBUS_INTERFACE_INFOS (&interface_info_checkpoint);
 
 	object_class->dispose = dispose;
 	object_class->get_property = get_property;
@@ -569,8 +583,4 @@ nm_checkpoint_class_init (NMCheckpointClass *checkpoint_class)
 	                       G_PARAM_STATIC_STRINGS);
 
 	g_object_class_install_properties (object_class, _PROPERTY_ENUMS_LAST, obj_properties);
-
-	nm_exported_object_class_add_interface (NM_EXPORTED_OBJECT_CLASS (checkpoint_class),
-	                                        NMDBUS_TYPE_CHECKPOINT_SKELETON,
-	                                        NULL);
 }

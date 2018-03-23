@@ -15,12 +15,13 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
- * Copyright (C) 2015 Red Hat, Inc.
+ * Copyright (C) 2015 - 2017 Red Hat, Inc.
  */
 
 #include "nm-default.h"
 
 #include <libudev.h>
+#include <linux/pkt_sched.h>
 
 #include "platform/nmp-object.h"
 #include "nm-utils/nm-udev-utils.h"
@@ -53,27 +54,20 @@ test_obj_base (void)
 	gs_unref_object GCancellable *obj_cancellable = g_cancellable_new ();
 	nm_auto_nmpobj NMPObject *obj_link = nmp_object_new_link (10);
 
-#define STATIC_ASSERT(cond) \
-	G_STMT_START { \
-		G_STATIC_ASSERT (cond); \
-		G_STATIC_ASSERT_EXPR (cond); \
-		g_assert (cond); \
-	} G_STMT_END
+	g_assert (&g->g_type_instance              == (void *) &o->_class);
+	g_assert (&g->g_type_instance.g_class      == (void *) &o->_class);
 
-	STATIC_ASSERT (&g->g_type_instance              == (void *) &o->_class);
-	STATIC_ASSERT (&g->g_type_instance.g_class      == (void *) &o->_class);
+	g_assert (sizeof (o->parent.parent)        == sizeof (GTypeInstance));
 
-	STATIC_ASSERT (sizeof (o->parent.parent)        == sizeof (GTypeInstance));
+	g_assert (&c->parent                       == (void *) c);
+	g_assert (&c->parent.parent.g_type_class   == (void *) c);
+	g_assert (&c->parent.parent.g_type         == (void *) c);
+	g_assert (&c->parent.parent.g_type         == &k->g_type);
 
-	STATIC_ASSERT (&c->parent                       == (void *) c);
-	STATIC_ASSERT (&c->parent.parent.g_type_class   == (void *) c);
-	STATIC_ASSERT (&c->parent.parent.g_type         == (void *) c);
-	STATIC_ASSERT (&c->parent.parent.g_type         == &k->g_type);
+	g_assert (sizeof (c->parent.parent)        == sizeof (GTypeClass));
 
-	STATIC_ASSERT (sizeof (c->parent.parent)        == sizeof (GTypeClass));
-
-	STATIC_ASSERT (&o->parent                       == (void *) o);
-	STATIC_ASSERT (&o->parent.klass                 == (void *) &o->_class);
+	g_assert (&o->parent                       == (void *) o);
+	g_assert (&o->parent.klass                 == (void *) &o->_class);
 
 	obj = (NMObjBaseInst *) obj_cancellable;
 	g_assert (!NMP_CLASS_IS_VALID ((NMPClass *) obj->klass));
@@ -454,6 +448,93 @@ test_cache_link (void)
 	nmp_cache_free (cache);
 }
 
+const char noqueue[] = "noqueue";
+const char fq_codel[] = "fq_codel";
+const char ingress[] = "ingress";
+
+static const NMPlatformQdisc pl_qdisc_1a = {
+	.ifindex = 1,
+	.kind = noqueue,
+	.addr_family = AF_UNSPEC,
+	.handle = 0,
+	.parent = TC_H_ROOT,
+	.info = 0,
+};
+
+static const NMPlatformQdisc pl_qdisc_1b = {
+	.ifindex = 1,
+	.kind = fq_codel,
+	.addr_family = AF_UNSPEC,
+	.handle = 0,
+	.parent = TC_H_ROOT,
+	.info = 0,
+};
+
+static const NMPlatformQdisc pl_qdisc_1c = {
+	.ifindex = 1,
+	.kind = ingress,
+	.addr_family = AF_UNSPEC,
+	.handle = TC_H_MAKE(TC_H_INGRESS, 0),
+	.parent = TC_H_INGRESS,
+	.info = 0,
+};
+
+static const NMPlatformQdisc pl_qdisc_2 = {
+	.ifindex = 2,
+	.kind = fq_codel,
+	.addr_family = AF_UNSPEC,
+	.handle = 0,
+	.parent = TC_H_ROOT,
+	.info = 0,
+};
+
+static void
+test_cache_qdisc (void)
+{
+	NMPCache *cache;
+	nm_auto_unref_dedup_multi_index NMDedupMultiIndex *multi_idx = NULL;
+	NMPLookup lookup;
+	const NMDedupMultiHeadEntry *head_entry;
+	nm_auto_nmpobj NMPObject *obj1a = nmp_object_new (NMP_OBJECT_TYPE_QDISC, (NMPlatformObject *) &pl_qdisc_1a);
+	nm_auto_nmpobj NMPObject *obj1b = nmp_object_new (NMP_OBJECT_TYPE_QDISC, (NMPlatformObject *) &pl_qdisc_1b);
+	nm_auto_nmpobj NMPObject *obj1c = nmp_object_new (NMP_OBJECT_TYPE_QDISC, (NMPlatformObject *) &pl_qdisc_1c);
+	nm_auto_nmpobj NMPObject *obj2 = nmp_object_new (NMP_OBJECT_TYPE_QDISC, (NMPlatformObject *) &pl_qdisc_2);
+
+	multi_idx = nm_dedup_multi_index_new ();
+	cache = nmp_cache_new (multi_idx, nmtst_get_rand_int () % 2);
+
+	g_assert (nmp_cache_lookup_obj (cache, obj1a) == NULL);
+
+	g_assert (nmp_cache_update_netlink (cache, obj1a, FALSE, NULL, NULL) == NMP_CACHE_OPS_ADDED);
+	g_assert (nmp_cache_lookup_obj (cache, obj1a) == obj1a);
+	g_assert (nmp_cache_lookup_obj (cache, obj1b) == obj1a);
+	g_assert (nmp_cache_lookup_obj (cache, obj2) == NULL);
+
+	g_assert (nmp_cache_update_netlink (cache, obj1b, FALSE, NULL, NULL) == NMP_CACHE_OPS_UPDATED);
+	g_assert (nmp_cache_lookup_obj (cache, obj1a) == obj1b);
+	g_assert (nmp_cache_lookup_obj (cache, obj1b) == obj1b);
+	g_assert (nmp_cache_lookup_obj (cache, obj2) == NULL);
+
+	g_assert (nmp_cache_update_netlink (cache, obj1c, FALSE, NULL, NULL) == NMP_CACHE_OPS_ADDED);
+	g_assert (nmp_cache_lookup_obj (cache, obj1a) == obj1b);
+	g_assert (nmp_cache_lookup_obj (cache, obj1b) == obj1b);
+	g_assert (nmp_cache_lookup_obj (cache, obj1c) == obj1c);
+	g_assert (nmp_cache_lookup_obj (cache, obj2) == NULL);
+
+	g_assert (nmp_cache_update_netlink (cache, obj2, FALSE, NULL, NULL) == NMP_CACHE_OPS_ADDED);
+	g_assert (nmp_cache_lookup_obj (cache, obj1a) == obj1b);
+	g_assert (nmp_cache_lookup_obj (cache, obj1b) == obj1b);
+	g_assert (nmp_cache_lookup_obj (cache, obj2) == obj2);
+
+	head_entry = nmp_cache_lookup (cache,
+	                               nmp_lookup_init_object (&lookup,
+	                                                       NMP_OBJECT_TYPE_QDISC,
+	                                                       1));
+	g_assert (head_entry->len == 2);
+
+	nmp_cache_free (cache);
+}
+
 /*****************************************************************************/
 
 NMTST_DEFINE ();
@@ -500,6 +581,7 @@ main (int argc, char **argv)
 
 	g_test_add_func ("/nmp-object/obj-base", test_obj_base);
 	g_test_add_func ("/nmp-object/cache_link", test_cache_link);
+	g_test_add_func ("/nmp-object/cache_qdisc", test_cache_qdisc);
 
 	result = g_test_run ();
 

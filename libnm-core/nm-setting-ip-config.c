@@ -16,7 +16,7 @@
  * Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
  * Boston, MA 02110-1301 USA.
  *
- * Copyright 2007 - 2014 Red Hat, Inc.
+ * Copyright 2007 - 2017 Red Hat, Inc.
  * Copyright 2007 - 2008 Novell, Inc.
  */
 
@@ -526,6 +526,14 @@ nm_ip_address_set_prefix (NMIPAddress *address,
 	address->prefix = prefix;
 }
 
+const char **
+_nm_ip_address_get_attribute_names (const NMIPAddress *address, gboolean sorted, guint *out_length)
+{
+	nm_assert (address);
+
+	return nm_utils_strdict_get_keys (address->attributes, sorted, out_length);
+}
+
 /**
  * nm_ip_address_get_attribute_names:
  * @address: the #NMIPAddress
@@ -537,22 +545,12 @@ nm_ip_address_set_prefix (NMIPAddress *address,
 char **
 nm_ip_address_get_attribute_names (NMIPAddress *address)
 {
-	GHashTableIter iter;
-	const char *key;
-	GPtrArray *names;
+	const char **names;
 
-	g_return_val_if_fail (address != NULL, NULL);
+	g_return_val_if_fail (address, NULL);
 
-	names = g_ptr_array_new ();
-
-	if (address->attributes) {
-		g_hash_table_iter_init (&iter, address->attributes);
-		while (g_hash_table_iter_next (&iter, (gpointer *) &key, NULL))
-			g_ptr_array_add (names, g_strdup (key));
-	}
-	g_ptr_array_add (names, NULL);
-
-	return (char **) g_ptr_array_free (names, FALSE);
+	names = _nm_ip_address_get_attribute_names (address, TRUE, NULL);
+	return nm_utils_strv_make_deep_copied_nonnull (names);
 }
 
 /**
@@ -593,7 +591,7 @@ nm_ip_address_set_attribute (NMIPAddress *address, const char *name, GVariant *v
 	g_return_if_fail (strcmp (name, "address") != 0 && strcmp (name, "prefix") != 0);
 
 	if (!address->attributes) {
-		address->attributes = g_hash_table_new_full (g_str_hash, g_str_equal,
+		address->attributes = g_hash_table_new_full (nm_str_hash, g_str_equal,
 		                                             g_free, (GDestroyNotify) g_variant_unref);
 	}
 
@@ -1136,28 +1134,9 @@ _nm_ip_route_get_attributes_direct (NMIPRoute *route)
 const char **
 _nm_ip_route_get_attribute_names (const NMIPRoute *route, gboolean sorted, guint *out_length)
 {
-	const char **names;
-	guint length;
+	nm_assert (route);
 
-	g_return_val_if_fail (route != NULL, NULL);
-
-	if (   !route->attributes
-	    || !g_hash_table_size (route->attributes)) {
-		NM_SET_OUT (out_length, 0);
-		return NULL;
-	}
-
-	names = (const char **) g_hash_table_get_keys_as_array (route->attributes, &length);
-	if (   sorted
-	    && length > 1) {
-		g_qsort_with_data (names,
-		                   length,
-		                   sizeof (char *),
-		                   nm_strcmp_p_with_data,
-		                   NULL);
-	}
-	NM_SET_OUT (out_length, length);
-	return names;
+	return nm_utils_strdict_get_keys (route->attributes, sorted, out_length);
 }
 
 /**
@@ -1171,21 +1150,12 @@ _nm_ip_route_get_attribute_names (const NMIPRoute *route, gboolean sorted, guint
 char **
 nm_ip_route_get_attribute_names (NMIPRoute *route)
 {
-	char **names;
-	guint i, len;
+	const char **names;
 
 	g_return_val_if_fail (route != NULL, NULL);
 
-	names = (char **) _nm_ip_route_get_attribute_names (route, TRUE, &len);
-	if (!names)
-		return g_new0 (char *, 1);
-
-	nm_assert (len > 0 && names && names[len] == NULL);
-	for (i = 0; i < len; i++) {
-		nm_assert (names[i]);
-		names[i] = g_strdup (names[i]);
-	}
-	return names;
+	names = _nm_ip_route_get_attribute_names (route, TRUE, NULL);
+	return nm_utils_strv_make_deep_copied_nonnull (names);
 }
 
 /**
@@ -1227,7 +1197,7 @@ nm_ip_route_set_attribute (NMIPRoute *route, const char *name, GVariant *value)
 	                  && strcmp (name, "next-hop") != 0 && strcmp (name, "metric") != 0);
 
 	if (!route->attributes) {
-		route->attributes = g_hash_table_new_full (g_str_hash, g_str_equal,
+		route->attributes = g_hash_table_new_full (nm_str_hash, g_str_equal,
 		                                           g_free, (GDestroyNotify) g_variant_unref);
 	}
 
@@ -1238,13 +1208,14 @@ nm_ip_route_set_attribute (NMIPRoute *route, const char *name, GVariant *value)
 }
 
 #define ATTR_SPEC_PTR(name, type, v4, v6, str_type) \
-	&(NMVariantAttributeSpec) { name, type, v4, v6, str_type }
+	&(NMVariantAttributeSpec) { name, type, v4, v6, FALSE, FALSE, str_type }
 
 static const NMVariantAttributeSpec * const ip_route_attribute_spec[] = {
 	ATTR_SPEC_PTR (NM_IP_ROUTE_ATTRIBUTE_TABLE,           G_VARIANT_TYPE_UINT32,   TRUE,  TRUE,  0 ),
 	ATTR_SPEC_PTR (NM_IP_ROUTE_ATTRIBUTE_SRC,             G_VARIANT_TYPE_STRING,   TRUE,  TRUE, 'a'),
 	ATTR_SPEC_PTR (NM_IP_ROUTE_ATTRIBUTE_FROM,            G_VARIANT_TYPE_STRING,   FALSE, TRUE, 'p'),
 	ATTR_SPEC_PTR (NM_IP_ROUTE_ATTRIBUTE_TOS,             G_VARIANT_TYPE_BYTE,     TRUE,  FALSE, 0 ),
+	ATTR_SPEC_PTR (NM_IP_ROUTE_ATTRIBUTE_ONLINK,          G_VARIANT_TYPE_BOOLEAN,  TRUE,  FALSE, 0 ),
 	ATTR_SPEC_PTR (NM_IP_ROUTE_ATTRIBUTE_WINDOW,          G_VARIANT_TYPE_UINT32,   TRUE,  TRUE,  0 ),
 	ATTR_SPEC_PTR (NM_IP_ROUTE_ATTRIBUTE_CWND,            G_VARIANT_TYPE_UINT32,   TRUE,  TRUE,  0 ),
 	ATTR_SPEC_PTR (NM_IP_ROUTE_ATTRIBUTE_INITCWND,        G_VARIANT_TYPE_UINT32,   TRUE,  TRUE,  0 ),
@@ -1790,7 +1761,7 @@ nm_setting_ip_config_get_num_dns_options (NMSettingIPConfig *setting)
  * or the options are left undefined. The latter means to use
  * a default configuration, while the former explicitly means "no-options".
  *
- * Returns: whether DNS options are initalized or left unset (the default).
+ * Returns: whether DNS options are initialized or left unset (the default).
  **/
 gboolean
 nm_setting_ip_config_has_dns_options (NMSettingIPConfig *setting)
@@ -2552,7 +2523,7 @@ verify (NMSetting *setting, NMConnection *connection, GError **error)
 			return FALSE;
 		}
 
-		label = nm_ip_address_get_attribute (addr, "label");
+		label = nm_ip_address_get_attribute (addr, NM_IP_ADDRESS_ATTRIBUTE_LABEL);
 		if (label) {
 			if (!g_variant_is_of_type (label, G_VARIANT_TYPE_STRING)) {
 				g_set_error (error,
@@ -2959,7 +2930,10 @@ nm_setting_ip_config_class_init (NMSettingIPConfigClass *setting_class)
 	/**
 	 * NMSettingIPConfig:dns-search:
 	 *
-	 * Array of DNS search domains.
+	 * Array of DNS search domains. Domains starting with a tilde ('~')
+	 * are considered 'routing' domains and are used only to decide the
+	 * interface over which a query must be forwarded; they are not used
+	 * to complete unqualified host names.
 	 **/
 	g_object_class_install_property
 		(object_class, PROP_DNS_SEARCH,
