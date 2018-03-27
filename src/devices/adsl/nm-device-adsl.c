@@ -227,7 +227,7 @@ br2684_assign_vcc (NMDeviceAdsl *self, NMSettingAdsl *s_adsl)
 	return TRUE;
 
 error:
-	close (priv->brfd);
+	nm_close (priv->brfd);
 	priv->brfd = -1;
 	return FALSE;
 }
@@ -474,6 +474,15 @@ act_stage3_ip4_config_start (NMDevice *device,
 	}
 
 	priv->ppp_manager = nm_ppp_manager_create (ppp_iface, &err);
+
+	if (priv->ppp_manager) {
+		nm_ppp_manager_set_route_parameters (priv->ppp_manager,
+		                                     nm_device_get_route_table (device, AF_INET, TRUE),
+		                                     nm_device_get_route_metric (device, AF_INET),
+		                                     nm_device_get_route_table (device, AF_INET6, TRUE),
+		                                     nm_device_get_route_metric (device, AF_INET6));
+	}
+
 	if (   !priv->ppp_manager
 	    || !nm_ppp_manager_start (priv->ppp_manager, req,
 	                              nm_setting_adsl_get_username (s_adsl),
@@ -510,10 +519,8 @@ adsl_cleanup (NMDeviceAdsl *self)
 
 	g_signal_handlers_disconnect_by_func (nm_device_get_platform (NM_DEVICE (self)), G_CALLBACK (link_changed_cb), self);
 
-	if (priv->brfd >= 0) {
-		close (priv->brfd);
-		priv->brfd = -1;
-	}
+	nm_close (priv->brfd);
+	priv->brfd = -1;
 
 	nm_clear_g_source (&priv->nas_update_id);
 

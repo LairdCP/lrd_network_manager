@@ -105,10 +105,12 @@ typedef enum {  /*< underscore_name=nm_modem_state >*/
 
 struct _NMModemPrivate;
 
-typedef struct {
+struct _NMModem {
 	GObject parent;
 	struct _NMModemPrivate *_priv;
-} NMModem;
+};
+
+typedef struct _NMModem NMModem;
 
 typedef struct {
 	GObjectClass parent;
@@ -184,6 +186,21 @@ gboolean nm_modem_complete_connection (NMModem *self,
                                        NMConnection *connection,
                                        const GSList *existing_connections,
                                        GError **error);
+
+void nm_modem_get_route_parameters (NMModem *self,
+                                    guint32 *out_ip4_route_table,
+                                    guint32 *out_ip4_route_metric,
+                                    guint32 *out_ip6_route_table,
+                                    guint32 *out_ip6_route_metric);
+
+void nm_modem_set_route_parameters (NMModem *self,
+                                    guint32 ip4_route_table,
+                                    guint32 ip4_route_metric,
+                                    guint32 ip6_route_table,
+                                    guint32 ip6_route_metric);
+
+void nm_modem_set_route_parameters_from_device (NMModem *modem,
+                                                NMDevice *device);
 
 NMActStageReturn nm_modem_act_stage1_prepare (NMModem *modem,
                                               NMActRequest *req,

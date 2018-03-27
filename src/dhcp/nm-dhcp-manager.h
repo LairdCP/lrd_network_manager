@@ -46,11 +46,13 @@ void           nm_dhcp_manager_set_default_hostname (NMDhcpManager *manager,
                                                      const char *hostname);
 
 NMDhcpClient * nm_dhcp_manager_start_ip4     (NMDhcpManager *manager,
+                                              struct _NMDedupMultiIndex *multi_idx,
                                               const char *iface,
                                               int ifindex,
                                               const GByteArray *hwaddr,
                                               const char *uuid,
-                                              guint32 priority,
+                                              guint32 route_table,
+                                              guint32 route_metric,
                                               gboolean send_hostname,
                                               const char *dhcp_hostname,
                                               const char *dhcp_fqdn,
@@ -60,12 +62,14 @@ NMDhcpClient * nm_dhcp_manager_start_ip4     (NMDhcpManager *manager,
                                               const char *last_ip_address);
 
 NMDhcpClient * nm_dhcp_manager_start_ip6     (NMDhcpManager *manager,
+                                              struct _NMDedupMultiIndex *multi_idx,
                                               const char *iface,
                                               int ifindex,
                                               const GByteArray *hwaddr,
                                               const struct in6_addr *ll_addr,
                                               const char *uuid,
-                                              guint32 priority,
+                                              guint32 route_table,
+                                              guint32 route_metric,
                                               gboolean send_hostname,
                                               const char *dhcp_hostname,
                                               guint32 timeout,
@@ -75,15 +79,17 @@ NMDhcpClient * nm_dhcp_manager_start_ip6     (NMDhcpManager *manager,
                                               guint needed_prefixes);
 
 GSList *       nm_dhcp_manager_get_lease_ip_configs (NMDhcpManager *self,
+                                                     struct _NMDedupMultiIndex *multi_idx,
+                                                     int addr_family,
                                                      const char *iface,
                                                      int ifindex,
                                                      const char *uuid,
-                                                     gboolean ipv6,
-                                                     guint32 default_route_metric);
+                                                     guint32 route_table,
+                                                     guint32 route_metric);
 
 /* For testing only */
 extern const char* nm_dhcp_helper_path;
 
-extern const NMDhcpClientFactory *const _nm_dhcp_manager_factories[3];
+extern const NMDhcpClientFactory *const _nm_dhcp_manager_factories[4];
 
 #endif /* __NETWORKMANAGER_DHCP_MANAGER_H__ */

@@ -44,6 +44,7 @@ int parse_boolean(const char *v) {
         return -EINVAL;
 }
 
+#if 0 /* NM_IGNORED */
 int parse_pid(const char *s, pid_t* ret_pid) {
         unsigned long ul = 0;
         pid_t pid;
@@ -61,12 +62,13 @@ int parse_pid(const char *s, pid_t* ret_pid) {
         if ((unsigned long) pid != ul)
                 return -ERANGE;
 
-        if (pid <= 0)
+        if (!pid_is_valid(pid))
                 return -ERANGE;
 
         *ret_pid = pid;
         return 0;
 }
+#endif /* NM_IGNORED */
 
 int parse_mode(const char *s, mode_t *ret) {
         char *x;
@@ -154,7 +156,7 @@ int parse_size(const char *t, uint64_t base, uint64_t *size) {
         unsigned n_entries, start_pos = 0;
 
         assert(t);
-        assert(base == 1000 || base == 1024);
+        assert(IN_SET(base, 1000, 1024));
         assert(size);
 
         if (base == 1000) {
@@ -592,6 +594,21 @@ int parse_ip_port(const char *s, uint16_t *ret) {
 
         *ret = (uint16_t) l;
 
+        return 0;
+}
+
+int parse_dev(const char *s, dev_t *ret) {
+        unsigned x, y;
+        dev_t d;
+
+        if (sscanf(s, "%u:%u", &x, &y) != 2)
+                return -EINVAL;
+
+        d = makedev(x, y);
+        if ((unsigned) major(d) != x || (unsigned) minor(d) != y)
+                return -EINVAL;
+
+        *ret = d;
         return 0;
 }
 #endif /* NM_IGNORED */

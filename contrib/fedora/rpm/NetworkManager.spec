@@ -15,13 +15,12 @@
 %global ppp_version %(sed -n 's/^#define\\s*VERSION\\s*"\\([^\\s]*\\)"$/\\1/p' %{_includedir}/pppd/patchlevel.h 2>/dev/null | grep . || echo bad)
 %global glib2_version %(pkg-config --modversion glib-2.0 2>/dev/null || echo bad)
 
-%global snapshot %{nil}
-%global git_sha __COMMIT__
-
+%global epoch_version 1
 %global rpm_version __VERSION__
 %global real_version __VERSION__
 %global release_version __RELEASE_VERSION__
-%global epoch_version 1
+%global snapshot %{nil}
+%global git_sha __COMMIT__
 
 %global obsoletes_device_plugins 1:0.9.9.95-1
 %global obsoletes_ppp_plugin     1:1.5.3
@@ -40,6 +39,10 @@
 
 %global snap %{?snapshot_dot}%{?git_sha_dot}
 
+%global real_version_major %(printf '%s' '%{real_version}' | sed -n 's/^\\([1-9][0-9]*\\.[1-9][0-9]*\\)\\.[1-9][0-9]*$/\\1/p')
+
+%global is_devel_build %(printf '%s' '%{real_version}' | sed -n 's/^1\\.\\([0-9]*[13579]\\)\\..*/1/p')
+
 ###############################################################################
 
 %bcond_without adsl
@@ -47,11 +50,17 @@
 %bcond_without wwan
 %bcond_without team
 %bcond_without wifi
+%bcond_without ovs
 %bcond_without ppp
 %bcond_without nmtui
 %bcond_without regen_docs
+%if 0%{is_devel_build}
+%bcond_without debug
+%else
 %bcond_with    debug
+%endif
 %bcond_without test
+%bcond_with    sanitizer
 
 ###############################################################################
 
@@ -80,6 +89,7 @@ Group: System Environment/Base
 License: GPLv2+
 URL: http://www.gnome.org/projects/NetworkManager/
 
+#Source: https://download.gnome.org/sources/NetworkManager/%{real_version_major}/%{name}-%{real_version}.tar.xz
 Source: __SOURCE1__
 Source1: NetworkManager.conf
 Source2: 00-server.conf
@@ -93,7 +103,6 @@ Requires(postun): systemd
 
 Requires: dbus >= %{dbus_version}
 Requires: glib2 >= %{glib2_version}
-Requires: libnl3 >= %{libnl3_version}
 Requires: %{name}-libnm%{?_isa} = %{epoch}:%{version}-%{release}
 Obsoletes: dhcdbd
 Obsoletes: NetworkManager < %{obsoletes_device_plugins}
@@ -232,13 +241,26 @@ This package contains NetworkManager support for mobile broadband (WWAN)
 devices.
 %endif
 
+
+%if %{with ovs}
+%package ovs
+Summary: OpenVSwitch device plugin for NetworkManager
+Group: System Environment/Base
+Requires: %{name}%{?_isa} = %{epoch}:%{version}-%{release}
+Requires: openvswitch
+
+%description ovs
+This package contains NetworkManager support for OpenVSwitch bridges.
+%endif
+
+
 %if %{with ppp}
 %package ppp
 Summary: PPP plugin for NetworkManager
 Group: System Environment/Base
 Requires: %{name}%{?_isa} = %{epoch}:%{version}-%{release}
 Requires: ppp = %{ppp_version}
-Provides: NetworkManager = %{epoch}:%{version}-%{release}
+Requires: NetworkManager = %{epoch}:%{version}-%{release}
 Obsoletes: NetworkManager < %{obsoletes_ppp_plugin}
 
 %description ppp
@@ -365,11 +387,27 @@ intltoolize --automake --copy --force
 	--disable-static \
 	--with-dhclient=yes \
 	--with-dhcpcd=no \
+	--with-dhcpcanon=no \
+	--with-config-dhcp-default=dhclient \
 	--with-crypto=nss \
+%if %{with test}
 	--enable-more-warnings=error \
+%else
+	--enable-more-warnings=yes \
+%endif
+%if %{with sanitizer}
+	--enable-address-sanitizer \
+	--enable-undefined-sanitizer \
+%else
+	--disable-address-sanitizer \
+	--disable-undefined-sanitizer \
+%endif
 %if %{with debug}
-	--with-more-logging \
+	--enable-more-logging \
 	--with-more-asserts=10000 \
+%else
+	--disable-more-logging \
+	--without-more-asserts \
 %endif
 	--enable-ld-gc \
 	--with-libaudit=yes-disabled-by-default \
@@ -400,22 +438,31 @@ intltoolize --automake --copy --force
 %else
 	--enable-teamdctl=no \
 %endif
+%if %{with ovs}
+	--enable-ovs=yes \
+%else
+	--enable-ovs=no \
+%endif
 	--with-selinux=yes \
 	--enable-polkit=yes \
 	--enable-polkit-agent \
 	--enable-modify-system=yes \
 	--enable-concheck \
 %if 0%{?fedora}
-	--enable-libpsl \
+	--with-libpsl \
 %else
-	--disable-libpsl \
+	--without-libpsl \
 %endif
 	--with-session-tracking=systemd \
 	--with-suspend-resume=systemd \
 	--with-systemdsystemunitdir=%{systemd_dir} \
 	--with-system-ca-path=/etc/pki/tls/cert.pem \
 	--with-dbus-sys-dir=%{dbus_sys_dir} \
+%if %{with test}
 	--with-tests=yes \
+%else
+	--with-tests=no \
+%endif
 	--with-valgrind=no \
 	--enable-ifcfg-rh=yes \
 %if %{with ppp}
@@ -464,6 +511,16 @@ make %{?_smp_mflags} check
 %endif
 
 
+%pre
+if [ -f "%{systemd_dir}/network-online.target.wants/NetworkManager-wait-online.service" ] ; then
+    # older versions used to install this file, effectively always enabling
+    # NetworkManager-wait-online.service. We no longer do that and rely on
+    # preset.
+    # But on package upgrade we must explicitly enable it (rh#1455704).
+    systemctl enable NetworkManager-wait-online.service || :
+fi
+
+
 %post
 /usr/bin/udevadm control --reload-rules || :
 /usr/bin/udevadm trigger --subsystem-match=net || :
@@ -487,11 +544,11 @@ fi
 %systemd_postun
 
 
-%post	glib -p /sbin/ldconfig
-%postun	glib -p /sbin/ldconfig
+%post   glib -p /sbin/ldconfig
+%postun glib -p /sbin/ldconfig
 
-%post	libnm -p /sbin/ldconfig
-%postun	libnm -p /sbin/ldconfig
+%post   libnm -p /sbin/ldconfig
+%postun libnm -p /sbin/ldconfig
 
 
 %files
@@ -525,7 +582,7 @@ fi
 %dir %{nmlibdir}/VPN
 %{_mandir}/man1/*
 %{_mandir}/man5/*
-%{_mandir}/man7/*
+%{_mandir}/man7/nmcli-examples.7*
 %{_mandir}/man8/*
 %dir %{_localstatedir}/lib/NetworkManager
 %dir %{_sysconfdir}/NetworkManager/system-connections
@@ -537,8 +594,6 @@ fi
 %{systemd_dir}/NetworkManager.service
 %{systemd_dir}/NetworkManager-wait-online.service
 %{systemd_dir}/NetworkManager-dispatcher.service
-%dir %{systemd_dir}/network-online.target.wants
-%{systemd_dir}/network-online.target.wants/NetworkManager-wait-online.service
 %dir %{_datadir}/doc/NetworkManager/examples
 %{_datadir}/doc/NetworkManager/examples/server.conf
 %doc NEWS AUTHORS README CONTRIBUTING TODO
@@ -570,6 +625,13 @@ fi
 %files wwan
 %{_libdir}/%{name}/libnm-device-plugin-wwan.so
 %{_libdir}/%{name}/libnm-wwan.so
+%endif
+
+%if %{with ovs}
+%files ovs
+%{_libdir}/%{name}/libnm-device-plugin-ovs.so
+%{systemd_dir}/NetworkManager.service.d/NetworkManager-ovs.conf
+%{_mandir}/man7/nm-openvswitch.7*
 %endif
 
 %if %{with ppp}
@@ -659,4 +721,3 @@ fi
 
 %changelog
 __CHANGELOG__
-

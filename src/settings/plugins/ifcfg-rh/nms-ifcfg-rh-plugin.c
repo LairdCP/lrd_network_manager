@@ -461,7 +461,7 @@ _paths_from_connections (GHashTable *connections)
 {
 	GHashTableIter iter;
 	NMIfcfgConnection *connection;
-	GHashTable *paths = g_hash_table_new (g_str_hash, g_str_equal);
+	GHashTable *paths = g_hash_table_new (nm_str_hash, g_str_equal);
 
 	g_hash_table_iter_init (&iter, connections);
 	while (g_hash_table_iter_next (&iter, NULL, (gpointer *) &connection)) {
@@ -679,18 +679,16 @@ add_connection (NMSettingsPlugin *config,
 {
 	SettingsPluginIfcfg *self = SETTINGS_PLUGIN_IFCFG (config);
 	gs_free char *path = NULL;
-
-	/* Ensure we reject attempts to add the connection long before we're
-	 * asked to write it to disk.
-	 */
-	if (!writer_can_write_connection (connection, error))
-		return NULL;
+	gs_unref_object NMConnection *reread = NULL;
 
 	if (save_to_disk) {
-		if (!writer_new_connection (connection, IFCFG_DIR, &path, NULL, NULL, error))
+		if (!nms_ifcfg_rh_writer_write_connection (connection, IFCFG_DIR, NULL, &path, &reread, NULL, error))
+			return NULL;
+	} else {
+		if (!nms_ifcfg_rh_writer_can_write_connection (connection, error))
 			return NULL;
 	}
-	return NM_SETTINGS_CONNECTION (update_connection (self, connection, path, NULL, FALSE, NULL, error));
+	return NM_SETTINGS_CONNECTION (update_connection (self, reread ?: connection, path, NULL, FALSE, NULL, error));
 }
 
 static void
@@ -991,7 +989,7 @@ settings_plugin_ifcfg_init (SettingsPluginIfcfg *plugin)
 {
 	SettingsPluginIfcfgPrivate *priv = SETTINGS_PLUGIN_IFCFG_GET_PRIVATE ((SettingsPluginIfcfg *) plugin);
 
-	priv->connections = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_object_unref);
+	priv->connections = g_hash_table_new_full (nm_str_hash, g_str_equal, g_free, g_object_unref);
 }
 
 static void

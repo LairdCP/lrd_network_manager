@@ -158,12 +158,12 @@ G_DEFINE_TYPE (NMDnsManager, nm_dns_manager, NM_TYPE_EXPORTED_OBJECT)
 #define NM_DNS_MANAGER_GET_PRIVATE(self) _NM_GET_PRIVATE(self, NMDnsManager, NM_IS_DNS_MANAGER)
 
 static gboolean
-domain_is_valid (const gchar *domain)
+domain_is_valid (const gchar *domain, gboolean check_public_suffix)
 {
 	if (*domain == '\0')
 		return FALSE;
 #if WITH_LIBPSL
-	if (psl_is_public_suffix (psl_builtin (), domain))
+	if (check_public_suffix && psl_is_public_suffix (psl_builtin (), domain))
 		return FALSE;
 #endif
 	return TRUE;
@@ -197,6 +197,19 @@ NM_UTILS_LOOKUP_STR_DEFINE_STATIC (_config_type_to_string, NMDnsIPConfigType,
 	NM_UTILS_LOOKUP_STR_ITEM (NM_DNS_IP_CONFIG_TYPE_VPN, "vpn"),
 );
 
+int
+nm_dns_ip_config_data_get_dns_priority (const NMDnsIPConfigData *config)
+{
+	g_return_val_if_fail (config, 0);
+
+	if (NM_IS_IP4_CONFIG (config->config))
+		return nm_ip4_config_get_dns_priority (config->config);
+	else if (NM_IS_IP6_CONFIG (config->config))
+		return nm_ip6_config_get_dns_priority (config->config);
+	else
+		g_return_val_if_reached (0);
+}
+
 static NMDnsIPConfigData *
 ip_config_data_new (gpointer config, NMDnsIPConfigType type, const char *iface)
 {
@@ -226,19 +239,10 @@ ip_config_data_destroy (gpointer ptr)
 static gint
 ip_config_data_compare (const NMDnsIPConfigData *a, const NMDnsIPConfigData *b)
 {
-	gboolean a_v4, b_v4;
-	gint a_prio, b_prio;
+	int a_prio, b_prio;
 
-	a_v4 = NM_IS_IP4_CONFIG (a->config);
-	b_v4 = NM_IS_IP4_CONFIG (b->config);
-
-	a_prio = a_v4 ?
-		nm_ip4_config_get_dns_priority ((NMIP4Config *) a->config) :
-		nm_ip6_config_get_dns_priority ((NMIP6Config *) a->config);
-
-	b_prio = b_v4 ?
-		nm_ip4_config_get_dns_priority ((NMIP4Config *) b->config) :
-		nm_ip6_config_get_dns_priority ((NMIP6Config *) b->config);
+	a_prio = nm_dns_ip_config_data_get_dns_priority (a);
+	b_prio = nm_dns_ip_config_data_get_dns_priority (b);
 
 	/* Configurations with lower priority value first */
 	if (a_prio < b_prio)
@@ -308,7 +312,7 @@ merge_one_ip4_config (NMResolvConfData *rc, NMIP4Config *src)
 		const char *search;
 
 		search = nm_ip4_config_get_search (src, i);
-		if (!domain_is_valid (search))
+		if (!domain_is_valid (search, FALSE))
 			continue;
 		add_string_item (rc->searches, search);
 	}
@@ -318,7 +322,7 @@ merge_one_ip4_config (NMResolvConfData *rc, NMIP4Config *src)
 			const char *domain;
 
 			domain = nm_ip4_config_get_domain (src, i);
-			if (!domain_is_valid (domain))
+			if (!domain_is_valid (domain, FALSE))
 				continue;
 			add_string_item (rc->searches, domain);
 		}
@@ -378,7 +382,7 @@ merge_one_ip6_config (NMResolvConfData *rc, NMIP6Config *src, const char *iface)
 		const char *search;
 
 		search = nm_ip6_config_get_search (src, i);
-		if (!domain_is_valid (search))
+		if (!domain_is_valid (search, FALSE))
 			continue;
 		add_string_item (rc->searches, search);
 	}
@@ -388,7 +392,7 @@ merge_one_ip6_config (NMResolvConfData *rc, NMIP6Config *src, const char *iface)
 			const char *domain;
 
 			domain = nm_ip6_config_get_domain (src, i);
-			if (!domain_is_valid (domain))
+			if (!domain_is_valid (domain, FALSE))
 				continue;
 			add_string_item (rc->searches, domain);
 		}
@@ -493,7 +497,7 @@ dispatch_netconfig (NMDnsManager *self,
 		g_free (str);
 	}
 
-	close (fd);
+	nm_close (fd);
 
 	/* Wait until the process exits */
 	if (!nm_utils_kill_child_sync (pid, 0, LOGD_DNS, "netconfig", &status, 1000, 0)) {
@@ -919,7 +923,7 @@ merge_global_dns_config (NMResolvConfData *rc, NMGlobalDnsConfig *global_conf)
 	options = nm_global_dns_config_get_options (global_conf);
 
 	for (i = 0; searches && searches[i]; i++) {
-		if (domain_is_valid (searches[i]))
+		if (domain_is_valid (searches[i], FALSE))
 			add_string_item (rc->searches, searches[i]);
 	}
 
@@ -990,11 +994,9 @@ _collect_resolv_conf_data (NMDnsManager *self, /* only for logging context, no o
                            char ***out_options,
                            char ***out_nameservers,
                            char ***out_nis_servers,
-                           const char **out_nis_domain,
-                           NMDnsIPConfigData ***out_plugin_confs)
+                           const char **out_nis_domain)
 {
-	NMDnsIPConfigData **plugin_confs = NULL;
-	guint i, num, len;
+	guint i, j, num, len;
 	NMResolvConfData rc = {
 		.nameservers = g_ptr_array_new (),
 		.searches = g_ptr_array_new (),
@@ -1007,27 +1009,23 @@ _collect_resolv_conf_data (NMDnsManager *self, /* only for logging context, no o
 		merge_global_dns_config (&rc, global_config);
 	else {
 		nm_auto_free_gstring GString *tmp_gstring = NULL;
-		int prio, prev_prio = 0;
+		int prio, first_prio = 0;
 		NMDnsIPConfigData *current;
-		gboolean skip = FALSE, v4;
+		gboolean v4;
 
-		plugin_confs = g_new (NMDnsIPConfigData *, configs->len + 1);
+		for (i = 0, j = 0; i < configs->len; i++) {
+			gboolean skip = FALSE;
 
-		for (i = 0; i < configs->len; i++) {
 			current = configs->pdata[i];
-			v4 = NM_IS_IP4_CONFIG (current->config);
 
-			prio = v4 ?
-				nm_ip4_config_get_dns_priority ((NMIP4Config *) current->config) :
-				nm_ip6_config_get_dns_priority ((NMIP6Config *) current->config);
+			prio = nm_dns_ip_config_data_get_dns_priority (current);
 
-			if (prev_prio < 0 && prio != prev_prio) {
+			if (i == 0)
+				first_prio = prio;
+			else if (first_prio < 0 && first_prio != prio)
 				skip = TRUE;
-				plugin_confs[i] = NULL;
-			}
 
-			prev_prio = prio;
-
+			v4 = NM_IS_IP4_CONFIG (current->config);
 			if (   ( v4 && nm_ip4_config_get_num_nameservers ((NMIP4Config *) current->config))
 			    || (!v4 && nm_ip6_config_get_num_nameservers ((NMIP6Config *) current->config))) {
 				_LOGT ("config: %8d %-7s v%c %-16s %s: %s",
@@ -1039,12 +1037,9 @@ _collect_resolv_conf_data (NMDnsManager *self, /* only for logging context, no o
 				       get_nameserver_list (current->config, &tmp_gstring));
 			}
 
-			if (!skip) {
+			if (!skip)
 				merge_one_ip_config_data (&rc, current);
-				plugin_confs[i] = current;
-			}
 		}
-		plugin_confs[i] = NULL;
 	}
 
 	/* If the hostname is a FQDN ("dcbw.example.com"), then add the domain part of it
@@ -1060,9 +1055,9 @@ _collect_resolv_conf_data (NMDnsManager *self, /* only for logging context, no o
 		if (   hostdomain
 		    && !nm_utils_ipaddr_valid (AF_UNSPEC, hostname)) {
 			hostdomain++;
-			if (domain_is_valid (hostdomain))
+			if (domain_is_valid (hostdomain, TRUE))
 				add_string_item (rc.searches, hostdomain);
-			else if (domain_is_valid (hostname))
+			else if (domain_is_valid (hostname, TRUE))
 				add_string_item (rc.searches, hostname);
 		}
 	}
@@ -1078,7 +1073,6 @@ _collect_resolv_conf_data (NMDnsManager *self, /* only for logging context, no o
 	}
 	g_ptr_array_set_size (rc.searches, i);
 
-	*out_plugin_confs = plugin_confs;
 	*out_searches = _ptrarray_to_strv (rc.searches);
 	*out_options = _ptrarray_to_strv (rc.options);
 	*out_nameservers = _ptrarray_to_strv (rc.nameservers);
@@ -1102,7 +1096,6 @@ update_dns (NMDnsManager *self,
 	SpawnResult result = SR_ERROR;
 	NMConfigData *data;
 	NMGlobalDnsConfig *global_config;
-	gs_free NMDnsIPConfigData **plugin_confs = NULL;
 
 	g_return_val_if_fail (!error || !*error, FALSE);
 
@@ -1136,8 +1129,7 @@ update_dns (NMDnsManager *self,
 	compute_hash (self, global_config, priv->hash);
 
 	_collect_resolv_conf_data (self, global_config, priv->configs, priv->hostname,
-	                           &searches, &options, &nameservers, &nis_servers, &nis_domain,
-	                           &plugin_confs);
+	                           &searches, &options, &nameservers, &nis_servers, &nis_domain);
 
 	/* Let any plugins do their thing first */
 	if (priv->plugin) {
@@ -1155,7 +1147,7 @@ update_dns (NMDnsManager *self,
 
 		_LOGD ("update-dns: updating plugin %s", plugin_name);
 		if (!nm_dns_plugin_update (plugin,
-		                           (const NMDnsIPConfigData **) plugin_confs,
+		                           priv->configs,
 		                           global_config,
 		                           priv->hostname)) {
 			_LOGW ("update-dns: plugin %s update failed", plugin_name);
@@ -1175,9 +1167,16 @@ update_dns (NMDnsManager *self,
 	 * but only uses the local caching nameserver.
 	 */
 	if (caching) {
+		const char *lladdr = "127.0.0.1";
+
+		if (NM_IS_DNS_SYSTEMD_RESOLVED (priv->plugin)) {
+			/* systemd-resolved uses a different link-local address */
+			lladdr = "127.0.0.53";
+		}
+
 		g_strfreev (nameservers);
-		nameservers = g_new0 (char*, 2);
-		nameservers[0] = g_strdup ("127.0.0.1");
+		nameservers = g_new0 (char *, 2);
+		nameservers[0] = g_strdup (lladdr);
 	}
 
 	if (update) {
@@ -1435,6 +1434,7 @@ nm_dns_manager_set_initial_hostname (NMDnsManager *self,
 {
 	NMDnsManagerPrivate *priv = NM_DNS_MANAGER_GET_PRIVATE (self);
 
+	g_free (priv->hostname);
 	priv->hostname = g_strdup (hostname);
 }
 
@@ -1633,7 +1633,7 @@ _check_resconf_immutable (NMDnsManagerResolvConfManager rc_manager)
 		if (fd != -1) {
 			if (ioctl (fd, FS_IOC_GETFLAGS, &flags) != -1)
 				immutable = NM_FLAGS_HAS (flags, FS_IMMUTABLE_FL);
-			close (fd);
+			nm_close (fd);
 		}
 		return immutable ? NM_DNS_MANAGER_RESOLV_CONF_MAN_IMMUTABLE : rc_manager;
 	}
@@ -1642,32 +1642,68 @@ _check_resconf_immutable (NMDnsManagerResolvConfManager rc_manager)
 static gboolean
 _resolvconf_resolved_managed (void)
 {
-	static const char *const resolved_paths[] = {
+	static const char *const RESOLVED_PATHS[] = {
 		"/run/systemd/resolve/resolv.conf",
 		"/lib/systemd/resolv.conf",
 		"/usr/lib/systemd/resolv.conf",
 	};
-	GFile *f;
-	GFileInfo *info;
-	gboolean ret = FALSE;
+	struct stat st, st_test;
+	guint i;
 
-	f = g_file_new_for_path (_PATH_RESCONF);
-	info = g_file_query_info (f,
-	                          G_FILE_ATTRIBUTE_STANDARD_IS_SYMLINK","\
-	                          G_FILE_ATTRIBUTE_STANDARD_SYMLINK_TARGET,
-	                          G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS,
-	                          NULL, NULL);
+	if (lstat (_PATH_RESCONF, &st) != 0)
+		return FALSE;
 
-	if (info && g_file_info_get_is_symlink (info)) {
-		ret = nm_utils_strv_find_first ((gchar **) resolved_paths,
-		                                G_N_ELEMENTS (resolved_paths),
-		                                g_file_info_get_symlink_target (info)) >= 0;
+	if (S_ISLNK (st.st_mode)) {
+		gs_free char *full_path = NULL;
+		nm_auto_free char *real_path = NULL;
+
+		/* see if resolv.conf is a symlink with a target that is
+		 * exactly like one of the candidates.
+		 *
+		 * This check will work for symlinks, even if the target
+		 * does not exist and realpath() cannot resolve anything.
+		 *
+		 * We want to handle that, because systemd-resolved might not
+		 * have started yet. */
+		full_path = g_file_read_link (_PATH_RESCONF, NULL);
+		if (nm_utils_strv_find_first ((char **) RESOLVED_PATHS,
+		                              G_N_ELEMENTS (RESOLVED_PATHS),
+		                              full_path) >= 0)
+			return TRUE;
+
+		/* see if resolv.conf is a symlink that resolves exactly one
+		 * of the candidate paths.
+		 *
+		 * This check will work for symlinks that can be resolved
+		 * to a realpath, but the actual file might not exist.
+		 *
+		 * We want to handle that, because systemd-resolved might not
+		 * have started yet. */
+		real_path = realpath (_PATH_RESCONF, NULL);
+		if (nm_utils_strv_find_first ((char **) RESOLVED_PATHS,
+		                              G_N_ELEMENTS (RESOLVED_PATHS),
+		                              real_path) >= 0)
+			return TRUE;
+
+		/* fall-through and resolve the symlink, to check the file
+		 * it points to (below).
+		 *
+		 * This check is the most reliable, but it only works if
+		 * systemd-resolved already started and created the file. */
+		if (stat (_PATH_RESCONF, &st) != 0)
+			return FALSE;
 	}
 
-	g_clear_object(&info);
-	g_clear_object(&f);
+	/* see if resolv.conf resolves to one of the candidate
+	 * paths (or whether it is hard-linked). */
+	for (i = 0; i < G_N_ELEMENTS (RESOLVED_PATHS); i++) {
+		if (   stat (RESOLVED_PATHS[i], &st_test) == 0
+		    && st.st_dev == st_test.st_dev
+		    && st.st_ino == st_test.st_ino)
+			return TRUE;
+	}
 
-	return ret;
+	return FALSE;
 }
 
 static void

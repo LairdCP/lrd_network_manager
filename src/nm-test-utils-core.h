@@ -195,7 +195,7 @@ nmtst_platform_ip6_route_full (const char *network, guint plen, const char *gate
 static inline int
 _nmtst_platform_ip4_routes_equal_sort (gconstpointer a, gconstpointer b, gpointer user_data)
 {
-	return nm_platform_ip4_route_cmp ((const NMPlatformIP4Route *) a, (const NMPlatformIP4Route *) b);
+	return nm_platform_ip4_route_cmp_full ((const NMPlatformIP4Route *) a, (const NMPlatformIP4Route *) b);
 }
 
 static inline void
@@ -215,7 +215,7 @@ nmtst_platform_ip4_routes_equal (const NMPlatformIP4Route *a, const NMPlatformIP
 	}
 
 	for (i = 0; i < len; i++) {
-		if (nm_platform_ip4_route_cmp (&a[i], &b[i]) != 0) {
+		if (nm_platform_ip4_route_cmp_full (&a[i], &b[i]) != 0) {
 			char buf[sizeof (_nm_utils_to_string_buffer)];
 
 			g_error ("Error comparing IPv4 route[%lu]: %s vs %s", (unsigned long) i,
@@ -226,10 +226,29 @@ nmtst_platform_ip4_routes_equal (const NMPlatformIP4Route *a, const NMPlatformIP
 	}
 }
 
+#ifdef __NMP_OBJECT_H__
+
+static inline void
+nmtst_platform_ip4_routes_equal_aptr (const NMPObject *const*a, const NMPlatformIP4Route *b, gsize len, gboolean ignore_order)
+{
+	gsize i;
+	gs_free NMPlatformIP4Route *c_a = NULL;
+
+	g_assert (len > 0);
+	g_assert (a);
+
+	c_a = g_new (NMPlatformIP4Route, len);
+	for (i = 0; i < len; i++)
+		c_a[i] = *NMP_OBJECT_CAST_IP4_ROUTE (a[i]);
+	nmtst_platform_ip4_routes_equal (c_a, b, len, ignore_order);
+}
+
+#endif
+
 static inline int
 _nmtst_platform_ip6_routes_equal_sort (gconstpointer a, gconstpointer b, gpointer user_data)
 {
-	return nm_platform_ip6_route_cmp ((const NMPlatformIP6Route *) a, (const NMPlatformIP6Route *) b);
+	return nm_platform_ip6_route_cmp_full ((const NMPlatformIP6Route *) a, (const NMPlatformIP6Route *) b);
 }
 
 static inline void
@@ -249,7 +268,7 @@ nmtst_platform_ip6_routes_equal (const NMPlatformIP6Route *a, const NMPlatformIP
 	}
 
 	for (i = 0; i < len; i++) {
-		if (nm_platform_ip6_route_cmp (&a[i], &b[i]) != 0) {
+		if (nm_platform_ip6_route_cmp_full (&a[i], &b[i]) != 0) {
 			char buf[sizeof (_nm_utils_to_string_buffer)];
 
 			g_error ("Error comparing IPv6 route[%lu]: %s vs %s", (unsigned long) i,
@@ -260,18 +279,48 @@ nmtst_platform_ip6_routes_equal (const NMPlatformIP6Route *a, const NMPlatformIP
 	}
 }
 
+#ifdef __NMP_OBJECT_H__
+
+static inline void
+nmtst_platform_ip6_routes_equal_aptr (const NMPObject *const*a, const NMPlatformIP6Route *b, gsize len, gboolean ignore_order)
+{
+	gsize i;
+	gs_free NMPlatformIP6Route *c_a = NULL;
+
+	g_assert (len > 0);
+	g_assert (a);
+
+	c_a = g_new (NMPlatformIP6Route, len);
+	for (i = 0; i < len; i++)
+		c_a[i] = *NMP_OBJECT_CAST_IP6_ROUTE (a[i]);
+	nmtst_platform_ip6_routes_equal (c_a, b, len, ignore_order);
+}
+
+#endif
+
 #endif
 
 
 #ifdef __NETWORKMANAGER_IP4_CONFIG_H__
 
+#include "nm-utils/nm-dedup-multi.h"
+
+static inline NMIP4Config *
+nmtst_ip4_config_new (int ifindex)
+{
+	nm_auto_unref_dedup_multi_index NMDedupMultiIndex *multi_idx = nm_dedup_multi_index_new ();
+
+	return nm_ip4_config_new (multi_idx, ifindex);
+}
+
 static inline NMIP4Config *
 nmtst_ip4_config_clone (NMIP4Config *config)
 {
-	NMIP4Config *copy = nm_ip4_config_new (-1);
+	NMIP4Config *copy;
 
-	g_assert (copy);
 	g_assert (config);
+	copy = nm_ip4_config_new (nm_ip4_config_get_multi_idx (config), -1);
+	g_assert (copy);
 	nm_ip4_config_replace (copy, config, NULL);
 	return copy;
 }
@@ -281,13 +330,24 @@ nmtst_ip4_config_clone (NMIP4Config *config)
 
 #ifdef __NETWORKMANAGER_IP6_CONFIG_H__
 
+#include "nm-utils/nm-dedup-multi.h"
+
+static inline NMIP6Config *
+nmtst_ip6_config_new (int ifindex)
+{
+	nm_auto_unref_dedup_multi_index NMDedupMultiIndex *multi_idx = nm_dedup_multi_index_new ();
+
+	return nm_ip6_config_new (multi_idx, ifindex);
+}
+
 static inline NMIP6Config *
 nmtst_ip6_config_clone (NMIP6Config *config)
 {
-	NMIP6Config *copy = nm_ip6_config_new (-1);
+	NMIP6Config *copy;
 
-	g_assert (copy);
 	g_assert (config);
+	copy = nm_ip6_config_new (nm_ip6_config_get_multi_idx (config), -1);
+	g_assert (copy);
 	nm_ip6_config_replace (copy, config, NULL);
 	return copy;
 }

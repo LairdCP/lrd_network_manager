@@ -35,6 +35,7 @@
 typedef struct {
 	char *uri;
 	char *response;
+	gboolean enabled;
 	guint interval;
 	NMConfig *config;
 	guint periodic_check_id;
@@ -124,6 +125,8 @@ finish_cb_data (ConCheckCbData *cb_data, NMConnectivityState new_state)
 	g_object_unref (cb_data->simple);
 	curl_slist_free_all (cb_data->request_headers);
 	g_free (cb_data->response);
+	g_free (cb_data->msg);
+	g_free (cb_data->ifspec);
 	g_source_remove (cb_data->timeout_id);
 	g_slice_free (ConCheckCbData, cb_data);
 }
@@ -144,7 +147,7 @@ curl_check_connectivity (CURLM *mhandle, CURLMcode ret)
 			continue;
 
 		/* Here we have completed a session. Check easy session result. */
-		eret = curl_easy_getinfo (msg->easy_handle, CURLINFO_PRIVATE, &cb_data);
+		eret = curl_easy_getinfo (msg->easy_handle, CURLINFO_PRIVATE, (char **) &cb_data);
 		if (eret != CURLE_OK) {
 			_LOG2E ("curl cannot extract cb_data for easy handle %p, skipping msg", msg->easy_handle);
 			continue;
@@ -342,7 +345,7 @@ nm_connectivity_check_async (NMConnectivity      *self,
 	simple = g_simple_async_result_new (G_OBJECT (self), callback, user_data,
 	                                    nm_connectivity_check_async);
 
-	if (priv->uri && priv->interval && priv->curl_mhandle)
+	if (priv->enabled)
 		ehandle = curl_easy_init ();
 
 	if (ehandle) {
@@ -400,7 +403,7 @@ nm_connectivity_check_enabled (NMConnectivity *self)
 {
 	NMConnectivityPrivate *priv = NM_CONNECTIVITY_GET_PRIVATE (self);
 
-	return (priv->uri && priv->interval && priv->curl_mhandle);
+	return priv->enabled;
 }
 
 /*****************************************************************************/
@@ -418,6 +421,7 @@ update_config (NMConnectivity *self, NMConfigData *config_data)
 	NMConnectivityPrivate *priv = NM_CONNECTIVITY_GET_PRIVATE (self);
 	const char *uri, *response;
 	guint interval;
+	gboolean enabled;
 	gboolean changed = FALSE;
 
 	/* Set the URI. */
@@ -450,6 +454,18 @@ update_config (NMConnectivity *self, NMConfigData *config_data)
 	interval = nm_config_data_get_connectivity_interval (config_data);
 	if (priv->interval != interval) {
 		priv->interval = interval;
+		changed = TRUE;
+	}
+
+	/* Set enabled flag. */
+	enabled = nm_config_data_get_connectivity_enabled (config_data);
+	/* connectivity checking also requires a valid URI, interval and
+	 * curl_mhandle */
+	if (!(priv->uri && priv->interval && priv->curl_mhandle)) {
+		enabled = FALSE;
+	}
+	if (priv->enabled != enabled) {
+		priv->enabled = enabled;
 		changed = TRUE;
 	}
 
@@ -486,27 +502,28 @@ nm_connectivity_init (NMConnectivity *self)
 	NMConnectivityPrivate *priv = NM_CONNECTIVITY_GET_PRIVATE (self);
 	CURLcode retv;
 
+	retv = curl_global_init (CURL_GLOBAL_ALL);
+	if (retv == CURLE_OK)
+		priv->curl_mhandle = curl_multi_init ();
+
+	if (!priv->curl_mhandle)
+		 _LOGE ("unable to init cURL, connectivity check will not work");
+	else {
+		curl_multi_setopt (priv->curl_mhandle, CURLMOPT_SOCKETFUNCTION, multi_socket_cb);
+		curl_multi_setopt (priv->curl_mhandle, CURLMOPT_SOCKETDATA, self);
+		curl_multi_setopt (priv->curl_mhandle, CURLMOPT_TIMERFUNCTION, multi_timer_cb);
+		curl_multi_setopt (priv->curl_mhandle, CURLMOPT_TIMERDATA, self);
+		curl_multi_setopt (priv->curl_mhandle, CURLOPT_VERBOSE, 1);
+	}
+
 	priv->config = g_object_ref (nm_config_get ());
+
 	update_config (self, nm_config_get_data (priv->config));
 	g_signal_connect (G_OBJECT (priv->config),
 	                  NM_CONFIG_SIGNAL_CONFIG_CHANGED,
 	                  G_CALLBACK (config_changed_cb),
 	                  self);
 
-	retv = curl_global_init (CURL_GLOBAL_ALL);
-	if (retv == CURLE_OK)
-		priv->curl_mhandle = curl_multi_init ();
-
-	if (priv->curl_mhandle == NULL) {
-		 _LOGE ("cnable to init cURL, connectivity check will not work");
-		return;
-	}
-
-	curl_multi_setopt (priv->curl_mhandle, CURLMOPT_SOCKETFUNCTION, multi_socket_cb);
-	curl_multi_setopt (priv->curl_mhandle, CURLMOPT_SOCKETDATA, self);
-	curl_multi_setopt (priv->curl_mhandle, CURLMOPT_TIMERFUNCTION, multi_timer_cb);
-	curl_multi_setopt (priv->curl_mhandle, CURLMOPT_TIMERDATA, self);
-	curl_multi_setopt (priv->curl_mhandle, CURLOPT_VERBOSE, 1);
 }
 
 static void

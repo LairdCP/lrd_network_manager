@@ -51,7 +51,7 @@
  **/
 
 G_DEFINE_TYPE_WITH_CODE (NMSettingIP4Config, nm_setting_ip4_config, NM_TYPE_SETTING_IP_CONFIG,
-                         _nm_register_setting (IP4_CONFIG, 4))
+                         _nm_register_setting (IP4_CONFIG, NM_SETTING_PRIORITY_IP))
 NM_SETTING_REGISTER_TYPE (NM_TYPE_SETTING_IP4_CONFIG)
 
 #define NM_SETTING_IP4_CONFIG_GET_PRIVATE(o) (G_TYPE_INSTANCE_GET_PRIVATE ((o), NM_TYPE_SETTING_IP4_CONFIG, NMSettingIP4ConfigPrivate))
@@ -681,6 +681,14 @@ nm_setting_ip4_config_class_init (NMSettingIP4ConfigClass *ip4_class)
 	 */
 
 	/* ---ifcfg-rh---
+	 * property: route-table
+	 * variable: IPV4_ROUTE_TABLE(+)
+	 * default: 0
+	 * description: IPV4_ROUTE_TABLE enables policy-routing and sets the default routing table.
+	 * ---end---
+	 */
+
+	/* ---ifcfg-rh---
 	 * property: dns-priority
 	 * variable: IPV4_DNS_PRIORITY(+)
 	 * description: The priority for DNS servers of this connection. Lower values have higher priority.
@@ -696,12 +704,20 @@ nm_setting_ip4_config_class_init (NMSettingIP4ConfigClass *ip4_class)
 	 *
 	 * A string sent to the DHCP server to identify the local machine which the
 	 * DHCP server may use to customize the DHCP lease and options.
+	 * When the property is a hex string ('aa:bb:cc') it is interpreted as a
+	 * binary client ID, in which case the first byte is assumed to be the
+	 * 'type' field as per RFC 2132 section 9.14 and the remaining bytes may be
+	 * an hardware address (e.g. '01:xx:xx:xx:xx:xx:xx' where 1 is the Ethernet
+	 * ARP type and the rest is a MAC address).
+	 * If the property is not a hex string it is considered as a
+	 * non-hardware-address client ID and the 'type' field is set to 0.
 	 **/
 	/* ---ifcfg-rh---
 	 * property: dhcp-client-id
 	 * variable: DHCP_CLIENT_ID(+)
 	 * description: A string sent to the DHCP server to identify the local machine.
-	 * example: DHCP_CLIENT_ID=ax-srv-1
+	 *    A binary value can be specified using hex notation ('aa:bb:cc').
+	 * example: DHCP_CLIENT_ID=ax-srv-1; DHCP_CLIENT_ID=01:44:44:44:44:44:44"
 	 * ---end---
 	 */
 	g_object_class_install_property

@@ -41,7 +41,7 @@
  **/
 
 G_DEFINE_TYPE_WITH_CODE (NMSettingWireless, nm_setting_wireless, NM_TYPE_SETTING,
-                         _nm_register_setting (WIRELESS, 1))
+                         _nm_register_setting (WIRELESS, NM_SETTING_PRIORITY_HW_BASE))
 NM_SETTING_REGISTER_TYPE (NM_TYPE_SETTING_WIRELESS)
 
 #define NM_SETTING_WIRELESS_GET_PRIVATE(o) (G_TYPE_INSTANCE_GET_PRIVATE ((o), NM_TYPE_SETTING_WIRELESS, NMSettingWirelessPrivate))
@@ -72,6 +72,9 @@ typedef struct {
 	guint32 scan_suspend_time;
 	guint32 scan_roam_delta;
 	char *bgscan;
+	guint32 auth_timeout;
+	char *frequency_list;
+	guint32 frequency_dfs;
 } NMSettingWirelessPrivate;
 
 enum {
@@ -102,6 +105,9 @@ enum {
 	PROP_SCAN_ROAM_DELTA,
 
 	PROP_BGSCAN,
+	PROP_AUTH_TIMEOUT,
+	PROP_FREQUENCY_LIST,
+	PROP_FREQUENCY_DFS,
 
 	LAST_PROP
 };
@@ -799,6 +805,51 @@ nm_setting_wireless_get_bgscan (NMSettingWireless *setting)
 }
 
 /**
+ * nm_setting_wireless_get_auth_timeout:
+ * @setting: the #NMSettingWireless
+ *
+ * Returns: the #NMSettingWireless:authentication timeout property of the
+ * setting
+ **/
+guint32
+nm_setting_wireless_get_auth_timeout (NMSettingWireless *setting)
+{
+	g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), 0);
+
+	return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->auth_timeout;
+}
+
+/**
+ * nm_setting_wireless_get_frequency_list:
+ * @setting: the #NMSettingWireless
+ *
+ * Returns: the #NMSettingWireless:frequency  list of the
+ * setting
+ **/
+const char *
+nm_setting_wireless_get_frequency_list (NMSettingWireless *setting)
+{
+	g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), NULL);
+
+	return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->frequency_list;
+}
+
+/**
+ * nm_setting_wireless_get_frequency_dfs:
+ * @setting: the #NMSettingWireless
+ *
+ * Returns: the #NMSettingWireless:DFS/RADAR frequencies disable/enable property of the
+ * setting
+ **/
+guint32
+nm_setting_wireless_get_frequency_dfs (NMSettingWireless *setting)
+{
+	g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), 0);
+
+	return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->frequency_dfs;
+}
+
+/**
  * nm_setting_wireless_add_seen_bssid:
  * @setting: the #NMSettingWireless
  * @bssid: the new BSSID to add to the list
@@ -1254,6 +1305,16 @@ set_property (GObject *object, guint prop_id,
 		g_free (priv->bgscan);
 		priv->bgscan = g_value_dup_string (value);
 		break;
+	case PROP_AUTH_TIMEOUT:
+		priv->auth_timeout = g_value_get_uint (value);
+		break;
+	case PROP_FREQUENCY_LIST:
+		g_free (priv->frequency_list);
+		priv->frequency_list = g_value_dup_string (value);
+		break;
+	case PROP_FREQUENCY_DFS:
+		priv->frequency_dfs = g_value_get_uint (value);
+		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
 		break;
@@ -1339,6 +1400,15 @@ get_property (GObject *object, guint prop_id,
 		break;
 	case PROP_BGSCAN:
 		g_value_set_string (value, nm_setting_wireless_get_bgscan (setting));
+		break;
+	case PROP_AUTH_TIMEOUT:
+		g_value_set_uint (value, nm_setting_wireless_get_auth_timeout (setting));
+		break;
+	case PROP_FREQUENCY_LIST:
+		g_value_set_string (value, nm_setting_wireless_get_frequency_list (setting));
+		break;
+	case PROP_FREQUENCY_DFS:
+		g_value_set_uint (value, nm_setting_wireless_get_frequency_dfs (setting));
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -1570,7 +1640,7 @@ nm_setting_wireless_class_init (NMSettingWirelessClass *setting_wireless_class)
 	 * If specified, request that the device use this MAC address instead.
 	 * This is known as MAC cloning or spoofing.
 	 *
-	 * Beside explicitly specifing a MAC address, the special values "preserve", "permanent",
+	 * Beside explicitly specifying a MAC address, the special values "preserve", "permanent",
 	 * "random" and "stable" are supported.
 	 * "preserve" means not to touch the MAC address on activation.
 	 * "permanent" means to use the permanent hardware address of the device.
@@ -1664,7 +1734,7 @@ nm_setting_wireless_class_init (NMSettingWirelessClass *setting_wireless_class)
 	 * "02:00:00:00:00:00 00:00:00:00:00:00" will create a fully scrambled
 	 * globally-administered, burned-in MAC address.
 	 *
-	 * If the value contains more then one additional MAC addresses, one of
+	 * If the value contains more than one additional MAC addresses, one of
 	 * them is chosen randomly. For example, "02:00:00:00:00:00 00:00:00:00:00:00 02:00:00:00:00:00"
 	 * will create a fully scrambled MAC address, randomly locally or globally
 	 * administered.
@@ -1970,6 +2040,53 @@ nm_setting_wireless_class_init (NMSettingWirelessClass *setting_wireless_class)
 		                      NULL,
 		                      G_PARAM_READWRITE |
 		                      G_PARAM_STATIC_STRINGS));
+
+	/**
+	 * NMSettingWireless:auth_timeout:
+	 *
+	 * Will restart association if authentication does not complete
+	 * within the configured auth_timeout.
+	 *
+	 * Since: 1.8
+	 **/
+	g_object_class_install_property
+		(object_class, PROP_AUTH_TIMEOUT,
+		 g_param_spec_uint (NM_SETTING_WIRELESS_AUTH_TIMEOUT, "", "",
+		                    0, 60, 0,
+		                    G_PARAM_READWRITE |
+		                    G_PARAM_CONSTRUCT |
+		                    NM_SETTING_PARAM_FUZZY_IGNORE |
+		                    G_PARAM_STATIC_STRINGS));
+
+	/**
+	 * NMSettingWireless:frequency_list:
+	 *
+	 * The allowed frequencies for connecting.  A space separated list of frequencies.
+	 *
+	 * Since: 1.8
+	 **/
+	g_object_class_install_property
+		(object_class, PROP_FREQUENCY_LIST,
+		 g_param_spec_string (NM_SETTING_WIRELESS_FREQUENCY_LIST, "", "",
+		                      NULL,
+		                      G_PARAM_READWRITE |
+		                      G_PARAM_STATIC_STRINGS));
+
+	/**
+	 * NMSettingWireless:frequency_dfs:
+	 *
+	 * Enables/disables DFS/RADAR frequencies.
+	 *
+	 * Since: 1.8
+	 **/
+	g_object_class_install_property
+		(object_class, PROP_FREQUENCY_DFS,
+		 g_param_spec_uint (NM_SETTING_WIRELESS_FREQUENCY_DFS, "", "",
+		                    0, 1, NM_SETTING_WIRELESS_FREQUENCY_DFS_DEFAULT,
+		                    G_PARAM_READWRITE |
+		                    G_PARAM_CONSTRUCT |
+		                    NM_SETTING_PARAM_FUZZY_IGNORE |
+		                    G_PARAM_STATIC_STRINGS));
 
 	/* Compatibility for deprecated property */
 	/* ---ifcfg-rh---

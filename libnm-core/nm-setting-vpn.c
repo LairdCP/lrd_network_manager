@@ -44,7 +44,7 @@
  **/
 
 G_DEFINE_TYPE_WITH_CODE (NMSettingVpn, nm_setting_vpn, NM_TYPE_SETTING,
-                         _nm_register_setting (VPN, 1))
+                         _nm_register_setting (VPN, NM_SETTING_PRIORITY_HW_BASE))
 NM_SETTING_REGISTER_TYPE (NM_TYPE_SETTING_VPN)
 
 #define NM_SETTING_VPN_GET_PRIVATE(o) (G_TYPE_INSTANCE_GET_PRIVATE ((o), NM_TYPE_SETTING_VPN, NMSettingVpnPrivate))
@@ -933,7 +933,7 @@ nm_setting_vpn_class_init (NMSettingVpnClass *setting_class)
 	 *
 	 * Timeout for the VPN service to establish the connection. Some services
 	 * may take quite a long time to connect.
-	 * Value of 0 means a default timeout, which is 60 seconds (unless overriden
+	 * Value of 0 means a default timeout, which is 60 seconds (unless overridden
 	 * by vpn.timeout in configuration file). Values greater than zero mean
 	 * timeout in seconds.
 	 *

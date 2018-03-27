@@ -34,6 +34,7 @@
 #include "nm-active-connection.h"
 #include "nm-vpn-connection.h"
 #include "nm-dbus-helpers.h"
+#include "nm-utils/c-list.h"
 
 #include "introspection/org.freedesktop.NetworkManager.h"
 
@@ -71,7 +72,7 @@ typedef struct {
 	/* Activations waiting for their NMActiveConnection
 	 * to appear and then their callback to be called.
 	 */
-	GSList *pending_activations;
+	CList pending_activations;
 
 	gboolean networking_enabled;
 	gboolean wireless_enabled;
@@ -82,6 +83,9 @@ typedef struct {
 
 	gboolean wimax_enabled;
 	gboolean wimax_hw_enabled;
+
+	gboolean connectivity_check_available;
+	gboolean connectivity_check_enabled;
 } NMManagerPrivate;
 
 enum {
@@ -98,6 +102,8 @@ enum {
 	PROP_WIMAX_HARDWARE_ENABLED,
 	PROP_ACTIVE_CONNECTIONS,
 	PROP_CONNECTIVITY,
+	PROP_CONNECTIVITY_CHECK_AVAILABLE,
+	PROP_CONNECTIVITY_CHECK_ENABLED,
 	PROP_PRIMARY_CONNECTION,
 	PROP_ACTIVATING_CONNECTION,
 	PROP_DEVICES,
@@ -127,6 +133,8 @@ static void
 nm_manager_init (NMManager *manager)
 {
 	NMManagerPrivate *priv = NM_MANAGER_GET_PRIVATE (manager);
+
+	c_list_init (&priv->pending_activations);
 
 	priv->state = NM_STATE_UNKNOWN;
 	priv->connectivity = NM_CONNECTIVITY_UNKNOWN;
@@ -176,6 +184,8 @@ init_dbus (NMObject *object)
 		{ NM_MANAGER_WIMAX_HARDWARE_ENABLED,    &priv->wimax_hw_enabled },
 		{ NM_MANAGER_ACTIVE_CONNECTIONS,        &priv->active_connections, NULL, NM_TYPE_ACTIVE_CONNECTION, "active-connection" },
 		{ NM_MANAGER_CONNECTIVITY,              &priv->connectivity },
+		{ NM_MANAGER_CONNECTIVITY_CHECK_AVAILABLE, &priv->connectivity_check_available },
+		{ NM_MANAGER_CONNECTIVITY_CHECK_ENABLED, &priv->connectivity_check_enabled },
 		{ NM_MANAGER_PRIMARY_CONNECTION,        &priv->primary_connection, NULL, NM_TYPE_ACTIVE_CONNECTION },
 		{ NM_MANAGER_ACTIVATING_CONNECTION,     &priv->activating_connection, NULL, NM_TYPE_ACTIVE_CONNECTION },
 		{ NM_MANAGER_DEVICES,                   &priv->devices, NULL, NM_TYPE_DEVICE, "device" },
@@ -192,8 +202,8 @@ init_dbus (NMObject *object)
 	                                property_info);
 
 	/* Permissions */
-	g_signal_connect (priv->proxy, "check-permissions",
-	                  G_CALLBACK (manager_recheck_permissions), object);
+	g_signal_connect_object (priv->proxy, "check-permissions",
+				 G_CALLBACK (manager_recheck_permissions), object, 0);
 }
 
 static NMClientPermission
@@ -229,6 +239,8 @@ nm_permission_to_client (const char *nm)
 		return NM_CLIENT_PERMISSION_CHECKPOINT_ROLLBACK;
 	else if (!strcmp (nm, NM_AUTH_PERMISSION_ENABLE_DISABLE_STATISTICS))
 		return NM_CLIENT_PERMISSION_ENABLE_DISABLE_STATISTICS;
+	else if (!strcmp (nm, NM_AUTH_PERMISSION_ENABLE_DISABLE_CONNECTIVITY_CHECK))
+		return NM_CLIENT_PERMISSION_ENABLE_DISABLE_CONNECTIVITY_CHECK;
 
 	return NM_CLIENT_PERMISSION_NONE;
 }
@@ -499,6 +511,31 @@ nm_manager_wimax_hardware_get_enabled (NMManager *manager)
 }
 
 gboolean
+nm_manager_connectivity_check_get_available (NMManager *manager)
+{
+	g_return_val_if_fail (NM_IS_MANAGER (manager), FALSE);
+
+	return NM_MANAGER_GET_PRIVATE (manager)->connectivity_check_available;
+}
+
+gboolean
+nm_manager_connectivity_check_get_enabled (NMManager *manager)
+{
+	return NM_MANAGER_GET_PRIVATE (manager)->connectivity_check_enabled;
+}
+
+void
+nm_manager_connectivity_check_set_enabled (NMManager *manager, gboolean enabled)
+{
+	g_return_if_fail (NM_IS_MANAGER (manager));
+
+	_nm_object_set_property (NM_OBJECT (manager),
+	                         NM_DBUS_INTERFACE,
+	                         "ConnectivityCheckEnabled",
+	                         "b", enabled);
+}
+
+gboolean
 nm_manager_get_logging (NMManager *manager, char **level, char **domains, GError **error)
 {
 	gboolean ret;
@@ -576,8 +613,13 @@ nm_manager_check_connectivity (NMManager *manager,
 
 	if (nmdbus_manager_call_check_connectivity_sync (priv->proxy,
 	                                                 &connectivity,
-	                                                 cancellable, error))
+	                                                 cancellable, error)) {
+		if (connectivity != priv->connectivity) {
+			priv->connectivity = connectivity;
+			g_object_notify (G_OBJECT (manager), NM_MANAGER_CONNECTIVITY);
+		}
 		return connectivity;
+	}
 	else {
 		if (error && *error)
 			g_dbus_error_strip_remote_error (*error);
@@ -593,12 +635,21 @@ check_connectivity_cb (GObject *object,
 	GSimpleAsyncResult *simple = user_data;
 	guint32 connectivity;
 	GError *error = NULL;
+	NMManager *manager;
+	NMManagerPrivate *priv;
 
 	if (nmdbus_manager_call_check_connectivity_finish (NMDBUS_MANAGER (object),
 	                                                   &connectivity,
-	                                                   result, &error))
+	                                                   result, &error)) {
 		g_simple_async_result_set_op_res_gssize (simple, connectivity);
-	else {
+
+		manager = NM_MANAGER (g_async_result_get_source_object (G_ASYNC_RESULT (simple)));
+		priv = NM_MANAGER_GET_PRIVATE (manager);
+		if (connectivity != priv->connectivity) {
+			priv->connectivity = connectivity;
+			g_object_notify (G_OBJECT (manager), NM_MANAGER_CONNECTIVITY);
+		}
+	} else {
 		g_dbus_error_strip_remote_error (error);
 		g_simple_async_result_take_error (simple, error);
 	}
@@ -735,6 +786,7 @@ nm_manager_get_activating_connection (NMManager *manager)
 }
 
 typedef struct {
+	CList lst;
 	NMManager *manager;
 	GSimpleAsyncResult *simple;
 	GCancellable *cancellable;
@@ -748,15 +800,13 @@ activate_info_complete (ActivateInfo *info,
                         NMActiveConnection *active,
                         GError *error)
 {
-	NMManagerPrivate *priv = NM_MANAGER_GET_PRIVATE (info->manager);
-
 	if (active)
 		g_simple_async_result_set_op_res_gpointer (info->simple, g_object_ref (active), g_object_unref);
 	else
 		g_simple_async_result_set_from_error (info->simple, error);
 	g_simple_async_result_complete (info->simple);
 
-	priv->pending_activations = g_slist_remove (priv->pending_activations, info);
+	c_list_unlink (&info->lst);
 
 	g_free (info->active_path);
 	g_free (info->new_connection_path);
@@ -790,7 +840,7 @@ static void
 recheck_pending_activations (NMManager *self)
 {
 	NMManagerPrivate *priv = NM_MANAGER_GET_PRIVATE (self);
-	GSList *iter, *next;
+	CList *iter, *safe;
 	NMActiveConnection *candidate;
 	const GPtrArray *devices;
 	NMDevice *device;
@@ -804,11 +854,9 @@ recheck_pending_activations (NMManager *self)
 	 * device have both updated their properties to point to each other, and
 	 * call the pending connection's callback.
 	 */
-	for (iter = priv->pending_activations; iter; iter = next) {
-		ActivateInfo *info = iter->data;
+	c_list_for_each_safe (iter, safe, &priv->pending_activations) {
+		ActivateInfo *info = c_list_entry (iter, ActivateInfo, lst);
 		gs_unref_object GDBusObject *dbus_obj = NULL;
-
-		next = g_slist_next (iter);
 
 		if (!info->active_path)
 			continue;
@@ -901,14 +949,15 @@ nm_manager_activate_connection_async (NMManager *manager,
 	if (connection)
 		g_return_if_fail (NM_IS_CONNECTION (connection));
 
+	priv = NM_MANAGER_GET_PRIVATE (manager);
+
 	info = g_slice_new0 (ActivateInfo);
 	info->manager = manager;
 	info->simple = g_simple_async_result_new (G_OBJECT (manager), callback, user_data,
 	                                          nm_manager_activate_connection_async);
 	info->cancellable = cancellable ? g_object_ref (cancellable) : NULL;
 
-	priv = NM_MANAGER_GET_PRIVATE (manager);
-	priv->pending_activations = g_slist_prepend (priv->pending_activations, info);
+	c_list_link_tail (&priv->pending_activations, &info->lst);
 
 	nmdbus_manager_call_activate_connection (priv->proxy,
 	                                         connection ? nm_connection_get_path (connection) : "/",
@@ -977,14 +1026,15 @@ nm_manager_add_and_activate_connection_async (NMManager *manager,
 	if (partial)
 		g_return_if_fail (NM_IS_CONNECTION (partial));
 
+	priv = NM_MANAGER_GET_PRIVATE (manager);
+
 	info = g_slice_new0 (ActivateInfo);
 	info->manager = manager;
 	info->simple = g_simple_async_result_new (G_OBJECT (manager), callback, user_data,
 	                                          nm_manager_add_and_activate_connection_async);
 	info->cancellable = cancellable ? g_object_ref (cancellable) : NULL;
 
-	priv = NM_MANAGER_GET_PRIVATE (manager);
-	priv->pending_activations = g_slist_prepend (priv->pending_activations, info);
+	c_list_link_tail (&priv->pending_activations, &info->lst);
 
 	if (partial)
 		dict = nm_connection_to_dbus (partial, NM_CONNECTION_SERIALIZE_ALL);
@@ -1294,7 +1344,7 @@ dispose (GObject *object)
 	/* Each activation should hold a ref on @manager, so if we're being disposed,
 	 * there shouldn't be any pending.
 	 */
-	g_warn_if_fail (priv->pending_activations == NULL);
+	g_warn_if_fail (c_list_is_empty (&priv->pending_activations));
 
 	g_hash_table_destroy (priv->permissions);
 	priv->permissions = NULL;
@@ -1345,6 +1395,13 @@ set_property (GObject *object, guint prop_id,
 		b = g_value_get_boolean (value);
 		if (priv->wimax_enabled != b) {
 			nm_manager_wimax_set_enabled (NM_MANAGER (object), b);
+			/* Let the property value flip when we get the change signal from NM */
+		}
+		break;
+	case PROP_CONNECTIVITY_CHECK_ENABLED:
+		b = g_value_get_boolean (value);
+		if (priv->connectivity_check_enabled != b) {
+			nm_manager_connectivity_check_set_enabled (NM_MANAGER (object), b);
 			/* Let the property value flip when we get the change signal from NM */
 		}
 		break;
@@ -1399,6 +1456,12 @@ get_property (GObject *object,
 		break;
 	case PROP_CONNECTIVITY:
 		g_value_set_enum (value, priv->connectivity);
+		break;
+	case PROP_CONNECTIVITY_CHECK_AVAILABLE:
+		g_value_set_boolean (value, priv->connectivity_check_available);
+		break;
+	case PROP_CONNECTIVITY_CHECK_ENABLED:
+		g_value_set_boolean (value, priv->connectivity_check_enabled);
 		break;
 	case PROP_PRIMARY_CONNECTION:
 		g_value_set_object (value, priv->primary_connection);
@@ -1519,6 +1582,18 @@ nm_manager_class_init (NMManagerClass *manager_class)
 		                    NM_CONNECTIVITY_UNKNOWN,
 		                    G_PARAM_READABLE |
 		                    G_PARAM_STATIC_STRINGS));
+	g_object_class_install_property
+		(object_class, PROP_CONNECTIVITY_CHECK_AVAILABLE,
+		 g_param_spec_boolean (NM_MANAGER_CONNECTIVITY_CHECK_AVAILABLE, "", "",
+		                       FALSE,
+		                       G_PARAM_READABLE |
+		                       G_PARAM_STATIC_STRINGS));
+	g_object_class_install_property
+		(object_class, PROP_CONNECTIVITY_CHECK_ENABLED,
+		 g_param_spec_boolean (NM_MANAGER_CONNECTIVITY_CHECK_ENABLED, "", "",
+		                       FALSE,
+		                       G_PARAM_READWRITE |
+		                       G_PARAM_STATIC_STRINGS));
 	g_object_class_install_property
 		(object_class, PROP_PRIMARY_CONNECTION,
 		 g_param_spec_object (NM_MANAGER_PRIMARY_CONNECTION, "", "",

@@ -39,7 +39,7 @@
  */
 
 G_DEFINE_TYPE_WITH_CODE (NMSettingGsm, nm_setting_gsm, NM_TYPE_SETTING,
-                         _nm_register_setting (GSM, 1))
+                         _nm_register_setting (GSM, NM_SETTING_PRIORITY_HW_BASE))
 NM_SETTING_REGISTER_TYPE (NM_TYPE_SETTING_GSM)
 
 #define NM_SETTING_GSM_GET_PRIVATE(o) (G_TYPE_INSTANCE_GET_PRIVATE ((o), NM_TYPE_SETTING_GSM, NMSettingGsmPrivate))
@@ -793,7 +793,7 @@ nm_setting_gsm_class_init (NMSettingGsmClass *setting_class)
 	 * mobile network operator which this connection applies to.  If given,
 	 * the connection will apply to any device also allowed by
 	 * #NMSettingGsm:device-id and #NMSettingGsm:sim-id which contains a SIM
-	 * card provisioined by the given operator.
+	 * card provisioned by the given operator.
 	 *
 	 * Since: 1.2
 	 **/

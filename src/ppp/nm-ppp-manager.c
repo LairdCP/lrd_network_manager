@@ -42,6 +42,7 @@
 #endif
 #include <linux/if.h>
 #include <linux/if_ppp.h>
+#include <linux/rtnetlink.h>
 
 #include "NetworkManagerUtils.h"
 #include "platform/nm-platform.h"
@@ -105,6 +106,11 @@ typedef struct {
 	char *ip_iface;
 	int monitor_fd;
 	guint monitor_id;
+
+	guint32 ip4_route_table;
+	guint32 ip4_route_metric;
+	guint32 ip6_route_table;
+	guint32 ip6_route_metric;
 } NMPPPManagerPrivate;
 
 struct _NMPPPManager {
@@ -129,6 +135,37 @@ G_DEFINE_TYPE (NMPPPManager, nm_ppp_manager, NM_TYPE_EXPORTED_OBJECT)
 
 static void _ppp_cleanup  (NMPPPManager *manager);
 static void _ppp_kill (NMPPPManager *manager);
+
+/*****************************************************************************/
+
+static void
+_ppp_manager_set_route_paramters (NMPPPManager *self,
+                                  guint32 ip4_route_table,
+                                  guint32 ip4_route_metric,
+                                  guint32 ip6_route_table,
+                                  guint32 ip6_route_metric)
+{
+	NMPPPManagerPrivate *priv;
+
+	g_return_if_fail (NM_IS_PPP_MANAGER (self));
+
+	priv = NM_PPP_MANAGER_GET_PRIVATE (self);
+	if (   priv->ip4_route_table  != ip4_route_table
+	    || priv->ip4_route_metric != ip4_route_metric
+	    || priv->ip6_route_table  != ip6_route_table
+	    || priv->ip6_route_metric != ip6_route_metric) {
+		priv->ip4_route_table = ip4_route_table;
+		priv->ip4_route_metric = ip4_route_metric;
+		priv->ip6_route_table = ip6_route_table;
+		priv->ip6_route_metric = ip6_route_metric;
+
+		_LOGT ("route-parameters: table-v4: %u, metric-v4: %u, table-v6: %u, metric-v6: %u",
+		       priv->ip4_route_table,
+		       priv->ip4_route_metric,
+		       priv->ip6_route_table,
+		       priv->ip6_route_metric);
+	}
+}
 
 /*****************************************************************************/
 
@@ -177,14 +214,6 @@ monitor_stats (NMPPPManager *manager)
 }
 
 /*****************************************************************************/
-
-static void
-remove_timeout_handler (NMPPPManager *manager)
-{
-	NMPPPManagerPrivate *priv = NM_PPP_MANAGER_GET_PRIVATE (manager);
-
-	nm_clear_g_source (&priv->ppp_timeout_handler);
-}
 
 static void
 cancel_get_secrets (NMPPPManager *self)
@@ -365,7 +394,7 @@ impl_ppp_manager_set_state (NMPPPManager *manager,
                             GDBusMethodInvocation *context,
                             guint32 state)
 {
-	g_signal_emit (manager, signals[STATE_CHANGED], 0, state);
+	g_signal_emit (manager, signals[STATE_CHANGED], 0, (guint) state);
 
 	g_dbus_method_invocation_return_value (context, NULL);
 }
@@ -408,16 +437,27 @@ impl_ppp_manager_set_ip4_config (NMPPPManager *manager,
                                  GVariant *config_dict)
 {
 	NMPPPManagerPrivate *priv = NM_PPP_MANAGER_GET_PRIVATE (manager);
-	NMIP4Config *config;
+	gs_unref_object NMIP4Config *config = NULL;
 	NMPlatformIP4Address address;
-	guint32 u32;
+	guint32 u32, mtu;
 	GVariantIter *iter;
+	int ifindex;
 
 	_LOGI ("(IPv4 Config Get) reply received.");
 
-	remove_timeout_handler (manager);
+	nm_clear_g_source (&priv->ppp_timeout_handler);
 
-	config = nm_ip4_config_new (nm_platform_link_get_ifindex (NM_PLATFORM_GET, priv->ip_iface));
+	if (!set_ip_config_common (manager, config_dict, NM_PPP_IP4_CONFIG_INTERFACE, &mtu))
+		goto out;
+
+	ifindex = nm_platform_link_get_ifindex (NM_PLATFORM_GET, priv->ip_iface);
+	if (ifindex <= 0)
+		goto out;
+
+	config = nm_ip4_config_new (nm_platform_get_multi_idx (NM_PLATFORM_GET), ifindex);
+
+	if (mtu)
+		nm_ip4_config_set_mtu (config, mtu, NM_IP_CONFIG_SOURCE_PPP);
 
 	memset (&address, 0, sizeof (address));
 	address.plen = 32;
@@ -426,7 +466,15 @@ impl_ppp_manager_set_ip4_config (NMPPPManager *manager,
 		address.address = u32;
 
 	if (g_variant_lookup (config_dict, NM_PPP_IP4_CONFIG_GATEWAY, "u", &u32)) {
-		nm_ip4_config_set_gateway (config, u32);
+		const NMPlatformIP4Route r = {
+			.ifindex   = ifindex,
+			.rt_source = NM_IP_CONFIG_SOURCE_PPP,
+			.gateway   = u32,
+			.table_coerced = nm_platform_route_table_coerce (priv->ip4_route_table),
+			.metric    = priv->ip4_route_metric,
+		};
+
+		nm_ip4_config_add_route (config, &r, NULL);
 		address.peer_address = u32;
 	} else
 		address.peer_address = address.address;
@@ -454,17 +502,10 @@ impl_ppp_manager_set_ip4_config (NMPPPManager *manager,
 		g_variant_iter_free (iter);
 	}
 
-	if (!set_ip_config_common (manager, config_dict, NM_PPP_IP4_CONFIG_INTERFACE, &u32))
-		goto out;
-
-	if (u32)
-		nm_ip4_config_set_mtu (config, u32, NM_IP_CONFIG_SOURCE_PPP);
-
 	/* Push the IP4 config up to the device */
 	g_signal_emit (manager, signals[IP4_CONFIG], 0, priv->ip_iface, config);
 
 out:
-	g_object_unref (config);
 	g_dbus_method_invocation_return_value (context, NULL);
 }
 
@@ -503,23 +544,39 @@ impl_ppp_manager_set_ip6_config (NMPPPManager *manager,
                                  GVariant *config_dict)
 {
 	NMPPPManagerPrivate *priv = NM_PPP_MANAGER_GET_PRIVATE (manager);
-	NMIP6Config *config;
+	gs_unref_object NMIP6Config *config = NULL;
 	NMPlatformIP6Address addr;
 	struct in6_addr a;
 	NMUtilsIPv6IfaceId iid = NM_UTILS_IPV6_IFACE_ID_INIT;
 	gboolean has_peer = FALSE;
+	int ifindex;
 
 	_LOGI ("(IPv6 Config Get) reply received.");
 
-	remove_timeout_handler (manager);
+	nm_clear_g_source (&priv->ppp_timeout_handler);
 
-	config = nm_ip6_config_new (nm_platform_link_get_ifindex (NM_PLATFORM_GET, priv->ip_iface));
+	if (!set_ip_config_common (manager, config_dict, NM_PPP_IP6_CONFIG_INTERFACE, NULL))
+		goto out;
+
+	ifindex = nm_platform_link_get_ifindex (NM_PLATFORM_GET, priv->ip_iface);
+	if (ifindex <= 0)
+		goto out;
+
+	config = nm_ip6_config_new (nm_platform_get_multi_idx (NM_PLATFORM_GET), ifindex);
 
 	memset (&addr, 0, sizeof (addr));
 	addr.plen = 64;
 
 	if (iid_value_to_ll6_addr (config_dict, NM_PPP_IP6_CONFIG_PEER_IID, &a, NULL)) {
-		nm_ip6_config_set_gateway (config, &a);
+		const NMPlatformIP6Route r = {
+			.ifindex   = ifindex,
+			.rt_source = NM_IP_CONFIG_SOURCE_PPP,
+			.gateway   = a,
+			.table_coerced = nm_platform_route_table_coerce (priv->ip6_route_table),
+			.metric    = priv->ip6_route_metric,
+		};
+
+		nm_ip6_config_add_route (config, &r, NULL);
 		addr.peer_address = a;
 		has_peer = TRUE;
 	}
@@ -529,14 +586,12 @@ impl_ppp_manager_set_ip6_config (NMPPPManager *manager,
 			addr.peer_address = addr.address;
 		nm_ip6_config_add_address (config, &addr);
 
-		if (set_ip_config_common (manager, config_dict, NM_PPP_IP6_CONFIG_INTERFACE, NULL)) {
-			/* Push the IPv6 config and interface identifier up to the device */
-			g_signal_emit (manager, signals[IP6_CONFIG], 0, priv->ip_iface, &iid, config);
-		}
+		/* Push the IPv6 config and interface identifier up to the device */
+		g_signal_emit (manager, signals[IP6_CONFIG], 0, priv->ip_iface, &iid, config);
 	} else
 		_LOGE ("invalid IPv6 address received!");
 
-	g_object_unref (config);
+out:
 	g_dbus_method_invocation_return_value (context, NULL);
 }
 
@@ -597,102 +652,62 @@ nm_cmd_line_add_int (NMCmdLine *cmd, int i)
 
 /*****************************************************************************/
 
-static void
-ppp_exit_code (guint pppd_exit_status, GPid pid)
-{
-	const char *msg;
-
-	switch (pppd_exit_status) {
-	case  1: 
-		msg = "Fatal pppd error"; 
-		break;
-	case  2: 
-		msg = "pppd options error"; 
-		break;
-	case  3: 
-		msg = "No root priv error"; 
-		break;
-	case  4: 
-		msg = "No ppp module error"; 
-		break;
-	case  5: 
-		msg = "pppd received a signal"; 
-		break;
-	case  6: 
-		msg = "Serial port lock failed"; 
-		break;
-	case  7: 
-		msg = "Serial port open failed"; 
-		break;
-	case  8: 
-		msg = "Connect script failed"; 
-		break;
-	case  9: 
-		msg = "Pty program error"; 
-		break;
-	case 10: 
-		msg = "PPP negotiation failed"; 
-		break;
-	case 11: 
-		msg = "Peer didn't authenticatie itself"; 
-		break;
-	case 12: 
-		msg = "Link idle: Idle Seconds reached."; 
-		break;
-	case 13: 
-		msg = "Connect time limit reached."; 
-		break;
-	case 14: 
-		msg = "Callback negotiated, call should come back.";
-		break;
-	case 15: 
-		msg = "Lack of LCP echo responses"; 
-		break;
-	case 16: 
-		msg = "A modem hung up the phone"; 
-		break;
-	case 17: 
-		msg = "Loopback detected"; 
-		break;
-	case 18: 
-		msg = "The init script failed"; 
-		break;
-	case 19: 
-		msg = "Authentication error.\n"
-			"We failed to authenticate ourselves to the peer.\n"
-			"Maybe bad account or password?";
-		break;
-	default:
-		msg = "Unknown error";
-	}
-
-	_LOGW ("pppd pid %d exited with error: %s", pid, msg);
-}
+NM_UTILS_LOOKUP_STR_DEFINE_STATIC (pppd_exit_code_to_str, int,
+	NM_UTILS_LOOKUP_DEFAULT ("Unknown error"),
+	NM_UTILS_LOOKUP_STR_ITEM ( 1, "Fatal pppd error");
+	NM_UTILS_LOOKUP_STR_ITEM ( 2, "pppd options error"),
+	NM_UTILS_LOOKUP_STR_ITEM ( 3, "No root priv error"),
+	NM_UTILS_LOOKUP_STR_ITEM ( 4, "No ppp module error"),
+	NM_UTILS_LOOKUP_STR_ITEM ( 5, "pppd received a signal"),
+	NM_UTILS_LOOKUP_STR_ITEM ( 6, "Serial port lock failed"),
+	NM_UTILS_LOOKUP_STR_ITEM ( 7, "Serial port open failed"),
+	NM_UTILS_LOOKUP_STR_ITEM ( 8, "Connect script failed"),
+	NM_UTILS_LOOKUP_STR_ITEM ( 9, "Pty program error"),
+	NM_UTILS_LOOKUP_STR_ITEM (10, "PPP negotiation failed"),
+	NM_UTILS_LOOKUP_STR_ITEM (11, "Peer didn't authenticatie itself"),
+	NM_UTILS_LOOKUP_STR_ITEM (12, "Link idle: Idle Seconds reached."),
+	NM_UTILS_LOOKUP_STR_ITEM (13, "Connect time limit reached."),
+	NM_UTILS_LOOKUP_STR_ITEM (14, "Callback negotiated, call should come back."),
+	NM_UTILS_LOOKUP_STR_ITEM (15, "Lack of LCP echo responses"),
+	NM_UTILS_LOOKUP_STR_ITEM (16, "A modem hung up the phone"),
+	NM_UTILS_LOOKUP_STR_ITEM (17, "Loopback detected"),
+	NM_UTILS_LOOKUP_STR_ITEM (18, "The init script failed"),
+	NM_UTILS_LOOKUP_STR_ITEM (19, "Authentication error. "
+	                              "We failed to authenticate ourselves to the peer. "
+	                              "Maybe bad account or password?"),
+);
 
 static void
-ppp_watch_cb (GPid pid, gint status, gpointer user_data)
+ppp_watch_cb (GPid pid, int status, gpointer user_data)
 {
 	NMPPPManager *manager = NM_PPP_MANAGER (user_data);
 	NMPPPManagerPrivate *priv = NM_PPP_MANAGER_GET_PRIVATE (manager);
-	guint err;
+	int err;
+	const long long lpid = (long long) pid;
 
-	g_assert (pid == priv->pid);
+	g_return_if_fail (pid == priv->pid);
 
 	if (WIFEXITED (status)) {
 		err = WEXITSTATUS (status);
-		if (err != 0)
-			ppp_exit_code (err, priv->pid);
+		if (err) {
+			_LOGW ("pppd pid %lld exited with error %d: %s",
+			       lpid, err,
+			       pppd_exit_code_to_str (err));
+		} else
+			_LOGD ("pppd pid %lld exited with success", lpid);
 	} else if (WIFSTOPPED (status)) {
-		_LOGI ("pppd pid %d stopped unexpectedly with signal %d", priv->pid, WSTOPSIG (status));
+		_LOGW ("pppd pid %lld stopped unexpectedly with signal %d",
+		       lpid, WSTOPSIG (status));
 	} else if (WIFSIGNALED (status)) {
-		_LOGI ("pppd pid %d died with signal %d", priv->pid, WTERMSIG (status));
+		_LOGW ("pppd pid %lld died with signal %d",
+		       lpid, WTERMSIG (status));
 	} else
-		_LOGI ("pppd pid %d died from an unknown cause", priv->pid);
+		_LOGW ("pppd pid %lld died from an unknown cause", lpid);
 
-	_LOGD ("pppd pid %d cleaned up", priv->pid);
 	priv->pid = 0;
 	priv->ppp_watch_id = 0;
-	g_signal_emit (manager, signals[STATE_CHANGED], 0, NM_PPP_STATUS_DEAD);
+	_ppp_cleanup (manager);
+	g_signal_emit (manager, signals[STATE_CHANGED], 0, (guint) NM_PPP_STATUS_DEAD);
 }
 
 static gboolean
@@ -704,7 +719,7 @@ pppd_timed_out (gpointer data)
 	_ppp_cleanup (manager);
 	_ppp_kill (manager);
 
-	g_signal_emit (manager, signals[STATE_CHANGED], 0, NM_PPP_STATUS_DEAD);
+	g_signal_emit (manager, signals[STATE_CHANGED], 0, (guint) NM_PPP_STATUS_DEAD);
 
 	return FALSE;
 }
@@ -724,6 +739,7 @@ create_pppd_cmd_line (NMPPPManager *self,
 	const char *pppd_binary = NULL;
 	NMCmdLine *cmd;
 	gboolean ppp_debug;
+	static int unit;
 
 	g_return_val_if_fail (setting != NULL, NULL);
 
@@ -888,6 +904,15 @@ create_pppd_cmd_line (NMPPPManager *self,
 	nm_cmd_line_add_string (cmd, "plugin");
 	nm_cmd_line_add_string (cmd, NM_PPPD_PLUGIN);
 
+	if (pppoe && nm_setting_pppoe_get_parent (pppoe)) {
+		/* The PPP interface is going to be renamed, so pass a
+		 * different unit each time so that activations don't
+		 * race with each others. */
+		nm_cmd_line_add_string (cmd, "unit");
+		nm_cmd_line_add_int (cmd, unit);
+		unit = unit < G_MAXINT ? unit + 1 : 0;
+	}
+
 	return cmd;
 }
 
@@ -1016,7 +1041,7 @@ _ppp_manager_start (NMPPPManager *manager,
 		goto out;
 	}
 
-	_LOGI ("pppd started with pid %d", priv->pid);
+	_LOGI ("pppd started with pid %lld", (long long) priv->pid);
 
 	priv->ppp_watch_id = g_child_watch_add (priv->pid, (GChildWatchFunc) ppp_watch_cb, manager);
 	priv->ppp_timeout_handler = g_timeout_add_seconds (timeout_secs, pppd_timed_out, manager);
@@ -1063,7 +1088,7 @@ _ppp_cleanup (NMPPPManager *manager)
 	if (priv->monitor_fd >= 0) {
 		/* Get the stats one last time */
 		monitor_cb (manager);
-		close (priv->monitor_fd);
+		nm_close (priv->monitor_fd);
 		priv->monitor_fd = -1;
 	}
 
@@ -1203,7 +1228,7 @@ set_property (GObject *object, guint prop_id,
 
 	switch (prop_id) {
 	case PROP_PARENT_IFACE:
-		g_free (priv->parent_iface);
+		/* construct-only */
 		priv->parent_iface = g_value_dup_string (value);
 		break;
 	default:
@@ -1217,7 +1242,13 @@ set_property (GObject *object, guint prop_id,
 static void
 nm_ppp_manager_init (NMPPPManager *manager)
 {
-	NM_PPP_MANAGER_GET_PRIVATE (manager)->monitor_fd = -1;
+	NMPPPManagerPrivate *priv = NM_PPP_MANAGER_GET_PRIVATE (manager);
+
+	priv->monitor_fd = -1;
+	priv->ip4_route_table = RT_TABLE_MAIN;
+	priv->ip4_route_metric = 460;
+	priv->ip6_route_table = RT_TABLE_MAIN;
+	priv->ip6_route_metric = 460;
 }
 
 static NMPPPManager *
@@ -1234,7 +1265,11 @@ static void
 dispose (GObject *object)
 {
 	NMPPPManager *self = (NMPPPManager *) object;
+	NMExportedObject *exported = NM_EXPORTED_OBJECT (self);
 	NMPPPManagerPrivate *priv = NM_PPP_MANAGER_GET_PRIVATE (self);
+
+	if (nm_exported_object_is_exported (exported))
+		nm_exported_object_unexport (exported);
 
 	_ppp_cleanup (self);
 	_ppp_kill (self);
@@ -1323,9 +1358,10 @@ nm_ppp_manager_class_init (NMPPPManagerClass *manager_class)
 }
 
 NMPPPOps ppp_ops = {
-	.create       = _ppp_manager_new,
-	.start        = _ppp_manager_start,
-	.stop_async   = _ppp_manager_stop_async,
-	.stop_finish  = _ppp_manager_stop_finish,
-	.stop_sync    = _ppp_manager_stop_sync,
+	.create               = _ppp_manager_new,
+	.set_route_parameters = _ppp_manager_set_route_paramters,
+	.start                = _ppp_manager_start,
+	.stop_async           = _ppp_manager_stop_async,
+	.stop_finish          = _ppp_manager_stop_finish,
+	.stop_sync            = _ppp_manager_stop_sync,
 };

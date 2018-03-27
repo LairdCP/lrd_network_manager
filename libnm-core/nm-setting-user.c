@@ -64,7 +64,7 @@ struct _NMSettingUserClass {
 };
 
 G_DEFINE_TYPE_WITH_CODE (NMSettingUser, nm_setting_user, NM_TYPE_SETTING,
-                         _nm_register_setting (USER, 10))
+                         _nm_register_setting (USER, NM_SETTING_PRIORITY_USER))
 NM_SETTING_REGISTER_TYPE (NM_TYPE_SETTING_USER)
 
 #define NM_SETTING_USER_GET_PRIVATE(self) _NM_GET_PRIVATE(self, NMSettingUser, NM_IS_SETTING_USER)
@@ -597,6 +597,18 @@ nm_setting_user_class_init (NMSettingUserClass *klass)
 	 *
 	 * Since: 1.8
 	 **/
+	/* ---ifcfg-rh---
+	 * property: data
+	 * variable: NM_USER_*
+	 * description: each key/value pair is stored as a separate variable with
+	 *   name composed by concatenating NM_USER_ with the encoded key. The key is
+	 *   encoded by substituting lowercase letters with uppercase and prepending
+	 *   uppercase letters with an underscore. A dot is encoded as a double
+	 *   underscore. Remaining characters are encoded as underscore followed by a
+	 *   3 digit octal representation of the character.
+	 * example: NM_USER_FOO__BAR=something
+	 * ---end---
+	 */
 	obj_properties[PROP_DATA] =
 	    g_param_spec_boxed (NM_SETTING_USER_DATA, "", "",
 	                        G_TYPE_HASH_TABLE,

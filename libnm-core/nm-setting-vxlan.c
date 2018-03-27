@@ -37,7 +37,7 @@
  **/
 
 G_DEFINE_TYPE_WITH_CODE (NMSettingVxlan, nm_setting_vxlan, NM_TYPE_SETTING,
-                         _nm_register_setting (VXLAN, 1))
+                         _nm_register_setting (VXLAN, NM_SETTING_PRIORITY_HW_BASE))
 NM_SETTING_REGISTER_TYPE (NM_TYPE_SETTING_VXLAN)
 
 #define NM_SETTING_VXLAN_GET_PRIVATE(o) (G_TYPE_INSTANCE_GET_PRIVATE ((o), NM_TYPE_SETTING_VXLAN, NMSettingVxlanPrivate))
@@ -598,7 +598,7 @@ nm_setting_vxlan_class_init (NMSettingVxlanClass *setting_class)
 	/**
 	 * NMSettingVxlan:id:
 	 *
-	 * Specifies the VXLAN Network Identifer (or VXLAN Segment Identifier) to
+	 * Specifies the VXLAN Network Identifier (or VXLAN Segment Identifier) to
 	 * use.
 	 *
 	 * Since: 1.2

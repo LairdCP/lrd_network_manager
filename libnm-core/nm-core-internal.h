@@ -56,6 +56,10 @@
 #include "nm-setting-macsec.h"
 #include "nm-setting-macvlan.h"
 #include "nm-setting-olpc-mesh.h"
+#include "nm-setting-ovs-bridge.h"
+#include "nm-setting-ovs-interface.h"
+#include "nm-setting-ovs-patch.h"
+#include "nm-setting-ovs-port.h"
 #include "nm-setting-ppp.h"
 #include "nm-setting-pppoe.h"
 #include "nm-setting-serial.h"
@@ -142,7 +146,46 @@ NMConnection *_nm_simple_connection_new_from_dbus (GVariant      *dict,
                                                    NMSettingParseFlags parse_flags,
                                                    GError       **error);
 
-guint32 _nm_setting_get_setting_priority (NMSetting *setting);
+/*
+ * A setting's priority should roughly follow the OSI layer model, but it also
+ * controls which settings get asked for secrets first.  Thus settings which
+ * relate to things that must be working first, like hardware, should get a
+ * higher priority than things which layer on top of the hardware.  For example,
+ * the GSM/CDMA settings should provide secrets before the PPP setting does,
+ * because a PIN is required to unlock the device before PPP can even start.
+ * Even settings without secrets should be assigned the right priority.
+ *
+ * 0: reserved for invalid
+ *
+ * 1: reserved for the Connection setting
+ *
+ * 2,3: hardware-related settings like Ethernet, Wi-Fi, InfiniBand, Bridge, etc.
+ * These priority 1 settings are also "base types", which means that at least
+ * one of them is required for the connection to be valid, and their name is
+ * valid in the 'type' property of the Connection setting.
+ *
+ * 4: hardware-related auxiliary settings that require a base setting to be
+ * successful first, like Wi-Fi security, 802.1x, etc.
+ *
+ * 5: hardware-independent settings that are required before IP connectivity
+ * can be established, like PPP, PPPoE, etc.
+ *
+ * 6: IP-level stuff
+ *
+ * 10: NMSettingUser
+ */
+typedef enum { /*< skip >*/
+	NM_SETTING_PRIORITY_INVALID     = 0,
+	NM_SETTING_PRIORITY_CONNECTION  = 1,
+	NM_SETTING_PRIORITY_HW_BASE     = 2,
+	NM_SETTING_PRIORITY_HW_NON_BASE = 3,
+	NM_SETTING_PRIORITY_HW_AUX      = 4,
+	NM_SETTING_PRIORITY_AUX         = 5,
+	NM_SETTING_PRIORITY_IP          = 6,
+	NM_SETTING_PRIORITY_USER        = 10,
+} NMSettingPriority;
+
+NMSettingPriority _nm_setting_get_setting_priority (NMSetting *setting);
 
 gboolean _nm_setting_get_property (NMSetting *setting, const char *name, GValue *value);
 
@@ -159,6 +202,18 @@ GHashTable *_nm_utils_copy_strdict (GHashTable *strdict);
 
 typedef gpointer (*NMUtilsCopyFunc) (gpointer);
 
+gboolean _nm_ip_route_attribute_validate_all (const NMIPRoute *route);
+const char **_nm_ip_route_get_attribute_names (const NMIPRoute *route, gboolean sorted, guint *out_length);
+GHashTable *_nm_ip_route_get_attributes_direct (NMIPRoute *route);
+
+static inline void
+_nm_auto_ip_route_unref (NMIPRoute **v)
+{
+	if (*v)
+		nm_ip_route_unref (*v);
+}
+#define nm_auto_ip_route_unref nm_auto (_nm_auto_ip_route_unref)
+
 GPtrArray *_nm_utils_copy_slist_to_array (const GSList *list,
                                           NMUtilsCopyFunc copy_func,
                                           GDestroyNotify unref_func);
@@ -174,11 +229,6 @@ gssize _nm_utils_ptrarray_find_first (gconstpointer *list, gssize len, gconstpoi
 
 gssize _nm_utils_ptrarray_find_binary_search (gconstpointer *list, gsize len, gconstpointer needle, GCompareDataFunc cmpfcn, gpointer user_data);
 gssize _nm_utils_array_find_binary_search (gconstpointer list, gsize elem_size, gsize len, gconstpointer needle, GCompareDataFunc cmpfcn, gpointer user_data);
-
-char **_nm_utils_strv_cleanup (char **strv,
-                               gboolean strip_whitespace,
-                               gboolean skip_empty,
-                               gboolean skip_repeated);
 
 char **     _nm_utils_strsplit_set (const char *str,
                                     const char *delimiters,
@@ -204,14 +254,12 @@ gboolean _nm_utils_check_module_file (const char *name,
                                       gpointer user_data,
                                       GError **error);
 
-char *_nm_utils_enum_to_str_full (GType type, int value, const char *sep);
-
 #define NM_UTILS_UUID_TYPE_LEGACY            0
 #define NM_UTILS_UUID_TYPE_VARIANT3          1
 
 char *nm_utils_uuid_generate_from_string (const char *s, gssize slen, int uuid_type, gpointer type_args);
 
-/* arbitrarily choosen namespace UUID for _nm_utils_uuid_generate_from_strings() */
+/* arbitrarily chosen namespace UUID for _nm_utils_uuid_generate_from_strings() */
 #define NM_UTILS_UUID_NS "b425e9fb-7598-44b4-9e3b-5a2e3aaa4905"
 
 char *_nm_utils_uuid_generate_from_strings (const char *string1, ...) G_GNUC_NULL_TERMINATED;
@@ -294,7 +342,7 @@ extern const NMUtilsDNSOptionDesc _nm_utils_dns_option_descs[];
 gboolean    _nm_utils_dns_option_validate (const char *option, char **out_name,
                                            long *out_value, gboolean ipv6,
                                            const NMUtilsDNSOptionDesc *option_descs);
-int         _nm_utils_dns_option_find_idx (GPtrArray *array, const char *option);
+gssize      _nm_utils_dns_option_find_idx (GPtrArray *array, const char *option);
 
 /*****************************************************************************/
 
@@ -343,6 +391,24 @@ _nm_setting_bond_get_option_type (NMSettingBond *setting, const char *name);
 
 /*****************************************************************************/
 
+/* nm_connection_get_uuid() asserts against NULL, which is the right thing to
+ * do in order to catch bugs. However, sometimes that behavior is inconvenient.
+ * Just try or return NULL. */
+
+static inline const char *
+_nm_connection_get_id (NMConnection *connection)
+{
+	return connection ? nm_connection_get_id (connection) : NULL;
+}
+
+static inline const char *
+_nm_connection_get_uuid (NMConnection *connection)
+{
+	return connection ? nm_connection_get_uuid (connection) : NULL;
+}
+
+/*****************************************************************************/
+
 typedef enum {
 	NM_BOND_MODE_UNKNOWN = 0,
 	NM_BOND_MODE_ROUNDROBIN,
@@ -359,11 +425,27 @@ gboolean _nm_setting_bond_option_supported (const char *option, NMBondMode mode)
 
 /*****************************************************************************/
 
+NMSettingBluetooth *_nm_connection_get_setting_bluetooth_for_nap (NMConnection *connection);
+
+/*****************************************************************************/
+
 gboolean _nm_utils_inet6_is_token (const struct in6_addr *in6addr);
 
 /*****************************************************************************/
 
 gboolean    _nm_utils_team_config_equal (const char *conf1, const char *conf2, gboolean port);
+
+/*****************************************************************************/
+
+static inline int
+nm_setting_ip_config_get_addr_family (NMSettingIPConfig *s_ip)
+{
+	if (NM_IS_SETTING_IP4_CONFIG (s_ip))
+		return AF_INET;
+	if (NM_IS_SETTING_IP6_CONFIG (s_ip))
+		return AF_INET6;
+	g_return_val_if_reached (AF_UNSPEC);
+}
 
 /*****************************************************************************/
 

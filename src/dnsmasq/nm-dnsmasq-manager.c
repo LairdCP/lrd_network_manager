@@ -162,7 +162,7 @@ create_dm_cmd_line (const char *iface,
 	const NMPlatformIP4Address *listen_address;
 	guint i, n;
 
-	listen_address = nm_ip4_config_get_address (ip4_config, 0);
+	listen_address = nm_ip4_config_get_first_address (ip4_config);
 	g_return_val_if_fail (listen_address, NULL);
 
 	dm_binary = nm_utils_find_helper ("dnsmasq", DNSMASQ_PATH, error);
@@ -175,7 +175,8 @@ create_dm_cmd_line (const char *iface,
 	cmd = nm_cmd_line_new ();
 	nm_cmd_line_add_string (cmd, dm_binary);
 
-	if (getenv ("NM_DNSMASQ_DEBUG")) {
+	if (   nm_logging_enabled (LOGL_TRACE, LOGD_SHARING)
+	    || getenv ("NM_DNSMASQ_DEBUG")) {
 		nm_cmd_line_add_string (cmd, "--log-dhcp");
 		nm_cmd_line_add_string (cmd, "--log-queries");
 	}
@@ -221,7 +222,7 @@ create_dm_cmd_line (const char *iface,
 	nm_cmd_line_add_string (cmd, s->str);
 	g_string_truncate (s, 0);
 
-	if (!nm_ip4_config_get_never_default (ip4_config)) {
+	if (nm_ip4_config_best_default_route_get (ip4_config)) {
 		g_string_append (s, "--dhcp-option=option:router,");
 		g_string_append (s, localaddr);
 		nm_cmd_line_add_string (cmd, s->str);

@@ -217,7 +217,7 @@ char *strnappend(const char *s, const char *suffix, size_t b) {
 }
 
 char *strappend(const char *s, const char *suffix) {
-        return strnappend(s, suffix, suffix ? strlen(suffix) : 0);
+        return strnappend(s, suffix, strlen_ptr(suffix));
 }
 
 char *strjoin_real(const char *x, ...) {
@@ -546,7 +546,7 @@ char *ellipsize(const char *s, size_t length, unsigned percent) {
 }
 #endif /* NM_IGNORED */
 
-bool nulstr_contains(const char*nulstr, const char *needle) {
+bool nulstr_contains(const char *nulstr, const char *needle) {
         const char *i;
 
         if (!nulstr)
@@ -562,7 +562,7 @@ bool nulstr_contains(const char*nulstr, const char *needle) {
 char* strshorten(char *s, size_t l) {
         assert(s);
 
-        if (l < strlen(s))
+        if (strnlen(s, l+1) > l)
                 s[l] = 0;
 
         return s;
@@ -639,6 +639,11 @@ char *strip_tab_ansi(char **ibuf, size_t *_isz) {
         if (!f)
                 return NULL;
 
+        /* Note we use the _unlocked() stdio variants on f for performance
+         * reasons.  It's safe to do so since we created f here and it
+         * doesn't leave our scope.
+         */
+
         for (i = *ibuf; i < *ibuf + isz + 1; i++) {
 
                 switch (state) {
@@ -649,21 +654,21 @@ char *strip_tab_ansi(char **ibuf, size_t *_isz) {
                         else if (*i == '\x1B')
                                 state = STATE_ESCAPE;
                         else if (*i == '\t')
-                                fputs("        ", f);
+                                fputs_unlocked("        ", f);
                         else
-                                fputc(*i, f);
+                                fputc_unlocked(*i, f);
                         break;
 
                 case STATE_ESCAPE:
                         if (i >= *ibuf + isz) { /* EOT */
-                                fputc('\x1B', f);
+                                fputc_unlocked('\x1B', f);
                                 break;
                         } else if (*i == '[') {
                                 state = STATE_BRACKET;
                                 begin = i + 1;
                         } else {
-                                fputc('\x1B', f);
-                                fputc(*i, f);
+                                fputc_unlocked('\x1B', f);
+                                fputc_unlocked(*i, f);
                                 state = STATE_OTHER;
                         }
 
@@ -672,9 +677,9 @@ char *strip_tab_ansi(char **ibuf, size_t *_isz) {
                 case STATE_BRACKET:
 
                         if (i >= *ibuf + isz || /* EOT */
-                            (!(*i >= '0' && *i <= '9') && *i != ';' && *i != 'm')) {
-                                fputc('\x1B', f);
-                                fputc('[', f);
+                            (!(*i >= '0' && *i <= '9') && !IN_SET(*i, ';', 'm'))) {
+                                fputc_unlocked('\x1B', f);
+                                fputc_unlocked('[', f);
                                 state = STATE_OTHER;
                                 i = begin-1;
                         } else if (*i == 'm')
@@ -706,7 +711,7 @@ char *strextend(char **x, ...) {
 
         assert(x);
 
-        l = f = *x ? strlen(*x) : 0;
+        l = f = strlen_ptr(*x);
 
         va_start(ap, x);
         for (;;) {
@@ -825,7 +830,7 @@ int free_and_strdup(char **p, const char *s) {
         return 1;
 }
 
-#if !HAVE_DECL_EXPLICIT_BZERO
+#if !HAVE_EXPLICIT_BZERO
 /*
  * Pointer to memset is volatile so that compiler must de-reference
  * the pointer and can't assume that it points to any function in
