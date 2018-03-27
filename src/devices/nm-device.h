@@ -438,7 +438,7 @@ int             nm_device_get_ifindex           (NMDevice *dev);
 gboolean        nm_device_is_software           (NMDevice *dev);
 gboolean        nm_device_is_real               (NMDevice *dev);
 const char *    nm_device_get_ip_iface          (NMDevice *dev);
-int             nm_device_get_ip_ifindex        (NMDevice *dev);
+int             nm_device_get_ip_ifindex        (const NMDevice *dev);
 const char *    nm_device_get_driver            (NMDevice *dev);
 const char *    nm_device_get_driver_version    (NMDevice *dev);
 const char *    nm_device_get_type_desc         (NMDevice *dev);
@@ -449,6 +449,8 @@ NMMetered       nm_device_get_metered           (NMDevice *dev);
 
 guint32         nm_device_get_route_table       (NMDevice *self, int addr_family, gboolean fallback_main);
 guint32         nm_device_get_route_metric      (NMDevice *dev, int addr_family);
+
+guint32         nm_device_get_route_metric_default (NMDeviceType device_type);
 
 const char *    nm_device_get_hw_address        (NMDevice *dev);
 const char *    nm_device_get_permanent_hw_address (NMDevice *self);
@@ -794,5 +796,6 @@ struct _NMBtVTableNetworkServer {
 };
 
 const char *nm_device_state_to_str (NMDeviceState state);
+const char *nm_device_state_reason_to_str (NMDeviceStateReason reason);
 
 #endif /* __NETWORKMANAGER_DEVICE_H__ */

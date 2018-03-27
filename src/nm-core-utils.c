@@ -1960,8 +1960,7 @@ nm_utils_resolve_conf_parse (int addr_family,
 				gsize i_tokens;
 
 				tokens = nm_utils_strsplit_set (s, " \t");
-				nm_assert (tokens);
-				for (i_tokens = 0; tokens[i_tokens]; i_tokens++) {
+				for (i_tokens = 0; tokens && tokens[i_tokens]; i_tokens++) {
 					gs_free char *t = g_strstrip (g_strdup (tokens[i_tokens]));
 
 					if (   _nm_utils_dns_option_validate (t, NULL, NULL,
@@ -2835,13 +2834,13 @@ nm_utils_fd_get_contents (int fd,
 		if (fd_keeper >= 0)
 			fd2 = nm_steal_fd (&fd_keeper);
 		else {
-			fd2 = dup (fd);
+			fd2 = fcntl (fd, F_DUPFD_CLOEXEC, 0);
 			if (fd2 < 0)
 				return _get_contents_error (error, 0, "error during dup");
 		}
 
 		if (!(f = fdopen (fd2, "r"))) {
-			close (fd2);
+			nm_close (fd2);
 			return _get_contents_error (error, 0, "failure during fdopen");
 		}
 
@@ -4119,7 +4118,7 @@ nm_utils_file_set_contents (const gchar *filename,
 			if (errsv == EINTR)
 				continue;
 
-			close (fd);
+			nm_close (fd);
 			unlink (tmp_name);
 
 			g_set_error (error,
@@ -4148,7 +4147,7 @@ nm_utils_file_set_contents (const gchar *filename,
 	    && fsync (fd) != 0) {
 		errsv = errno;
 
-		close (fd);
+		nm_close (fd);
 		unlink (tmp_name);
 
 		g_set_error (error,
@@ -4160,7 +4159,7 @@ nm_utils_file_set_contents (const gchar *filename,
 		return FALSE;
 	}
 
-	close (fd);
+	nm_close (fd);
 
 	if (rename (tmp_name, filename)) {
 		errsv = errno;

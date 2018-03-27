@@ -1916,6 +1916,7 @@ _test_netns_check_skip (void)
 	static int support = -1;
 	static int support_errsv = 0;
 	NMPNetns *netns;
+	gs_unref_object NMPNetns *netns2 = NULL;
 
 	netns = nmp_netns_get_current ();
 	if (!netns) {
@@ -1931,10 +1932,31 @@ _test_netns_check_skip (void)
 			support_errsv = errno;
 	}
 	if (!support) {
-			_LOGD ("setns() failed with \"%s\". This indicates missing support (valgrind?)", g_strerror (support_errsv));
-			g_test_skip ("No netns support (setns failed)");
+		_LOGD ("setns() failed with \"%s\". This indicates missing support (valgrind?)", g_strerror (support_errsv));
+		g_test_skip ("No netns support (setns failed)");
 		return TRUE;
 	}
+
+	netns2 = nmp_netns_new ();
+	if (!netns2) {
+		/* skip tests for https://bugzilla.gnome.org/show_bug.cgi?id=790214 */
+		g_assert_cmpint (errno, ==, EINVAL);
+		g_test_skip ("No netns support to create another netns");
+		return TRUE;
+	}
+	nmp_netns_pop (netns2);
+
+	return FALSE;
+}
+
+static gboolean
+_check_sysctl_skip (void)
+{
+	if (access ("/proc/sys/net/ipv4/ip_forward", W_OK) == -1) {
+		g_test_skip ("Can not write sysctls");
+		return TRUE;
+	}
+
 	return FALSE;
 }
 
@@ -1960,6 +1982,9 @@ test_netns_general (gpointer fixture, gconstpointer test_data)
 	NMPUtilsEthtoolDriverInfo driver_info;
 
 	if (_test_netns_check_skip ())
+		return;
+
+	if (_check_sysctl_skip ())
 		return;
 
 	platform_1 = nm_linux_platform_new (TRUE, TRUE);
@@ -2155,6 +2180,9 @@ test_netns_push (gpointer fixture, gconstpointer test_data)
 	int nstack;
 
 	if (_test_netns_check_skip ())
+		return;
+
+	if (_check_sysctl_skip ())
 		return;
 
 	pl[0].platform = platform_0 = nm_linux_platform_new (TRUE, TRUE);

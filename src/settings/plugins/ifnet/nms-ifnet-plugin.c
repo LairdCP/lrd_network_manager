@@ -262,18 +262,19 @@ reload_connections (NMSettingsPlugin *config)
 				                              NM_SETTING_COMPARE_FLAG_IGNORE_NOT_SAVED_SECRETS)) {
 					nm_log_info (LOGD_SETTINGS, "Auto refreshing %s", conn_name);
 
-					nm_settings_connection_signal_remove (NM_SETTINGS_CONNECTION (old), FALSE);
+					nm_settings_connection_signal_remove (NM_SETTINGS_CONNECTION (old));
 					track_new_connection (self, new);
 					if (is_managed_plugin () && is_managed (conn_name))
 						g_signal_emit_by_name (self, NM_SETTINGS_PLUGIN_CONNECTION_ADDED, new);
 				}
 			} else {
 				/* Update existing connection with new settings */
-				if (!nm_settings_connection_replace_settings (NM_SETTINGS_CONNECTION (old),
-				                                              NM_CONNECTION (new),
-				                                              FALSE,  /* don't set Unsaved */
-				                                              "ifnet-update",
-				                                              &error)) {
+				if (!nm_settings_connection_update (NM_SETTINGS_CONNECTION (old),
+				                                    NM_CONNECTION (new),
+				                                    NM_SETTINGS_CONNECTION_PERSIST_MODE_KEEP_SAVED,
+				                                    NM_SETTINGS_CONNECTION_COMMIT_REASON_NONE,
+				                                    "ifnet-update",
+				                                    &error)) {
 					/* Shouldn't ever get here as 'new' was verified by the reader already
 					 * and the UUID did not change. */
 					g_assert_not_reached ();
@@ -304,7 +305,7 @@ reload_connections (NMSettingsPlugin *config)
 		 */
 		if (   nm_ifnet_connection_get_conn_name (NM_IFNET_CONNECTION (candidate))
 		    && !g_hash_table_lookup (new_connections, uuid)) {
-			nm_settings_connection_signal_remove (candidate, FALSE);
+			nm_settings_connection_signal_remove (candidate);
 			g_hash_table_iter_remove (&iter);
 		}
 	}
@@ -519,5 +520,5 @@ settings_plugin_interface_init (NMSettingsPluginInterface *plugin_iface)
 G_MODULE_EXPORT GObject *
 nm_settings_plugin_factory (void)
 {
-	return g_object_ref (settings_plugin_ifnet_get ());
+	return G_OBJECT (g_object_ref (settings_plugin_ifnet_get ()));
 }

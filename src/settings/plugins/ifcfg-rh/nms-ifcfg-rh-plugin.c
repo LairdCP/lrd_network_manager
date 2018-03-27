@@ -161,7 +161,7 @@ remove_connection (SettingsPluginIfcfg *self, NMIfcfgConnection *connection)
 	g_object_ref (connection);
 	g_hash_table_remove (priv->connections, nm_connection_get_uuid (NM_CONNECTION (connection)));
 	if (!unmanaged && !unrecognized)
-		nm_settings_connection_signal_remove (NM_SETTINGS_CONNECTION (connection), FALSE);
+		nm_settings_connection_signal_remove (NM_SETTINGS_CONNECTION (connection));
 	g_object_unref (connection);
 
 	/* Emit changes _after_ removing the connection */
@@ -313,11 +313,12 @@ update_connection (SettingsPluginIfcfg *self,
 			              NM_IFCFG_CONNECTION_UNRECOGNIZED_SPEC, new_unrecognized,
 			              NULL);
 
-			if (!nm_settings_connection_replace_settings (NM_SETTINGS_CONNECTION (connection_by_uuid),
-			                                              NM_CONNECTION (connection_new),
-			                                              FALSE,  /* don't set Unsaved */
-			                                              "ifcfg-update",
-			                                              &local)) {
+			if (!nm_settings_connection_update (NM_SETTINGS_CONNECTION (connection_by_uuid),
+			                                    NM_CONNECTION (connection_new),
+			                                    NM_SETTINGS_CONNECTION_PERSIST_MODE_KEEP_SAVED,
+			                                    NM_SETTINGS_CONNECTION_COMMIT_REASON_NONE,
+			                                    "ifcfg-update",
+			                                    &local)) {
 				/* Shouldn't ever get here as 'connection_new' was verified by the reader already
 				 * and the UUID did not change. */
 				g_assert_not_reached ();
@@ -330,7 +331,7 @@ update_connection (SettingsPluginIfcfg *self,
 					/* Unexport the connection by telling the settings service it's
 					 * been removed.
 					 */
-					nm_settings_connection_signal_remove (NM_SETTINGS_CONNECTION (connection_by_uuid), TRUE);
+					nm_settings_connection_signal_remove (NM_SETTINGS_CONNECTION (connection_by_uuid));
 					/* Remove the path so that claim_connection() doesn't complain later when
 					 * interface gets managed and connection is re-added. */
 					nm_connection_set_path (NM_CONNECTION (connection_by_uuid), NULL);
@@ -1079,5 +1080,5 @@ settings_plugin_interface_init (NMSettingsPluginInterface *plugin_iface)
 G_MODULE_EXPORT GObject *
 nm_settings_plugin_factory (void)
 {
-	return g_object_ref (settings_plugin_ifcfg_get ());
+	return G_OBJECT (g_object_ref (settings_plugin_ifcfg_get ()));
 }

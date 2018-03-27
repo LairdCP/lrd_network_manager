@@ -776,7 +776,7 @@ line_free (shvarLine *line)
 	ASSERT_shvarLine (line);
 	g_free (line->line);
 	g_free (line->key_with_prefix);
-	c_list_unlink (&line->lst);
+	c_list_unlink_stale (&line->lst);
 	g_slice_free (shvarLine, line);
 }
 
@@ -1171,6 +1171,11 @@ svUnsetAll (shvarFile *s, SvKeyType match_key_type)
 			if (g_str_has_prefix (line->key, "NM_USER_"))
 				goto do_clear;
 		}
+		if (NM_FLAGS_HAS (match_key_type, SV_KEY_TYPE_TC)) {
+			if (   IS_NUMBERED_TAG (line->key, "QDISC")
+			    || IS_NUMBERED_TAG (line->key, "FILTER"))
+				goto do_clear;
+		}
 
 		continue;
 do_clear:
@@ -1318,7 +1323,7 @@ svWriteFile (shvarFile *s, int mode, GError **error)
 			return FALSE;
 		}
 
-		tmpfd = dup (s->fd);
+		tmpfd = fcntl (s->fd, F_DUPFD_CLOEXEC, 0);
 		if (tmpfd == -1) {
 			int errsv = errno;
 
@@ -1373,7 +1378,8 @@ svCloseFile (shvarFile *s)
 
 	g_return_if_fail (s != NULL);
 
-	nm_close (s->fd);
+	if (s->fd >= 0)
+		nm_close (s->fd);
 	g_free (s->fileName);
 	c_list_for_each_safe (current, safe, &s->lst_head)
 		line_free (c_list_entry (current, shvarLine, lst));

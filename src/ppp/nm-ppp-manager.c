@@ -96,7 +96,7 @@ typedef struct {
 
 	NMActRequest *act_req;
 	GDBusMethodInvocation *pending_secrets_context;
-	NMActRequestGetSecretsCallId secrets_id;
+	NMActRequestGetSecretsCallId *secrets_id;
 	const char *secrets_setting_name;
 
 	guint ppp_watch_id;
@@ -139,11 +139,11 @@ static void _ppp_kill (NMPPPManager *manager);
 /*****************************************************************************/
 
 static void
-_ppp_manager_set_route_paramters (NMPPPManager *self,
-                                  guint32 ip4_route_table,
-                                  guint32 ip4_route_metric,
-                                  guint32 ip6_route_table,
-                                  guint32 ip6_route_metric)
+_ppp_manager_set_route_parameters (NMPPPManager *self,
+                                   guint32 ip4_route_table,
+                                   guint32 ip4_route_metric,
+                                   guint32 ip6_route_table,
+                                   guint32 ip6_route_metric)
 {
 	NMPPPManagerPrivate *priv;
 
@@ -287,7 +287,7 @@ extract_details_from_connection (NMConnection *connection,
 
 static void
 ppp_secrets_cb (NMActRequest *req,
-                NMActRequestGetSecretsCallId call_id,
+                NMActRequestGetSecretsCallId *call_id,
                 NMSettingsConnection *settings_connection, /* unused (we pass NULL here) */
                 GError *error,
                 gpointer user_data)
@@ -1359,7 +1359,7 @@ nm_ppp_manager_class_init (NMPPPManagerClass *manager_class)
 
 NMPPPOps ppp_ops = {
 	.create               = _ppp_manager_new,
-	.set_route_parameters = _ppp_manager_set_route_paramters,
+	.set_route_parameters = _ppp_manager_set_route_parameters,
 	.start                = _ppp_manager_start,
 	.stop_async           = _ppp_manager_stop_async,
 	.stop_finish          = _ppp_manager_stop_finish,

@@ -6,7 +6,7 @@ m4_define([LRD_BUILD_NUMBER], [3.5.6.12])
 dnl The NM version number
 m4_define([nm_major_version], [1])
 m4_define([nm_minor_version], [10])
-m4_define([nm_micro_version], [0])
+m4_define([nm_micro_version], [6])
 m4_define([nm_version],
           [LRD_BUILD_NUMBER-nm_major_version.nm_minor_version.nm_micro_version])
 
@@ -667,7 +667,17 @@ else
 	if test "$have_jansson" = "no"; then
 		AC_MSG_ERROR([jansson is needed for team configuration validation. Use --disable-json-validation to build without it.])
 	fi
-		AC_DEFINE(WITH_JANSSON, 1, [Define if JANSSON is enabled])
+
+	AC_DEFINE(WITH_JANSSON, 1, [Define if JANSSON is enabled])
+
+	AC_CHECK_TOOLS(READELF, [eu-readelf readelf])
+	JANSSON_LIBDIR=`$PKG_CONFIG --variable=libdir jansson`
+	JANSSON_SONAME=`$READELF -d $JANSSON_LIBDIR/libjansson.so |sed -n 's/.*SONAME.*\[[\([^]]*\)]]/\1/p'`
+
+	if test "$JANSSON_SONAME" = ""; then
+		AC_MSG_ERROR(Unable to locate the Jansson library)
+	fi
+	AC_DEFINE_UNQUOTED(JANSSON_SONAME, "$JANSSON_SONAME", [Define to path to the Jansson shared library])
 fi
 AM_CONDITIONAL(WITH_JANSSON, test "${enable_json_validation}" != "no")
 
@@ -1215,6 +1225,22 @@ if test -n "$sanitizers"; then
 fi
 
 AC_SUBST(SANITIZERS, [$sanitizers])
+
+AC_MSG_CHECKING([CC support C11 _Generic()])
+AC_COMPILE_IFELSE([AC_LANG_SOURCE([[int foo(void); int foo() { int a = 0; int b = _Generic (a, int: 4); return b + a; }]],
+                                  [[foo();]])],
+                  [cc_support_generic=1],
+                  [cc_support_generic=0])
+AC_MSG_RESULT($cc_support_generic)
+AC_DEFINE_UNQUOTED(_NM_CC_SUPPORT_GENERIC, $cc_support_generic, [Define whether the compiler supports C11 _Generic()])
+
+AC_MSG_CHECKING([CC support gcc __auto_type])
+AC_COMPILE_IFELSE([AC_LANG_SOURCE([[int foo(void); int foo() { int a = 0; __auto_type b = a; return b + a; }]],
+                                  [[foo();]])],
+                  [cc_support_auto_type=1],
+                  [cc_support_auto_type=0])
+AC_MSG_RESULT($cc_support_auto_type)
+AC_DEFINE_UNQUOTED(_NM_CC_SUPPORT_AUTO_TYPE, $cc_support_auto_type, [Define whether the compiler support gcc __auto_type])
 
 dnl -------------------------
 dnl Vala bindings

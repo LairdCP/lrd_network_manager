@@ -26,23 +26,6 @@
 
 /*****************************************************************************/
 
-typedef struct {
-	union {
-		guint8 addr_ptr[1];
-		in_addr_t addr4;
-		struct in6_addr addr6;
-
-		/* NMIPAddr is really a union for IP addresses.
-		 * However, as ethernet addresses fit in here nicely, use
-		 * it also for an ethernet MAC address. */
-		guint8 addr_eth[6 /*ETH_ALEN*/];
-	};
-} NMIPAddr;
-
-extern const NMIPAddr nm_ip_addr_zero;
-
-/*****************************************************************************/
-
 static inline char
 nm_utils_addr_family_to_char (int addr_family)
 {
@@ -65,6 +48,36 @@ nm_utils_addr_family_to_size (int addr_family)
 
 #define nm_assert_addr_family(addr_family) \
 	nm_assert (NM_IN_SET ((addr_family), AF_INET, AF_INET6))
+
+/*****************************************************************************/
+
+typedef struct {
+	union {
+		guint8 addr_ptr[1];
+		in_addr_t addr4;
+		struct in6_addr addr6;
+
+		/* NMIPAddr is really a union for IP addresses.
+		 * However, as ethernet addresses fit in here nicely, use
+		 * it also for an ethernet MAC address. */
+		guint8 addr_eth[6 /*ETH_ALEN*/];
+	};
+} NMIPAddr;
+
+extern const NMIPAddr nm_ip_addr_zero;
+
+static inline void
+nm_ip_addr_set (int addr_family, gpointer dst, const NMIPAddr *src)
+{
+	nm_assert_addr_family (addr_family);
+	nm_assert (dst);
+	nm_assert (src);
+
+	if (addr_family != AF_INET6)
+		*((in_addr_t *) dst) = src->addr4;
+	else
+		*((struct in6_addr *) dst) = src->addr6;
+}
 
 /*****************************************************************************/
 
@@ -373,6 +386,16 @@ gboolean nm_g_object_set_property (GObject *object,
                                    const GValue *value,
                                    GError **error);
 
+gboolean nm_g_object_set_property_boolean (GObject *object,
+                                           const gchar  *property_name,
+                                           gboolean value,
+                                           GError **error);
+
+gboolean nm_g_object_set_property_uint (GObject *object,
+                                        const gchar  *property_name,
+                                        guint value,
+                                        GError **error);
+
 GParamSpec *nm_g_object_class_find_property_from_gtype (GType gtype,
                                                         const char *property_name);
 
@@ -391,6 +414,26 @@ char *nm_utils_str_utf8safe_escape_cp   (const char *str, NMUtilsStrUtf8SafeFlag
 char *nm_utils_str_utf8safe_unescape_cp (const char *str);
 
 char *nm_utils_str_utf8safe_escape_take (char *str, NMUtilsStrUtf8SafeFlags flags);
+
+/*****************************************************************************/
+
+typedef struct {
+	const char *name;
+} NMUtilsNamedEntry;
+
+typedef struct {
+	union {
+		NMUtilsNamedEntry named_entry;
+		const char *name;
+	};
+	union {
+		const char *value_str;
+		gconstpointer value_ptr;
+	};
+} NMUtilsNamedValue;
+
+#define nm_utils_named_entry_cmp           nm_strcmp_p
+#define nm_utils_named_entry_cmp_with_data nm_strcmp_p_with_data
 
 /*****************************************************************************/
 

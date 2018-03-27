@@ -107,7 +107,7 @@ remove_connection (NMSKeyfilePlugin *self, NMSKeyfileConnection *connection)
 	g_signal_handlers_disconnect_by_func (connection, connection_removed_cb, self);
 	removed = g_hash_table_remove (NMS_KEYFILE_PLUGIN_GET_PRIVATE (self)->connections,
 	                               nm_connection_get_uuid (NM_CONNECTION (connection)));
-	nm_settings_connection_signal_remove (NM_SETTINGS_CONNECTION (connection), FALSE);
+	nm_settings_connection_signal_remove (NM_SETTINGS_CONNECTION (connection));
 	g_object_unref (connection);
 
 	g_return_if_fail (removed);
@@ -143,7 +143,7 @@ find_by_path (NMSKeyfilePlugin *self, const char *path)
  *   an existing connection with the same UUID.
  *   If %TRUE and @connection, allow updating only if the reload would modify
  *   @connection (without changing its UUID) or if we would create a new connection.
- *   In other words, if this paramter is %TRUE, we only allow creating a
+ *   In other words, if this parameter is %TRUE, we only allow creating a
  *   new connection (with an unseen UUID) or updating the passed in @connection
  *   (whereas the UUID cannot change).
  *   Note, that this allows for @connection to be replaced by a new connection.
@@ -258,11 +258,12 @@ update_connection (NMSKeyfilePlugin *self,
 			else
 				_LOGI ("update and persist "NMS_KEYFILE_CONNECTION_LOG_FMT, NMS_KEYFILE_CONNECTION_LOG_ARG (connection_new));
 
-			if (!nm_settings_connection_replace_settings (NM_SETTINGS_CONNECTION (connection_by_uuid),
-			                                              NM_CONNECTION (connection_new),
-			                                              FALSE,  /* don't set Unsaved */
-			                                              "keyfile-update",
-			                                              &local)) {
+			if (!nm_settings_connection_update (NM_SETTINGS_CONNECTION (connection_by_uuid),
+			                                    NM_CONNECTION (connection_new),
+			                                    NM_SETTINGS_CONNECTION_PERSIST_MODE_KEEP_SAVED,
+			                                    NM_SETTINGS_CONNECTION_COMMIT_REASON_NONE,
+			                                    "keyfile-update",
+			                                    &local)) {
 				/* Shouldn't ever get here as 'connection_new' was verified by the reader already
 				 * and the UUID did not change. */
 				g_assert_not_reached ();

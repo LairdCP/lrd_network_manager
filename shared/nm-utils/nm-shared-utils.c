@@ -151,7 +151,7 @@ nm_strquote (char *buf, gsize buf_len, const char *str)
 		switch (buf_len) {
 		case 2:
 			*(buf++) = '^';
-			/* fall-through*/
+			/* fall-through */
 		case 1:
 			*(buf++) = '\0';
 			break;
@@ -569,7 +569,7 @@ nm_utils_strsplit_set (const char *str, const char *delimiters)
 
 			/* reallocate the buffer. Note that for now the string
 			 * continues to be in ptr0/s0. We fix that at the end. */
-			alloc_size += 2;
+			alloc_size *= 2;
 			ptr = g_malloc ((sizeof (const char *) * (alloc_size + 1)) + str_len);
 			memcpy (ptr, ptr_old, sizeof (const char *) * plen);
 			if (ptr_old != ptr0)
@@ -843,6 +843,32 @@ nm_g_object_set_property (GObject *object,
 
 	g_object_set_property (object, property_name, &tmp_value);
 	return TRUE;
+}
+
+gboolean
+nm_g_object_set_property_boolean (GObject *object,
+                                  const gchar  *property_name,
+                                  gboolean value,
+                                  GError **error)
+{
+	nm_auto_unset_gvalue GValue gvalue = { 0 };
+
+	g_value_init (&gvalue, G_TYPE_BOOLEAN);
+	g_value_set_boolean (&gvalue, !!value);
+	return nm_g_object_set_property (object, property_name, &gvalue, error);
+}
+
+gboolean
+nm_g_object_set_property_uint (GObject *object,
+                               const gchar  *property_name,
+                               guint value,
+                               GError **error)
+{
+	nm_auto_unset_gvalue GValue gvalue = { 0 };
+
+	g_value_init (&gvalue, G_TYPE_UINT);
+	g_value_set_uint (&gvalue, value);
+	return nm_g_object_set_property (object, property_name, &gvalue, error);
 }
 
 GParamSpec *

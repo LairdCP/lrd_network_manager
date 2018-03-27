@@ -139,10 +139,12 @@ bind_device_to_connection (SettingsPluginIfupdown *self,
 		g_object_set (s_wifi, NM_SETTING_WIRELESS_MAC_ADDRESS, address, NULL);
 	}
 
-	nm_settings_connection_commit_changes (NM_SETTINGS_CONNECTION (exported),
-	                                       NULL,
-	                                       NM_SETTINGS_CONNECTION_COMMIT_REASON_NONE,
-	                                       NULL);
+	nm_settings_connection_update (NM_SETTINGS_CONNECTION (exported),
+	                               NULL,
+	                               NM_SETTINGS_CONNECTION_PERSIST_MODE_DISK,
+	                               NM_SETTINGS_CONNECTION_COMMIT_REASON_NONE,
+	                               "ifupdown-new",
+	                               NULL);
 }
 
 static void
@@ -539,6 +541,6 @@ settings_plugin_interface_init (NMSettingsPluginInterface *plugin_iface)
 G_MODULE_EXPORT GObject *
 nm_settings_plugin_factory (void)
 {
-	return g_object_ref (settings_plugin_ifupdown_get ());
+	return G_OBJECT (g_object_ref (settings_plugin_ifupdown_get ()));
 }
 

@@ -103,7 +103,7 @@ typedef struct {
 	gboolean service_can_persist;
 	gboolean connection_can_persist;
 
-	NMSettingsConnectionCallId secrets_id;
+	NMSettingsConnectionCallId *secrets_id;
 	SecretsReq secrets_idx;
 	char *username;
 
@@ -185,13 +185,13 @@ static NMSettingsConnection *_get_settings_connection (NMVpnConnection *self,
 
 static void get_secrets (NMVpnConnection *self,
                          SecretsReq secrets_idx,
-                         const char **hints);
+                         const char *const*hints);
 
 static guint32 get_route_table (NMVpnConnection *self, int addr_family, gboolean fallback_main);
 
 static void plugin_interactive_secrets_required (NMVpnConnection *self,
                                                  const char *message,
-                                                 const char **secrets);
+                                                 const char *const*secrets);
 
 static void _set_vpn_state (NMVpnConnection *self,
                             VpnState vpn_state,
@@ -1007,8 +1007,8 @@ print_vpn_config (NMVpnConnection *self)
 
 		if (priv->ip4_internal_gw)
 			_LOGI ("Data:   Internal Gateway: %s", nm_utils_inet4_ntop (priv->ip4_internal_gw, NULL));
-		_LOGI ("Data:   Internal Address: %s", nm_utils_inet4_ntop (address4->address, NULL));
-		_LOGI ("Data:   Internal Prefix: %d", address4->plen);
+		_LOGI ("Data:   Internal Address: %s", address4 ? nm_utils_inet4_ntop (address4->address, NULL) : "??");
+		_LOGI ("Data:   Internal Prefix: %d", address4 ? (int) address4->plen : -1);
 		_LOGI ("Data:   Internal Point-to-Point Address: %s", nm_utils_inet4_ntop (address4->peer_address, NULL));
 
 		nm_ip_config_iter_ip4_route_for_each (&ipconf_iter, priv->ip4_config, &route) {
@@ -1563,9 +1563,12 @@ nm_vpn_connection_ip4_config_get (NMVpnConnection *self, GVariant *dict)
 
 	route_table = get_route_table (self, AF_INET, TRUE);
 	route_metric = nm_vpn_connection_get_ip4_route_metric (self);
+	s_ip = nm_connection_get_setting_ip4_config (_get_applied_connection (self));
 
-	if (   g_variant_lookup (dict, NM_VPN_PLUGIN_IP4_CONFIG_PRESERVE_ROUTES, "b", &b)
-	    && b) {
+	if (nm_setting_ip_config_get_ignore_auto_routes (s_ip)) {
+		/* ignore VPN routes */
+	} else if (   g_variant_lookup (dict, NM_VPN_PLUGIN_IP4_CONFIG_PRESERVE_ROUTES, "b", &b)
+	           && b) {
 		if (priv->ip4_config) {
 			NMDedupMultiIter ipconf_iter;
 			const NMPlatformIP4Route *route;
@@ -1616,7 +1619,6 @@ nm_vpn_connection_ip4_config_get (NMVpnConnection *self, GVariant *dict)
 		never_default = b;
 
 	/* Merge in user overrides from the NMConnection's IPv4 setting */
-	s_ip = nm_connection_get_setting_ip4_config (_get_applied_connection (self));
 	nm_ip4_config_merge_setting (config,
 	                             s_ip,
 	                             route_table,
@@ -1756,9 +1758,12 @@ nm_vpn_connection_ip6_config_get (NMVpnConnection *self, GVariant *dict)
 
 	route_table = get_route_table (self, AF_INET6, TRUE);
 	route_metric = nm_vpn_connection_get_ip6_route_metric (self);
+	s_ip = nm_connection_get_setting_ip6_config (_get_applied_connection (self));
 
-	if (   g_variant_lookup (dict, NM_VPN_PLUGIN_IP6_CONFIG_PRESERVE_ROUTES, "b", &b)
-	    && b) {
+	if (nm_setting_ip_config_get_ignore_auto_routes (s_ip)) {
+		/* Ignore VPN routes */
+	} else if (   g_variant_lookup (dict, NM_VPN_PLUGIN_IP6_CONFIG_PRESERVE_ROUTES, "b", &b)
+	           && b) {
 		if (priv->ip6_config) {
 			NMDedupMultiIter ipconf_iter;
 			const NMPlatformIP6Route *route;
@@ -1806,7 +1811,6 @@ next:
 		never_default = b;
 
 	/* Merge in user overrides from the NMConnection's IPv6 setting */
-	s_ip = nm_connection_get_setting_ip6_config (_get_applied_connection (self));
 	nm_ip6_config_merge_setting (config,
 	                             s_ip,
 	                             route_table,
@@ -2043,7 +2047,7 @@ state_changed_cb (GDBusProxy *proxy,
 static void
 secrets_required_cb (GDBusProxy  *proxy,
                      const char  *message,
-                     const char **secrets,
+                     const char *const*secrets,
                      gpointer     user_data)
 {
 	NMVpnConnection *self = NM_VPN_CONNECTION (user_data);
@@ -2567,7 +2571,7 @@ plugin_new_secrets_cb (GDBusProxy *proxy, GAsyncResult *result, gpointer user_da
 
 static void
 get_secrets_cb (NMSettingsConnection *connection,
-                NMSettingsConnectionCallId call_id,
+                NMSettingsConnectionCallId *call_id,
                 const char *agent_username,
                 const char *setting_name,
                 GError *error,
@@ -2634,7 +2638,7 @@ get_secrets_cb (NMSettingsConnection *connection,
 static void
 get_secrets (NMVpnConnection *self,
              SecretsReq secrets_idx,
-             const char **hints)
+             const char *const*hints)
 {
 	NMVpnConnectionPrivate *priv = NM_VPN_CONNECTION_GET_PRIVATE (self);
 	NMSecretAgentGetSecretsFlags flags = NM_SECRET_AGENT_GET_SECRETS_FLAG_NONE;
@@ -2679,12 +2683,13 @@ get_secrets (NMVpnConnection *self,
 static void
 plugin_interactive_secrets_required (NMVpnConnection *self,
                                      const char *message,
-                                     const char **secrets)
+                                     const char *const*secrets)
 {
 	NMVpnConnectionPrivate *priv = NM_VPN_CONNECTION_GET_PRIVATE (self);
-	guint32 secrets_len = secrets ? g_strv_length ((char **) secrets) : 0;
-	char **hints;
-	guint32 i;
+	const gsize secrets_len = NM_PTRARRAY_LEN (secrets);
+	gsize i;
+	gs_free const char **hints = NULL;
+	gs_free char *message_hint = NULL;
 
 	_LOGI ("VPN plugin: requested secrets; state %s (%d)",
 	       vpn_state_to_string (priv->vpn_state), priv->vpn_state);
@@ -2696,14 +2701,17 @@ plugin_interactive_secrets_required (NMVpnConnection *self,
 	_set_vpn_state (self, STATE_NEED_AUTH, NM_ACTIVE_CONNECTION_STATE_REASON_NONE, FALSE);
 
 	/* Copy hints and add message to the end */
-	hints = g_malloc0 (sizeof (char *) * (secrets_len + 2));
+	hints = g_new (const char *, secrets_len + 2);
 	for (i = 0; i < secrets_len; i++)
-		hints[i] = g_strdup (secrets[i]);
-	if (message)
-		hints[i] = g_strdup_printf ("x-vpn-message:%s", message);
+		hints[i] = secrets[i];
+	if (message) {
+		message_hint = g_strdup_printf ("x-vpn-message:%s", message);
+		hints[i++] = message_hint;
+	}
+	hints[i] = NULL;
+	nm_assert (i < secrets_len + 2);
 
-	get_secrets (self, SECRETS_REQ_INTERACTIVE, (const char **) hints);
-	g_strfreev (hints);
+	get_secrets (self, SECRETS_REQ_INTERACTIVE, hints);
 }
 
 /*****************************************************************************/

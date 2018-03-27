@@ -318,6 +318,7 @@ test_config_global_dns (void)
 	g_object_unref (config);
 }
 
+#if WITH_CONCHECK
 static void
 test_config_connectivity_check (void)
 {
@@ -351,6 +352,7 @@ test_config_connectivity_check (void)
 
 	g_assert (remove (CONFIG_INTERN) == 0);
 }
+#endif
 
 static void
 test_config_no_auto_default (void)
@@ -368,7 +370,7 @@ test_config_no_auto_default (void)
 	g_assert_cmpint (nwrote, ==, 18);
 	nwrote = write (fd, "44:44:44:44:44:44\n", 18);
 	g_assert_cmpint (nwrote, ==, 18);
-	close (fd);
+	nm_close (fd);
 
 	config = setup_config (NULL, SRCDIR "/NetworkManager.conf", "", NULL, "/no/such/dir", "",
 	                       "--no-auto-default", state_file,
@@ -1053,7 +1055,9 @@ main (int argc, char **argv)
 
 	g_test_add_func ("/config/set-values", test_config_set_values);
 	g_test_add_func ("/config/global-dns", test_config_global_dns);
+#if WITH_CONCHECK
 	g_test_add_func ("/config/connectivity-check", test_config_connectivity_check);
+#endif
 
 	g_test_add_func ("/config/signal", test_config_signal);
 

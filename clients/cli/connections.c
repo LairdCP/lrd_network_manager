@@ -14,7 +14,7 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
- * Copyright 2010 - 2015 Red Hat, Inc.
+ * Copyright 2010 - 2017 Red Hat, Inc.
  */
 
 #include "nm-default.h"
@@ -146,7 +146,8 @@ const NmcMetaGenericInfo *const nmc_fields_con_active_details_general[] = {
                                          NM_SETTING_MACSEC_SETTING_NAME"," \
                                          NM_SETTING_MACVLAN_SETTING_NAME"," \
                                          NM_SETTING_VXLAN_SETTING_NAME"," \
-                                         NM_SETTING_PROXY_SETTING_NAME
+                                         NM_SETTING_PROXY_SETTING_NAME"," \
+                                         NM_SETTING_TC_CONFIG_SETTING_NAME
                                          // NM_SETTING_DUMMY_SETTING_NAME
                                          // NM_SETTING_WIMAX_SETTING_NAME
 
@@ -615,26 +616,54 @@ get_ac_for_connection (const GPtrArray *active_cons, NMConnection *connection)
 	return ac;
 }
 
+typedef struct {
+	GMainLoop *loop;
+	NMConnection *local;
+	const char *setting_name;
+} GetSecretsData;
+
+static void
+got_secrets (GObject *source_object, GAsyncResult *res, gpointer user_data)
+{
+	NMRemoteConnection *remote = NM_REMOTE_CONNECTION (source_object);
+	GetSecretsData *data = user_data;
+	GVariant *secrets;
+	GError *error = NULL;
+
+	secrets = nm_remote_connection_get_secrets_finish (remote, res, NULL);
+	if (secrets) {
+		if (!nm_connection_update_secrets (data->local, NULL, secrets, &error) && error) {
+			g_printerr (_("Error updating secrets for %s: %s\n"),
+			            data->setting_name, error->message);
+			g_clear_error (&error);
+		}
+		g_variant_unref (secrets);
+	}
+
+	g_main_loop_quit (data->loop);
+}
+
 /* Put secrets into local connection. */
 static void
 update_secrets_in_connection (NMRemoteConnection *remote, NMConnection *local)
 {
-	GVariant *secrets;
+	GetSecretsData data = { 0, };
 	int i;
-	GError *error = NULL;
+
+	data.local = local;
+	data.loop = g_main_loop_new (NULL, FALSE);
 
 	for (i = 0; i < _NM_META_SETTING_TYPE_NUM; i++) {
-		secrets = nm_remote_connection_get_secrets (remote, nm_meta_setting_infos[i].setting_name, NULL, NULL);
-		if (secrets) {
-			if (!nm_connection_update_secrets (local, NULL, secrets, &error) && error) {
-				g_printerr (_("Error updating secrets for %s: %s\n"),
-				            nm_meta_setting_infos[i].setting_name,
-				            error->message);
-				g_clear_error (&error);
-			}
-			g_variant_unref (secrets);
-		}
+		data.setting_name = nm_meta_setting_infos[i].setting_name;
+		nm_remote_connection_get_secrets_async (remote,
+		                                        nm_meta_setting_infos[i].setting_name,
+		                                        NULL,
+		                                        got_secrets,
+		                                        &data);
+		g_main_loop_run (data.loop);
 	}
+
+	g_main_loop_unref (data.loop);
 }
 
 static gboolean
@@ -2656,7 +2685,7 @@ do_connection_down (NmCli *nmc, int argc, char **argv)
 		const GPtrArray *connections;
 		const char *selector = NULL;
 
-		if (arg_num == 1)
+		if (arg_num == 1 && nmc->complete)
 			nmc_complete_strings (*arg_ptr, "id", "uuid", "path", "apath", NULL);
 
 		if (   strcmp (*arg_ptr, "id") == 0
@@ -7569,6 +7598,8 @@ editor_menu_main (NmCli *nmc, NMConnection *connection, const char *connection_t
 	g_free (menu_ctx.valid_props_str);
 	g_weak_ref_clear (&weak);
 
+	quit ();
+
 	/* Save history file */
 	save_history_cmds (nm_connection_get_uuid (connection));
 
@@ -8605,7 +8636,7 @@ do_connection_export (NmCli *nmc, int argc, char **argv)
 			nmc->return_value = NMC_RESULT_ERROR_UNKNOWN;
 			goto finish;
 		}
-		close (fd);
+		nm_close (fd);
 		path = tmpfile;
 	}
 

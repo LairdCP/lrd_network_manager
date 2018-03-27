@@ -191,7 +191,7 @@ verify (NMSetting *setting, NMConnection *connection, GError **error)
 		return FALSE;
 	}
 
-	if (priv->dhcp_client_id && !strlen (priv->dhcp_client_id)) {
+	if (priv->dhcp_client_id && !priv->dhcp_client_id[0]) {
 		g_set_error_literal (error,
 		                     NM_CONNECTION_ERROR,
 		                     NM_CONNECTION_ERROR_INVALID_PROPERTY,
@@ -685,6 +685,14 @@ nm_setting_ip4_config_class_init (NMSettingIP4ConfigClass *ip4_class)
 	 * variable: IPV4_ROUTE_TABLE(+)
 	 * default: 0
 	 * description: IPV4_ROUTE_TABLE enables policy-routing and sets the default routing table.
+	 * ---end---
+	 */
+
+	/* ---ifcfg-rh---
+	 * property: dns-options
+	 * variable: RES_OPTIONS(+)
+	 * description: List of DNS options to be added to /etc/resolv.conf
+	 * example: RES_OPTIONS=ndots:2 timeout:3
 	 * ---end---
 	 */
 

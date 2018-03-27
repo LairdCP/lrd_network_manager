@@ -16,7 +16,7 @@
  * Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
  * Boston, MA 02110-1301 USA.
  *
- * Copyright 2007 - 2014 Red Hat, Inc.
+ * Copyright 2007 - 2017 Red Hat, Inc.
  * Copyright 2007 - 2008 Novell, Inc.
  */
 
@@ -1238,13 +1238,14 @@ nm_ip_route_set_attribute (NMIPRoute *route, const char *name, GVariant *value)
 }
 
 #define ATTR_SPEC_PTR(name, type, v4, v6, str_type) \
-	&(NMVariantAttributeSpec) { name, type, v4, v6, str_type }
+	&(NMVariantAttributeSpec) { name, type, v4, v6, FALSE, FALSE, str_type }
 
 static const NMVariantAttributeSpec * const ip_route_attribute_spec[] = {
 	ATTR_SPEC_PTR (NM_IP_ROUTE_ATTRIBUTE_TABLE,           G_VARIANT_TYPE_UINT32,   TRUE,  TRUE,  0 ),
 	ATTR_SPEC_PTR (NM_IP_ROUTE_ATTRIBUTE_SRC,             G_VARIANT_TYPE_STRING,   TRUE,  TRUE, 'a'),
 	ATTR_SPEC_PTR (NM_IP_ROUTE_ATTRIBUTE_FROM,            G_VARIANT_TYPE_STRING,   FALSE, TRUE, 'p'),
 	ATTR_SPEC_PTR (NM_IP_ROUTE_ATTRIBUTE_TOS,             G_VARIANT_TYPE_BYTE,     TRUE,  FALSE, 0 ),
+	ATTR_SPEC_PTR (NM_IP_ROUTE_ATTRIBUTE_ONLINK,          G_VARIANT_TYPE_BOOLEAN,  TRUE,  FALSE, 0 ),
 	ATTR_SPEC_PTR (NM_IP_ROUTE_ATTRIBUTE_WINDOW,          G_VARIANT_TYPE_UINT32,   TRUE,  TRUE,  0 ),
 	ATTR_SPEC_PTR (NM_IP_ROUTE_ATTRIBUTE_CWND,            G_VARIANT_TYPE_UINT32,   TRUE,  TRUE,  0 ),
 	ATTR_SPEC_PTR (NM_IP_ROUTE_ATTRIBUTE_INITCWND,        G_VARIANT_TYPE_UINT32,   TRUE,  TRUE,  0 ),
@@ -1790,7 +1791,7 @@ nm_setting_ip_config_get_num_dns_options (NMSettingIPConfig *setting)
  * or the options are left undefined. The latter means to use
  * a default configuration, while the former explicitly means "no-options".
  *
- * Returns: whether DNS options are initalized or left unset (the default).
+ * Returns: whether DNS options are initialized or left unset (the default).
  **/
 gboolean
 nm_setting_ip_config_has_dns_options (NMSettingIPConfig *setting)

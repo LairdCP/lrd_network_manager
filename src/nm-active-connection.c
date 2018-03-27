@@ -292,6 +292,36 @@ nm_active_connection_set_state (NMActiveConnection *self,
 	}
 }
 
+void
+nm_active_connection_set_state_fail (NMActiveConnection *self,
+                                     NMActiveConnectionStateReason reason,
+                                     const char *error_desc)
+{
+	NMActiveConnectionState s;
+
+	g_return_if_fail (NM_IS_ACTIVE_CONNECTION (self));
+
+	if (error_desc) {
+		_LOGD ("Failed to activate '%s': %s",
+		       nm_active_connection_get_settings_connection_id (self),
+		       error_desc);
+	}
+
+	s = nm_active_connection_get_state (self);
+	if (   s >= NM_ACTIVE_CONNECTION_STATE_ACTIVATING
+	    && s < NM_ACTIVE_CONNECTION_STATE_DEACTIVATING) {
+		nm_active_connection_set_state (self,
+		                                NM_ACTIVE_CONNECTION_STATE_DEACTIVATING,
+		                                reason);
+		s = nm_active_connection_get_state (self);
+	}
+	if (s < NM_ACTIVE_CONNECTION_STATE_DEACTIVATED) {
+		nm_active_connection_set_state (self,
+		                                NM_ACTIVE_CONNECTION_STATE_DEACTIVATED,
+		                                reason);
+	}
+}
+
 NMActivationStateFlags
 nm_active_connection_get_state_flags (NMActiveConnection *self)
 {
@@ -494,53 +524,46 @@ nm_active_connection_set_specific_object (NMActiveConnection *self,
 }
 
 void
-nm_active_connection_set_default (NMActiveConnection *self, gboolean is_default)
+nm_active_connection_set_default (NMActiveConnection *self,
+                                  int addr_family,
+                                  gboolean is_default)
 {
 	NMActiveConnectionPrivate *priv;
 
 	g_return_if_fail (NM_IS_ACTIVE_CONNECTION (self));
+	nm_assert (NM_IN_SET (addr_family, AF_UNSPEC, AF_INET, AF_INET6));
 
 	is_default = !!is_default;
 
 	priv = NM_ACTIVE_CONNECTION_GET_PRIVATE (self);
-	if (priv->is_default == is_default)
-		return;
-
-	priv->is_default = is_default;
-	_notify (self, PROP_DEFAULT);
+	if (NM_IN_SET (addr_family, AF_UNSPEC, AF_INET)) {
+		if (priv->is_default != is_default) {
+			priv->is_default = is_default;
+			_notify (self, PROP_DEFAULT);
+		}
+	}
+	if (NM_IN_SET (addr_family, AF_UNSPEC, AF_INET6)) {
+		if (priv->is_default6 != is_default) {
+			priv->is_default6 = is_default;
+			_notify (self, PROP_DEFAULT6);
+		}
+	}
 }
 
 gboolean
-nm_active_connection_get_default (NMActiveConnection *self)
-{
-	g_return_val_if_fail (NM_IS_ACTIVE_CONNECTION (self), FALSE);
-
-	return NM_ACTIVE_CONNECTION_GET_PRIVATE (self)->is_default;
-}
-
-void
-nm_active_connection_set_default6 (NMActiveConnection *self, gboolean is_default6)
+nm_active_connection_get_default (NMActiveConnection *self, int addr_family)
 {
 	NMActiveConnectionPrivate *priv;
 
-	g_return_if_fail (NM_IS_ACTIVE_CONNECTION (self));
-
-	is_default6 = !!is_default6;
+	g_return_val_if_fail (NM_IS_ACTIVE_CONNECTION (self), FALSE);
+	nm_assert (NM_IN_SET (addr_family, AF_UNSPEC, AF_INET, AF_INET6));
 
 	priv = NM_ACTIVE_CONNECTION_GET_PRIVATE (self);
-	if (priv->is_default6 == is_default6)
-		return;
-
-	priv->is_default6 = is_default6;
-	_notify (self, PROP_DEFAULT6);
-}
-
-gboolean
-nm_active_connection_get_default6 (NMActiveConnection *self)
-{
-	g_return_val_if_fail (NM_IS_ACTIVE_CONNECTION (self), FALSE);
-
-	return NM_ACTIVE_CONNECTION_GET_PRIVATE (self)->is_default6;
+	switch (addr_family) {
+	case AF_INET:   return priv->is_default;
+	case AF_INET6:  return priv->is_default6;
+	default:        return priv->is_default || priv->is_default6;
+	}
 }
 
 NMAuthSubject *
@@ -873,7 +896,8 @@ _settings_connection_notify_flags (NMSettingsConnection *settings_connection,
 	nm_assert (nm_active_connection_get_activation_type (self) == NM_ACTIVATION_TYPE_EXTERNAL);
 	nm_assert (NM_ACTIVE_CONNECTION_GET_PRIVATE (self)->settings_connection == settings_connection);
 
-	if (nm_settings_connection_get_nm_generated (settings_connection))
+	if (NM_FLAGS_HAS (nm_settings_connection_get_flags (settings_connection),
+	                  NM_SETTINGS_CONNECTION_FLAGS_NM_GENERATED))
 		return;
 
 	_set_activation_type_managed (self);
@@ -1242,6 +1266,7 @@ set_property (GObject *object, guint prop_id,
 		nm_active_connection_set_device (self, g_value_get_object (value));
 		break;
 	case PROP_INT_SUBJECT:
+		/* construct-only */
 		priv->subject = g_value_dup_object (value);
 		break;
 	case PROP_INT_MASTER:
@@ -1257,18 +1282,20 @@ set_property (GObject *object, guint prop_id,
 		_set_activation_type (self, (NMActivationType) i);
 		break;
 	case PROP_SPECIFIC_OBJECT:
+		/* construct-only */
 		tmp = g_value_get_string (value);
 		/* NM uses "/" to mean NULL */
 		if (g_strcmp0 (tmp, "/") != 0)
 			priv->specific_object = g_strdup (tmp);
 		break;
 	case PROP_DEFAULT:
-		priv->is_default = !!g_value_get_boolean (value);
+		priv->is_default = g_value_get_boolean (value);
 		break;
 	case PROP_DEFAULT6:
-		priv->is_default6 = !!g_value_get_boolean (value);
+		priv->is_default6 = g_value_get_boolean (value);
 		break;
 	case PROP_VPN:
+		/* construct-only */
 		priv->vpn = g_value_get_boolean (value);
 		break;
 	case PROP_MASTER:
@@ -1288,6 +1315,8 @@ nm_active_connection_init (NMActiveConnection *self)
 
 	priv = G_TYPE_INSTANCE_GET_PRIVATE (self, NM_TYPE_ACTIVE_CONNECTION, NMActiveConnectionPrivate);
 	self->_priv = priv;
+
+	c_list_init (&self->active_connections_lst);
 
 	_LOGT ("creating");
 
@@ -1330,6 +1359,8 @@ dispose (GObject *object)
 {
 	NMActiveConnection *self = NM_ACTIVE_CONNECTION (object);
 	NMActiveConnectionPrivate *priv = NM_ACTIVE_CONNECTION_GET_PRIVATE (self);
+
+	nm_assert (!c_list_is_linked (&self->active_connections_lst));
 
 	_LOGD ("disposing");
 

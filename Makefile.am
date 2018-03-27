@@ -142,7 +142,9 @@ DISTCLEANFILES += intltool-extract intltool-merge intltool-update
 
 ###############################################################################
 
+if WITH_LEGACY_LIBRARIES
 pkgconfig_DATA += NetworkManager.pc
+endif
 
 ###############################################################################
 
@@ -413,6 +415,7 @@ libnm_core_lib_h_pub_real = \
 	libnm-core/nm-setting-pppoe.h \
 	libnm-core/nm-setting-proxy.h \
 	libnm-core/nm-setting-serial.h \
+	libnm-core/nm-setting-tc-config.h \
 	libnm-core/nm-setting-team-port.h \
 	libnm-core/nm-setting-team.h \
 	libnm-core/nm-setting-tun.h \
@@ -498,6 +501,7 @@ libnm_core_lib_c_real = \
 	libnm-core/nm-setting-pppoe.c \
 	libnm-core/nm-setting-proxy.c \
 	libnm-core/nm-setting-serial.c \
+	libnm-core/nm-setting-tc-config.c \
 	libnm-core/nm-setting-team-port.c \
 	libnm-core/nm-setting-team.c \
 	libnm-core/nm-setting-tun.c \
@@ -514,6 +518,14 @@ libnm_core_lib_c_real = \
 	libnm-core/nm-utils.c \
 	libnm-core/nm-vpn-editor-plugin.c \
 	libnm-core/nm-vpn-plugin-info.c
+
+if WITH_JANSSON
+libnm_core_lib_h_priv += \
+	libnm-core/nm-json.h
+libnm_core_lib_c_real += \
+	libnm-core/nm-json.c
+endif
+
 libnm_core_lib_c_mkenums = \
 	libnm-core/nm-core-enum-types.c
 
@@ -594,10 +606,6 @@ libnm_core_libnm_core_la_LIBADD = \
 	$(UUID_LIBS) \
 	$(LIBUDEV_LIBS)
 
-if WITH_JANSSON
-libnm_core_libnm_core_la_LIBADD += $(JANSSON_LIBS)
-endif
-
 libnm_core_libnm_core_la_LDFLAGS = \
 	$(CODE_COVERAGE_LDFLAGS)
 
@@ -639,9 +647,7 @@ check_programs += \
 	libnm-core/tests/test-general \
 	libnm-core/tests/test-keyfile \
 	libnm-core/tests/test-secrets \
-	libnm-core/tests/test-setting-8021x \
-	libnm-core/tests/test-setting-bond \
-	libnm-core/tests/test-setting-dcb \
+	libnm-core/tests/test-setting \
 	libnm-core/tests/test-settings-defaults
 
 GLIB_GENERATED += \
@@ -665,9 +671,7 @@ libnm_core_tests_test_crypto_CPPFLAGS = $(libnm_core_tests_cppflags)
 libnm_core_tests_test_general_CPPFLAGS = $(libnm_core_tests_cppflags)
 libnm_core_tests_test_keyfile_CPPFLAGS = $(libnm_core_tests_cppflags)
 libnm_core_tests_test_secrets_CPPFLAGS = $(libnm_core_tests_cppflags)
-libnm_core_tests_test_setting_8021x_CPPFLAGS = $(libnm_core_tests_cppflags)
-libnm_core_tests_test_setting_bond_CPPFLAGS = $(libnm_core_tests_cppflags)
-libnm_core_tests_test_setting_dcb_CPPFLAGS = $(libnm_core_tests_cppflags)
+libnm_core_tests_test_setting_CPPFLAGS = $(libnm_core_tests_cppflags)
 libnm_core_tests_test_settings_defaults_CPPFLAGS = $(libnm_core_tests_cppflags)
 
 libnm_core_tests_test_general_SOURCES = \
@@ -687,9 +691,7 @@ libnm_core_tests_test_crypto_LDADD = $(libnm_core_tests_ldadd)
 libnm_core_tests_test_general_LDADD = $(libnm_core_tests_ldadd)
 libnm_core_tests_test_keyfile_LDADD = $(libnm_core_tests_ldadd)
 libnm_core_tests_test_secrets_LDADD = $(libnm_core_tests_ldadd)
-libnm_core_tests_test_setting_8021x_LDADD = $(libnm_core_tests_ldadd)
-libnm_core_tests_test_setting_bond_LDADD = $(libnm_core_tests_ldadd)
-libnm_core_tests_test_setting_dcb_LDADD = $(libnm_core_tests_ldadd)
+libnm_core_tests_test_setting_LDADD = $(libnm_core_tests_ldadd)
 libnm_core_tests_test_settings_defaults_LDADD = $(libnm_core_tests_ldadd)
 
 $(libnm_core_tests_test_compare_OBJECTS): $(libnm_core_lib_h_pub_mkenums)
@@ -697,9 +699,7 @@ $(libnm_core_tests_test_crypto_OBJECTS): $(libnm_core_lib_h_pub_mkenums)
 $(libnm_core_tests_test_general_OBJECTS): $(libnm_core_lib_h_pub_mkenums)
 $(libnm_core_tests_test_keyfile_OBJECTS): $(libnm_core_lib_h_pub_mkenums)
 $(libnm_core_tests_test_secrets_OBJECTS): $(libnm_core_lib_h_pub_mkenums)
-$(libnm_core_tests_test_setting_8021x_OBJECTS): $(libnm_core_lib_h_pub_mkenums)
-$(libnm_core_tests_test_setting_bond_OBJECTS): $(libnm_core_lib_h_pub_mkenums)
-$(libnm_core_tests_test_setting_dcb_OBJECTS): $(libnm_core_lib_h_pub_mkenums)
+$(libnm_core_tests_test_setting_OBJECTS): $(libnm_core_lib_h_pub_mkenums)
 $(libnm_core_tests_test_settings_defaults_OBJECTS): $(libnm_core_lib_h_pub_mkenums)
 
 # test-cert.p12 created with:
@@ -1473,8 +1473,6 @@ src_libNetworkManager_la_SOURCES = \
 	\
 	src/settings/nm-agent-manager.c \
 	src/settings/nm-agent-manager.h \
-	src/settings/nm-inotify-helper.c \
-	src/settings/nm-inotify-helper.h \
 	src/settings/nm-secret-agent.c \
 	src/settings/nm-secret-agent.h \
 	src/settings/nm-settings-connection.c \
@@ -1844,6 +1842,7 @@ EXTRA_DIST += \
 	src/settings/plugins/keyfile/tests/keyfiles/Test_Enum_Property \
 	src/settings/plugins/keyfile/tests/keyfiles/Test_Flags_Property \
 	src/settings/plugins/keyfile/tests/keyfiles/Test_dcb_connection \
+	src/settings/plugins/keyfile/tests/keyfiles/Test_TC_Config \
 	\
 	src/settings/plugins/keyfile/tests/keyfiles/test-ca-cert.pem \
 	src/settings/plugins/keyfile/tests/keyfiles/test-key-and-cert.pem
@@ -1991,6 +1990,8 @@ src_settings_plugins_ifcfg_rh_libnms_ifcfg_rh_core_la_SOURCES = \
 	src/settings/plugins/ifcfg-rh/nms-ifcfg-rh-common.h \
 	src/settings/plugins/ifcfg-rh/shvar.c \
 	src/settings/plugins/ifcfg-rh/shvar.h \
+	src/settings/plugins/ifcfg-rh/nm-inotify-helper.c \
+	src/settings/plugins/ifcfg-rh/nm-inotify-helper.h \
 	src/settings/plugins/ifcfg-rh/nms-ifcfg-rh-utils.c \
 	src/settings/plugins/ifcfg-rh/nms-ifcfg-rh-utils.h \
 	src/settings/plugins/ifcfg-rh/nms-ifcfg-rh-reader.c \
@@ -2075,6 +2076,7 @@ EXTRA_DIST += \
 	src/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-Test_Write_Wifi_LEAP.cexpected \
 	src/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-Test_Write_Wifi_WEP_104_ASCII.cexpected \
 	src/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-Test_Write_Wired_Auto-Negotiate.cexpected \
+	src/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-Test_Write_Wired_Static_Routes.cexpected \
 	src/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-Test_Write_Wired_Wake-on-LAN.cexpected \
 	src/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-Vlan_test-vlan-interface.cexpected \
 	src/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-dcb-test.cexpected \

@@ -15,7 +15,7 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
- * Copyright (C) 2005 - 2013 Red Hat, Inc.
+ * Copyright (C) 2005 - 2017 Red Hat, Inc.
  * Copyright (C) 2006 - 2008 Novell, Inc.
  */
 
@@ -384,9 +384,9 @@ nm_ip6_config_capture (NMDedupMultiIndex *multi_idx, NMPlatform *platform, int i
 	self = nm_ip6_config_new (multi_idx, ifindex);
 	priv = NM_IP6_CONFIG_GET_PRIVATE (self);
 
-	head_entry = nm_platform_lookup_addrroute (platform,
-	                                           NMP_OBJECT_TYPE_IP6_ADDRESS,
-	                                           ifindex);
+	head_entry = nm_platform_lookup_object (platform,
+	                                        NMP_OBJECT_TYPE_IP6_ADDRESS,
+	                                        ifindex);
 	if (head_entry) {
 		nmp_cache_iter_for_each (&iter, head_entry, &plobj) {
 			if (!_nm_ip_config_add_obj (priv->multi_idx,
@@ -409,9 +409,9 @@ nm_ip6_config_capture (NMDedupMultiIndex *multi_idx, NMPlatform *platform, int i
 		_notify_addresses (self);
 	}
 
-	head_entry = nm_platform_lookup_addrroute (platform,
-	                                           NMP_OBJECT_TYPE_IP6_ROUTE,
-	                                           ifindex);
+	head_entry = nm_platform_lookup_object (platform,
+	                                        NMP_OBJECT_TYPE_IP6_ROUTE,
+	                                        ifindex);
 
 	nmp_cache_iter_for_each (&iter, head_entry, &plobj)
 		_add_route (self, plobj, NULL, NULL);
@@ -571,65 +571,6 @@ nm_ip6_config_commit (const NMIP6Config *self,
 	return success;
 }
 
-static void
-merge_route_attributes (NMIPRoute *s_route,
-                        NMPlatformIP6Route *r,
-                        guint32 route_table)
-{
-	GVariant *variant;
-	guint32 u32;
-	struct in6_addr addr;
-
-#define GET_ATTR(name, field, variant_type, type) \
-	variant = nm_ip_route_get_attribute (s_route, name); \
-	if (variant && g_variant_is_of_type (variant, G_VARIANT_TYPE_ ## variant_type)) \
-		r->field = g_variant_get_ ## type (variant);
-
-	variant = nm_ip_route_get_attribute (s_route, NM_IP_ROUTE_ATTRIBUTE_TABLE);
-	u32 =   variant && g_variant_is_of_type (variant, G_VARIANT_TYPE_UINT32)
-	      ? g_variant_get_uint32 (variant)
-	      : 0;
-	r->table_coerced = nm_platform_route_table_coerce (u32 ?: (route_table ?: RT_TABLE_MAIN));
-
-	GET_ATTR (NM_IP_ROUTE_ATTRIBUTE_WINDOW,         window,         UINT32,   uint32);
-	GET_ATTR (NM_IP_ROUTE_ATTRIBUTE_CWND,           cwnd,           UINT32,   uint32);
-	GET_ATTR (NM_IP_ROUTE_ATTRIBUTE_INITCWND,       initcwnd,       UINT32,   uint32);
-	GET_ATTR (NM_IP_ROUTE_ATTRIBUTE_INITRWND,       initrwnd,       UINT32,   uint32);
-	GET_ATTR (NM_IP_ROUTE_ATTRIBUTE_MTU,            mtu,            UINT32,   uint32);
-	GET_ATTR (NM_IP_ROUTE_ATTRIBUTE_LOCK_WINDOW,    lock_window,    BOOLEAN,  boolean);
-	GET_ATTR (NM_IP_ROUTE_ATTRIBUTE_LOCK_CWND,      lock_cwnd,      BOOLEAN,  boolean);
-	GET_ATTR (NM_IP_ROUTE_ATTRIBUTE_LOCK_INITCWND,  lock_initcwnd,  BOOLEAN,  boolean);
-	GET_ATTR (NM_IP_ROUTE_ATTRIBUTE_LOCK_INITRWND,  lock_initrwnd,  BOOLEAN,  boolean);
-	GET_ATTR (NM_IP_ROUTE_ATTRIBUTE_LOCK_MTU,       lock_mtu,       BOOLEAN,  boolean);
-
-
-	if (   (variant = nm_ip_route_get_attribute (s_route, NM_IP_ROUTE_ATTRIBUTE_SRC))
-	    && g_variant_is_of_type (variant, G_VARIANT_TYPE_STRING)) {
-		if (inet_pton (AF_INET6, g_variant_get_string (variant, NULL), &addr) == 1)
-			r->pref_src = addr;
-	}
-
-	if (   (variant = nm_ip_route_get_attribute (s_route, NM_IP_ROUTE_ATTRIBUTE_FROM))
-	    && g_variant_is_of_type (variant, G_VARIANT_TYPE_STRING)) {
-		gs_free char *string = NULL;
-		guint8 plen = 128;
-		char *sep;
-
-		string = g_variant_dup_string (variant, NULL);
-		sep = strchr (string, '/');
-		if (sep) {
-			*sep = 0;
-			plen = _nm_utils_ascii_str_to_int64 (sep + 1, 10, 1, 128, 255);
-		}
-		if (   plen <= 128
-		    && inet_pton (AF_INET6, string, &addr) == 1) {
-			r->src = addr;
-			r->src_plen = plen;
-		}
-	}
-#undef GET_ATTR
-}
-
 void
 nm_ip6_config_merge_setting (NMIP6Config *self,
                              NMSettingIPConfig *setting,
@@ -688,8 +629,6 @@ nm_ip6_config_merge_setting (NMIP6Config *self,
 	}
 
 	/* Routes */
-	if (nm_setting_ip_config_get_ignore_auto_routes (setting))
-		nm_ip6_config_reset_routes (self);
 	for (i = 0; i < nroutes; i++) {
 		NMIPRoute *s_route = nm_setting_ip_config_get_route (setting, i);
 		NMPlatformIP6Route route;
@@ -716,7 +655,10 @@ nm_ip6_config_merge_setting (NMIP6Config *self,
 
 		nm_utils_ip6_address_clear_host_address (&route.network, &route.network, route.plen);
 
-		merge_route_attributes (s_route, &route, route_table);
+		_nm_ip_config_merge_route_attributes (AF_INET,
+		                                      s_route,
+		                                      NM_PLATFORM_IP_ROUTE_CAST (&route),
+		                                      route_table);
 		_add_route (self, NULL, &route, NULL);
 	}
 

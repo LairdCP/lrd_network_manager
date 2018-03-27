@@ -15,7 +15,7 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
- * Copyright (C) 2012 Red Hat, Inc.
+ * Copyright (C) 2012 - 2017 Red Hat, Inc.
  */
 
 #ifndef __NETWORKMANAGER_TYPES_H__
@@ -24,6 +24,8 @@
 #ifdef __NM_UTILS_PRIVATE_H__
 #error "nm-utils-private.h" must not be used outside of libnm-core/. Do you want "nm-core-internal.h"?
 #endif
+
+#define _NM_SD_MAX_CLIENT_ID_LEN (sizeof (guint32) + 128)
 
 /* core */
 typedef struct _NMExportedObject     NMExportedObject;
@@ -42,6 +44,7 @@ typedef struct _NMDevice             NMDevice;
 typedef struct _NMDhcp4Config        NMDhcp4Config;
 typedef struct _NMDhcp6Config        NMDhcp6Config;
 typedef struct _NMProxyConfig        NMProxyConfig;
+typedef struct _NMIPConfig           NMIPConfig;
 typedef struct _NMIP4Config          NMIP4Config;
 typedef struct _NMIP6Config          NMIP6Config;
 typedef struct _NMManager            NMManager;
@@ -175,6 +178,10 @@ typedef enum {
 	NMP_OBJECT_TYPE_IP6_ADDRESS,
 	NMP_OBJECT_TYPE_IP4_ROUTE,
 	NMP_OBJECT_TYPE_IP6_ROUTE,
+
+	NMP_OBJECT_TYPE_QDISC,
+
+	NMP_OBJECT_TYPE_TFILTER,
 
 	NMP_OBJECT_TYPE_LNK_GRE,
 	NMP_OBJECT_TYPE_LNK_INFINIBAND,

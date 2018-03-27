@@ -62,6 +62,8 @@ typedef struct {
 	GHashTable *agents;
 
 	CList requests;
+
+	guint64 agent_version_id;
 } NMAgentManagerPrivate;
 
 struct _NMAgentManager {
@@ -137,6 +139,16 @@ static gboolean _con_get_try_complete_early (Request *req);
 
 /*****************************************************************************/
 
+guint64
+nm_agent_manager_get_agent_version_id (NMAgentManager *self)
+{
+	g_return_val_if_fail (NM_IS_AGENT_MANAGER (self), 0);
+
+	return NM_AGENT_MANAGER_GET_PRIVATE (self)->agent_version_id;
+}
+
+/*****************************************************************************/
+
 typedef enum {
 	REQUEST_TYPE_INVALID,
 	REQUEST_TYPE_CON_GET,
@@ -170,7 +182,7 @@ struct _NMAgentManagerCallId {
 
 	/* Current agent being asked for secrets */
 	NMSecretAgent *current;
-	NMSecretAgentCallId current_call_id;
+	NMSecretAgentCallId *current_call_id;
 
 	/* Stores the sorted list of NMSecretAgents which will be asked for secrets */
 	GSList *pending;
@@ -336,6 +348,7 @@ agent_register_permissions_done (NMAuthChain *chain,
 		if (result == NM_AUTH_CALL_RESULT_YES)
 			nm_secret_agent_add_permission (agent, NM_AUTH_PERMISSION_WIFI_SHARE_OPEN, TRUE);
 
+		priv->agent_version_id += 1;
 		sender = nm_secret_agent_get_dbus_owner (agent);
 		g_hash_table_insert (priv->agents, g_strdup (sender), agent);
 		_LOGD (agent, "agent registered");
@@ -609,7 +622,7 @@ req_complete (Request *req,
 
 	nm_assert (c_list_contains (&NM_AGENT_MANAGER_GET_PRIVATE (self)->requests, &req->lst_request));
 
-	c_list_unlink_init (&req->lst_request);
+	c_list_unlink (&req->lst_request);
 
 	req_complete_release (req, secrets, agent_dbus_owner, agent_username, error);
 }
@@ -832,7 +845,7 @@ out:
 
 static void
 _con_get_request_done (NMSecretAgent *agent,
-                       NMSecretAgentCallId call_id,
+                       NMSecretAgentCallId *call_id,
                        GVariant *secrets,
                        GError *error,
                        gpointer user_data)
@@ -1213,7 +1226,7 @@ nm_agent_manager_get_secrets (NMAgentManager *self,
                               GVariant *existing_secrets,
                               const char *setting_name,
                               NMSecretAgentGetSecretsFlags flags,
-                              const char **hints,
+                              const char *const*hints,
                               NMAgentSecretsResultFunc callback,
                               gpointer callback_data)
 {
@@ -1267,7 +1280,7 @@ nm_agent_manager_cancel_secrets (NMAgentManager *self,
 
 	nm_assert (c_list_contains (&NM_AGENT_MANAGER_GET_PRIVATE (self)->requests, &request_id->lst_request));
 
-	c_list_unlink_init (&request_id->lst_request);
+	c_list_unlink (&request_id->lst_request);
 
 	req_complete_cancel (request_id, FALSE);
 }
@@ -1276,7 +1289,7 @@ nm_agent_manager_cancel_secrets (NMAgentManager *self,
 
 static void
 _con_save_request_done (NMSecretAgent *agent,
-                        NMSecretAgentCallId call_id,
+                        NMSecretAgentCallId *call_id,
                         GVariant *secrets,
                         GError *error,
                         gpointer user_data)
@@ -1362,7 +1375,7 @@ nm_agent_manager_save_secrets (NMAgentManager *self,
 
 static void
 _con_del_request_done (NMSecretAgent *agent,
-                       NMSecretAgentCallId call_id,
+                       NMSecretAgentCallId *call_id,
                        GVariant *secrets,
                        GError *error,
                        gpointer user_data)
@@ -1558,6 +1571,7 @@ nm_agent_manager_init (NMAgentManager *self)
 {
 	NMAgentManagerPrivate *priv = NM_AGENT_MANAGER_GET_PRIVATE (self);
 
+	priv->agent_version_id = 1;
 	c_list_init (&priv->requests);
 	priv->agents = g_hash_table_new_full (nm_str_hash, g_str_equal, g_free, g_object_unref);
 }
@@ -1588,7 +1602,7 @@ dispose (GObject *object)
 
 cancel_more:
 	c_list_for_each (iter, &priv->requests) {
-		c_list_unlink_init (iter);
+		c_list_unlink (iter);
 		req_complete_cancel (c_list_entry (iter, Request, lst_request), TRUE);
 		goto cancel_more;
 	}
@@ -1627,7 +1641,7 @@ nm_agent_manager_class_init (NMAgentManagerClass *agent_manager_class)
 	object_class->dispose = dispose;
 
 	signals[AGENT_REGISTERED] =
-	    g_signal_new ("agent-registered",
+	    g_signal_new (NM_AGENT_MANAGER_AGENT_REGISTERED,
 	                  G_OBJECT_CLASS_TYPE (object_class),
 	                  G_SIGNAL_RUN_FIRST,
 	                  0,
