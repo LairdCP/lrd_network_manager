@@ -5343,6 +5343,7 @@ static const NMMetaPropertyInfo *const property_infos_802_1X[] = {
 		),
 	),
 	PROPERTY_INFO_WITH_DESC (NM_SETTING_802_1X_PAC_FILE_PASSWORD,
+		.is_secret =                    TRUE,
 		.property_type =                &_pt_gobject_string,
 	),
 	NULL
