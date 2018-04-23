@@ -11609,7 +11609,7 @@ msgstr "%d はローカルポートの最大 %d よりも大きいです"
 #: ../libnm-core/nm-setting-wired.c:632 ../libnm-util/nm-setting-wired.c:613
 #, c-format
 msgid "'%s' is not a valid Ethernet port value"
-msgstr "'%s' は有効なイーサネットポート値ではありません"
+msgstr "'%s' は有効な Ethernet ポート値ではありません"
 
 #: ../libnm-core/nm-setting-wired.c:642 ../libnm-util/nm-setting-wired.c:623
 #, c-format

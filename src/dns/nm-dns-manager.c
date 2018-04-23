@@ -197,19 +197,6 @@ NM_UTILS_LOOKUP_STR_DEFINE_STATIC (_config_type_to_string, NMDnsIPConfigType,
 	NM_UTILS_LOOKUP_STR_ITEM (NM_DNS_IP_CONFIG_TYPE_VPN, "vpn"),
 );
 
-int
-nm_dns_ip_config_data_get_dns_priority (const NMDnsIPConfigData *config)
-{
-	g_return_val_if_fail (config, 0);
-
-	if (NM_IS_IP4_CONFIG (config->config))
-		return nm_ip4_config_get_dns_priority (config->config);
-	else if (NM_IS_IP6_CONFIG (config->config))
-		return nm_ip6_config_get_dns_priority (config->config);
-	else
-		g_return_val_if_reached (0);
-}
-
 static NMDnsIPConfigData *
 ip_config_data_new (gpointer config, NMDnsIPConfigType type, const char *iface)
 {

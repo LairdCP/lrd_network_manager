@@ -1982,7 +1982,6 @@ write_route_file_svformat (const char *filename, NMSettingIPConfig *s_ip4)
 		char metric_key[64];
 		char options_key[64];
 		gs_free char *options = NULL;
-		gint64 metric;
 
 		numbered_tag (addr_key, "ADDRESS", i);
 		numbered_tag (netmask_key, "NETMASK", i);
@@ -2011,8 +2010,6 @@ write_route_file_svformat (const char *filename, NMSettingIPConfig *s_ip4)
 			               numbered_tag (options_key, "OPTIONS", i),
 			               options);
 		}
-
-		g_string_append_c (contents, '\n');
 	}
 
 	return routefile;

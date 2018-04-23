@@ -825,52 +825,6 @@ nm_device_assume_state_reset (NMDevice *self)
 
 /*****************************************************************************/
 
-void
-nm_device_assume_state_get (NMDevice *self,
-                            gboolean *out_assume_state_guess_assume,
-                            const char **out_assume_state_connection_uuid)
-{
-	NMDevicePrivate *priv;
-
-	g_return_if_fail (NM_IS_DEVICE (self));
-
-	priv = NM_DEVICE_GET_PRIVATE (self);
-	NM_SET_OUT (out_assume_state_guess_assume, priv->assume_state_guess_assume);
-	NM_SET_OUT (out_assume_state_connection_uuid, priv->assume_state_connection_uuid);
-}
-
-static void
-_assume_state_set (NMDevice *self,
-                   gboolean assume_state_guess_assume,
-                   const char *assume_state_connection_uuid)
-{
-	NMDevicePrivate *priv;
-
-	nm_assert (NM_IS_DEVICE (self));
-
-	priv = NM_DEVICE_GET_PRIVATE (self);
-	if (   priv->assume_state_guess_assume == !!assume_state_guess_assume
-	    && nm_streq0 (priv->assume_state_connection_uuid, assume_state_connection_uuid))
-		return;
-
-	_LOGD (LOGD_DEVICE, "assume-state: set guess-assume=%c, connection=%s%s%s",
-	       assume_state_guess_assume ? '1' : '0',
-	       NM_PRINT_FMT_QUOTE_STRING (assume_state_connection_uuid));
-	priv->assume_state_guess_assume = assume_state_guess_assume;
-	g_free (priv->assume_state_connection_uuid);
-	priv->assume_state_connection_uuid = g_strdup (assume_state_connection_uuid);
-}
-
-void
-nm_device_assume_state_reset (NMDevice *self)
-{
-	g_return_if_fail (NM_IS_DEVICE (self));
-
-	_assume_state_set (self, FALSE, NULL);
-}
-
-/*****************************************************************************/
-
 static void
 init_ip4_config_dns_priority (NMDevice *self, NMIP4Config *config)
 {
@@ -2455,8 +2409,6 @@ carrier_changed (NMDevice *self, gboolean carrier)
 {
 	NMDevicePrivate *priv = NM_DEVICE_GET_PRIVATE (self);
 
-	NM_DEVICE_GET_CLASS (self)->carrier_changed_notify (self, carrier);
-
 	if (priv->state <= NM_DEVICE_STATE_UNMANAGED)
 		return;
 
@@ -2585,28 +2537,6 @@ nm_device_set_carrier (NMDevice *self, gboolean carrier)
 		}
 	}
 }
-
-static void
-nm_device_set_carrier_from_platform (NMDevice *self)
-{
-	if (nm_device_has_capability (self, NM_DEVICE_CAP_CARRIER_DETECT)) {
-		if (!nm_device_has_capability (self, NM_DEVICE_CAP_NONSTANDARD_CARRIER)) {
-			nm_device_set_carrier (self,
-			                       nm_platform_link_is_connected (nm_device_get_platform (self),
-			                                                      nm_device_get_ip_ifindex (self)));
-		}
-	} else {
-		NMDevicePrivate *priv = NM_DEVICE_GET_PRIVATE (self);
-
-		/* Fake online link when carrier detection is not available. */
-		if (!priv->carrier) {
-			priv->carrier = TRUE;
-			_notify (self, PROP_CARRIER);
-		}
-	}
-}
-
-/*****************************************************************************/
 
 static void
 nm_device_set_carrier_from_platform (NMDevice *self)
@@ -3385,8 +3315,6 @@ realize_start_setup (NMDevice *self,
 	priv->ip6_mtu_initial = 0;
 	priv->ip6_mtu = 0;
 	_set_mtu (self, 0);
-
-	_assume_state_set (self, assume_state_guess_assume, assume_state_connection_uuid);
 
 	_assume_state_set (self, assume_state_guess_assume, assume_state_connection_uuid);
 

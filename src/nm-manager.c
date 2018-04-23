@@ -3445,7 +3445,6 @@ autoconnect_slaves (NMManager *self,
 	if (should_connect_slaves (NM_CONNECTION (master_connection), master_device)) {
 		gs_free SlaveConnectionInfo *slaves = NULL;
 		guint i, n_slaves = 0;
-		const char *value;
 
 		slaves = find_slaves (self, master_connection, master_device, &n_slaves);
 		if (n_slaves > 1) {

@@ -581,16 +581,6 @@ sort_captured_addresses (const CList *lst_a, const CList *lst_b, gconstpointer u
 	       NM_FLAGS_HAS (addr_b->n_ifa_flags, IFA_F_SECONDARY);
 }
 
-static gint
-sort_captured_addresses (gconstpointer a, gconstpointer b)
-{
-	const NMPlatformIP4Address *addr_a = a, *addr_b = b;
-
-	/* Primary addresses first */
-	return NM_FLAGS_HAS (addr_a->n_ifa_flags, IFA_F_SECONDARY) -
-	       NM_FLAGS_HAS (addr_b->n_ifa_flags, IFA_F_SECONDARY);
-}
-
 NMIP4Config *
 nm_ip4_config_capture (NMDedupMultiIndex *multi_idx, NMPlatform *platform, int ifindex, gboolean capture_resolv_conf)
 {
