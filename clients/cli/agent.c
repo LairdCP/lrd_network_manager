@@ -21,6 +21,8 @@
 
 #include "nm-default.h"
 
+#include "agent.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -31,7 +33,6 @@
 #include "utils.h"
 #include "nm-secret-agent-simple.h"
 #include "polkit-agent.h"
-#include "agent.h"
 
 static void
 usage (void)
@@ -125,7 +126,7 @@ secrets_requested (NMSecretAgentSimple *agent,
 	NmCli *nmc = (NmCli *) user_data;
 	gboolean success = FALSE;
 
-	if (nmc->print_output == NMC_PRINT_PRETTY)
+	if (nmc->nmc_config.print_output == NMC_PRINT_PRETTY)
 		nmc_terminal_erase_line ();
 
 	success = get_secrets_from_user (request_id, title, msg, secrets);
@@ -200,10 +201,16 @@ do_agent_all (NmCli *nmc, int argc, char **argv)
 
 	/* Run both secret and polkit agent */
 	secret_res = do_agent_secret (nmc, argc, argv);
-	if (secret_res != NMC_RESULT_SUCCESS)
+	if (secret_res != NMC_RESULT_SUCCESS) {
 		g_printerr ("%s\n", nmc->return_text->str);
+		g_string_truncate (nmc->return_text, 0);
+	}
 
 	nmc->return_value = do_agent_polkit (nmc, argc, argv);
+	if (nmc->return_value != NMC_RESULT_SUCCESS) {
+		g_printerr ("%s\n", nmc->return_text->str);
+		g_string_truncate (nmc->return_text, 0);
+	}
 
 	if (nmc->return_value == NMC_RESULT_SUCCESS && secret_res != NMC_RESULT_SUCCESS)
 		nmc->return_value = secret_res;

@@ -44,7 +44,7 @@
  **/
 
 G_DEFINE_TYPE_WITH_CODE (NMSettingVpn, nm_setting_vpn, NM_TYPE_SETTING,
-                         _nm_register_setting (VPN, 1))
+                         _nm_register_setting (VPN, NM_SETTING_PRIORITY_HW_BASE))
 NM_SETTING_REGISTER_TYPE (NM_TYPE_SETTING_VPN)
 
 #define NM_SETTING_VPN_GET_PRIVATE(o) (G_TYPE_INSTANCE_GET_PRIVATE ((o), NM_TYPE_SETTING_VPN, NMSettingVpnPrivate))
@@ -614,17 +614,15 @@ need_secrets (NMSetting *setting)
 }
 
 static gboolean
-compare_one_secret (NMSettingVpn *a,
-                    NMSettingVpn *b,
-                    NMSettingCompareFlags flags)
+_compare_secrets (NMSettingVpn *a,
+                  NMSettingVpn *b,
+                  NMSettingCompareFlags flags)
 {
-	GHashTable *a_secrets, *b_secrets;
+	GHashTable *a_secrets;
 	GHashTableIter iter;
 	const char *key, *val;
 
 	a_secrets = NM_SETTING_VPN_GET_PRIVATE (a)->secrets;
-	b_secrets = NM_SETTING_VPN_GET_PRIVATE (b)->secrets;
-
 	g_hash_table_iter_init (&iter, a_secrets);
 	while (g_hash_table_iter_next (&iter, (gpointer) &key, (gpointer) &val)) {
 		NMSettingSecretFlags a_secret_flags = NM_SETTING_SECRET_FLAG_NONE;
@@ -649,6 +647,19 @@ compare_one_secret (NMSettingVpn *a,
 		if (g_strcmp0 (val, nm_setting_vpn_get_secret (b, key)) != 0)
 			return FALSE;
 	}
+
+	return TRUE;
+}
+
+static gboolean
+compare_one_secret (NMSettingVpn *a,
+                    NMSettingVpn *b,
+                    NMSettingCompareFlags flags)
+{
+	if (!_compare_secrets (a, b, flags))
+		return FALSE;
+	if (!_compare_secrets (b, a, flags))
+		return FALSE;
 
 	return TRUE;
 }
@@ -933,7 +944,7 @@ nm_setting_vpn_class_init (NMSettingVpnClass *setting_class)
 	 *
 	 * Timeout for the VPN service to establish the connection. Some services
 	 * may take quite a long time to connect.
-	 * Value of 0 means a default timeout, which is 60 seconds (unless overriden
+	 * Value of 0 means a default timeout, which is 60 seconds (unless overridden
 	 * by vpn.timeout in configuration file). Values greater than zero mean
 	 * timeout in seconds.
 	 *

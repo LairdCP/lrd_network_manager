@@ -110,6 +110,7 @@ _init_nm_debug (NMConfig *config)
 	flags  = nm_utils_parse_debug_string (env, keys, G_N_ELEMENTS (keys));
 	flags |= nm_utils_parse_debug_string (debug, keys, G_N_ELEMENTS (keys));
 
+#if ! defined (__SANITIZE_ADDRESS__)
 	if (NM_FLAGS_HAS (flags, D_RLIMIT_CORE)) {
 		/* only enable this, if explicitly requested, because it might
 		 * expose sensitive data. */
@@ -120,6 +121,8 @@ _init_nm_debug (NMConfig *config)
 		};
 		setrlimit (RLIMIT_CORE, &limit);
 	}
+#endif
+
 	if (NM_FLAGS_HAS (flags, D_FATAL_WARNINGS))
 		_set_g_fatal_warnings ();
 }
@@ -194,7 +197,7 @@ do_early_setup (int *argc, char **argv[], NMConfigCmdLineOptions *config_cli)
 		  N_("Log domains separated by ',': any combination of [%s]"),
 		  "PLATFORM,RFKILL,WIFI" },
 		{ "g-fatal-warnings", 0, 0, G_OPTION_ARG_NONE, &global_opt.g_fatal_warnings, N_("Make all warnings fatal"), NULL },
-		{ "pid-file", 'p', 0, G_OPTION_ARG_FILENAME, &global_opt.pidfile, N_("Specify the location of a PID file"), N_(NM_DEFAULT_PID_FILE) },
+		{ "pid-file", 'p', 0, G_OPTION_ARG_FILENAME, &global_opt.pidfile, N_("Specify the location of a PID file"), NM_DEFAULT_PID_FILE },
 		{ "run-from-build-dir", 0, 0, G_OPTION_ARG_NONE, &global_opt.run_from_build_dir, "Run from build directory", NULL },
 		{ "print-config", 0, 0, G_OPTION_ARG_NONE, &global_opt.print_config, N_("Print NetworkManager configuration and exit"), NULL },
 		{NULL}
@@ -354,11 +357,15 @@ main (int argc, char *argv[])
 	/* Set up unix signal handling - before creating threads, but after daemonizing! */
 	nm_main_utils_setup_signals (main_loop);
 
-	nm_logging_syslog_openlog (nm_config_data_get_value_cached (NM_CONFIG_GET_DATA_ORIG,
-	                                                            NM_CONFIG_KEYFILE_GROUP_LOGGING,
-	                                                            NM_CONFIG_KEYFILE_KEY_LOGGING_BACKEND,
-	                                                            NM_CONFIG_GET_VALUE_STRIP | NM_CONFIG_GET_VALUE_NO_EMPTY),
-	                           nm_config_get_is_debug (config));
+	{
+		gs_free char *v = NULL;
+
+		v = nm_config_data_get_value (NM_CONFIG_GET_DATA_ORIG,
+		                              NM_CONFIG_KEYFILE_GROUP_LOGGING,
+		                              NM_CONFIG_KEYFILE_KEY_LOGGING_BACKEND,
+		                              NM_CONFIG_GET_VALUE_STRIP | NM_CONFIG_GET_VALUE_NO_EMPTY);
+		nm_logging_syslog_openlog (v, nm_config_get_is_debug (config));
+	}
 
 	nm_log_info (LOGD_CORE, "NetworkManager (version " NM_DIST_VERSION ") is starting... (%s)",
 	             nm_config_get_first_start (config) ? "for the first time" : "after a restart");

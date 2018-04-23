@@ -24,6 +24,9 @@
 #include "nm-ip4-config.h"
 #include "nm-ip6-config.h"
 
+#define NM_DHCP_TIMEOUT_DEFAULT ((guint32) 45) /* default DHCP timeout, in seconds */
+#define NM_DHCP_TIMEOUT_INFINITY G_MAXINT32
+
 #define NM_TYPE_DHCP_CLIENT            (nm_dhcp_client_get_type ())
 #define NM_DHCP_CLIENT(obj)            (G_TYPE_CHECK_INSTANCE_CAST ((obj), NM_TYPE_DHCP_CLIENT, NMDhcpClient))
 #define NM_DHCP_CLIENT_CLASS(klass)    (G_TYPE_CHECK_CLASS_CAST ((klass), NM_TYPE_DHCP_CLIENT, NMDhcpClientClass))
@@ -32,15 +35,18 @@
 #define NM_DHCP_CLIENT_GET_CLASS(obj)  (G_TYPE_INSTANCE_GET_CLASS ((obj), NM_TYPE_DHCP_CLIENT, NMDhcpClientClass))
 
 #define NM_DHCP_CLIENT_INTERFACE "iface"
+#define NM_DHCP_CLIENT_ADDR_FAMILY "addr-family"
 #define NM_DHCP_CLIENT_IFINDEX   "ifindex"
 #define NM_DHCP_CLIENT_HWADDR    "hwaddr"
-#define NM_DHCP_CLIENT_IPV6      "ipv6"
 #define NM_DHCP_CLIENT_UUID      "uuid"
-#define NM_DHCP_CLIENT_PRIORITY  "priority"
+#define NM_DHCP_CLIENT_ROUTE_TABLE  "route-table"
+#define NM_DHCP_CLIENT_ROUTE_METRIC "route-metric"
 #define NM_DHCP_CLIENT_TIMEOUT   "timeout"
+#define NM_DHCP_CLIENT_MULTI_IDX "multi-idx"
 
 #define NM_DHCP_CLIENT_SIGNAL_STATE_CHANGED "state-changed"
 #define NM_DHCP_CLIENT_SIGNAL_PREFIX_DELEGATED "prefix-delegated"
+
 
 typedef enum {
 	NM_DHCP_STATE_UNKNOWN = 0,
@@ -101,13 +107,15 @@ typedef struct {
 
 GType nm_dhcp_client_get_type (void);
 
+struct _NMDedupMultiIndex *nm_dhcp_client_get_multi_idx (NMDhcpClient *self);
+
 pid_t nm_dhcp_client_get_pid (NMDhcpClient *self);
+
+int nm_dhcp_client_get_addr_family (NMDhcpClient *self);
 
 const char *nm_dhcp_client_get_iface (NMDhcpClient *self);
 
 int         nm_dhcp_client_get_ifindex (NMDhcpClient *self);
-
-gboolean nm_dhcp_client_get_ipv6 (NMDhcpClient *self);
 
 const char *nm_dhcp_client_get_uuid (NMDhcpClient *self);
 
@@ -115,7 +123,9 @@ const GByteArray *nm_dhcp_client_get_duid (NMDhcpClient *self);
 
 const GByteArray *nm_dhcp_client_get_hw_addr (NMDhcpClient *self);
 
-guint32 nm_dhcp_client_get_priority (NMDhcpClient *self);
+guint32 nm_dhcp_client_get_route_table (NMDhcpClient *self);
+
+guint32 nm_dhcp_client_get_route_metric (NMDhcpClient *self);
 
 guint32 nm_dhcp_client_get_timeout (NMDhcpClient *self);
 
@@ -163,7 +173,14 @@ gboolean nm_dhcp_client_handle_event (gpointer unused,
                                       const char *reason,
                                       NMDhcpClient *self);
 
-void nm_dhcp_client_set_client_id (NMDhcpClient *self, GBytes *client_id);
+void nm_dhcp_client_set_client_id (NMDhcpClient *self,
+                                   GBytes *client_id);
+void nm_dhcp_client_set_client_id_bin (NMDhcpClient *self,
+                                       guint8 type,
+                                       const guint8 *client_id,
+                                       gsize len);
+void nm_dhcp_client_set_client_id_str (NMDhcpClient *self,
+                                       const char *dhcp_client_id);
 
 /*****************************************************************************
  * Client data
@@ -173,13 +190,16 @@ typedef struct {
 	GType (*get_type)(void);
 	const char *name;
 	const char *(*get_path) (void);
-	GSList *(*get_lease_ip_configs) (const char *iface,
+	GSList *(*get_lease_ip_configs) (struct _NMDedupMultiIndex *multi_idx,
+	                                 int addr_family,
+	                                 const char *iface,
 	                                 int ifindex,
 	                                 const char *uuid,
-	                                 gboolean ipv6,
-	                                 guint32 default_route_metric);
+	                                 guint32 route_table,
+	                                 guint32 route_metric);
 } NMDhcpClientFactory;
 
+extern const NMDhcpClientFactory _nm_dhcp_client_factory_dhcpcanon;
 extern const NMDhcpClientFactory _nm_dhcp_client_factory_dhclient;
 extern const NMDhcpClientFactory _nm_dhcp_client_factory_dhcpcd;
 extern const NMDhcpClientFactory _nm_dhcp_client_factory_internal;

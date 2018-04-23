@@ -125,10 +125,10 @@ find_settings_connection (NMCheckpoint *self,
                           gboolean *need_activation)
 {
 	NMCheckpointPrivate *priv = NM_CHECKPOINT_GET_PRIVATE (self);
-	const GSList *active_connections, *iter;
-	NMActiveConnection *active = NULL;
+	NMActiveConnection *active;
 	NMSettingsConnection *connection;
 	const char *uuid, *ac_uuid;
+	const CList *tmp_clist;
 
 	*need_activation = FALSE;
 	*need_update = FALSE;
@@ -149,9 +149,7 @@ find_settings_connection (NMCheckpoint *self,
 	}
 
 	/* ... is active, ... */
-	active_connections = nm_manager_get_active_connections (priv->manager);
-	for (iter = active_connections; iter; iter = g_slist_next (iter)) {
-		active = iter->data;
+	nm_manager_for_each_active_connection (priv->manager, active, tmp_clist) {
 		ac_uuid = nm_settings_connection_get_uuid (nm_active_connection_get_settings_connection (active));
 		if (nm_streq (uuid, ac_uuid)) {
 			_LOGT ("rollback: connection %s is active", uuid);
@@ -159,7 +157,7 @@ find_settings_connection (NMCheckpoint *self,
 		}
 	}
 
-	if (!iter) {
+	if (!active) {
 		_LOGT ("rollback: connection %s is not active", uuid);
 		*need_activation = TRUE;
 		return connection;
@@ -256,12 +254,12 @@ activate:
 				if (need_update) {
 					_LOGD ("rollback: updating connection %s",
 					        nm_settings_connection_get_uuid (connection));
-					nm_connection_replace_settings_from_connection (NM_CONNECTION (connection),
-					                                                dev_checkpoint->settings_connection);
-					nm_settings_connection_commit_changes (connection,
-					                                       NM_SETTINGS_CONNECTION_COMMIT_REASON_NONE,
-					                                       NULL,
-					                                       NULL);
+					nm_settings_connection_update (connection,
+					                               dev_checkpoint->settings_connection,
+					                               NM_SETTINGS_CONNECTION_PERSIST_MODE_DISK,
+					                               NM_SETTINGS_CONNECTION_COMMIT_REASON_NONE,
+					                               "checkpoint-rollback",
+					                               NULL);
 				}
 			} else {
 				/* The connection was deleted, recreate it */
@@ -335,7 +333,9 @@ next_dev:
 		guint i;
 
 		g_return_val_if_fail (priv->connection_uuids, NULL);
-		list = nm_settings_get_connections_sorted (nm_settings_get (), NULL);
+		list = nm_settings_get_connections_clone (nm_settings_get (), NULL,
+		                                          NULL, NULL,
+		                                          nm_settings_connection_cmp_autoconnect_priority_p_with_data, NULL);
 
 		for (i = 0; list[i]; i++) {
 			con = list[i];
@@ -343,7 +343,7 @@ next_dev:
 			                            nm_settings_connection_get_uuid (con))) {
 				_LOGD ("rollback: deleting new connection %s",
 				       nm_settings_connection_get_uuid (con));
-				nm_settings_connection_delete (con, NULL, NULL);
+				nm_settings_connection_delete (con, NULL);
 			}
 		}
 	}
@@ -506,7 +506,7 @@ nm_checkpoint_new (NMManager *manager, GPtrArray *devices, guint32 rollback_time
 	priv->flags = flags;
 
 	if (NM_FLAGS_HAS (flags, NM_CHECKPOINT_CREATE_FLAG_DELETE_NEW_CONNECTIONS)) {
-		priv->connection_uuids = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+		priv->connection_uuids = g_hash_table_new_full (nm_str_hash, g_str_equal, g_free, NULL);
 		for (con = nm_settings_get_connections (nm_settings_get (), NULL); *con; con++) {
 			g_hash_table_add (priv->connection_uuids,
 			                  g_strdup (nm_settings_connection_get_uuid (*con)));

@@ -32,6 +32,7 @@
 #define NM_CONFIG_DATA_CONFIG_DESCRIPTION    "config-description"
 #define NM_CONFIG_DATA_KEYFILE_USER          "keyfile-user"
 #define NM_CONFIG_DATA_KEYFILE_INTERN        "keyfile-intern"
+#define NM_CONFIG_DATA_CONNECTIVITY_ENABLED  "connectivity-enabled"
 #define NM_CONFIG_DATA_CONNECTIVITY_URI      "connectivity-uri"
 #define NM_CONFIG_DATA_CONNECTIVITY_INTERVAL "connectivity-interval"
 #define NM_CONFIG_DATA_CONNECTIVITY_RESPONSE "connectivity-response"
@@ -155,13 +156,16 @@ const char *nm_config_data_get_config_description (const NMConfigData *config_da
 gboolean nm_config_data_has_group (const NMConfigData *self, const char *group);
 gboolean nm_config_data_has_value (const NMConfigData *self, const char *group, const char *key, NMConfigGetValueFlags flags);
 char *nm_config_data_get_value (const NMConfigData *config_data, const char *group, const char *key, NMConfigGetValueFlags flags);
-const char *nm_config_data_get_value_cached (const NMConfigData *config_data, const char *group, const char *key, NMConfigGetValueFlags flags);
 gint nm_config_data_get_value_boolean (const NMConfigData *self, const char *group, const char *key, gint default_value);
+gint64 nm_config_data_get_value_int64 (const NMConfigData *self, const char *group, const char *key, guint base, gint64 min, gint64 max, gint64 fallback);
 
 char **nm_config_data_get_plugins (const NMConfigData *config_data, gboolean allow_default);
+gboolean nm_config_data_get_connectivity_enabled (const NMConfigData *config_data);
 const char *nm_config_data_get_connectivity_uri (const NMConfigData *config_data);
 guint nm_config_data_get_connectivity_interval (const NMConfigData *config_data);
 const char *nm_config_data_get_connectivity_response (const NMConfigData *config_data);
+
+int nm_config_data_get_autoconnect_retries_default (const NMConfigData *config_data);
 
 const char *const*nm_config_data_get_no_auto_default (const NMConfigData *config_data);
 gboolean          nm_config_data_get_no_auto_default_for_device (const NMConfigData *self, NMDevice *device);

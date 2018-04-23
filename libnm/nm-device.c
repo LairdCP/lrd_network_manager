@@ -261,6 +261,9 @@ coerce_type (NMDeviceType type)
 	case NM_DEVICE_TYPE_WIFI:
 	case NM_DEVICE_TYPE_BT:
 	case NM_DEVICE_TYPE_OLPC_MESH:
+	case NM_DEVICE_TYPE_OVS_INTERFACE:
+	case NM_DEVICE_TYPE_OVS_PORT:
+	case NM_DEVICE_TYPE_OVS_BRIDGE:
 	case NM_DEVICE_TYPE_WIMAX:
 	case NM_DEVICE_TYPE_MODEM:
 	case NM_DEVICE_TYPE_INFINIBAND:
@@ -280,6 +283,7 @@ coerce_type (NMDeviceType type)
 	case NM_DEVICE_TYPE_UNUSED2:
 	case NM_DEVICE_TYPE_UNKNOWN:
 	case NM_DEVICE_TYPE_DUMMY:
+	case NM_DEVICE_TYPE_PPP:
 		return type;
 	}
 	return NM_DEVICE_TYPE_UNKNOWN;
@@ -1521,6 +1525,12 @@ get_type_name (NMDevice *device)
 		return _("Bluetooth");
 	case NM_DEVICE_TYPE_OLPC_MESH:
 		return _("OLPC Mesh");
+	case NM_DEVICE_TYPE_OVS_INTERFACE:
+		return _("OpenVSwitch Interface");
+	case NM_DEVICE_TYPE_OVS_PORT:
+		return _("OpenVSwitch Port");
+	case NM_DEVICE_TYPE_OVS_BRIDGE:
+		return _("OpenVSwitch Bridge");
 	case NM_DEVICE_TYPE_WIMAX:
 		return _("WiMAX");
 	case NM_DEVICE_TYPE_MODEM:
@@ -1551,6 +1561,8 @@ get_type_name (NMDevice *device)
 		return _("MACsec");
 	case NM_DEVICE_TYPE_DUMMY:
 		return _("Dummy");
+	case NM_DEVICE_TYPE_PPP:
+		return _("PPP");
 	case NM_DEVICE_TYPE_GENERIC:
 	case NM_DEVICE_TYPE_UNUSED1:
 	case NM_DEVICE_TYPE_UNUSED2:
@@ -1993,6 +2005,8 @@ nm_device_reapply_async (NMDevice *device,
 
 	simple = g_simple_async_result_new (G_OBJECT (device), callback, user_data,
 	                                    nm_device_reapply_async);
+	if (cancellable)
+		g_simple_async_result_set_check_cancellable (simple, cancellable);
 
 	nmdbus_device_call_reapply (NM_DEVICE_GET_PRIVATE (device)->proxy,
 	                            dict, version_id, flags, cancellable,
@@ -2138,7 +2152,7 @@ out:
  * @callback: callback to be called when the reapply operation completes
  * @user_data: caller-specific data passed to @callback
  *
- * Asynchronously begins an get the a currently applied connection.
+ * Asynchronously begins and gets the currently applied connection.
  *
  * Since: 1.2
  **/
@@ -2156,6 +2170,8 @@ nm_device_get_applied_connection_async  (NMDevice *device,
 
 	simple = g_simple_async_result_new (G_OBJECT (device), callback, user_data,
 	                                    nm_device_get_applied_connection_async);
+	if (cancellable)
+		g_simple_async_result_set_check_cancellable (simple, cancellable);
 
 	nmdbus_device_call_get_applied_connection (NM_DEVICE_GET_PRIVATE (device)->proxy,
 	                                           flags, cancellable,
@@ -2277,6 +2293,8 @@ nm_device_disconnect_async (NMDevice *device,
 
 	simple = g_simple_async_result_new (G_OBJECT (device), callback, user_data,
 	                                    nm_device_disconnect_async);
+	if (cancellable)
+		g_simple_async_result_set_check_cancellable (simple, cancellable);
 
 	nmdbus_device_call_disconnect (NM_DEVICE_GET_PRIVATE (device)->proxy,
 	                               cancellable,
@@ -2378,6 +2396,8 @@ nm_device_delete_async (NMDevice *device,
 
 	simple = g_simple_async_result_new (G_OBJECT (device), callback, user_data,
 	                                    nm_device_delete_async);
+	if (cancellable)
+		g_simple_async_result_set_check_cancellable (simple, cancellable);
 
 	nmdbus_device_call_delete (NM_DEVICE_GET_PRIVATE (device)->proxy,
 	                           cancellable,

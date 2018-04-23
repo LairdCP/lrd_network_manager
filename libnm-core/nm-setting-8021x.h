@@ -152,6 +152,7 @@ typedef enum { /*< underscore_name=nm_setting_802_1x_auth_flags >*/
 #define NM_SETTING_802_1X_SYSTEM_CA_CERTS "system-ca-certs"
 #define NM_SETTING_802_1X_AUTH_TIMEOUT "auth-timeout"
 #define NM_SETTING_802_1X_TLS_DISABLE_TIME_CHECKS "tls-disable-time-checks"
+#define NM_SETTING_802_1X_PAC_FILE_PASSWORD "pac-file-password"
 
 /* PRIVATE KEY NOTE: when setting PKCS#12 private keys directly via properties
  * using the "blob" scheme, the data must be passed in PKCS#12 binary format.
@@ -370,6 +371,7 @@ NM_AVAILABLE_IN_1_8
 gint                   nm_setting_802_1x_get_auth_timeout                (NMSetting8021x *setting);
 
 const char *           nm_setting_802_1x_get_tls_disable_time_checks	 (NMSetting8021x *setting);
+const char *           nm_setting_802_1x_get_pac_file_password           (NMSetting8021x *setting);
 
 G_END_DECLS
 

@@ -161,7 +161,7 @@ remove_connection (SettingsPluginIfcfg *self, NMIfcfgConnection *connection)
 	g_object_ref (connection);
 	g_hash_table_remove (priv->connections, nm_connection_get_uuid (NM_CONNECTION (connection)));
 	if (!unmanaged && !unrecognized)
-		nm_settings_connection_signal_remove (NM_SETTINGS_CONNECTION (connection), FALSE);
+		nm_settings_connection_signal_remove (NM_SETTINGS_CONNECTION (connection));
 	g_object_unref (connection);
 
 	/* Emit changes _after_ removing the connection */
@@ -313,11 +313,12 @@ update_connection (SettingsPluginIfcfg *self,
 			              NM_IFCFG_CONNECTION_UNRECOGNIZED_SPEC, new_unrecognized,
 			              NULL);
 
-			if (!nm_settings_connection_replace_settings (NM_SETTINGS_CONNECTION (connection_by_uuid),
-			                                              NM_CONNECTION (connection_new),
-			                                              FALSE,  /* don't set Unsaved */
-			                                              "ifcfg-update",
-			                                              &local)) {
+			if (!nm_settings_connection_update (NM_SETTINGS_CONNECTION (connection_by_uuid),
+			                                    NM_CONNECTION (connection_new),
+			                                    NM_SETTINGS_CONNECTION_PERSIST_MODE_KEEP_SAVED,
+			                                    NM_SETTINGS_CONNECTION_COMMIT_REASON_NONE,
+			                                    "ifcfg-update",
+			                                    &local)) {
 				/* Shouldn't ever get here as 'connection_new' was verified by the reader already
 				 * and the UUID did not change. */
 				g_assert_not_reached ();
@@ -330,7 +331,7 @@ update_connection (SettingsPluginIfcfg *self,
 					/* Unexport the connection by telling the settings service it's
 					 * been removed.
 					 */
-					nm_settings_connection_signal_remove (NM_SETTINGS_CONNECTION (connection_by_uuid), TRUE);
+					nm_settings_connection_signal_remove (NM_SETTINGS_CONNECTION (connection_by_uuid));
 					/* Remove the path so that claim_connection() doesn't complain later when
 					 * interface gets managed and connection is re-added. */
 					nm_connection_set_path (NM_CONNECTION (connection_by_uuid), NULL);
@@ -461,7 +462,7 @@ _paths_from_connections (GHashTable *connections)
 {
 	GHashTableIter iter;
 	NMIfcfgConnection *connection;
-	GHashTable *paths = g_hash_table_new (g_str_hash, g_str_equal);
+	GHashTable *paths = g_hash_table_new (nm_str_hash, g_str_equal);
 
 	g_hash_table_iter_init (&iter, connections);
 	while (g_hash_table_iter_next (&iter, NULL, (gpointer *) &connection)) {
@@ -679,18 +680,16 @@ add_connection (NMSettingsPlugin *config,
 {
 	SettingsPluginIfcfg *self = SETTINGS_PLUGIN_IFCFG (config);
 	gs_free char *path = NULL;
-
-	/* Ensure we reject attempts to add the connection long before we're
-	 * asked to write it to disk.
-	 */
-	if (!writer_can_write_connection (connection, error))
-		return NULL;
+	gs_unref_object NMConnection *reread = NULL;
 
 	if (save_to_disk) {
-		if (!writer_new_connection (connection, IFCFG_DIR, &path, NULL, NULL, error))
+		if (!nms_ifcfg_rh_writer_write_connection (connection, IFCFG_DIR, NULL, &path, &reread, NULL, error))
+			return NULL;
+	} else {
+		if (!nms_ifcfg_rh_writer_can_write_connection (connection, error))
 			return NULL;
 	}
-	return NM_SETTINGS_CONNECTION (update_connection (self, connection, path, NULL, FALSE, NULL, error));
+	return NM_SETTINGS_CONNECTION (update_connection (self, reread ?: connection, path, NULL, FALSE, NULL, error));
 }
 
 static void
@@ -991,7 +990,7 @@ settings_plugin_ifcfg_init (SettingsPluginIfcfg *plugin)
 {
 	SettingsPluginIfcfgPrivate *priv = SETTINGS_PLUGIN_IFCFG_GET_PRIVATE ((SettingsPluginIfcfg *) plugin);
 
-	priv->connections = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_object_unref);
+	priv->connections = g_hash_table_new_full (nm_str_hash, g_str_equal, g_free, g_object_unref);
 }
 
 static void

@@ -25,6 +25,8 @@
 #include <ctype.h>
 #include <arpa/inet.h>
 
+#include "nm-utils/nm-dedup-multi.h"
+
 #include "nm-dhcp-utils.h"
 #include "nm-ip4-config.h"
 #include "nm-utils.h"
@@ -162,13 +164,9 @@ add_ip4_config (GString *str, GBytes *client_id, const char *hostname, gboolean 
 static void
 add_hostname6 (GString *str, const char *hostname)
 {
-	/* dhclient only supports the fqdn.fqdn for DHCPv6 and requires a fully-
-	 * qualified name for this option, so we must require one here too.
-	 */
-	if (hostname && strchr (hostname, '.')) {
+	if (hostname) {
 		g_string_append_printf (str, FQDN_FORMAT "\n", hostname);
 		g_string_append (str,
-		                 "send fqdn.encoded on;\n"
 		                 "send fqdn.server-update on;\n");
 		g_string_append_c (str, '\n');
 	}
@@ -180,7 +178,7 @@ read_client_id (const char *str)
 	gs_free char *s = NULL;
 	char *p;
 
-	g_assert (!strncmp (str, CLIENTID_TAG, NM_STRLEN (CLIENTID_TAG)));
+	nm_assert (!strncmp (str, CLIENTID_TAG, NM_STRLEN (CLIENTID_TAG)));
 
 	str += NM_STRLEN (CLIENTID_TAG);
 	while (g_ascii_isspace (*str))
@@ -199,6 +197,9 @@ read_client_id (const char *str)
 	g_strchomp (s);
 	if (s[strlen (s) - 1] == ';')
 		s[strlen (s) - 1] = '\0';
+
+	if (!s[0])
+		return NULL;
 
 	return nm_dhcp_utils_client_id_string_to_bytes (s);
 }
@@ -261,7 +262,7 @@ read_interface (const char *line, char *interface, guint size)
 
 char *
 nm_dhcp_dhclient_create_config (const char *interface,
-                                gboolean is_ip6,
+                                int addr_family,
                                 GBytes *client_id,
                                 const char *anycast_addr,
                                 const char *hostname,
@@ -277,6 +278,7 @@ nm_dhcp_dhclient_create_config (const char *interface,
 	int i;
 
 	g_return_val_if_fail (!anycast_addr || nm_utils_hwaddr_valid (anycast_addr, ETH_ALEN), NULL);
+	g_return_val_if_fail (NM_IN_SET (addr_family, AF_INET, AF_INET6), NULL);
 
 	new_contents = g_string_new (_("# Created by NetworkManager\n"));
 	fqdn_opts = g_ptr_array_sized_new (5);
@@ -330,8 +332,7 @@ nm_dhcp_dhclient_create_config (const char *interface,
 					continue;
 
 				/* Otherwise capture and return the existing client id */
-				if (out_new_client_id)
-					*out_new_client_id = read_client_id (p);
+				NM_SET_OUT (out_new_client_id, read_client_id (p));
 			}
 
 			/* Override config file hostname and use one from the connection */
@@ -397,18 +398,18 @@ nm_dhcp_dhclient_create_config (const char *interface,
 		g_string_append_printf (new_contents, "timeout %u;\n", timeout);
 	}
 
-	if (is_ip6) {
-		add_hostname6 (new_contents, hostname);
-		add_request (reqs, "dhcp6.name-servers");
-		add_request (reqs, "dhcp6.domain-search");
-		add_request (reqs, "dhcp6.client-id");
-	} else {
+	if (addr_family == AF_INET) {
 		add_ip4_config (new_contents, client_id, hostname, use_fqdn);
 		add_request (reqs, "rfc3442-classless-static-routes");
 		add_request (reqs, "ms-classless-static-routes");
 		add_request (reqs, "static-routes");
 		add_request (reqs, "wpad");
 		add_request (reqs, "ntp-servers");
+	} else {
+		add_hostname6 (new_contents, hostname);
+		add_request (reqs, "dhcp6.name-servers");
+		add_request (reqs, "dhcp6.domain-search");
+		add_request (reqs, "dhcp6.client-id");
 	}
 
 	if (reset_reqlist)
@@ -686,24 +687,30 @@ lease_validity_span (const char *str_expire, GDateTime *now)
 
 /**
  * nm_dhcp_dhclient_read_lease_ip_configs:
+ * @multi_idx: the multi index instance for the ip config object
+ * @addr_family: whether to read IPv4 or IPv6 leases
  * @iface: the interface name to match leases with
  * @ifindex: interface index of @iface
+ * @route_table: the route table for the default route.
+ * @route_metric: the route metric for the default route.
  * @contents: the contents of a dhclient leasefile
- * @ipv6: whether to read IPv4 or IPv6 leases
  * @now: the current UTC date/time; pass %NULL to automatically use current
  *  UTC time.  Testcases may need a different value for 'now'
  *
  * Reads dhclient leases from @contents and parses them into either
- * #NMIP4Config or #NMIP6Config objects depending on the value of @ipv6.
+ * #NMIP4Config or #NMIP6Config objects depending on the value of @addr_family.
  *
- * Returns: a #GSList of #NMIP4Config objects (if @ipv6 is %FALSE) or a list of
- * #NMIP6Config objects (if @ipv6 is %TRUE) containing the lease data.
+ * Returns: a #GSList of #NMIP4Config objects (if @addr_family is %AF_INET) or a list of
+ * #NMIP6Config objects (if @addr_family is %AF_INET6) containing the lease data.
  */
 GSList *
-nm_dhcp_dhclient_read_lease_ip_configs (const char *iface,
+nm_dhcp_dhclient_read_lease_ip_configs (NMDedupMultiIndex *multi_idx,
+                                        int addr_family,
+                                        const char *iface,
                                         int ifindex,
+                                        guint32 route_table,
+                                        guint32 route_metric,
                                         const char *contents,
-                                        gboolean ipv6,
                                         GDateTime *now)
 {
 	GSList *parsed = NULL, *iter, *leases = NULL;
@@ -712,6 +719,7 @@ nm_dhcp_dhclient_read_lease_ip_configs (const char *iface,
 	gint32 now_monotonic_ts;
 
 	g_return_val_if_fail (contents != NULL, NULL);
+	nm_assert (NM_IN_SET (addr_family, AF_INET, AF_INET6));
 
 	split = g_strsplit_set (contents, "\n\r", -1);
 	if (!split)
@@ -733,7 +741,7 @@ nm_dhcp_dhclient_read_lease_ip_configs (const char *iface,
 				g_hash_table_destroy (hash);
 			}
 
-			hash = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
+			hash = g_hash_table_new_full (nm_str_hash, g_str_equal, g_free, g_free);
 		} else if (hash && strlen (*line))
 			add_lease_option (hash, *line);
 	}
@@ -804,15 +812,25 @@ nm_dhcp_dhclient_read_lease_ip_configs (const char *iface,
 
 		/* Get default netmask for the IP according to appropriate class. */
 		if (!address.plen)
-			address.plen = nm_utils_ip4_get_default_prefix (address.address);
+			address.plen = _nm_utils_ip4_get_default_prefix (address.address);
 
 		address.timestamp = now_monotonic_ts;
 		address.lifetime = address.preferred = expiry;
 		address.addr_source = NM_IP_CONFIG_SOURCE_DHCP;
 
-		ip4 = nm_ip4_config_new (ifindex);
+		ip4 = nm_ip4_config_new (multi_idx, ifindex);
 		nm_ip4_config_add_address (ip4, &address);
-		nm_ip4_config_set_gateway (ip4, gw);
+
+		{
+			const NMPlatformIP4Route r = {
+				.rt_source = NM_IP_CONFIG_SOURCE_DHCP,
+				.gateway = gw,
+				.table_coerced = nm_platform_route_table_coerce (route_table),
+				.metric = route_metric,
+			};
+
+			nm_ip4_config_add_route (ip4, &r, NULL);
+		}
 
 		value = g_hash_table_lookup (hash, "option domain-name-servers");
 		if (value) {

@@ -15,7 +15,7 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
- * Copyright (C) 2005 - 2012 Red Hat, Inc.
+ * Copyright (C) 2005 - 2017 Red Hat, Inc.
  * Copyright (C) 2006 - 2008 Novell, Inc.
  */
 
@@ -63,8 +63,6 @@ _LOG_DECLARE_SELF(NMDeviceWifi);
 
 #define SCAN_RAND_MAC_ADDRESS_EXPIRE_MIN 5
 
-static NM_CACHED_QUARK_FCN ("wireless-secrets-tries", wireless_secrets_tries_quark)
-
 /*****************************************************************************/
 
 NM_GOBJECT_PROPERTIES_DEFINE (NMDeviceWifi,
@@ -79,7 +77,7 @@ NM_GOBJECT_PROPERTIES_DEFINE (NMDeviceWifi,
 enum {
 	ACCESS_POINT_ADDED,
 	ACCESS_POINT_REMOVED,
-	SCANNING_ALLOWED,
+	SCANNING_PROHIBITED,
 
 	LAST_SIGNAL
 };
@@ -109,7 +107,7 @@ typedef struct {
 
 	NM80211Mode       mode;
 
-	NMActRequestGetSecretsCallId wifi_secrets_id;
+	NMActRequestGetSecretsCallId *wifi_secrets_id;
 
 	guint             periodic_source_id;
 	guint             link_timeout_id;
@@ -119,6 +117,8 @@ typedef struct {
 	NMDeviceWifiCapabilities capabilities;
 
 	gint32 hw_addr_scan_expire;
+
+	guint             wps_timeout_id;
 } NMDeviceWifiPrivate;
 
 struct _NMDeviceWifi
@@ -132,7 +132,7 @@ struct _NMDeviceWifiClass
 	NMDeviceClass parent;
 
 	/* Signals */
-	gboolean (*scanning_allowed) (NMDeviceWifi *device);
+	gboolean (*scanning_prohibited) (NMDeviceWifi *device, gboolean periodic);
 };
 
 /*****************************************************************************/
@@ -143,7 +143,7 @@ G_DEFINE_TYPE (NMDeviceWifi, nm_device_wifi, NM_TYPE_DEVICE)
 
 /*****************************************************************************/
 
-static gboolean check_scanning_allowed (NMDeviceWifi *self);
+static gboolean check_scanning_prohibited (NMDeviceWifi *self, gboolean periodic);
 
 static void schedule_scan (NMDeviceWifi *self, gboolean backoff);
 
@@ -169,6 +169,10 @@ static void supplicant_iface_scan_done_cb (NMSupplicantInterface * iface,
                                            gboolean success,
                                            NMDeviceWifi * self);
 
+static void supplicant_iface_wps_credentials_cb (NMSupplicantInterface *iface,
+                                                 GVariant *credentials,
+                                                 NMDeviceWifi *self);
+
 static void supplicant_iface_notify_scanning_cb (NMSupplicantInterface * iface,
                                                  GParamSpec * pspec,
                                                  NMDeviceWifi * self);
@@ -177,7 +181,10 @@ static void supplicant_iface_notify_current_bss (NMSupplicantInterface *iface,
                                                  GParamSpec *pspec,
                                                  NMDeviceWifi *self);
 
-static void request_wireless_scan (NMDeviceWifi *self, gboolean force_if_scanning, GVariant *scan_options);
+static void request_wireless_scan (NMDeviceWifi *self,
+                                   gboolean periodic,
+                                   gboolean force_if_scanning,
+                                   const GPtrArray *ssids);
 
 static void ap_add_remove (NMDeviceWifi *self,
                            guint signum,
@@ -266,6 +273,10 @@ supplicant_interface_acquire (NMDeviceWifi *self)
 	g_signal_connect (priv->sup_iface,
 	                  NM_SUPPLICANT_INTERFACE_SCAN_DONE,
 	                  G_CALLBACK (supplicant_iface_scan_done_cb),
+	                  self);
+	g_signal_connect (priv->sup_iface,
+	                  NM_SUPPLICANT_INTERFACE_WPS_CREDENTIALS,
+	                  G_CALLBACK (supplicant_iface_wps_credentials_cb),
 	                  self);
 	g_signal_connect (priv->sup_iface,
 	                  "notify::"NM_SUPPLICANT_INTERFACE_SCANNING,
@@ -559,7 +570,7 @@ deactivate (NMDevice *device)
 
 	/* Ensure we trigger a scan after deactivating a Hotspot */
 	if (old_mode == NM_802_11_MODE_AP)
-		request_wireless_scan (self, FALSE, NULL);
+		request_wireless_scan (self, FALSE, FALSE, NULL);
 }
 
 static void
@@ -596,6 +607,50 @@ is_adhoc_wpa (NMConnection *connection)
 		return FALSE;
 
 	return TRUE;
+}
+
+static gboolean
+warn_wireless_requires_laird_support(NMDeviceWifi *self, NMSettingWireless *s_wireless, NMSetting8021x *s_8021x)
+{
+	gboolean rv = FALSE;
+	// note, logging macros require self
+	if (nm_setting_wireless_get_ccx(s_wireless) != NM_SETTING_WIRELESS_CCX_DISABLE) {
+		_LOGW (LOGD_WIFI, "Supplicant does not support CCX.");
+		rv = TRUE;
+	}
+	if (nm_setting_wireless_get_client_name(s_wireless)) {
+		_LOGW (LOGD_WIFI, "Supplicant does not support client name.");
+		rv = TRUE;
+	}
+	if (nm_setting_wireless_get_scan_delay (s_wireless) != 0) {
+		_LOGW (LOGD_WIFI, "Supplicant does not support scan-delay.");
+		rv = TRUE;
+	}
+	if (nm_setting_wireless_get_scan_dwell (s_wireless) != 0) {
+		_LOGW (LOGD_WIFI, "Supplicant does not support scan-dwell.");
+		rv = TRUE;
+	}
+	if (nm_setting_wireless_get_scan_passive_dwell (s_wireless) != 0) {
+		_LOGW (LOGD_WIFI, "Supplicant does not support scan-passive-dwell.");
+		rv = TRUE;
+	}
+	if (nm_setting_wireless_get_scan_suspend_time (s_wireless) != 0) {
+		_LOGW (LOGD_WIFI, "Supplicant does not support scan-suspend-time.");
+		rv = TRUE;
+	}
+	if (nm_setting_wireless_get_scan_roam_delta (s_wireless) != 0) {
+		_LOGW (LOGD_WIFI, "Supplicant does not support scan-roam-delta.");
+		rv = TRUE;
+	}
+	if (nm_setting_wireless_get_auth_timeout (s_wireless) != 0) {
+		_LOGW (LOGD_WIFI, "Supplicant does not support auth-timeout.");
+		rv = TRUE;
+	}
+	if (nm_setting_802_1x_get_pac_file_password (s_8021x) != 0) {
+		_LOGW (LOGD_WIFI, "Supplicant does not support pac-file-password.");
+		rv = TRUE;
+	}
+	return rv;
 }
 
 static gboolean
@@ -781,14 +836,17 @@ complete_connection (NMDevice *device,
 	NMSettingWireless *s_wifi;
 	const char *setting_mac;
 	char *str_ssid = NULL;
-	NMWifiAP *ap = NULL;
+	NMWifiAP *ap;
 	const GByteArray *ssid = NULL;
 	GByteArray *tmp_ssid = NULL;
 	GBytes *setting_ssid = NULL;
 	gboolean hidden = FALSE;
 	const char *perm_hw_addr;
+	const char *mode;
 
 	s_wifi = nm_connection_get_setting_wireless (connection);
+
+	mode = s_wifi ? nm_setting_wireless_get_mode (s_wifi) : NULL;
 
 	if (!specific_object) {
 		/* If not given a specific object, we need at minimum an SSID */
@@ -809,19 +867,29 @@ complete_connection (NMDevice *device,
 			return FALSE;
 		}
 
-		/* Find a compatible AP in the scan list */
-		ap = find_first_compatible_ap (self, connection, FALSE);
+		if (!nm_streq0 (mode, NM_SETTING_WIRELESS_MODE_AP)) {
+			/* Find a compatible AP in the scan list */
+			ap = find_first_compatible_ap (self, connection, FALSE);
 
-		/* If we still don't have an AP, then the WiFI settings needs to be
-		 * fully specified by the client.  Might not be able to find an AP
-		 * if the network isn't broadcasting the SSID for example.
-		 */
-		if (!ap) {
+			/* If we still don't have an AP, then the WiFI settings needs to be
+			 * fully specified by the client.  Might not be able to find an AP
+			 * if the network isn't broadcasting the SSID for example.
+			 */
+			if (!ap) {
+				if (!nm_setting_verify (NM_SETTING (s_wifi), connection, error))
+					return FALSE;
+
+				hidden = TRUE;
+			}
+		} else {
 			if (!nm_setting_verify (NM_SETTING (s_wifi), connection, error))
 				return FALSE;
-
-			hidden = TRUE;
+			ap = NULL;
 		}
+	} else if (nm_streq0 (mode, NM_SETTING_WIRELESS_MODE_AP)) {
+		if (!nm_setting_verify (NM_SETTING (s_wifi), connection, error))
+			return FALSE;
+		ap = NULL;
 	} else {
 		ap = get_ap_by_path (self, specific_object);
 		if (!ap) {
@@ -972,9 +1040,6 @@ static gboolean
 get_autoconnect_allowed (NMDevice *device)
 {
 	NMDeviceWifiPrivate *priv;
-
-	if (!NM_DEVICE_CLASS (nm_device_wifi_parent_class)->get_autoconnect_allowed (device))
-		return FALSE;
 
 	priv = NM_DEVICE_WIFI_GET_PRIVATE (NM_DEVICE_WIFI (device));
 	return !priv->requested_scan;
@@ -1169,23 +1234,65 @@ _hw_addr_set_scanning (NMDeviceWifi *self, gboolean do_reset)
 	}
 }
 
+static GPtrArray *
+ssids_options_to_ptrarray (GVariant *value, GError **error)
+{
+	GPtrArray *ssids = NULL;
+	GByteArray *ssid_array;
+	GVariant *v;
+	const guint8 *bytes;
+	gsize len;
+	int num_ssids, i;
+
+	num_ssids = g_variant_n_children (value);
+	if (num_ssids > 32) {
+		g_set_error_literal (error,
+		                     NM_DEVICE_ERROR,
+		                     NM_DEVICE_ERROR_NOT_ALLOWED,
+		                     "too many SSIDs requested to scan");
+		return NULL;
+	}
+
+	if (num_ssids) {
+		ssids = g_ptr_array_new_full (num_ssids, (GDestroyNotify) g_byte_array_unref);
+		for (i = 0; i < num_ssids; i++) {
+			v = g_variant_get_child_value (value, i);
+			bytes = g_variant_get_fixed_array (v, &len, sizeof (guint8));
+			if (len > 32) {
+				g_set_error (error,
+				             NM_DEVICE_ERROR,
+				             NM_DEVICE_ERROR_NOT_ALLOWED,
+				             "SSID at index %d more than 32 bytes", i);
+				g_ptr_array_unref (ssids);
+				return NULL;
+			}
+
+			ssid_array = g_byte_array_new ();
+			g_byte_array_append (ssid_array, bytes, len);
+			g_ptr_array_add (ssids, ssid_array);
+		}
+	}
+	return ssids;
+}
+
 static void
-request_scan_cb (NMDevice *device,
-                 GDBusMethodInvocation *context,
-                 NMAuthSubject *subject,
-                 GError *error,
-                 gpointer user_data)
+dbus_request_scan_cb (NMDevice *device,
+                      GDBusMethodInvocation *context,
+                      NMAuthSubject *subject,
+                      GError *error,
+                      gpointer user_data)
 {
 	NMDeviceWifi *self = NM_DEVICE_WIFI (device);
 	NMDeviceWifiPrivate *priv;
-	gs_unref_variant GVariant *new_scan_options = user_data;
+	gs_unref_variant GVariant *scan_options = user_data;
+	gs_unref_ptrarray GPtrArray *ssids = NULL;
 
 	if (error) {
 		g_dbus_method_invocation_return_gerror (context, error);
 		return;
 	}
 
-	if (!check_scanning_allowed (self)) {
+	if (check_scanning_prohibited (self, FALSE)) {
 		g_dbus_method_invocation_return_error_literal (context,
 		                                               NM_DEVICE_ERROR,
 		                                               NM_DEVICE_ERROR_NOT_ALLOWED,
@@ -1195,7 +1302,29 @@ request_scan_cb (NMDevice *device,
 
 	priv = NM_DEVICE_WIFI_GET_PRIVATE (self);
 
-	request_wireless_scan (self, FALSE, new_scan_options);
+	if (scan_options) {
+		gs_unref_variant GVariant *val = g_variant_lookup_value (scan_options, "ssids", NULL);
+
+		if (val) {
+			gs_free_error GError *ssid_error = NULL;
+
+			if (!g_variant_is_of_type (val, G_VARIANT_TYPE ("aay"))) {
+				g_dbus_method_invocation_return_error_literal (context,
+				                                               NM_DEVICE_ERROR,
+				                                               NM_DEVICE_ERROR_NOT_ALLOWED,
+				                                               "Invalid 'ssid' scan option");
+				return;
+			}
+
+			ssids = ssids_options_to_ptrarray (val, &ssid_error);
+			if (ssid_error) {
+				g_dbus_method_invocation_return_gerror (context, ssid_error);
+				return;
+			}
+		}
+	}
+
+	request_wireless_scan (self, FALSE, FALSE, ssids);
 	g_dbus_method_invocation_return_value (context, NULL);
 }
 
@@ -1243,22 +1372,23 @@ impl_device_wifi_request_scan (NMDeviceWifi *self,
 	                       NULL,
 	                       NM_AUTH_PERMISSION_NETWORK_CONTROL,
 	                       TRUE,
-	                       request_scan_cb,
+	                       dbus_request_scan_cb,
 	                       options ? g_variant_ref (options) : NULL);
 }
 
 static gboolean
-scanning_allowed (NMDeviceWifi *self)
+scanning_prohibited (NMDeviceWifi *self, gboolean periodic)
 {
 	NMDeviceWifiPrivate *priv = NM_DEVICE_WIFI_GET_PRIVATE (self);
 	NMSupplicantInterfaceState supplicant_state;
-	NMConnection *connection;
 
-	g_return_val_if_fail (priv->sup_iface != NULL, FALSE);
+	g_return_val_if_fail (priv->sup_iface != NULL, TRUE);
 
-	/* Scanning not done in AP mode */
-	if (priv->mode == NM_802_11_MODE_AP)
-		return FALSE;
+	/* Don't scan when a an AP or Ad-Hoc connection is active as it will
+	 * disrupt connected clients or peers.
+	 */
+	if (priv->mode == NM_802_11_MODE_ADHOC || priv->mode == NM_802_11_MODE_AP)
+		return TRUE;
 
 	switch (nm_device_get_state (NM_DEVICE (self))) {
 	case NM_DEVICE_STATE_UNKNOWN:
@@ -1271,78 +1401,42 @@ scanning_allowed (NMDeviceWifi *self)
 	case NM_DEVICE_STATE_IP_CHECK:
 	case NM_DEVICE_STATE_SECONDARIES:
 	case NM_DEVICE_STATE_DEACTIVATING:
-		/* Don't scan when unusable or activating */
-		return FALSE;
+		/* Prohibit scans when unusable or activating */
+		return TRUE;
 	case NM_DEVICE_STATE_DISCONNECTED:
 	case NM_DEVICE_STATE_FAILED:
 		/* Can always scan when disconnected */
-		return TRUE;
+		return FALSE;
 	case NM_DEVICE_STATE_ACTIVATED:
-		/* Need to do further checks when activated */
+		/* Prohibit periodic scans when connected; we ask the supplicant to
+		 * background scan for us, unless the connection is locked to a specifc
+		 * BSSID.
+		 */
+		if (periodic)
+			return TRUE;
 		break;
 	}
 
-	/* Don't scan if the supplicant is busy */
+	/* Prohibit scans if the supplicant is busy */
 	supplicant_state = nm_supplicant_interface_get_state (priv->sup_iface);
 	if (   supplicant_state == NM_SUPPLICANT_INTERFACE_STATE_ASSOCIATING
 	    || supplicant_state == NM_SUPPLICANT_INTERFACE_STATE_ASSOCIATED
 	    || supplicant_state == NM_SUPPLICANT_INTERFACE_STATE_4WAY_HANDSHAKE
 	    || supplicant_state == NM_SUPPLICANT_INTERFACE_STATE_GROUP_HANDSHAKE
 	    || nm_supplicant_interface_get_scanning (priv->sup_iface))
-		return FALSE;
+		return TRUE;
 
-	connection = nm_device_get_applied_connection (NM_DEVICE (self));
-	if (connection) {
-		NMSettingWireless *s_wifi;
-		const char *ip4_method = NULL;
-
-		/* Don't scan when a shared connection is active; it makes drivers mad */
-		ip4_method = nm_utils_get_ip_config_method (connection, NM_TYPE_SETTING_IP4_CONFIG);
-
-		if (!strcmp (ip4_method, NM_SETTING_IP4_CONFIG_METHOD_SHARED))
-			return FALSE;
-
-		/* Don't scan when the connection is locked to a specifc AP, since
-		 * intra-ESS roaming (which requires periodic scanning) isn't being
-		 * used due to the specific AP lock. (bgo #513820)
-		 */
-		s_wifi = nm_connection_get_setting_wireless (connection);
-		g_assert (s_wifi);
-		if (nm_setting_wireless_get_bssid (s_wifi))
-			return FALSE;
-	}
-
-	return TRUE;
+	/* Allow the scan */
+	return FALSE;
 }
 
 static gboolean
-scanning_allowed_accumulator (GSignalInvocationHint *ihint,
-                              GValue *return_accu,
-                              const GValue *handler_return,
-                              gpointer data)
+check_scanning_prohibited (NMDeviceWifi *self, gboolean periodic)
 {
-	if (!g_value_get_boolean (handler_return))
-		g_value_set_boolean (return_accu, FALSE);
-	return TRUE;
-}
+	gboolean prohibited = FALSE;
 
-static gboolean
-check_scanning_allowed (NMDeviceWifi *self)
-{
-	GValue instance = G_VALUE_INIT;
-	GValue retval = G_VALUE_INIT;
-
-	g_value_init (&instance, G_TYPE_OBJECT);
-	g_value_take_object (&instance, self);
-
-	g_value_init (&retval, G_TYPE_BOOLEAN);
-	g_value_set_boolean (&retval, TRUE);
-
-	/* Use g_signal_emitv() rather than g_signal_emit() to avoid the return
-	 * value being changed if no handlers are connected */
-	g_signal_emitv (&instance, signals[SCANNING_ALLOWED], 0, &retval);
-
-	return g_value_get_boolean (&retval);
+	g_signal_emit (self, signals[SCANNING_PROHIBITED], 0, periodic, &prohibited);
+	return prohibited;
 }
 
 static gboolean
@@ -1354,8 +1448,17 @@ hidden_filter_func (NMSettings *settings,
 
 	if (!nm_connection_is_type (NM_CONNECTION (connection), NM_SETTING_WIRELESS_SETTING_NAME))
 		return FALSE;
-	s_wifi = (NMSettingWireless *) nm_connection_get_setting_wireless (NM_CONNECTION (connection));
-	return s_wifi ? nm_setting_wireless_get_hidden (s_wifi) : FALSE;
+	s_wifi = nm_connection_get_setting_wireless (NM_CONNECTION (connection));
+	if (!s_wifi)
+		return FALSE;
+	if (nm_streq0 (nm_setting_wireless_get_mode (s_wifi), NM_SETTING_WIRELESS_MODE_AP))
+		return FALSE;
+	if (user_data) {
+		int *pdata = (int *)user_data;
+		if (!nm_setting_wireless_get_hidden (s_wifi))
+			*pdata = 1;
+	}
+	return nm_setting_wireless_get_hidden (s_wifi);
 }
 
 static GPtrArray *
@@ -1367,6 +1470,7 @@ build_hidden_probe_list (NMDeviceWifi *self)
 	guint i, len;
 	GPtrArray *ssids = NULL;
 	static GByteArray *nullssid = NULL;
+	int have_non_hidden = 0;
 
 	/* Need at least two: wildcard SSID and one or more hidden SSIDs */
 	if (max_scan_ssids < 2)
@@ -1375,7 +1479,8 @@ build_hidden_probe_list (NMDeviceWifi *self)
 	connections = nm_settings_get_connections_clone (nm_device_get_settings ((NMDevice *) self),
 	                                                 &len,
 	                                                 hidden_filter_func,
-	                                                 NULL);
+	                                                 (gpointer)(&have_non_hidden),
+	                                                 NULL, NULL);
 	if (!connections[0])
 		return NULL;
 
@@ -1386,7 +1491,10 @@ build_hidden_probe_list (NMDeviceWifi *self)
 	/* Add wildcard SSID using a static wildcard SSID used for every scan */
 	if (G_UNLIKELY (nullssid == NULL))
 		nullssid = g_byte_array_new ();
-	g_ptr_array_add (ssids, g_byte_array_ref (nullssid));
+
+	/* Laird: only add wildcard SSID if non-hidden connections exist */
+	if (have_non_hidden)
+		g_ptr_array_add (ssids, g_byte_array_ref (nullssid));
 
 	for (i = 0; connections[i]; i++) {
 		NMSettingWireless *s_wifi;
@@ -1410,32 +1518,11 @@ build_hidden_probe_list (NMDeviceWifi *self)
 	return ssids;
 }
 
-static GPtrArray *
-ssids_options_to_ptrarray (GVariant *value)
-{
-	GPtrArray *ssids = NULL;
-	GByteArray *ssid_array;
-	GVariant *v;
-	const guint8 *bytes;
-	gsize len;
-	int num_ssids, i;
-
-	num_ssids = g_variant_n_children (value);
-	if (num_ssids) {
-		ssids = g_ptr_array_new_full (num_ssids, (GDestroyNotify) g_byte_array_unref);
-		for (i = 0; i < num_ssids; i++) {
-			v = g_variant_get_child_value (value, i);
-			bytes = g_variant_get_fixed_array (v, &len, sizeof (guint8));
-			ssid_array = g_byte_array_new ();
-			g_byte_array_append (ssid_array, bytes, len);
-			g_ptr_array_add (ssids, ssid_array);
-		}
-	}
-	return ssids;
-}
-
 static void
-request_wireless_scan (NMDeviceWifi *self, gboolean force_if_scanning, GVariant *scan_options)
+request_wireless_scan (NMDeviceWifi *self,
+                       gboolean periodic,
+                       gboolean force_if_scanning,
+                       const GPtrArray *ssids)
 {
 	NMDeviceWifiPrivate *priv = NM_DEVICE_WIFI_GET_PRIVATE (self);
 	gboolean request_started = FALSE;
@@ -1447,24 +1534,14 @@ request_wireless_scan (NMDeviceWifi *self, gboolean force_if_scanning, GVariant 
 		return;
 	}
 
-	if (check_scanning_allowed (self)) {
-		gs_unref_ptrarray GPtrArray *ssids = NULL;
+	if (!check_scanning_prohibited (self, periodic)) {
+		gs_unref_ptrarray GPtrArray *hidden_ssids = NULL;
 
 		_LOGD (LOGD_WIFI, "wifi-scan: scanning requested");
 
-		if (scan_options) {
-			GVariant *val = g_variant_lookup_value (scan_options, "ssids", NULL);
-
-			if (val) {
-				if (g_variant_is_of_type (val, G_VARIANT_TYPE ("aay")))
-					ssids = ssids_options_to_ptrarray (val);
-				else
-					_LOGD (LOGD_WIFI, "wifi-scan: ignoring invalid 'ssids' scan option");
-				g_variant_unref (val);
-			}
+		if (!ssids) {
+			ssids = hidden_ssids = build_hidden_probe_list (self);
 		}
-		if (!ssids)
-			ssids = build_hidden_probe_list (self);
 
 		if (_LOGD_ENABLED (LOGD_WIFI)) {
 			if (ssids) {
@@ -1478,7 +1555,7 @@ request_wireless_scan (NMDeviceWifi *self, gboolean force_if_scanning, GVariant 
 					      ? nm_utils_ssid_to_utf8 (ssid->data, ssid->len)
 					      : NULL;
 					_LOGD (LOGD_WIFI, "wifi-scan: (%u) probe scanning SSID %s%s%s",
-					       i, NM_PRINT_FMT_QUOTED (foo, "\"", foo, "\"", "<hidden>"));
+					       i, NM_PRINT_FMT_QUOTED (foo, "\"", foo, "\"", "*any*"));
 					g_free (foo);
 				}
 			} else
@@ -1504,7 +1581,7 @@ request_wireless_scan_periodic (gpointer user_data)
 	NMDeviceWifiPrivate *priv = NM_DEVICE_WIFI_GET_PRIVATE (self);
 
 	priv->pending_scan_id = 0;
-	request_wireless_scan (self, FALSE, NULL);
+	request_wireless_scan (self, TRUE, FALSE, NULL);
 	return G_SOURCE_REMOVE;
 }
 
@@ -1747,6 +1824,7 @@ cleanup_association_attempt (NMDeviceWifi *self, gboolean disconnect)
 
 	nm_clear_g_source (&priv->sup_timeout_id);
 	nm_clear_g_source (&priv->link_timeout_id);
+	nm_clear_g_source (&priv->wps_timeout_id);
 	if (disconnect && priv->sup_iface)
 		nm_supplicant_interface_disconnect (priv->sup_iface);
 }
@@ -1762,7 +1840,7 @@ cleanup_supplicant_failures (NMDeviceWifi *self)
 
 static void
 wifi_secrets_cb (NMActRequest *req,
-                 NMActRequestGetSecretsCallId call_id,
+                 NMActRequestGetSecretsCallId *call_id,
                  NMSettingsConnection *connection,
                  GError *error,
                  gpointer user_data)
@@ -1789,9 +1867,19 @@ wifi_secrets_cb (NMActRequest *req,
 
 	if (error) {
 		_LOGW (LOGD_WIFI, "%s", error->message);
-		nm_device_state_changed (device,
-		                         NM_DEVICE_STATE_FAILED,
-		                         NM_DEVICE_STATE_REASON_NO_SECRETS);
+
+		if (g_error_matches (error, NM_AGENT_MANAGER_ERROR,
+		                     NM_AGENT_MANAGER_ERROR_USER_CANCELED)) {
+			/* Don't wait for WPS timeout on an explicit cancel. */
+			nm_clear_g_source (&priv->wps_timeout_id);
+		}
+
+		if (!priv->wps_timeout_id) {
+			/* Fail the device only if the WPS period is over too. */
+			nm_device_state_changed (device,
+			                         NM_DEVICE_STATE_FAILED,
+			                         NM_DEVICE_STATE_REASON_NO_SECRETS);
+		}
 	} else
 		nm_device_activate_schedule_stage1_device_prepare (device);
 }
@@ -1804,6 +1892,78 @@ wifi_secrets_cancel (NMDeviceWifi *self)
 	if (priv->wifi_secrets_id)
 		nm_act_request_cancel_secrets (NULL, priv->wifi_secrets_id);
 	nm_assert (!priv->wifi_secrets_id);
+}
+
+static void
+supplicant_iface_wps_credentials_cb (NMSupplicantInterface *iface,
+                                     GVariant *credentials,
+                                     NMDeviceWifi *self)
+{
+	NMActRequest *req;
+	GVariant *val, *secrets = NULL;
+	const char *array;
+	gsize psk_len = 0;
+	GError *error = NULL;
+
+	if (nm_device_get_state (NM_DEVICE (self)) != NM_DEVICE_STATE_NEED_AUTH) {
+		_LOGI (LOGD_DEVICE | LOGD_WIFI, "WPS: The connection can't be updated with credentials");
+		return;
+	}
+
+	_LOGI (LOGD_DEVICE | LOGD_WIFI, "WPS: Updating the connection with credentials");
+
+	req = nm_device_get_act_request (NM_DEVICE (self));
+	g_return_if_fail (NM_IS_ACT_REQUEST (req));
+
+	val = g_variant_lookup_value (credentials, "Key", G_VARIANT_TYPE_BYTESTRING);
+	if (val) {
+		char psk[64];
+
+		array = g_variant_get_fixed_array (val, &psk_len, 1);
+		if (psk_len >= 8 && psk_len <= 63) {
+			memcpy (psk, array, psk_len);
+			psk[psk_len] = '\0';
+			if (g_utf8_validate (psk, psk_len, NULL)) {
+				secrets = g_variant_new_parsed ("[{%s, [{%s, <%s>}]}]",
+				                                NM_SETTING_WIRELESS_SECURITY_SETTING_NAME,
+				                                NM_SETTING_WIRELESS_SECURITY_PSK, psk);
+				g_variant_ref_sink (secrets);
+			}
+		}
+		if (!secrets)
+			_LOGW (LOGD_DEVICE | LOGD_WIFI, "WPS: ignore invalid PSK");
+		g_variant_unref (val);
+	}
+	if (secrets) {
+		if (nm_settings_connection_new_secrets (nm_act_request_get_settings_connection (req),
+		                                         nm_act_request_get_applied_connection (req),
+		                                         NM_SETTING_WIRELESS_SECURITY_SETTING_NAME,
+		                                         secrets, &error)) {
+			wifi_secrets_cancel (self);
+			nm_device_activate_schedule_stage1_device_prepare (NM_DEVICE (self));
+		} else {
+			_LOGW (LOGD_DEVICE | LOGD_WIFI, "WPS: Could not update the connection with credentials: %s", error->message);
+			g_error_free (error);
+		}
+		g_variant_unref (secrets);
+	}
+}
+
+static gboolean
+wps_timeout_cb (gpointer user_data)
+{
+	NMDeviceWifi *self = NM_DEVICE_WIFI (user_data);
+	NMDeviceWifiPrivate *priv = NM_DEVICE_WIFI_GET_PRIVATE (self);
+
+	priv->wps_timeout_id = 0;
+	if (!priv->wifi_secrets_id) {
+		/* Fail only if the secrets are not being requested. */
+		nm_device_state_changed (NM_DEVICE (self),
+		                         NM_DEVICE_STATE_FAILED,
+		                         NM_DEVICE_STATE_REASON_NO_SECRETS);
+	}
+
+	return G_SOURCE_REMOVE;
 }
 
 static void
@@ -2055,6 +2215,7 @@ supplicant_iface_state_cb (NMSupplicantInterface *iface,
 	case NM_SUPPLICANT_INTERFACE_STATE_COMPLETED:
 		nm_clear_g_source (&priv->sup_timeout_id);
 		nm_clear_g_source (&priv->link_timeout_id);
+		nm_clear_g_source (&priv->wps_timeout_id);
 
 		/* If this is the initial association during device activation,
 		 * schedule the next activation stage.
@@ -2131,7 +2292,7 @@ supplicant_iface_state_cb (NMSupplicantInterface *iface,
 		/* we would clear _requested_scan_set() and trigger a new scan.
 		 * However, we don't want to cancel the current pending action, so force
 		 * a new scan request. */
-		request_wireless_scan (self, TRUE, NULL);
+		request_wireless_scan (self, FALSE, TRUE, NULL);
 		break;
 	default:
 		break;
@@ -2222,9 +2383,15 @@ handle_auth_or_fail (NMDeviceWifi *self,
                      NMActRequest *req,
                      gboolean new_secrets)
 {
+	NMDeviceWifiPrivate *priv = NM_DEVICE_WIFI_GET_PRIVATE (self);
 	const char *setting_name;
-	guint32 tries;
 	NMConnection *applied_connection;
+	NMSettingWirelessSecurity *s_wsec;
+	const char *bssid = NULL;
+	NM80211ApFlags ap_flags;
+	NMSettingWirelessSecurityWpsMethod wps_method;
+	const char *type;
+	NMSecretAgentGetSecretsFlags get_secret_flags = NM_SECRET_AGENT_GET_SECRETS_FLAG_ALLOW_INTERACTION;
 
 	g_return_val_if_fail (NM_IS_DEVICE_WIFI (self), FALSE);
 
@@ -2233,13 +2400,49 @@ handle_auth_or_fail (NMDeviceWifi *self,
 		g_return_val_if_fail (req, FALSE);
 	}
 
-	applied_connection = nm_act_request_get_applied_connection (req);
-
-	tries = GPOINTER_TO_UINT (g_object_get_qdata (G_OBJECT (applied_connection), wireless_secrets_tries_quark ()));
-	if (tries > 3)
+	if (!nm_device_auth_retries_try_next (NM_DEVICE (self)))
 		return FALSE;
 
 	nm_device_state_changed (NM_DEVICE (self), NM_DEVICE_STATE_NEED_AUTH, NM_DEVICE_STATE_REASON_NONE);
+
+	applied_connection = nm_act_request_get_applied_connection (req);
+	s_wsec = nm_connection_get_setting_wireless_security (applied_connection);
+	wps_method = nm_setting_wireless_security_get_wps_method (s_wsec);
+
+	/* Negotiate the WPS method */
+	if (wps_method == NM_SETTING_WIRELESS_SECURITY_WPS_METHOD_DEFAULT)
+		wps_method = NM_SETTING_WIRELESS_SECURITY_WPS_METHOD_AUTO;
+
+	if (   wps_method & NM_SETTING_WIRELESS_SECURITY_WPS_METHOD_AUTO
+	    && priv->current_ap) {
+		/* Determine the method to use from AP capabilities. */
+		ap_flags = nm_wifi_ap_get_flags (priv->current_ap);
+		if (ap_flags & NM_802_11_AP_FLAGS_WPS_PBC)
+			wps_method |= NM_SETTING_WIRELESS_SECURITY_WPS_METHOD_PBC;
+		if (ap_flags & NM_802_11_AP_FLAGS_WPS_PIN)
+			wps_method |= NM_SETTING_WIRELESS_SECURITY_WPS_METHOD_PIN;
+		if (   ap_flags & NM_802_11_AP_FLAGS_WPS
+		    && wps_method == NM_SETTING_WIRELESS_SECURITY_WPS_METHOD_AUTO) {
+			/* The AP doesn't specify which methods are supported. Allow all. */
+			wps_method |= NM_SETTING_WIRELESS_SECURITY_WPS_METHOD_PBC;
+			wps_method |= NM_SETTING_WIRELESS_SECURITY_WPS_METHOD_PIN;
+		}
+	}
+
+	if (wps_method & NM_SETTING_WIRELESS_SECURITY_WPS_METHOD_PBC) {
+		get_secret_flags |= NM_SECRET_AGENT_GET_SECRETS_FLAG_WPS_PBC_ACTIVE;
+		type = "pbc";
+	} else if (wps_method & NM_SETTING_WIRELESS_SECURITY_WPS_METHOD_PIN) {
+		type = "pin";
+	} else
+		type = NULL;
+
+	if (type) {
+		priv->wps_timeout_id = g_timeout_add_seconds (30, wps_timeout_cb, self);
+		if (priv->current_ap)
+			bssid = nm_wifi_ap_get_address (priv->current_ap);
+		nm_supplicant_interface_enroll_wps (priv->sup_iface, type, bssid, NULL);
+	}
 
 	nm_act_request_clear_secrets (req);
 	setting_name = nm_connection_need_secrets (applied_connection, NULL);
@@ -2248,10 +2451,9 @@ handle_auth_or_fail (NMDeviceWifi *self,
 		return FALSE;
 	}
 
-	wifi_secrets_get_secrets (self, setting_name,
-	                          NM_SECRET_AGENT_GET_SECRETS_FLAG_ALLOW_INTERACTION
-	                          | (new_secrets ? NM_SECRET_AGENT_GET_SECRETS_FLAG_REQUEST_NEW : 0));
-	g_object_set_qdata (G_OBJECT (applied_connection), wireless_secrets_tries_quark (), GUINT_TO_POINTER (++tries));
+	if (new_secrets)
+		get_secret_flags |= NM_SECRET_AGENT_GET_SECRETS_FLAG_REQUEST_NEW;
+	wifi_secrets_get_secrets (self, setting_name, get_secret_flags);
 	return TRUE;
 }
 
@@ -2348,6 +2550,8 @@ build_supplicant_config (NMDeviceWifi *self,
 	NMSupplicantConfig *config = NULL;
 	NMSettingWireless *s_wireless;
 	NMSettingWirelessSecurity *s_wireless_sec;
+	NMSettingWirelessSecurityPmf pmf;
+	gs_free char *value = NULL;
 
 	g_return_val_if_fail (priv->sup_iface, NULL);
 
@@ -2362,11 +2566,32 @@ build_supplicant_config (NMDeviceWifi *self,
 		_LOGW (LOGD_WIFI, "Supplicant may not support AP mode; connection may time out.");
 	}
 
+	/* Warn if Laird features are not supported */
+	{
+		NMSupplicantFeature laird_support = NM_SUPPLICANT_FEATURE_NO;
+		if (priv->sup_iface)
+			laird_support = nm_supplicant_interface_get_laird_support (priv->sup_iface);
+		if (laird_support != NM_SUPPLICANT_FEATURE_YES) {
+			NMSetting8021x *s_8021x;
+			s_8021x = nm_connection_get_setting_802_1x (connection);
+			// warnings if Laird features are configured
+			if (warn_wireless_requires_laird_support (self, s_wireless, s_8021x)) {
+				_LOGW (LOGD_WIFI, "Laird features will be excluded from config.");
+			}
+		}
+		nm_supplicant_config_set_laird_support (config, laird_support);
+	}
+
 	if (!nm_supplicant_config_add_setting_wireless (config,
 	                                                s_wireless,
 	                                                fixed_freq,
 	                                                error)) {
 		g_prefix_error (error, "802-11-wireless: ");
+		goto error;
+	}
+
+	if (!nm_supplicant_config_add_bgscan (config, connection, error)) {
+		g_prefix_error (error, "bgscan: ");
 		goto error;
 	}
 
@@ -2378,12 +2603,46 @@ build_supplicant_config (NMDeviceWifi *self,
 		                                        nm_device_get_ifindex (NM_DEVICE (self)));
 
 		g_assert (con_uuid);
+
+		/* Configure PMF (802.11w) */
+		pmf = nm_setting_wireless_security_get_pmf (s_wireless_sec);
+		if (pmf == NM_SETTING_WIRELESS_SECURITY_PMF_DEFAULT) {
+			value = nm_config_data_get_connection_default (NM_CONFIG_GET_DATA,
+			                                               "wifi-sec.pmf",
+			                                               NM_DEVICE (self));
+			pmf = _nm_utils_ascii_str_to_int64 (value, 10,
+			                                    NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE,
+			                                    NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED,
+			                                    NM_SETTING_WIRELESS_SECURITY_PMF_OPTIONAL);
+		}
+
+		/* Don't try to enable PMF on non-WPA networks */
+		if (!NM_IN_STRSET (nm_setting_wireless_security_get_key_mgmt (s_wireless_sec),
+		                   "wpa-eap",
+		                   "wpa-psk"))
+			pmf = NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE;
+
+		/* Check if we actually support PMF */
+		if (nm_supplicant_interface_get_pmf_support (priv->sup_iface) != NM_SUPPLICANT_FEATURE_YES) {
+			if (pmf == NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED) {
+				g_set_error_literal (error, NM_SUPPLICANT_ERROR, NM_SUPPLICANT_ERROR_CONFIG,
+				                     "Supplicant does not support PMF");
+				goto error;
+			} else if (pmf == NM_SETTING_WIRELESS_SECURITY_PMF_OPTIONAL) {
+				/* To be on the safe side, assume no support if we can't determine
+				 * capabilities.
+				 */
+				pmf = NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE;
+			}
+		}
+
 		s_8021x = nm_connection_get_setting_802_1x (connection);
 		if (!nm_supplicant_config_add_setting_wireless_security (config,
 		                                                         s_wireless_sec,
 		                                                         s_8021x,
 		                                                         con_uuid,
 		                                                         mtu,
+		                                                         pmf,
 		                                                         error)) {
 			g_prefix_error (error, "802-11-wireless-security: ");
 			goto error;
@@ -2429,6 +2688,8 @@ act_stage1_prepare (NMDevice *device, NMDeviceStateReason *out_failure_reason)
 
 	s_wireless = nm_connection_get_setting_wireless (connection);
 	g_return_val_if_fail (s_wireless, NM_ACT_STAGE_RETURN_FAILURE);
+
+	nm_supplicant_interface_cancel_wps (priv->sup_iface);
 
 	mode = nm_setting_wireless_get_mode (s_wireless);
 	if (g_strcmp0 (mode, NM_SETTING_WIRELESS_MODE_INFRA) == 0)
@@ -2578,6 +2839,7 @@ act_stage2_config (NMDevice *device, NMDeviceStateReason *out_failure_reason)
 
 	nm_clear_g_source (&priv->sup_timeout_id);
 	nm_clear_g_source (&priv->link_timeout_id);
+	nm_clear_g_source (&priv->wps_timeout_id);
 
 	req = nm_device_get_act_request (device);
 	g_return_val_if_fail (req, NM_ACT_STAGE_RETURN_FAILURE);
@@ -2873,9 +3135,6 @@ activation_success_handler (NMDevice *device)
 	/* Clear any critical protocol notification in the wifi stack */
 	nm_platform_wifi_indicate_addressing_running (nm_device_get_platform (device), ifindex, FALSE);
 
-	/* Clear wireless secrets tries on success */
-	g_object_set_qdata (G_OBJECT (applied_connection), wireless_secrets_tries_quark (), NULL);
-
 	/* There should always be a current AP, either a fake one because we haven't
 	 * seen a scan result for the activated AP yet, or a real one from the
 	 * supplicant's scan list.
@@ -2919,21 +3178,6 @@ activation_success_handler (NMDevice *device)
 
 	/* Reset scan interval to something reasonable */
 	priv->scan_interval = SCAN_INTERVAL_MIN + (SCAN_INTERVAL_STEP * 2);
-}
-
-static void
-activation_failure_handler (NMDevice *device)
-{
-	NMConnection *applied_connection;
-
-	applied_connection = nm_device_get_applied_connection (device);
-	g_assert (applied_connection);
-
-	/* Clear wireless secrets tries on failure */
-	g_object_set_qdata (G_OBJECT (applied_connection), wireless_secrets_tries_quark (), NULL);
-
-	/* Clear any critical protocol notification in the wifi stack */
-	nm_platform_wifi_indicate_addressing_running (nm_device_get_platform (device), nm_device_get_ifindex (device), FALSE);
 }
 
 static void
@@ -2990,12 +3234,13 @@ device_state_changed (NMDevice *device,
 		activation_success_handler (device);
 		break;
 	case NM_DEVICE_STATE_FAILED:
-		activation_failure_handler (device);
+		/* Clear any critical protocol notification in the wifi stack */
+		nm_platform_wifi_indicate_addressing_running (nm_device_get_platform (device), nm_device_get_ifindex (device), FALSE);
 		break;
 	case NM_DEVICE_STATE_DISCONNECTED:
 		/* Kick off a scan to get latest results */
 		priv->scan_interval = SCAN_INTERVAL_MIN;
-		request_wireless_scan (self, FALSE, NULL);
+		request_wireless_scan (self, FALSE, FALSE, NULL);
 		break;
 	default:
 		break;
@@ -3159,7 +3404,7 @@ nm_device_wifi_init (NMDeviceWifi *self)
 	NMDeviceWifiPrivate *priv = NM_DEVICE_WIFI_GET_PRIVATE (self);
 
 	priv->mode = NM_802_11_MODE_INFRA;
-	priv->aps = g_hash_table_new (g_str_hash, g_str_equal);
+	priv->aps = g_hash_table_new (nm_str_hash, g_str_equal);
 }
 
 static void
@@ -3261,7 +3506,7 @@ nm_device_wifi_class_init (NMDeviceWifiClass *klass)
 
 	parent_class->state_changed = device_state_changed;
 
-	klass->scanning_allowed = scanning_allowed;
+	klass->scanning_prohibited = scanning_prohibited;
 
 	obj_properties[PROP_MODE] =
 	    g_param_spec_uint (NM_DEVICE_WIFI_MODE, "", "",
@@ -3322,13 +3567,13 @@ nm_device_wifi_class_init (NMDeviceWifiClass *klass)
 	                  G_TYPE_NONE, 1,
 	                  NM_TYPE_WIFI_AP);
 
-	signals[SCANNING_ALLOWED] =
-	    g_signal_new (NM_DEVICE_WIFI_SCANNING_ALLOWED,
+	signals[SCANNING_PROHIBITED] =
+	    g_signal_new (NM_DEVICE_WIFI_SCANNING_PROHIBITED,
 	                  G_OBJECT_CLASS_TYPE (object_class),
 	                  G_SIGNAL_RUN_LAST,
-	                  G_STRUCT_OFFSET (NMDeviceWifiClass, scanning_allowed),
-	                  scanning_allowed_accumulator, NULL, NULL,
-	                  G_TYPE_BOOLEAN, 0);
+	                  G_STRUCT_OFFSET (NMDeviceWifiClass, scanning_prohibited),
+	                  NULL, NULL, NULL,
+	                  G_TYPE_BOOLEAN, 1, G_TYPE_BOOLEAN);
 
 	nm_exported_object_class_add_interface (NM_EXPORTED_OBJECT_CLASS (klass),
 	                                        NMDBUS_TYPE_DEVICE_WIFI_SKELETON,

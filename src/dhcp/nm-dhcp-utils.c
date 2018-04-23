@@ -24,6 +24,8 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 
+#include "nm-utils/nm-dedup-multi.h"
+
 #include "nm-dhcp-utils.h"
 #include "nm-utils.h"
 #include "NetworkManagerUtils.h"
@@ -36,7 +38,8 @@
 static gboolean
 ip4_process_dhcpcd_rfc3442_routes (const char *iface,
                                    const char *str,
-                                   guint32 priority,
+                                   guint32 route_table,
+                                   guint32 route_metric,
                                    NMIP4Config *ip4_config,
                                    guint32 *gwaddr)
 {
@@ -84,12 +87,13 @@ ip4_process_dhcpcd_rfc3442_routes (const char *iface,
 		} else {
 			_LOG2I (LOGD_DHCP4, iface, "  classless static route %s/%d gw %s", *r, rt_cidr, *(r + 1));
 			memset (&route, 0, sizeof (route));
-			route.network = rt_addr;
+			route.network = nm_utils_ip4_address_clear_host_address (rt_addr, rt_cidr);
 			route.plen = rt_cidr;
 			route.gateway = rt_route;
 			route.rt_source = NM_IP_CONFIG_SOURCE_DHCP;
-			route.metric = priority;
-			nm_ip4_config_add_route (ip4_config, &route);
+			route.metric = route_metric;
+			route.table_coerced = nm_platform_route_table_coerce (route_table);
+			nm_ip4_config_add_route (ip4_config, &route, NULL);
 		}
 	}
 
@@ -142,8 +146,7 @@ process_dhclient_rfc3442_route (const char **octets,
 			goto error;
 		}
 		g_free (str_addr);
-		tmp_addr &= nm_utils_ip4_prefix_to_netmask ((guint32) tmp);
-		route->network = tmp_addr;
+		route->network = nm_utils_ip4_address_clear_host_address (tmp_addr, tmp);
 	}
 
 	/* Handle next hop */
@@ -165,7 +168,8 @@ error:
 static gboolean
 ip4_process_dhclient_rfc3442_routes (const char *iface,
                                      const char *str,
-                                     guint32 priority,
+                                     guint32 route_table,
+                                     guint32 route_metric,
                                      NMIP4Config *ip4_config,
                                      guint32 *gwaddr)
 {
@@ -197,8 +201,9 @@ ip4_process_dhclient_rfc3442_routes (const char *iface,
 
 			/* normal route */
 			route.rt_source = NM_IP_CONFIG_SOURCE_DHCP;
-			route.metric = priority;
-			nm_ip4_config_add_route (ip4_config, &route);
+			route.metric = route_metric;
+			route.table_coerced = nm_platform_route_table_coerce (route_table);
+			nm_ip4_config_add_route (ip4_config, &route, NULL);
 
 			_LOG2I (LOGD_DHCP4, iface, "  classless static route %s/%d gw %s",
 			        nm_utils_inet4_ntop (route.network, addr), route.plen,
@@ -214,7 +219,8 @@ out:
 static gboolean
 ip4_process_classless_routes (const char *iface,
                               GHashTable *options,
-                              guint32 priority,
+                              guint32 route_table,
+                              guint32 route_metric,
                               NMIP4Config *ip4_config,
                               guint32 *gwaddr)
 {
@@ -270,16 +276,17 @@ ip4_process_classless_routes (const char *iface,
 
 	if (strchr (str, '/')) {
 		/* dhcpcd format */
-		return ip4_process_dhcpcd_rfc3442_routes (iface, str, priority, ip4_config, gwaddr);
+		return ip4_process_dhcpcd_rfc3442_routes (iface, str, route_table, route_metric, ip4_config, gwaddr);
 	}
 
-	return ip4_process_dhclient_rfc3442_routes (iface, str, priority, ip4_config, gwaddr);
+	return ip4_process_dhclient_rfc3442_routes (iface, str, route_table, route_metric, ip4_config, gwaddr);
 }
 
 static void
 process_classful_routes (const char *iface,
                          GHashTable *options,
-                         guint32 priority,
+                         guint32 route_table,
+                         guint32 route_metric,
                          NMIP4Config *ip4_config)
 {
 	const char *str;
@@ -316,16 +323,19 @@ process_classful_routes (const char *iface,
 		   The Static Routes option (option 33) does not provide a subnet mask
 		   for each route - it is assumed that the subnet mask is implicit in
 		   whatever network number is specified in each route entry */
-		route.plen = nm_utils_ip4_get_default_prefix (rt_addr);
-		if (rt_addr & ~nm_utils_ip4_prefix_to_netmask (route.plen)) {
+		route.plen = _nm_utils_ip4_get_default_prefix (rt_addr);
+		if (rt_addr & ~_nm_utils_ip4_prefix_to_netmask (route.plen)) {
 			/* RFC 943: target not "this network"; using host routing */
 			route.plen = 32;
 		}
 		route.gateway = rt_route;
 		route.rt_source = NM_IP_CONFIG_SOURCE_DHCP;
-		route.metric = priority;
+		route.metric = route_metric;
+		route.table_coerced = nm_platform_route_table_coerce (route_table);
 
-		nm_ip4_config_add_route (ip4_config, &route);
+		route.network = nm_utils_ip4_address_clear_host_address (route.network, route.plen);
+
+		nm_ip4_config_add_route (ip4_config, &route, NULL);
 		_LOG2I (LOGD_DHCP, iface, "  static route %s",
 		             nm_platform_ip4_route_to_string (&route, NULL, 0));
 	}
@@ -383,22 +393,25 @@ ip4_add_domain_search (gpointer data, gpointer user_data)
 }
 
 NMIP4Config *
-nm_dhcp_utils_ip4_config_from_options (int ifindex,
+nm_dhcp_utils_ip4_config_from_options (NMDedupMultiIndex *multi_idx,
+                                       int ifindex,
                                        const char *iface,
                                        GHashTable *options,
-                                       guint32 priority)
+                                       guint32 route_table,
+                                       guint32 route_metric)
 {
 	NMIP4Config *ip4_config = NULL;
 	guint32 tmp_addr;
 	in_addr_t addr;
 	NMPlatformIP4Address address;
 	char *str = NULL;
-	guint32 gwaddr = 0;
+	gboolean gateway_has = FALSE;
+	guint32 gateway = 0;
 	guint8 plen = 0;
 
 	g_return_val_if_fail (options != NULL, NULL);
 
-	ip4_config = nm_ip4_config_new (ifindex);
+	ip4_config = nm_ip4_config_new (multi_idx, ifindex);
 	memset (&address, 0, sizeof (address));
 	address.timestamp = nm_utils_get_monotonic_timestamp_s ();
 
@@ -414,7 +427,7 @@ nm_dhcp_utils_ip4_config_from_options (int ifindex,
 		_LOG2I (LOGD_DHCP4, iface, "  plen %d (%s)", plen, str);
 	} else {
 		/* Get default netmask for the IP according to appropriate class. */
-		plen = nm_utils_ip4_get_default_prefix (addr);
+		plen = _nm_utils_ip4_get_default_prefix (addr);
 		_LOG2I (LOGD_DHCP4, iface, "  plen %d (default)", plen);
 	}
 	nm_platform_ip4_address_set_addr (&address, addr, plen);
@@ -422,12 +435,12 @@ nm_dhcp_utils_ip4_config_from_options (int ifindex,
 	/* Routes: if the server returns classless static routes, we MUST ignore
 	 * the 'static_routes' option.
 	 */
-	if (!ip4_process_classless_routes (iface, options, priority, ip4_config, &gwaddr))
-		process_classful_routes (iface, options, priority, ip4_config);
+	if (!ip4_process_classless_routes (iface, options, route_table, route_metric, ip4_config, &gateway))
+		process_classful_routes (iface, options, route_table, route_metric, ip4_config);
 
-	if (gwaddr) {
-		_LOG2I (LOGD_DHCP4, iface, "  gateway %s", nm_utils_inet4_ntop (gwaddr, NULL));
-		nm_ip4_config_set_gateway (ip4_config, gwaddr);
+	if (gateway) {
+		_LOG2I (LOGD_DHCP4, iface, "  gateway %s", nm_utils_inet4_ntop (gateway, NULL));
+		gateway_has = TRUE;
 	} else {
 		/* If the gateway wasn't provided as a classless static route with a
 		 * subnet length of 0, try to find it using the old-style 'routers' option.
@@ -439,15 +452,26 @@ nm_dhcp_utils_ip4_config_from_options (int ifindex,
 
 			for (s = routers; *s; s++) {
 				/* FIXME: how to handle multiple routers? */
-				if (inet_pton (AF_INET, *s, &gwaddr) > 0) {
-					nm_ip4_config_set_gateway (ip4_config, gwaddr);
+				if (inet_pton (AF_INET, *s, &gateway) > 0) {
 					_LOG2I (LOGD_DHCP4, iface, "  gateway %s", *s);
+					gateway_has = TRUE;
 					break;
 				} else
 					_LOG2W (LOGD_DHCP4, iface, "ignoring invalid gateway '%s'", *s);
 			}
 			g_strfreev (routers);
 		}
+	}
+
+	if (gateway_has) {
+		const NMPlatformIP4Route r = {
+			.rt_source = NM_IP_CONFIG_SOURCE_DHCP,
+			.gateway = gateway,
+			.table_coerced = nm_platform_route_table_coerce (route_table),
+			.metric = route_metric,
+		};
+
+		nm_ip4_config_add_route (ip4_config, &r, NULL);
 	}
 
 	str = g_hash_table_lookup (options, "dhcp_lease_time");
@@ -616,10 +640,10 @@ nm_dhcp_utils_ip6_prefix_from_options (GHashTable *options)
 }
 
 NMIP6Config *
-nm_dhcp_utils_ip6_config_from_options (int ifindex,
+nm_dhcp_utils_ip6_config_from_options (NMDedupMultiIndex *multi_idx,
+                                       int ifindex,
                                        const char *iface,
                                        GHashTable *options,
-                                       guint32 priority,
                                        gboolean info_only)
 {
 	NMIP6Config *ip6_config = NULL;
@@ -633,7 +657,7 @@ nm_dhcp_utils_ip6_config_from_options (int ifindex,
 	address.plen = 128;
 	address.timestamp = nm_utils_get_monotonic_timestamp_s ();
 
-	ip6_config = nm_ip6_config_new (ifindex);
+	ip6_config = nm_ip6_config_new (multi_idx, ifindex);
 
 	str = g_hash_table_lookup (options, "max_life");
 	if (str) {
@@ -726,8 +750,15 @@ nm_dhcp_utils_client_id_string_to_bytes (const char *client_id)
 	g_return_val_if_fail (client_id && client_id[0], NULL);
 
 	/* Try as hex encoded */
-	if (strchr (client_id, ':'))
+	if (strchr (client_id, ':')) {
 		bytes = nm_utils_hexstr2bin (client_id);
+
+		/* the result must be at least two bytes long,
+		 * because @client_id contains a delimiter
+		 * but nm_utils_hexstr2bin() does not allow
+		 * leading nor trailing delimiters. */
+		nm_assert (!bytes || g_bytes_get_size (bytes) >= 2);
+	}
 	if (!bytes) {
 		/* Fall back to string */
 		len = strlen (client_id);

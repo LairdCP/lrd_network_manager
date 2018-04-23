@@ -26,7 +26,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <string.h>
-#include <poll.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <resolv.h>
@@ -37,6 +36,7 @@
 #include <linux/if_infiniband.h>
 #include <net/ethernet.h>
 
+#include "nm-utils/nm-random-utils.h"
 #include "nm-utils.h"
 #include "nm-core-internal.h"
 #include "nm-setting-connection.h"
@@ -107,10 +107,6 @@ _nm_utils_set_testing (NMUtilsTestFlags flags)
 		g_return_if_reached ();
 	}
 }
-
-/*****************************************************************************/
-
-const NMIPAddr nm_ip_addr_zero = NMIPAddrInit;
 
 /*****************************************************************************/
 
@@ -265,7 +261,7 @@ nm_utils_ipx_address_clear_host_address (int family, gpointer dst, gconstpointer
 in_addr_t
 nm_utils_ip4_address_clear_host_address (in_addr_t addr, guint8 plen)
 {
-	return addr & nm_utils_ip4_prefix_to_netmask (plen);
+	return addr & _nm_utils_ip4_prefix_to_netmask (plen);
 }
 
 /* nm_utils_ip6_address_clear_host_address:
@@ -274,14 +270,16 @@ nm_utils_ip4_address_clear_host_address (in_addr_t addr, guint8 plen)
  * @plen: prefix length of network
  *
  * Note: this function is self assignment safe, to update @src inplace, set both
- * @dst and @src to the same destination.
+ * @dst and @src to the same destination or set @src NULL.
  */
 const struct in6_addr *
 nm_utils_ip6_address_clear_host_address (struct in6_addr *dst, const struct in6_addr *src, guint8 plen)
 {
 	g_return_val_if_fail (plen <= 128, NULL);
-	g_return_val_if_fail (src, NULL);
 	g_return_val_if_fail (dst, NULL);
+
+	if (!src)
+		src = dst;
 
 	if (plen < 128) {
 		guint nbytes = plen / 8;
@@ -301,28 +299,28 @@ nm_utils_ip6_address_clear_host_address (struct in6_addr *dst, const struct in6_
 	return dst;
 }
 
-gboolean
-nm_utils_ip6_address_same_prefix (const struct in6_addr *addr_a, const struct in6_addr *addr_b, guint8 plen)
+int
+nm_utils_ip6_address_same_prefix_cmp (const struct in6_addr *addr_a, const struct in6_addr *addr_b, guint8 plen)
 {
 	int nbytes;
-	guint8 t, m;
+	guint8 va, vb, m;
 
 	if (plen >= 128)
-		return memcmp (addr_a, addr_b, sizeof (struct in6_addr)) == 0;
+		NM_CMP_DIRECT_MEMCMP (addr_a, addr_b, sizeof (struct in6_addr));
+	else {
+		nbytes = plen / 8;
+		if (nbytes)
+			NM_CMP_DIRECT_MEMCMP (addr_a, addr_b, nbytes);
 
-	nbytes = plen / 8;
-	if (nbytes) {
-		if (memcmp (addr_a, addr_b, nbytes) != 0)
-			return FALSE;
+		plen = plen % 8;
+		if (plen != 0) {
+			m = ~((1 << (8 - plen)) - 1);
+			va = ((((const guint8 *) addr_a))[nbytes]) & m;
+			vb = ((((const guint8 *) addr_b))[nbytes]) & m;
+			NM_CMP_DIRECT (va, vb);
+		}
 	}
-
-	plen = plen % 8;
-	if (plen == 0)
-		return TRUE;
-
-	m = ~((1 << (8 - plen)) - 1);
-	t = ((((const guint8 *) addr_a))[nbytes]) ^ ((((const guint8 *) addr_b))[nbytes]);
-	return (t & m) == 0;
+	return 0;
 }
 
 /*****************************************************************************/
@@ -1820,81 +1818,6 @@ nm_match_spec_join (GSList *specs)
 
 /*****************************************************************************/
 
-char _nm_utils_to_string_buffer[];
-
-void
-nm_utils_to_string_buffer_init (char **buf, gsize *len)
-{
-	if (!*buf) {
-		*buf = _nm_utils_to_string_buffer;
-		*len = sizeof (_nm_utils_to_string_buffer);
-	}
-}
-
-gboolean
-nm_utils_to_string_buffer_init_null (gconstpointer obj, char **buf, gsize *len)
-{
-	nm_utils_to_string_buffer_init (buf, len);
-	if (!obj) {
-		g_strlcpy (*buf, "(null)", *len);
-		return FALSE;
-	}
-	return TRUE;
-}
-
-const char *
-nm_utils_flags2str (const NMUtilsFlags2StrDesc *descs,
-                    gsize n_descs,
-                    unsigned flags,
-                    char *buf,
-                    gsize len)
-{
-	gsize i;
-	char *p;
-
-#if NM_MORE_ASSERTS > 10
-	nm_assert (descs);
-	nm_assert (n_descs > 0);
-	for (i = 0; i < n_descs; i++) {
-		gsize j;
-
-		nm_assert (descs[i].flag && nm_utils_is_power_of_two (descs[i].flag));
-		nm_assert (descs[i].name && descs[i].name[0]);
-		for (j = 0; j < i; j++)
-			nm_assert (descs[j].flag != descs[i].flag);
-	}
-#endif
-
-	nm_utils_to_string_buffer_init (&buf, &len);
-
-	if (!len)
-		return buf;
-
-	buf[0] = '\0';
-	if (!flags) {
-		return buf;
-	}
-
-	p = buf;
-	for (i = 0; flags && i < n_descs; i++) {
-		if (NM_FLAGS_HAS (flags, descs[i].flag)) {
-			flags &= ~descs[i].flag;
-
-			if (buf[0] != '\0')
-				nm_utils_strbuf_append_c (&p, &len, ',');
-			nm_utils_strbuf_append_str (&p, &len, descs[i].name);
-		}
-	}
-	if (flags) {
-		if (buf[0] != '\0')
-			nm_utils_strbuf_append_c (&p, &len, ',');
-		nm_utils_strbuf_append (&p, &len, "0x%x", flags);
-	}
-	return buf;
-};
-
-/*****************************************************************************/
-
 char *
 nm_utils_new_vlan_name (const char *parent_iface, guint32 vlan_id)
 {
@@ -1952,101 +1875,108 @@ nm_utils_new_infiniband_name (char *name, const char *parent_name, int p_key)
 	return name;
 }
 
-/**
- * nm_utils_read_resolv_conf_nameservers():
- * @rc_contents: contents of a resolv.conf; or %NULL to read /etc/resolv.conf
- *
- * Reads all nameservers out of @rc_contents or /etc/resolv.conf and returns
- * them.
- *
- * Returns: a #GPtrArray of 'char *' elements of each nameserver line from
- * @contents or resolv.conf
- */
-GPtrArray *
-nm_utils_read_resolv_conf_nameservers (const char *rc_contents)
+/*****************************************************************************/
+
+gboolean
+nm_utils_resolve_conf_parse (int addr_family,
+                             const char *rc_contents,
+                             GArray *nameservers,
+                             GPtrArray *dns_options)
 {
-	GPtrArray *nameservers = NULL;
-	char *contents = NULL;
-	char **lines, **iter;
-	char *p;
+	guint i;
+	gboolean changed = FALSE;
+	gs_free const char **lines = NULL;
+	gsize l;
 
-	if (rc_contents)
-		contents = g_strdup (rc_contents);
-	else {
-		if (!g_file_get_contents (_PATH_RESCONF, &contents, NULL, NULL))
-			return NULL;
-	}
+	g_return_val_if_fail (rc_contents, FALSE);
+	g_return_val_if_fail (nameservers, FALSE);
+	g_return_val_if_fail (   (   addr_family == AF_INET
+	                          && g_array_get_element_size (nameservers) == sizeof (in_addr_t))
+	                      || (   addr_family == AF_INET6
+	                          && g_array_get_element_size (nameservers) == sizeof (struct in6_addr)), FALSE);
 
-	nameservers = g_ptr_array_new_full (3, g_free);
+	lines = nm_utils_strsplit_set (rc_contents, "\r\n");
+	if (!lines)
+		return FALSE;
 
-	lines = g_strsplit_set (contents, "\r\n", -1);
-	for (iter = lines; *iter; iter++) {
-		if (!g_str_has_prefix (*iter, "nameserver"))
-			continue;
-		p = *iter + strlen ("nameserver");
-		if (!g_ascii_isspace (*p++))
-			continue;
-		/* Skip intermediate whitespace */
-		while (g_ascii_isspace (*p))
-			p++;
-		g_strchomp (p);
+/* like glibc's MATCH() macro in resolv/res_init.c. */
+#define RC_MATCH(line, option, out_arg) \
+    ({ \
+        const char *const _line = (line); \
+        gboolean _match = FALSE; \
+        \
+        if (   (strncmp (_line, option, NM_STRLEN (option)) == 0) \
+            && (NM_IN_SET (_line[NM_STRLEN (option)], ' ', '\t'))) { \
+            _match = TRUE;\
+            (out_arg) = &_line[NM_STRLEN (option) + 1]; \
+        } \
+        _match; \
+    })
 
-		g_ptr_array_add (nameservers, g_strdup (p));
-	}
-	g_strfreev (lines);
-	g_free (contents);
+	for (l = 0; lines[l]; l++) {
+		const char *const line = lines[l];
+		const char *s = NULL;
 
-	return nameservers;
-}
+		if (RC_MATCH (line, "nameserver", s)) {
+			gs_free char *s_cpy = NULL;
+			NMIPAddr ns;
 
-/**
- * nm_utils_read_resolv_conf_dns_options():
- * @rc_contents: contents of a resolv.conf; or %NULL to read /etc/resolv.conf
- *
- * Reads all dns options out of @rc_contents or /etc/resolv.conf and returns
- * them.
- *
- * Returns: a #GPtrArray of 'char *' elements of each option
- */
-GPtrArray *
-nm_utils_read_resolv_conf_dns_options (const char *rc_contents)
-{
-	GPtrArray *options = NULL;
-	char *contents = NULL;
-	char **lines, **line_iter;
-	char **tokens, **token_iter;
-	char *p;
-
-	if (rc_contents)
-		contents = g_strdup (rc_contents);
-	else {
-		if (!g_file_get_contents (_PATH_RESCONF, &contents, NULL, NULL))
-			return NULL;
-	}
-
-	options = g_ptr_array_new_full (3, g_free);
-
-	lines = g_strsplit_set (contents, "\r\n", -1);
-	for (line_iter = lines; *line_iter; line_iter++) {
-		if (!g_str_has_prefix (*line_iter, "options"))
-			continue;
-		p = *line_iter + strlen ("options");
-		if (!g_ascii_isspace (*p++))
-			continue;
-
-		tokens = g_strsplit (p, " ", 0);
-		for (token_iter = tokens; token_iter && *token_iter; token_iter++) {
-			g_strstrip (*token_iter);
-			if (!*token_iter[0])
+			s = nm_strstrip_avoid_copy (s, &s_cpy);
+			if (inet_pton (addr_family, s, &ns) != 1)
 				continue;
-			g_ptr_array_add (options, g_strdup (*token_iter));
-		}
-		g_strfreev (tokens);
-	}
-	g_strfreev (lines);
-	g_free (contents);
 
-	return options;
+			if (addr_family == AF_INET) {
+				if (!ns.addr4)
+					continue;
+				for (i = 0; i < nameservers->len; i++) {
+					if (g_array_index (nameservers, guint32, i) == ns.addr4)
+						break;
+				}
+			} else {
+				if (IN6_IS_ADDR_UNSPECIFIED (&ns.addr6))
+					continue;
+				for (i = 0; i < nameservers->len; i++) {
+					struct in6_addr *t = &g_array_index (nameservers, struct in6_addr, i);
+
+					if (IN6_ARE_ADDR_EQUAL (t, &ns.addr6))
+						break;
+				}
+			}
+
+			if (i == nameservers->len) {
+				g_array_append_val (nameservers, ns);
+				changed = TRUE;
+			}
+			continue;
+		}
+
+		if (RC_MATCH (line, "options", s)) {
+			if (!dns_options)
+				continue;
+
+			s = nm_str_skip_leading_spaces (s);
+			if (s[0]) {
+				gs_free const char **tokens = NULL;
+				gsize i_tokens;
+
+				tokens = nm_utils_strsplit_set (s, " \t");
+				for (i_tokens = 0; tokens && tokens[i_tokens]; i_tokens++) {
+					gs_free char *t = g_strstrip (g_strdup (tokens[i_tokens]));
+
+					if (   _nm_utils_dns_option_validate (t, NULL, NULL,
+					                                      addr_family == AF_INET6,
+					                                      _nm_utils_dns_option_descs)
+					    && _nm_utils_dns_option_find_idx (dns_options, t) < 0) {
+						g_ptr_array_add (dns_options, g_steal_pointer (&t));
+						changed = TRUE;
+					}
+				}
+			}
+			continue;
+		}
+	}
+
+	return changed;
 }
 
 /*****************************************************************************/
@@ -2131,7 +2061,7 @@ monotonic_timestamp_get (struct timespec *tp)
 		break;
 	case 2:
 		/* fallback, return CLOCK_MONOTONIC. Kernels prior to 2.6.39
-		 * don't support CLOCK_BOOTTIME. */
+		 * (released on 18 May, 2011) don't support CLOCK_BOOTTIME. */
 		err = clock_gettime (CLOCK_MONOTONIC, tp);
 		break;
 	}
@@ -2292,7 +2222,7 @@ _log_connection_sort_hashes_fcn (gconstpointer a, gconstpointer b)
 {
 	const LogConnectionSettingData *v1 = a;
 	const LogConnectionSettingData *v2 = b;
-	guint32 p1, p2;
+	NMSettingPriority p1, p2;
 	NMSetting *s1, *s2;
 
 	s1 = v1->setting ? v1->setting : v1->diff_base_setting;
@@ -2432,12 +2362,26 @@ nm_utils_log_connection_diff (NMConnection *connection, NMConnection *diff_base,
 	if (!name)
 		name = "";
 
-	connection_diff_are_same = nm_connection_diff (connection, diff_base, NM_SETTING_COMPARE_FLAG_EXACT | NM_SETTING_COMPARE_FLAG_DIFF_RESULT_NO_DEFAULT, &connection_diff);
+	connection_diff_are_same = nm_connection_diff (connection, diff_base,
+	                                               NM_SETTING_COMPARE_FLAG_EXACT | NM_SETTING_COMPARE_FLAG_DIFF_RESULT_NO_DEFAULT,
+	                                               &connection_diff);
 	if (connection_diff_are_same) {
-		if (diff_base)
-			nm_log (level, domain, NULL, NULL, "%sconnection '%s' (%p/%s and %p/%s): no difference", prefix, name, connection, G_OBJECT_TYPE_NAME (connection), diff_base, G_OBJECT_TYPE_NAME (diff_base));
-		else
-			nm_log (level, domain, NULL, NULL, "%sconnection '%s' (%p/%s): no properties set", prefix, name, connection, G_OBJECT_TYPE_NAME (connection));
+		const char *t1, *t2;
+
+		t1 = nm_connection_get_connection_type (connection);
+		if (diff_base) {
+			t2 = nm_connection_get_connection_type (diff_base);
+			nm_log (level, domain, NULL, NULL,
+			        "%sconnection '%s' (%p/%s/%s%s%s and %p/%s/%s%s%s): no difference",
+			        prefix, name,
+			        connection, G_OBJECT_TYPE_NAME (connection), NM_PRINT_FMT_QUOTE_STRING (t1),
+			        diff_base, G_OBJECT_TYPE_NAME (diff_base), NM_PRINT_FMT_QUOTE_STRING (t2));
+		} else {
+			nm_log (level, domain, NULL, NULL,
+			        "%sconnection '%s' (%p/%s/%s%s%s): no properties set",
+			        prefix, name,
+			        connection, G_OBJECT_TYPE_NAME (connection), NM_PRINT_FMT_QUOTE_STRING (t1));
+		}
 		g_assert (!connection_diff);
 		return;
 	}
@@ -2471,12 +2415,20 @@ nm_utils_log_connection_diff (NMConnection *connection, NMConnection *diff_base,
 			if (print_header) {
 				GError *err_verify = NULL;
 				const char *path = nm_connection_get_path (connection);
+				const char *t1, *t2;
 
+				t1 = nm_connection_get_connection_type (connection);
 				if (diff_base) {
-					nm_log (level, domain, NULL, NULL, "%sconnection '%s' (%p/%s < %p/%s)%s%s%s:", prefix, name, connection, G_OBJECT_TYPE_NAME (connection), diff_base, G_OBJECT_TYPE_NAME (diff_base),
+					t2 = nm_connection_get_connection_type (diff_base);
+					nm_log (level, domain, NULL, NULL, "%sconnection '%s' (%p/%s/%s%s%s < %p/%s/%s%s%s)%s%s%s:",
+					        prefix, name,
+					        connection, G_OBJECT_TYPE_NAME (connection), NM_PRINT_FMT_QUOTE_STRING (t1),
+					        diff_base, G_OBJECT_TYPE_NAME (diff_base), NM_PRINT_FMT_QUOTE_STRING (t2),
 					        NM_PRINT_FMT_QUOTED (path, " [", path, "]", ""));
 				} else {
-					nm_log (level, domain, NULL, NULL, "%sconnection '%s' (%p/%s):%s%s%s", prefix, name, connection, G_OBJECT_TYPE_NAME (connection),
+					nm_log (level, domain, NULL, NULL, "%sconnection '%s' (%p/%s/%s%s%s):%s%s%s",
+					        prefix, name,
+					        connection, G_OBJECT_TYPE_NAME (connection), NM_PRINT_FMT_QUOTE_STRING (t1),
 					        NM_PRINT_FMT_QUOTED (path, " [", path, "]", ""));
 				}
 				print_header = FALSE;
@@ -2572,55 +2524,88 @@ nm_utils_monotonic_timestamp_as_boottime (gint64 timestamp, gint64 timestamp_ns_
 #define IPV6_PROPERTY_DIR "/proc/sys/net/ipv6/conf/"
 #define IPV4_PROPERTY_DIR "/proc/sys/net/ipv4/conf/"
 G_STATIC_ASSERT (sizeof (IPV4_PROPERTY_DIR) == sizeof (IPV6_PROPERTY_DIR));
+G_STATIC_ASSERT (NM_STRLEN (IPV6_PROPERTY_DIR) + IFNAMSIZ + 60 == NM_UTILS_SYSCTL_IP_CONF_PATH_BUFSIZE);
 
-static const char *
-_get_property_path (const char *ifname,
-                    const char *property,
-                    gboolean ipv6)
+/**
+ * nm_utils_sysctl_ip_conf_path:
+ * @addr_family: either AF_INET or AF_INET6.
+ * @buf: the output buffer where to write the path. It
+ *   must be at least NM_UTILS_SYSCTL_IP_CONF_PATH_BUFSIZE bytes
+ *   long.
+ * @ifname: an interface name
+ * @property: a property name
+ *
+ * Returns: the path to IPv6 property @property on @ifname. Note that
+ * this returns the input argument @buf.
+ */
+const char *
+nm_utils_sysctl_ip_conf_path (int addr_family, char *buf, const char *ifname, const char *property)
 {
-	static char path[sizeof (IPV6_PROPERTY_DIR) + IFNAMSIZ + 32];
 	int len;
 
-	ifname = NM_ASSERT_VALID_PATH_COMPONENT (ifname);
+	nm_assert (buf);
+	nm_assert_addr_family (addr_family);
+
+	g_assert (nm_utils_is_valid_iface_name (ifname, NULL));
 	property = NM_ASSERT_VALID_PATH_COMPONENT (property);
 
-	len = g_snprintf (path,
-	                  sizeof (path),
+	len = g_snprintf (buf,
+	                  NM_UTILS_SYSCTL_IP_CONF_PATH_BUFSIZE,
 	                  "%s%s/%s",
-	                  ipv6 ? IPV6_PROPERTY_DIR : IPV4_PROPERTY_DIR,
+	                  addr_family == AF_INET6 ? IPV6_PROPERTY_DIR : IPV4_PROPERTY_DIR,
 	                  ifname,
 	                  property);
-	g_assert (len < sizeof (path) - 1);
-
-	return path;
+	g_assert (len < NM_UTILS_SYSCTL_IP_CONF_PATH_BUFSIZE - 1);
+	return buf;
 }
 
-/**
- * nm_utils_ip6_property_path:
- * @ifname: an interface name
- * @property: a property name
- *
- * Returns the path to IPv6 property @property on @ifname. Note that
- * this uses a static buffer.
- */
-const char *
-nm_utils_ip6_property_path (const char *ifname, const char *property)
+gboolean
+nm_utils_sysctl_ip_conf_is_path (int addr_family, const char *path, const char *ifname, const char *property)
 {
-	return _get_property_path (ifname, property, TRUE);
-}
+	g_return_val_if_fail (path, FALSE);
+	NM_ASSERT_VALID_PATH_COMPONENT (property);
+	g_assert (!ifname || nm_utils_is_valid_iface_name (ifname, NULL));
 
-/**
- * nm_utils_ip4_property_path:
- * @ifname: an interface name
- * @property: a property name
- *
- * Returns the path to IPv4 property @property on @ifname. Note that
- * this uses a static buffer.
- */
-const char *
-nm_utils_ip4_property_path (const char *ifname, const char *property)
-{
-	return _get_property_path (ifname, property, FALSE);
+	if (addr_family == AF_INET) {
+		if (!g_str_has_prefix (path, IPV4_PROPERTY_DIR))
+			return FALSE;
+		path += NM_STRLEN (IPV4_PROPERTY_DIR);
+	} else if (addr_family == AF_INET6) {
+		if (!g_str_has_prefix (path, IPV6_PROPERTY_DIR))
+			return FALSE;
+		path += NM_STRLEN (IPV6_PROPERTY_DIR);
+	} else
+		g_return_val_if_reached (FALSE);
+
+	if (ifname) {
+		if (!g_str_has_prefix (path, ifname))
+			return FALSE;
+		path += strlen (ifname);
+		if (path[0] != '/')
+			return FALSE;
+		path++;
+	} else {
+		const char *slash;
+		char buf[IFNAMSIZ];
+		gsize l;
+
+		slash = strchr (path, '/');
+		if (!slash)
+			return FALSE;
+		l = slash - path;
+		if (l >= IFNAMSIZ)
+			return FALSE;
+		memcpy (buf, path, l);
+		buf[l] = '\0';
+		if (!nm_utils_is_valid_iface_name (buf, NULL))
+			return FALSE;
+		path = slash + 1;
+	}
+
+	if (!nm_streq (path, property))
+		return FALSE;
+
+	return TRUE;
 }
 
 gboolean
@@ -2733,99 +2718,6 @@ nm_utils_machine_id_read (void)
 
 /*****************************************************************************/
 
-/* taken from systemd's fd_wait_for_event(). Note that the timeout
- * is here in nano-seconds, not micro-seconds. */
-int
-nm_utils_fd_wait_for_event (int fd, int event, gint64 timeout_ns)
-{
-	struct pollfd pollfd = {
-		.fd = fd,
-		.events = event,
-	};
-	struct timespec ts, *pts;
-	int r;
-
-	if (timeout_ns < 0)
-		pts = NULL;
-	else {
-		ts.tv_sec = (time_t) (timeout_ns / NM_UTILS_NS_PER_SECOND);
-		ts.tv_nsec = (long int) (timeout_ns % NM_UTILS_NS_PER_SECOND);
-		pts = &ts;
-	}
-
-	r = ppoll (&pollfd, 1, pts, NULL);
-	if (r < 0)
-		return -errno;
-	if (r == 0)
-		return 0;
-	return pollfd.revents;
-}
-
-/* taken from systemd's loop_read() */
-ssize_t
-nm_utils_fd_read_loop (int fd, void *buf, size_t nbytes, bool do_poll)
-{
-	uint8_t *p = buf;
-	ssize_t n = 0;
-
-	g_return_val_if_fail (fd >= 0, -EINVAL);
-	g_return_val_if_fail (buf, -EINVAL);
-
-	/* If called with nbytes == 0, let's call read() at least
-	 * once, to validate the operation */
-
-	if (nbytes > (size_t) SSIZE_MAX)
-		return -EINVAL;
-
-	do {
-		ssize_t k;
-
-		k = read (fd, p, nbytes);
-		if (k < 0) {
-			if (errno == EINTR)
-				continue;
-
-			if (errno == EAGAIN && do_poll) {
-
-				/* We knowingly ignore any return value here,
-				 * and expect that any error/EOF is reported
-				 * via read() */
-
-				(void) nm_utils_fd_wait_for_event (fd, POLLIN, -1);
-				continue;
-			}
-
-			return n > 0 ? n : -errno;
-		}
-
-		if (k == 0)
-			return n;
-
-		g_assert ((size_t) k <= nbytes);
-
-		p += k;
-		nbytes -= k;
-		n += k;
-	} while (nbytes > 0);
-
-	return n;
-}
-
-/* taken from systemd's loop_read_exact() */
-int
-nm_utils_fd_read_loop_exact (int fd, void *buf, size_t nbytes, bool do_poll)
-{
-	ssize_t n;
-
-	n = nm_utils_fd_read_loop (fd, buf, nbytes, do_poll);
-	if (n < 0)
-		return (int) n;
-	if ((size_t) n != nbytes)
-		return -EIO;
-
-	return 0;
-}
-
 _nm_printf (3, 4)
 static int
 _get_contents_error (GError **error, int errsv, const char *format, ...)
@@ -2856,6 +2748,8 @@ _get_contents_error (GError **error, int errsv, const char *format, ...)
  * nm_utils_fd_get_contents:
  * @fd: open file descriptor to read. The fd will not be closed,
  *   but don't rely on it's state afterwards.
+ * @close_fd: if %TRUE, @fd will be closed by the function.
+ *  Passing %TRUE here might safe a syscall for dup().
  * @max_length: allocate at most @max_length bytes. If the
  *   file is larger, reading will fail. Set to zero to use
  *   a very large default.
@@ -2883,11 +2777,13 @@ _get_contents_error (GError **error, int errsv, const char *format, ...)
  */
 int
 nm_utils_fd_get_contents (int fd,
+                          gboolean close_fd,
                           gsize max_length,
                           char **contents,
                           gsize *length,
                           GError **error)
 {
+	nm_auto_close int fd_keeper = close_fd ? fd : -1;
 	struct stat stat_buf;
 	gs_free char *str = NULL;
 
@@ -2935,12 +2831,16 @@ nm_utils_fd_get_contents (int fd,
 		gsize n_have, n_alloc;
 		int fd2;
 
-		fd2 = dup (fd);
-		if (fd2 < 0)
-			return _get_contents_error (error, 0, "error during dup");
+		if (fd_keeper >= 0)
+			fd2 = nm_steal_fd (&fd_keeper);
+		else {
+			fd2 = fcntl (fd, F_DUPFD_CLOEXEC, 0);
+			if (fd2 < 0)
+				return _get_contents_error (error, 0, "error during dup");
+		}
 
 		if (!(f = fdopen (fd2, "r"))) {
-			close (fd2);
+			nm_close (fd2);
 			return _get_contents_error (error, 0, "failure during fdopen");
 		}
 
@@ -3032,7 +2932,7 @@ nm_utils_file_get_contents (int dirfd,
                             gsize *length,
                             GError **error)
 {
-	nm_auto_close int fd = -1;
+	int fd;
 	int errsv;
 
 	g_return_val_if_fail (filename && filename[0], -EINVAL);
@@ -3065,34 +2965,11 @@ nm_utils_file_get_contents (int dirfd,
 		}
 	}
 	return nm_utils_fd_get_contents (fd,
+	                                 TRUE,
 	                                 max_length,
 	                                 contents,
 	                                 length,
 	                                 error);
-}
-
-/*****************************************************************************/
-
-/* taken from systemd's dev_urandom(). */
-int
-nm_utils_read_urandom (void *p, size_t nbytes)
-{
-	int fd = -1;
-	int r;
-
-again:
-	fd = open ("/dev/urandom", O_RDONLY | O_CLOEXEC | O_NOCTTY);
-	if (fd < 0) {
-		r = errno;
-		if (r == EINTR)
-			goto again;
-		return r == ENOENT ? -ENOSYS : -r;
-	}
-
-	r = nm_utils_fd_read_loop_exact (fd, p, nbytes, TRUE);
-	close (fd);
-
-	return r;
 }
 
 /*****************************************************************************/
@@ -3115,7 +2992,6 @@ nm_utils_secret_key_read (gsize *out_key_len, GError **error)
 			key_len = 0;
 		}
 	} else {
-		int r;
 		mode_t key_mask;
 
 		/* RFC7217 mandates the key SHOULD be at least 128 bits.
@@ -3123,10 +2999,9 @@ nm_utils_secret_key_read (gsize *out_key_len, GError **error)
 		key_len = 32;
 		secret_key = g_malloc (key_len);
 
-		r = nm_utils_read_urandom (secret_key, key_len);
-		if (r < 0) {
+		if (!nm_utils_random_bytes (secret_key, key_len)) {
 			g_set_error (error, NM_UTILS_ERROR, NM_UTILS_ERROR_UNKNOWN,
-			             "Can't read /dev/urandom: %s", strerror (-r));
+			             "Can't get random data to generate secret key");
 			key_len = 0;
 			goto out;
 		}
@@ -3380,8 +3255,7 @@ nm_utils_stable_id_random (void)
 {
 	char buf[15];
 
-	if (nm_utils_read_urandom (buf, sizeof (buf)) < 0)
-		g_return_val_if_reached (nm_utils_uuid_generate ());
+	nm_utils_random_bytes (buf, sizeof (buf));
 	return g_base64_encode ((guchar *) buf, sizeof (buf));
 }
 
@@ -3444,7 +3318,7 @@ nm_utils_stable_id_parse (const char *stable_id,
 	g_return_val_if_fail (out_generated, NM_UTILS_STABLE_TYPE_RANDOM);
 
 	if (!stable_id) {
-		out_generated = NULL;
+		*out_generated = NULL;
 		return NM_UTILS_STABLE_TYPE_UUID;
 	}
 
@@ -3512,7 +3386,7 @@ nm_utils_stable_id_parse (const char *stable_id,
 			_stable_id_append (str, bootid ?: nm_utils_get_boot_id ());
 		else if (g_str_has_prefix (&stable_id[i], "${RANDOM}")) {
 			/* RANDOM makes not so much sense for cloned-mac-address
-			 * as the result is simmilar to specifing "cloned-mac-address=random".
+			 * as the result is simmilar to specyifing "cloned-mac-address=random".
 			 * It makes however sense for RFC 7217 Stable Privacy IPv6 addresses
 			 * where this is effectively the only way to generate a different
 			 * (random) host identifier for each connect.
@@ -3765,8 +3639,7 @@ nm_utils_hw_addr_gen_random_eth (const char *current_mac_address,
 {
 	struct ether_addr bin_addr;
 
-	if (nm_utils_read_urandom (&bin_addr, ETH_ALEN) < 0)
-		return NULL;
+	nm_utils_random_bytes (&bin_addr, ETH_ALEN);
 	_hw_addr_eth_complete (&bin_addr, current_mac_address, generate_mac_address_mask);
 	return nm_utils_hwaddr_ntoa (&bin_addr, ETH_ALEN);
 }
@@ -4245,7 +4118,7 @@ nm_utils_file_set_contents (const gchar *filename,
 			if (errsv == EINTR)
 				continue;
 
-			close (fd);
+			nm_close (fd);
 			unlink (tmp_name);
 
 			g_set_error (error,
@@ -4274,7 +4147,7 @@ nm_utils_file_set_contents (const gchar *filename,
 	    && fsync (fd) != 0) {
 		errsv = errno;
 
-		close (fd);
+		nm_close (fd);
 		unlink (tmp_name);
 
 		g_set_error (error,
@@ -4286,7 +4159,7 @@ nm_utils_file_set_contents (const gchar *filename,
 		return FALSE;
 	}
 
-	close (fd);
+	nm_close (fd);
 
 	if (rename (tmp_name, filename)) {
 		errsv = errno;
@@ -4457,6 +4330,13 @@ nm_utils_format_con_diff_for_audit (GHashTable *diff)
 }
 
 /*****************************************************************************/
+
+NM_UTILS_ENUM2STR_DEFINE (nm_icmpv6_router_pref_to_string, NMIcmpv6RouterPref,
+	NM_UTILS_ENUM2STR (NM_ICMPV6_ROUTER_PREF_LOW,     "low"),
+	NM_UTILS_ENUM2STR (NM_ICMPV6_ROUTER_PREF_MEDIUM,  "medium"),
+	NM_UTILS_ENUM2STR (NM_ICMPV6_ROUTER_PREF_HIGH,    "high"),
+	NM_UTILS_ENUM2STR (NM_ICMPV6_ROUTER_PREF_INVALID, "invalid"),
+);
 
 NM_UTILS_LOOKUP_STR_DEFINE (nm_activation_type_to_string, NMActivationType,
 	NM_UTILS_LOOKUP_DEFAULT_WARN ("(unknown)"),

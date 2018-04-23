@@ -232,7 +232,7 @@ _assert_expected_content (NMConnection *connection, const char *filename, const 
 		g_assert (_ifcfg_dir && _ifcfg_dir[0]); \
 		g_assert (_filename && _filename[0]); \
 		\
-		_success = writer_update_connection (_connection, _ifcfg_dir, _filename, _out_reread, _out_reread_same, &_error); \
+		_success = nms_ifcfg_rh_writer_write_connection (_connection, _ifcfg_dir, _filename, NULL, _out_reread, _out_reread_same, &_error); \
 		nmtst_assert_success (_success, _error); \
 		_assert_expected_content (_connection, _filename, _expected); \
 	} G_STMT_END
@@ -260,8 +260,8 @@ _connection_from_file (const char *filename,
 
 	g_assert (!out_unhandled || !*out_unhandled);
 
-	connection = connection_from_file_test (filename, network_file, test_type,
-	                                        out_unhandled ?: &unhandled_fallback, &error);
+	connection = nmtst_connection_from_file (filename, network_file, test_type,
+	                                         out_unhandled ?: &unhandled_fallback, &error);
 	g_assert_no_error (error);
 	g_assert (!unhandled_fallback);
 
@@ -282,7 +282,7 @@ _connection_from_file_fail (const char *filename,
 	GError *local = NULL;
 	char *unhandled = NULL;
 
-	connection = connection_from_file_test (filename, network_file, test_type, &unhandled, &local);
+	connection = nmtst_connection_from_file (filename, network_file, test_type, &unhandled, &local);
 
 	g_assert (!connection);
 	g_assert (local);
@@ -310,12 +310,13 @@ _writer_new_connection_reread (NMConnection *connection,
 
 	con_verified = nmtst_connection_duplicate_and_normalize (connection);
 
-	success = writer_new_connection (con_verified,
-	                                 ifcfg_dir,
-	                                 &filename,
-	                                 reread,
-	                                 out_reread_same,
-	                                 &error);
+	success = nms_ifcfg_rh_writer_write_connection (con_verified,
+	                                                ifcfg_dir,
+	                                                NULL,
+	                                                &filename,
+	                                                reread,
+	                                                out_reread_same,
+	                                                &error);
 	nmtst_assert_success (success, error);
 	g_assert (filename && filename[0]);
 
@@ -384,12 +385,13 @@ _writer_new_connection_fail (NMConnection *connection,
 
 	connection_normalized = nmtst_connection_duplicate_and_normalize (connection);
 
-	success = writer_new_connection (connection_normalized,
-	                                 ifcfg_dir,
-	                                 &filename,
-	                                 &reread,
-	                                 NULL,
-	                                 &local);
+	success = nms_ifcfg_rh_writer_write_connection (connection_normalized,
+	                                                ifcfg_dir,
+	                                                NULL,
+	                                                &filename,
+	                                                &reread,
+	                                                NULL,
+	                                                &local);
 	nmtst_assert_no_success (success, local);
 	g_assert (!filename);
 	g_assert (!reread);
@@ -1316,7 +1318,7 @@ test_read_wired_static_routes (void)
 	g_assert_cmpstr (nm_setting_ip_config_get_method (s_ip4), ==, NM_SETTING_IP4_CONFIG_METHOD_MANUAL);
 
 	/* Routes */
-	g_assert_cmpint (nm_setting_ip_config_get_num_routes (s_ip4), ==, 2);
+	g_assert_cmpint (nm_setting_ip_config_get_num_routes (s_ip4), ==, 3);
 
 	ip4_route = nm_setting_ip_config_get_route (s_ip4, 0);
 	g_assert (ip4_route);
@@ -1340,6 +1342,23 @@ test_read_wired_static_routes (void)
 	nmtst_assert_route_attribute_boolean (ip4_route, NM_IP_ROUTE_ATTRIBUTE_LOCK_MTU, TRUE);
 	nmtst_assert_route_attribute_boolean (ip4_route, NM_IP_ROUTE_ATTRIBUTE_LOCK_INITCWND, TRUE);
 	nmtst_assert_route_attribute_string (ip4_route, NM_IP_ROUTE_ATTRIBUTE_SRC, "1.1.1.1");
+
+	ip4_route = nm_setting_ip_config_get_route (s_ip4, 2);
+	g_assert (ip4_route);
+	g_assert_cmpstr (nm_ip_route_get_dest (ip4_route), ==, "44.55.66.78");
+	g_assert_cmpint (nm_ip_route_get_prefix (ip4_route), ==, 32);
+	g_assert_cmpstr (nm_ip_route_get_next_hop (ip4_route), ==, "192.168.1.8");
+	g_assert_cmpint (nm_ip_route_get_metric (ip4_route), ==, 3);
+	nmtst_assert_route_attribute_byte (ip4_route, NM_IP_ROUTE_ATTRIBUTE_TOS, 0x28);
+	nmtst_assert_route_attribute_uint32 (ip4_route, NM_IP_ROUTE_ATTRIBUTE_WINDOW, 30000);
+	nmtst_assert_route_attribute_uint32 (ip4_route, NM_IP_ROUTE_ATTRIBUTE_CWND, 12);
+	nmtst_assert_route_attribute_uint32 (ip4_route, NM_IP_ROUTE_ATTRIBUTE_INITCWND, 13);
+	nmtst_assert_route_attribute_uint32 (ip4_route, NM_IP_ROUTE_ATTRIBUTE_INITRWND, 14);
+	nmtst_assert_route_attribute_uint32 (ip4_route, NM_IP_ROUTE_ATTRIBUTE_MTU, 9000);
+	nmtst_assert_route_attribute_boolean (ip4_route, NM_IP_ROUTE_ATTRIBUTE_LOCK_MTU, TRUE);
+	nmtst_assert_route_attribute_boolean (ip4_route, NM_IP_ROUTE_ATTRIBUTE_LOCK_INITCWND, TRUE);
+	nmtst_assert_route_attribute_string (ip4_route, NM_IP_ROUTE_ATTRIBUTE_SRC, "1.1.1.1");
+	nmtst_assert_route_attribute_boolean (ip4_route, NM_IP_ROUTE_ATTRIBUTE_ONLINK, TRUE);
 
 	g_object_unref (connection);
 }
@@ -1376,7 +1395,7 @@ test_read_wired_static_routes_legacy (void)
 	g_assert_cmpstr (nm_setting_ip_config_get_method (s_ip4), ==, NM_SETTING_IP4_CONFIG_METHOD_MANUAL);
 
 	/* Routes */
-	g_assert_cmpint (nm_setting_ip_config_get_num_routes (s_ip4), ==, 3);
+	g_assert_cmpint (nm_setting_ip_config_get_num_routes (s_ip4), ==, 4);
 
 	/* Route #1 */
 	ip4_route = nm_setting_ip_config_get_route (s_ip4, 0);
@@ -1409,6 +1428,13 @@ test_read_wired_static_routes_legacy (void)
 	nmtst_assert_route_attribute_boolean (ip4_route, NM_IP_ROUTE_ATTRIBUTE_LOCK_WINDOW, TRUE);
 	nmtst_assert_route_attribute_boolean (ip4_route, NM_IP_ROUTE_ATTRIBUTE_LOCK_MTU, TRUE);
 	nmtst_assert_route_attribute_string (ip4_route, NM_IP_ROUTE_ATTRIBUTE_SRC, "1.2.3.4");
+
+	ip4_route = nm_setting_ip_config_get_route (s_ip4, 3);
+	g_assert (ip4_route != NULL);
+	g_assert_cmpstr (nm_ip_route_get_dest (ip4_route), ==, "7.7.7.8");
+	g_assert_cmpint (nm_ip_route_get_prefix (ip4_route), ==, 32);
+	g_assert_cmpstr (nm_ip_route_get_next_hop (ip4_route), ==, NULL);
+	g_assert_cmpint (nm_ip_route_get_metric (ip4_route), ==, 18);
 
 	g_object_unref (connection);
 }
@@ -1954,6 +1980,46 @@ test_read_802_1x_ttls_eapgtc (void)
 }
 
 static void
+test_read_write_802_1x_password_raw (void)
+{
+	nmtst_auto_unlinkfile char *testfile = NULL;
+	nmtst_auto_unlinkfile char *keyfile = NULL;
+	gs_unref_object NMConnection *connection = NULL;
+	gs_unref_object NMConnection *reread = NULL;
+	NMSetting8021x *s_8021x;
+	GBytes *bytes;
+	gconstpointer data;
+	gsize size;
+
+	/* Test that the 802-1x.password-raw is correctly read and written. */
+
+	connection = _connection_from_file (TEST_IFCFG_DIR"/network-scripts/ifcfg-test-wired-802-1x-password-raw",
+	                                    NULL, TYPE_ETHERNET, NULL);
+
+	/* ===== 802.1x SETTING ===== */
+	s_8021x = nm_connection_get_setting_802_1x (connection);
+	g_assert (s_8021x);
+
+	bytes = nm_setting_802_1x_get_password_raw (s_8021x);
+	g_assert (bytes);
+	data = g_bytes_get_data (bytes, &size);
+	g_assert_cmpmem (data, size, "\x04\x08\x15\x16\x23\x42\x00\x01", 8);
+
+	g_assert_cmpint (nm_setting_802_1x_get_password_raw_flags (s_8021x),
+	                 ==,
+	                 NM_SETTING_SECRET_FLAG_NONE);
+
+	_writer_new_connection (connection,
+	                        TEST_SCRATCH_DIR "/network-scripts/",
+	                        &testfile);
+	reread = _connection_from_file (testfile, NULL, TYPE_ETHERNET, NULL);
+	keyfile = utils_get_keys_path (testfile);
+	g_assert (g_file_test (keyfile, G_FILE_TEST_EXISTS));
+
+	nmtst_assert_connection_equals (connection, TRUE, reread, FALSE);
+}
+
+static void
 test_read_wired_aliases_good (gconstpointer test_data)
 {
 	const int N = GPOINTER_TO_INT (test_data);
@@ -2096,8 +2162,9 @@ test_read_dns_options (void)
 	NMSettingIPConfig *s_ip4, *s_ip6;
 	char *unmanaged = NULL;
 	const char *option;
-	const char *options[] = { "ndots:3", "single-request-reopen", "inet6" };
-	guint32 i, options_len = sizeof (options) / sizeof (options[0]);
+	const char *options4[] = { "ndots:3", "single-request-reopen" };
+	const char *options6[] = { "inet6" };
+	guint32 i, num;
 
 	connection = _connection_from_file (TEST_IFCFG_DIR "/network-scripts/ifcfg-test-dns-options",
 	                                    NULL, TYPE_ETHERNET, &unmanaged);
@@ -2109,18 +2176,20 @@ test_read_dns_options (void)
 	s_ip6 = nm_connection_get_setting_ip6_config (connection);
 	g_assert (s_ip6);
 
-	i = nm_setting_ip_config_get_num_dns_options (s_ip4);
-	g_assert_cmpint (i, ==, options_len);
+	num = nm_setting_ip_config_get_num_dns_options (s_ip4);
+	g_assert_cmpint (num, ==, G_N_ELEMENTS (options4));
 
-	i = nm_setting_ip_config_get_num_dns_options (s_ip6);
-	g_assert_cmpint (i, ==, options_len);
-
-	for (i = 0; i < options_len; i++) {
+	for (i = 0; i < num; i++) {
 		option = nm_setting_ip_config_get_dns_option (s_ip4, i);
-		g_assert_cmpstr (options[i], ==, option);
+		g_assert_cmpstr (options4[i], ==, option);
+	}
 
+	num = nm_setting_ip_config_get_num_dns_options (s_ip6);
+	g_assert_cmpint (num, ==, G_N_ELEMENTS (options6));
+
+	for (i = 0; i < num; i++) {
 		option = nm_setting_ip_config_get_dns_option (s_ip6, i);
-		g_assert_cmpstr (options[i], ==, option);
+		g_assert_cmpstr (options6[i], ==, option);
 	}
 
 	g_object_unref (connection);
@@ -2231,6 +2300,8 @@ test_write_dns_options (void)
 	nm_setting_ip_config_add_address (s_ip4, addr);
 	nm_ip_address_unref (addr);
 
+	nm_setting_ip_config_add_dns_option (s_ip4, "debug");
+
 	/* IP6 setting */
 	s_ip6 = (NMSettingIPConfig *) nm_setting_ip6_config_new ();
 	nm_connection_add_setting (connection, NM_SETTING (s_ip6));
@@ -2246,25 +2317,15 @@ test_write_dns_options (void)
 	nm_setting_ip_config_add_address (s_ip6, addr6);
 	nm_ip_address_unref (addr6);
 
-	nm_setting_ip_config_add_dns_option (s_ip4, "debug");
 	nm_setting_ip_config_add_dns_option (s_ip6, "timeout:3");
 
 	nmtst_assert_connection_verifies (connection);
 
-	_writer_new_connection_FIXME (connection,
-	                              TEST_SCRATCH_DIR "/network-scripts/",
-	                              &testfile);
+	_writer_new_connection (connection,
+	                        TEST_SCRATCH_DIR "/network-scripts/",
+	                        &testfile);
 
 	reread = _connection_from_file (testfile, NULL, TYPE_ETHERNET, NULL);
-
-	/* RES_OPTIONS is copied to both IPv4 and IPv6 settings */
-	nm_setting_ip_config_clear_dns_options (s_ip4, TRUE);
-	nm_setting_ip_config_add_dns_option (s_ip4, "debug");
-	nm_setting_ip_config_add_dns_option (s_ip4, "timeout:3");
-
-	nm_setting_ip_config_clear_dns_options (s_ip6, TRUE);
-	nm_setting_ip_config_add_dns_option (s_ip6, "debug");
-	nm_setting_ip_config_add_dns_option (s_ip6, "timeout:3");
 
 	nmtst_assert_connection_equals (connection, TRUE, reread, FALSE);
 }
@@ -2625,7 +2686,7 @@ test_read_wifi_wep_passphrase (void)
 	g_assert (s_wsec);
 	g_assert_cmpstr (nm_setting_wireless_security_get_key_mgmt (s_wsec), ==, "none");
 	g_assert_cmpint (nm_setting_wireless_security_get_wep_tx_keyidx (s_wsec), ==, 0);
-	g_assert_cmpint (nm_setting_wireless_security_get_wep_key_type (s_wsec), ==, NM_WEP_KEY_TYPE_PASSPHRASE);
+	g_assert_cmpint (nm_setting_wireless_security_get_wep_key_type (s_wsec), ==, NM_WEP_KEY_TYPE_UNKNOWN);
 	g_assert_cmpstr (nm_setting_wireless_security_get_wep_key (s_wsec, 0), ==, "foobar222blahblah");
 	g_assert (!nm_setting_wireless_security_get_wep_key (s_wsec, 1));
 	g_assert (!nm_setting_wireless_security_get_wep_key (s_wsec, 2));
@@ -4108,7 +4169,6 @@ test_write_wired_static (void)
 
 	route6 = nm_ip_route_new (AF_INET6, "::", 128, "2222:aaaa::9999", 1, &error);
 	g_assert_no_error (error);
-	nm_ip_route_set_attribute (route6, NM_IP_ROUTE_ATTRIBUTE_TOS, g_variant_new_byte (0xb8));
 	nm_ip_route_set_attribute (route6, NM_IP_ROUTE_ATTRIBUTE_CWND, g_variant_new_uint32 (100));
 	nm_ip_route_set_attribute (route6, NM_IP_ROUTE_ATTRIBUTE_MTU, g_variant_new_uint32 (1280));
 	nm_ip_route_set_attribute (route6, NM_IP_ROUTE_ATTRIBUTE_LOCK_CWND, g_variant_new_boolean (TRUE));
@@ -4127,23 +4187,15 @@ test_write_wired_static (void)
 
 	nmtst_assert_connection_verifies (connection);
 
-	_writer_new_connection_FIXME (connection,
-	                              TEST_SCRATCH_DIR "/network-scripts/",
-	                              &testfile);
+	_writer_new_connection (connection,
+	                        TEST_SCRATCH_DIR "/network-scripts/",
+	                        &testfile);
 	route6file = utils_get_route6_path (testfile);
 
 	reread = _connection_from_file (testfile, NULL, TYPE_ETHERNET, NULL);
 
-	/* FIXME: currently DNS domains from IPv6 setting are stored in 'DOMAIN' key in ifcfg-file
-	 * However after re-reading they are dropped into IPv4 setting.
-	 * So, in order to comparison succeeded, move DNS domains back to IPv6 setting.
-	 */
 	reread_s_ip4 = nm_connection_get_setting_ip4_config (reread);
 	reread_s_ip6 = nm_connection_get_setting_ip6_config (reread);
-	nm_setting_ip_config_add_dns_search (reread_s_ip6, nm_setting_ip_config_get_dns_search (reread_s_ip4, 2));
-	nm_setting_ip_config_add_dns_search (reread_s_ip6, nm_setting_ip_config_get_dns_search (reread_s_ip4, 3));
-	nm_setting_ip_config_remove_dns_search (reread_s_ip4, 3);
-	nm_setting_ip_config_remove_dns_search (reread_s_ip4, 2);
 
 	g_assert_cmpint (nm_setting_ip_config_get_route_metric (reread_s_ip4), ==, 204);
 	g_assert_cmpint (nm_setting_ip_config_get_route_metric (reread_s_ip6), ==, 206);
@@ -4151,6 +4203,162 @@ test_write_wired_static (void)
 	nm_connection_add_setting (connection, nm_setting_proxy_new ());
 
 	nmtst_assert_connection_equals (connection, FALSE, reread, FALSE);
+}
+
+static void
+test_write_wired_static_with_generic (void)
+{
+	nmtst_auto_unlinkfile char *testfile = NULL;
+	nmtst_auto_unlinkfile char *route6file = NULL;
+	gs_unref_object NMConnection *connection = NULL;
+	gs_unref_object NMConnection *reread = NULL;
+	NMSettingConnection *s_con;
+	NMSettingWired *s_wired;
+	NMSettingIPConfig *s_ip4, *reread_s_ip4;
+	NMSettingIPConfig *s_ip6, *reread_s_ip6;
+	NMIPAddress *addr;
+	NMIPAddress *addr6;
+	NMIPRoute *route6;
+	GError *error = NULL;
+
+	connection = nm_simple_connection_new ();
+
+	/* Connection setting */
+	s_con = (NMSettingConnection *) nm_setting_connection_new ();
+	nm_connection_add_setting (connection, NM_SETTING (s_con));
+
+	g_object_set (s_con,
+	              NM_SETTING_CONNECTION_ID, "Test Write Wired Static",
+	              NM_SETTING_CONNECTION_UUID, nm_utils_uuid_generate_a (),
+	              NM_SETTING_CONNECTION_AUTOCONNECT, TRUE,
+	              NM_SETTING_CONNECTION_AUTOCONNECT_RETRIES, 1,
+	              NM_SETTING_CONNECTION_TYPE, NM_SETTING_WIRED_SETTING_NAME,
+	              NULL);
+
+	/* Wired setting */
+	s_wired = (NMSettingWired *) nm_setting_wired_new ();
+	nm_connection_add_setting (connection, NM_SETTING (s_wired));
+
+	g_object_set (s_wired,
+	              NM_SETTING_WIRED_MAC_ADDRESS, "31:33:33:37:be:cd",
+	              NM_SETTING_WIRED_MTU, (guint32) 1492,
+	              NULL);
+
+	/* IP4 setting */
+	s_ip4 = (NMSettingIPConfig *) nm_setting_ip4_config_new ();
+	nm_connection_add_setting (connection, NM_SETTING (s_ip4));
+
+	g_object_set (s_ip4,
+	              NM_SETTING_IP_CONFIG_METHOD, NM_SETTING_IP4_CONFIG_METHOD_MANUAL,
+	              NM_SETTING_IP_CONFIG_MAY_FAIL, TRUE,
+	              NM_SETTING_IP_CONFIG_GATEWAY, "1.1.1.1",
+	              NM_SETTING_IP_CONFIG_ROUTE_METRIC, (gint64) 204,
+	              NULL);
+
+	addr = nm_ip_address_new (AF_INET, "1.1.1.3", 24, &error);
+	g_assert_no_error (error);
+	nm_setting_ip_config_add_address (s_ip4, addr);
+	nm_ip_address_unref (addr);
+
+	addr = nm_ip_address_new (AF_INET, "1.1.1.5", 24, &error);
+	g_assert_no_error (error);
+	nm_setting_ip_config_add_address (s_ip4, addr);
+	nm_ip_address_unref (addr);
+
+	nm_setting_ip_config_add_dns (s_ip4, "4.2.2.1");
+	nm_setting_ip_config_add_dns (s_ip4, "4.2.2.2");
+
+	nm_setting_ip_config_add_dns_search (s_ip4, "foobar.com");
+	nm_setting_ip_config_add_dns_search (s_ip4, "lab.foobar.com");
+
+	/* IP6 setting */
+	s_ip6 = (NMSettingIPConfig *) nm_setting_ip6_config_new ();
+	nm_connection_add_setting (connection, NM_SETTING (s_ip6));
+
+	g_object_set (s_ip6,
+	              NM_SETTING_IP_CONFIG_METHOD, NM_SETTING_IP6_CONFIG_METHOD_MANUAL,
+	              NM_SETTING_IP_CONFIG_MAY_FAIL, TRUE,
+	              NM_SETTING_IP_CONFIG_ROUTE_METRIC, (gint64) 206,
+	              NULL);
+
+	/* Add addresses */
+	addr6 = nm_ip_address_new (AF_INET6, "1003:1234:abcd::1", 11, &error);
+	g_assert_no_error (error);
+	nm_setting_ip_config_add_address (s_ip6, addr6);
+	nm_ip_address_unref (addr6);
+
+	addr6 = nm_ip_address_new (AF_INET6, "2003:1234:abcd::2", 22, &error);
+	g_assert_no_error (error);
+	nm_setting_ip_config_add_address (s_ip6, addr6);
+	nm_ip_address_unref (addr6);
+
+	addr6 = nm_ip_address_new (AF_INET6, "3003:1234:abcd::3", 33, &error);
+	g_assert_no_error (error);
+	nm_setting_ip_config_add_address (s_ip6, addr6);
+	nm_ip_address_unref (addr6);
+
+	/* Add routes */
+	route6 = nm_ip_route_new (AF_INET6,
+	                          "2222:aaaa:bbbb:cccc::", 64,
+	                          "2222:aaaa:bbbb:cccc:dddd:eeee:5555:6666", 99, &error);
+	g_assert_no_error (error);
+	nm_setting_ip_config_add_route (s_ip6, route6);
+	nm_ip_route_unref (route6);
+
+	route6 = nm_ip_route_new (AF_INET6, "::", 128, "2222:aaaa::9999", 1, &error);
+	g_assert_no_error (error);
+	nm_ip_route_set_attribute (route6, NM_IP_ROUTE_ATTRIBUTE_CWND, g_variant_new_uint32 (100));
+	nm_ip_route_set_attribute (route6, NM_IP_ROUTE_ATTRIBUTE_MTU, g_variant_new_uint32 (1280));
+	nm_ip_route_set_attribute (route6, NM_IP_ROUTE_ATTRIBUTE_LOCK_CWND, g_variant_new_boolean (TRUE));
+	nm_ip_route_set_attribute (route6, NM_IP_ROUTE_ATTRIBUTE_FROM, g_variant_new_string ("2222::bbbb/32"));
+	nm_ip_route_set_attribute (route6, NM_IP_ROUTE_ATTRIBUTE_SRC, g_variant_new_string ("::42"));
+	nm_setting_ip_config_add_route (s_ip6, route6);
+	nm_ip_route_unref (route6);
+
+	/* DNS servers */
+	nm_setting_ip_config_add_dns (s_ip6, "fade:0102:0103::face");
+	nm_setting_ip_config_add_dns (s_ip6, "cafe:ffff:eeee:dddd:cccc:bbbb:aaaa:feed");
+
+	/* DNS domains */
+	nm_setting_ip_config_add_dns_search (s_ip6, "foobar6.com");
+	nm_setting_ip_config_add_dns_search (s_ip6, "lab6.foobar.com");
+
+	nm_connection_add_setting (connection, nm_setting_generic_new ());
+
+	nmtst_assert_connection_verifies (connection);
+
+	_writer_new_connection_FIXME (connection,
+	                              TEST_SCRATCH_DIR "/network-scripts/",
+	                              &testfile);
+	route6file = utils_get_route6_path (testfile);
+
+	reread = _connection_from_file (testfile, NULL, TYPE_ETHERNET, NULL);
+	reread_s_ip4 = nm_connection_get_setting_ip4_config (reread);
+	reread_s_ip6 = nm_connection_get_setting_ip6_config (reread);
+
+	g_assert_cmpint (nm_setting_ip_config_get_route_metric (reread_s_ip4), ==, 204);
+	g_assert_cmpint (nm_setting_ip_config_get_route_metric (reread_s_ip6), ==, 206);
+
+	nm_connection_add_setting (connection, nm_setting_proxy_new ());
+
+	{
+		gs_unref_hashtable GHashTable *diffs = NULL;
+
+		g_assert (!nm_connection_diff (connection, reread, NM_SETTING_COMPARE_FLAG_EXACT, &diffs));
+		g_assert (diffs);
+		g_assert (g_hash_table_size (diffs) == 1);
+		g_assert (g_hash_table_lookup (diffs, "generic"));
+		g_assert (!nm_connection_compare (connection, reread, NM_SETTING_COMPARE_FLAG_EXACT));
+	}
+	g_assert (!nm_connection_get_setting (reread, NM_TYPE_SETTING_GENERIC));
+	nm_connection_add_setting (reread, nm_setting_generic_new ());
+	{
+		gs_unref_hashtable GHashTable *diffs = NULL;
+
+		g_assert (nm_connection_diff (connection, reread, NM_SETTING_COMPARE_FLAG_EXACT, &diffs));
+		g_assert (!diffs);
+		g_assert (nm_connection_compare (connection, reread, NM_SETTING_COMPARE_FLAG_EXACT));
+	}
 }
 
 static void
@@ -4535,6 +4743,7 @@ test_write_wired_static_routes (void)
 	NMIPAddress *addr;
 	NMIPRoute *route;
 	GError *error = NULL;
+	gboolean reread_same = FALSE;
 
 	connection = nm_simple_connection_new ();
 
@@ -4579,11 +4788,15 @@ test_write_wired_static_routes (void)
 
 	/* Write out routes */
 	route = nm_ip_route_new (AF_INET, "1.2.3.0", 24, "222.173.190.239", 0, &error);
+	nm_ip_route_set_attribute (route, NM_IP_ROUTE_ATTRIBUTE_WINDOW, g_variant_new_uint32 (3455));
+	nm_ip_route_set_attribute (route, NM_IP_ROUTE_ATTRIBUTE_ONLINK, g_variant_new_boolean (TRUE));
 	g_assert_no_error (error);
 	nm_setting_ip_config_add_route (s_ip4, route);
 	nm_ip_route_unref (route);
 
 	route = nm_ip_route_new (AF_INET, "3.2.1.0", 24, "202.254.186.190", 77, &error);
+	nm_ip_route_set_attribute (route, NM_IP_ROUTE_ATTRIBUTE_WINDOW, g_variant_new_uint32 (30000));
+	nm_ip_route_set_attribute (route, NM_IP_ROUTE_ATTRIBUTE_ONLINK, g_variant_new_boolean (FALSE));
 	g_assert_no_error (error);
 	nm_setting_ip_config_add_route (s_ip4, route);
 	nm_ip_route_unref (route);
@@ -4605,15 +4818,28 @@ test_write_wired_static_routes (void)
 
 	nmtst_assert_connection_verifies (connection);
 
-	_writer_new_connection (connection,
-	                        TEST_SCRATCH_DIR "/network-scripts/",
-	                        &testfile);
-
-	reread = _connection_from_file (testfile, NULL, TYPE_ETHERNET, NULL);
-
-	routefile = utils_get_route_path (testfile);
+	_writer_new_connection_reread (connection,
+	                               TEST_SCRATCH_DIR "/network-scripts/",
+	                               &testfile,
+	                               TEST_IFCFG_DIR "/network-scripts/ifcfg-Test_Write_Wired_Static_Routes.cexpected",
+	                               &reread,
+	                               &reread_same);
+	/* ifcfg does not support setting onlink=0. It gets lost during write+re-read.
+	 * Assert that it's missing, and patch it to check whether the rest of the
+	 * connection equals. */
+	g_assert (!reread_same);
+	nmtst_assert_connection_verifies_without_normalization (reread);
+	s_ip4 = nm_connection_get_setting_ip4_config (reread);
+	g_assert (s_ip4);
+	g_assert_cmpint (nm_setting_ip_config_get_num_routes (s_ip4), ==, 2);
+	route = nm_setting_ip_config_get_route (s_ip4, 1);
+	g_assert (route);
+	g_assert (!nm_ip_route_get_attribute (route, NM_IP_ROUTE_ATTRIBUTE_ONLINK));
+	nm_ip_route_set_attribute (route, NM_IP_ROUTE_ATTRIBUTE_ONLINK, g_variant_new_boolean (FALSE));
 
 	nmtst_assert_connection_equals (connection, TRUE, reread, FALSE);
+
+	routefile = utils_get_route_path (testfile);
 }
 
 static void
@@ -5515,6 +5741,7 @@ test_write_wifi_wep_40_ascii (void)
 	g_object_set (s_wsec,
 	              NM_SETTING_WIRELESS_SECURITY_KEY_MGMT, "none",
 	              NM_SETTING_WIRELESS_SECURITY_WEP_TX_KEYIDX, 2,
+	              NM_SETTING_WIRELESS_SECURITY_WEP_KEY_TYPE, NM_WEP_KEY_TYPE_KEY,
 	              NM_SETTING_WIRELESS_SECURITY_AUTH_ALG, "shared",
 	              NULL);
 	nm_setting_wireless_security_set_wep_key (s_wsec, 0, "lorem");
@@ -5602,6 +5829,7 @@ test_write_wifi_wep_104_ascii (void)
 	g_object_set (s_wsec,
 	              NM_SETTING_WIRELESS_SECURITY_KEY_MGMT, "none",
 	              NM_SETTING_WIRELESS_SECURITY_WEP_TX_KEYIDX, 0,
+	              NM_SETTING_WIRELESS_SECURITY_WEP_KEY_TYPE, NM_WEP_KEY_TYPE_UNKNOWN,
 	              NM_SETTING_WIRELESS_SECURITY_AUTH_ALG, "open",
 	              NULL);
 	nm_setting_wireless_security_set_wep_key (s_wsec, 0, "LoremIpsumSit");
@@ -5867,6 +6095,7 @@ test_write_wifi_wpa_psk (gconstpointer test_data)
 	g_object_set (s_wsec,
 	              NM_SETTING_WIRELESS_SECURITY_KEY_MGMT, "wpa-psk",
 	              NM_SETTING_WIRELESS_SECURITY_PSK, args.psk,
+	              NM_SETTING_WIRELESS_SECURITY_PMF, (int) NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED,
 	              NULL);
 
 	if (GPOINTER_TO_INT (args.wep_group_p)) {
@@ -7154,6 +7383,7 @@ test_read_bridge_main (void)
 {
 	NMConnection *connection;
 	NMSettingBridge *s_bridge;
+	NMSettingWired *s_wired;
 	const char *mac;
 	char expected_mac_address[ETH_ALEN] = { 0x00, 0x16, 0x41, 0x11, 0x22, 0x33 };
 
@@ -7172,10 +7402,13 @@ test_read_bridge_main (void)
 	g_assert_cmpuint (nm_setting_bridge_get_hello_time (s_bridge), ==, 7);
 	g_assert_cmpuint (nm_setting_bridge_get_max_age (s_bridge), ==, 39);
 	g_assert_cmpuint (nm_setting_bridge_get_ageing_time (s_bridge), ==, 235352);
+	g_assert_cmpuint (nm_setting_bridge_get_group_forward_mask (s_bridge), ==, 24);
 	g_assert (!nm_setting_bridge_get_multicast_snooping (s_bridge));
 
 	/* MAC address */
-	mac = nm_setting_bridge_get_mac_address (s_bridge);
+	s_wired = nm_connection_get_setting_wired (connection);
+	g_assert (s_wired);
+	mac = nm_setting_wired_get_cloned_mac_address (s_wired);
 	g_assert (mac);
 	g_assert (nm_utils_hwaddr_matches (mac, -1, expected_mac_address, ETH_ALEN));
 
@@ -7190,8 +7423,8 @@ test_write_bridge_main (void)
 	gs_unref_object NMConnection *reread = NULL;
 	NMSettingConnection *s_con;
 	NMSettingBridge *s_bridge;
-	NMSettingIPConfig *s_ip4;
-	NMSettingIPConfig *s_ip6;
+	NMSettingIPConfig *s_ip4, *s_ip6;
+	NMSettingWired *s_wired;
 	NMIPAddress *addr;
 	static const char *mac = "31:33:33:37:be:cd";
 	GError *error = NULL;
@@ -7217,6 +7450,7 @@ test_write_bridge_main (void)
 
 	g_object_set (s_bridge,
 	              NM_SETTING_BRIDGE_MAC_ADDRESS, mac,
+	              NM_SETTING_BRIDGE_GROUP_FORWARD_MASK, 19008,
 	              NULL);
 
 	/* IP4 setting */
@@ -7241,6 +7475,10 @@ test_write_bridge_main (void)
 	g_object_set (s_ip6,
 	              NM_SETTING_IP_CONFIG_METHOD, NM_SETTING_IP6_CONFIG_METHOD_IGNORE,
 	              NULL);
+
+	/* Wired setting */
+	s_wired = (NMSettingWired *) nm_setting_wired_new ();
+	nm_connection_add_setting (connection, NM_SETTING (s_wired));
 
 	nm_connection_add_setting (connection, nm_setting_proxy_new ());
 
@@ -7806,6 +8044,10 @@ test_write_bond_main (void)
 	/* bond setting */
 	s_bond = (NMSettingBond *) nm_setting_bond_new ();
 	nm_connection_add_setting (connection, NM_SETTING (s_bond));
+
+	nm_setting_bond_add_option (s_bond, NM_SETTING_BOND_OPTION_DOWNDELAY, "5");
+	nm_setting_bond_add_option (s_bond, NM_SETTING_BOND_OPTION_UPDELAY, "10");
+	nm_setting_bond_add_option (s_bond, NM_SETTING_BOND_OPTION_MIIMON, "100");
 
 	/* IP4 setting */
 	s_ip4 = (NMSettingIPConfig *) nm_setting_ip4_config_new ();
@@ -8453,7 +8695,7 @@ test_read_team_master (gconstpointer user_data)
 	NMConnection *connection;
 	NMSettingConnection *s_con;
 	NMSettingTeam *s_team;
-	const char *expected_config = "{ \"device\": \"team0\", \"link_watch\": { \"name\": \"ethtool\" } }";
+	const char *expected_config = "{\"device\": \"team0\", \"link_watch\": {\"name\": \"ethtool\"}}";
 
 	connection = _connection_from_file (PATH_NAME, NULL, TYPE_ETHERNET, NULL);
 
@@ -8506,7 +8748,7 @@ test_write_team_master (void)
 	NMSettingWired *s_wired;
 	NMSettingIPConfig *s_ip4;
 	NMSettingIPConfig *s_ip6;
-	const char *expected_config = "{ \"device\": \"team0\", \"link_watch\": { \"name\": \"ethtool\" } }";
+	const char *expected_config = "{\"device\": \"team0\", \"link_watch\": {\"name\": \"ethtool\"}}";
 	shvarFile *f;
 
 	connection = nm_simple_connection_new ();
@@ -8575,7 +8817,7 @@ test_read_team_port (gconstpointer user_data)
 	NMConnection *connection;
 	NMSettingConnection *s_con;
 	NMSettingTeamPort *s_team_port;
-	const char *expected_config = "{ \"p4p1\": { \"prio\": -10, \"sticky\": true } }";
+	const char *expected_config = "{\"p4p1\": {\"prio\": -10, \"sticky\": true}}";
 
 	connection = _connection_from_file (PATH_NAME, NULL, TYPE_ETHERNET, NULL);
 
@@ -8600,7 +8842,7 @@ test_write_team_port (void)
 	NMSettingConnection *s_con;
 	NMSettingTeamPort *s_team_port;
 	NMSettingWired *s_wired;
-	const char *expected_config = "{ \"p4p1\": { \"prio\": -10, \"sticky\": true } }";
+	const char *expected_config = "{\"p4p1\": {\"prio\": -10, \"sticky\": true}}";
 	shvarFile *f;
 
 	connection = nm_simple_connection_new ();
@@ -8635,6 +8877,63 @@ test_write_team_port (void)
 
 	f = _svOpenFile (testfile);
 	_svGetValue_check (f, "TYPE", NULL);
+	_svGetValue_check (f, "DEVICETYPE", "TeamPort");
+	_svGetValue_check (f, "TEAM_PORT_CONFIG", expected_config);
+	_svGetValue_check (f, "TEAM_MASTER", "team0");
+	svCloseFile (f);
+
+	reread = _connection_from_file (testfile, NULL, TYPE_ETHERNET,
+	                                NULL);
+
+	nmtst_assert_connection_equals (connection, TRUE, reread, FALSE);
+}
+
+static void
+test_write_team_infiniband_port (void)
+{
+	nmtst_auto_unlinkfile char *testfile = NULL;
+	gs_unref_object NMConnection *connection = NULL;
+	gs_unref_object NMConnection *reread = NULL;
+	NMSettingConnection *s_con;
+	NMSettingTeamPort *s_team_port;
+	NMSettingInfiniband *s_inf;
+	const char *expected_config = "{\"inf1\": {\"prio\": -10, \"sticky\": true}}";
+	shvarFile *f;
+
+	connection = nm_simple_connection_new ();
+
+	/* Connection setting */
+	s_con = (NMSettingConnection *) nm_setting_connection_new ();
+	nm_connection_add_setting (connection, NM_SETTING (s_con));
+
+	g_object_set (s_con,
+	              NM_SETTING_CONNECTION_ID, "Test Write Team Infiniband Port",
+	              NM_SETTING_CONNECTION_UUID, nm_utils_uuid_generate_a (),
+	              NM_SETTING_CONNECTION_TYPE, NM_SETTING_INFINIBAND_SETTING_NAME,
+	              NM_SETTING_CONNECTION_MASTER, "team0",
+	              NM_SETTING_CONNECTION_SLAVE_TYPE, NM_SETTING_TEAM_SETTING_NAME,
+	              NM_SETTING_CONNECTION_INTERFACE_NAME, "inf1",
+	              NULL);
+
+	/* Team setting */
+	s_team_port = (NMSettingTeamPort *) nm_setting_team_port_new ();
+	nm_connection_add_setting (connection, NM_SETTING (s_team_port));
+	g_object_set (s_team_port, NM_SETTING_TEAM_PORT_CONFIG, expected_config, NULL);
+
+	/* Infiniband setting */
+	s_inf = (NMSettingInfiniband *) nm_setting_infiniband_new ();
+	nm_connection_add_setting (connection, NM_SETTING (s_inf));
+	g_object_set (s_inf, NM_SETTING_INFINIBAND_TRANSPORT_MODE, "datagram", NULL);
+
+	nmtst_assert_connection_verifies (connection);
+
+	_writer_new_connec_exp (connection,
+	                        TEST_SCRATCH_DIR "/network-scripts/",
+	                        TEST_IFCFG_DIR "/network-scripts/ifcfg-Test_Write_Team_Infiniband_Port.cexpected",
+	                        &testfile);
+
+	f = _svOpenFile (testfile);
+	_svGetValue_check (f, "TYPE", "InfiniBand");
 	_svGetValue_check (f, "DEVICETYPE", "TeamPort");
 	_svGetValue_check (f, "TEAM_PORT_CONFIG", expected_config);
 	_svGetValue_check (f, "TEAM_MASTER", "team0");
@@ -8959,7 +9258,9 @@ test_svUnescape (void)
 		V0 ("Bob outside LAN", NULL),
 		V1 ("x", "x"),
 		V1 ("'{ \"device\": \"team0\", \"link_watch\": { \"name\": \"ethtool\" } }'",
-	       "{ \"device\": \"team0\", \"link_watch\": { \"name\": \"ethtool\" } }"),
+		    "{ \"device\": \"team0\", \"link_watch\": { \"name\": \"ethtool\" } }"),
+		V1 ("'{\"device\": \"team0\", \"link_watch\": {\"name\": \"ethtool\"}}'",
+		    "{\"device\": \"team0\", \"link_watch\": {\"name\": \"ethtool\"}}"),
 		V1 ("x\"\"b", "xb"),
 		V1 ("x\"c\"b", "xcb"),
 		V1 ("\"c\"b", "cb"),
@@ -9147,8 +9448,8 @@ test_write_unknown (gconstpointer test_data)
 
 	sv = _svOpenFile (testfile);
 
-	svFileSetName_test_only (sv, filename_tmp_1);
-	svFileSetModified_test_only (sv);
+	_nmtst_svFileSetName (sv, filename_tmp_1);
+	_nmtst_svFileSetModified (sv);
 
 	if (g_str_has_suffix (testfile, "ifcfg-test-write-unknown-4")) {
 		_svGetValue_check (sv, "NAME", "l4x");
@@ -9429,6 +9730,7 @@ int main (int argc, char **argv)
 
 	g_test_add_func (TPATH "802-1x/subj-matches", test_read_write_802_1X_subj_matches);
 	g_test_add_func (TPATH "802-1x/ttls-eapgtc", test_read_802_1x_ttls_eapgtc);
+	g_test_add_func (TPATH "802-1x/password_raw", test_read_write_802_1x_password_raw);
 	g_test_add_data_func (TPATH "wired/read/aliases/good/0", GINT_TO_POINTER (0), test_read_wired_aliases_good);
 	g_test_add_data_func (TPATH "wired/read/aliases/good/3", GINT_TO_POINTER (3), test_read_wired_aliases_good);
 	g_test_add_func (TPATH "wired/read/aliases/bad1", test_read_wired_aliases_bad_1);
@@ -9492,6 +9794,7 @@ int main (int argc, char **argv)
 	g_test_add_func (TPATH "wired/read/unkwnown-ethtool-opt", test_read_wired_unknown_ethtool_opt);
 
 	g_test_add_func (TPATH "wired/write/static", test_write_wired_static);
+	g_test_add_func (TPATH "wired/write/static-with-generic", test_write_wired_static_with_generic);
 	g_test_add_func (TPATH "wired/write/static-ip6-only", test_write_wired_static_ip6_only);
 	g_test_add_func (TPATH "wired/write-static-routes", test_write_wired_static_routes);
 	g_test_add_func (TPATH "wired/read-write-static-routes-legacy", test_read_write_static_routes_legacy);
@@ -9603,6 +9906,7 @@ int main (int argc, char **argv)
 	g_test_add_data_func (TPATH "team/read-port-1", TEST_IFCFG_DIR"/network-scripts/ifcfg-test-team-port-1", test_read_team_port);
 	g_test_add_data_func (TPATH "team/read-port-2", TEST_IFCFG_DIR"/network-scripts/ifcfg-test-team-port-2", test_read_team_port);
 	g_test_add_func (TPATH "team/write-port", test_write_team_port);
+	g_test_add_func (TPATH "team/write-infiniband-port", test_write_team_infiniband_port);
 	g_test_add_func (TPATH "team/read-port-empty-config", test_read_team_port_empty_config);
 	g_test_add_func (TPATH "team/reread-slave", test_team_reread_slave);
 

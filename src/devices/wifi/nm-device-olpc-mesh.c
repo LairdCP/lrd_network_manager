@@ -107,12 +107,8 @@ check_connection_compatible (NMDevice *device, NMConnection *connection)
 }
 
 static gboolean
-can_auto_connect (NMDevice *device,
-                  NMConnection *connection,
-                  char **specific_object)
+get_autoconnect_allowed (NMDevice *device)
 {
-	nm_assert (!specific_object || !*specific_object);
-
 	return FALSE;
 }
 
@@ -312,13 +308,13 @@ companion_state_changed_cb (NMDeviceWifi *companion,
 }
 
 static gboolean
-companion_scan_allowed_cb (NMDeviceWifi *companion, gpointer user_data)
+companion_scan_prohibited_cb (NMDeviceWifi *companion, gpointer user_data)
 {
 	NMDeviceOlpcMesh *self = NM_DEVICE_OLPC_MESH (user_data);
 	NMDeviceState state = nm_device_get_state (NM_DEVICE (self));
 
 	/* Don't allow the companion to scan while configuring the mesh interface */
-	return (state < NM_DEVICE_STATE_PREPARE) || (state > NM_DEVICE_STATE_IP_CONFIG);
+	return (state >= NM_DEVICE_STATE_PREPARE) && (state <= NM_DEVICE_STATE_IP_CONFIG);
 }
 
 static gboolean
@@ -358,8 +354,8 @@ check_companion (NMDeviceOlpcMesh *self, NMDevice *other)
 	g_signal_connect (G_OBJECT (other), "notify::" NM_DEVICE_WIFI_SCANNING,
 	                  G_CALLBACK (companion_notify_cb), self);
 
-	g_signal_connect (G_OBJECT (other), NM_DEVICE_WIFI_SCANNING_ALLOWED,
-	                  G_CALLBACK (companion_scan_allowed_cb), self);
+	g_signal_connect (G_OBJECT (other), NM_DEVICE_WIFI_SCANNING_PROHIBITED,
+	                  G_CALLBACK (companion_scan_prohibited_cb), self);
 
 	g_signal_connect (G_OBJECT (other), NM_DEVICE_AUTOCONNECT_ALLOWED,
 	                  G_CALLBACK (companion_autoconnect_allowed_cb), self);
@@ -425,6 +421,13 @@ state_changed (NMDevice *device,
 		find_companion (NM_DEVICE_OLPC_MESH (device));
 }
 
+static guint32
+get_dhcp_timeout (NMDevice *device, int addr_family)
+{
+	/* shorter timeout for mesh connectivity */
+	return 20;
+}
+
 /*****************************************************************************/
 
 static void
@@ -465,11 +468,8 @@ constructed (GObject *object)
 
 	priv->manager = g_object_ref (nm_manager_get ());
 
-	g_signal_connect (priv->manager, "device-added", G_CALLBACK (device_added_cb), self);
-	g_signal_connect (priv->manager, "device-removed", G_CALLBACK (device_removed_cb), self);
-
-	/* shorter timeout for mesh connectivity */
-	nm_device_set_dhcp_timeout (NM_DEVICE (self), 20);
+	g_signal_connect (priv->manager, NM_MANAGER_DEVICE_ADDED, G_CALLBACK (device_added_cb), self);
+	g_signal_connect (priv->manager, NM_MANAGER_DEVICE_REMOVED, G_CALLBACK (device_removed_cb), self);
 }
 
 NMDevice *
@@ -513,12 +513,13 @@ nm_device_olpc_mesh_class_init (NMDeviceOlpcMeshClass *klass)
 	object_class->dispose = dispose;
 
 	parent_class->check_connection_compatible = check_connection_compatible;
-	parent_class->can_auto_connect = can_auto_connect;
+	parent_class->get_autoconnect_allowed = get_autoconnect_allowed;
 	parent_class->complete_connection = complete_connection;
 	parent_class->is_available = is_available;
 	parent_class->act_stage1_prepare = act_stage1_prepare;
 	parent_class->act_stage2_config = act_stage2_config;
 	parent_class->state_changed = state_changed;
+	parent_class->get_dhcp_timeout = get_dhcp_timeout;
 
 	obj_properties[PROP_COMPANION] =
 	     g_param_spec_string (NM_DEVICE_OLPC_MESH_COMPANION, "", "",

@@ -57,6 +57,8 @@ gboolean nm_device_bring_up (NMDevice *self, gboolean wait, gboolean *no_firmwar
 
 void nm_device_take_down (NMDevice *self, gboolean block);
 
+gboolean nm_device_take_over_link (NMDevice *self, const char *ifname, gboolean *renamed);
+
 gboolean nm_device_hw_addr_set (NMDevice *device,
                                 const char *addr,
                                 const char *detail,
@@ -83,17 +85,12 @@ gboolean nm_device_activate_ip6_state_in_conf (NMDevice *device);
 gboolean nm_device_activate_ip6_state_in_wait (NMDevice *device);
 gboolean nm_device_activate_ip6_state_done (NMDevice *device);
 
-void nm_device_set_dhcp_timeout (NMDevice *device, guint32 timeout);
 void nm_device_set_dhcp_anycast_address (NMDevice *device, const char *addr);
 
 gboolean nm_device_dhcp4_renew (NMDevice *device, gboolean release);
 gboolean nm_device_dhcp6_renew (NMDevice *device, gboolean release);
 
 void nm_device_recheck_available_connections (NMDevice *device);
-
-gboolean nm_device_get_enslaved (NMDevice *device);
-
-NMDevice *nm_device_master_get_slave_by_ifindex (NMDevice *dev, int ifindex);
 
 void nm_device_master_check_slave_physical_port (NMDevice *self, NMDevice *slave,
                                                  NMLogDomain log_domain);
@@ -121,6 +118,8 @@ gint64 nm_device_get_configured_mtu_from_connection_default (NMDevice *self,
 
 guint32 nm_device_get_configured_mtu_for_wired (NMDevice *self, gboolean *out_is_user_config);
 
+void nm_device_commit_mtu (NMDevice *self);
+
 /*****************************************************************************/
 
 #define NM_DEVICE_CLASS_DECLARE_TYPES(klass, conn_type, ...) \
@@ -134,5 +133,10 @@ gboolean _nm_device_hash_check_invalid_keys (GHashTable *hash, const char *setti
                                              GError **error, const char **argv);
 #define nm_device_hash_check_invalid_keys(hash, setting_name, error, ...) \
 	_nm_device_hash_check_invalid_keys (hash, setting_name, error, ((const char *[]) { __VA_ARGS__, NULL }))
+
+gboolean nm_device_match_parent (NMDevice *device, const char *parent);
+gboolean nm_device_match_hwaddr (NMDevice *device,
+                                 NMConnection *connection,
+                                 gboolean fail_if_no_hwaddr);
 
 #endif	/* NM_DEVICE_PRIVATE_H */

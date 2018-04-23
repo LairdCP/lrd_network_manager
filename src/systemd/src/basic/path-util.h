@@ -27,14 +27,16 @@
 #include "string-util.h"
 #include "time-util.h"
 
+#if 0 /* NM_IGNORED */
 #define DEFAULT_PATH_NORMAL "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
 #define DEFAULT_PATH_SPLIT_USR DEFAULT_PATH_NORMAL ":/sbin:/bin"
 
-#ifdef HAVE_SPLIT_USR
+#if HAVE_SPLIT_USR
 #  define DEFAULT_PATH DEFAULT_PATH_SPLIT_USR
 #else
 #  define DEFAULT_PATH DEFAULT_PATH_NORMAL
 #endif
+#endif /* NM_IGNORED */
 
 bool is_path(const char *p) _pure_;
 int path_split_and_make_absolute(const char *p, char ***ret);
@@ -46,7 +48,7 @@ char* path_kill_slashes(char *path);
 char* path_startswith(const char *path, const char *prefix) _pure_;
 int path_compare(const char *a, const char *b) _pure_;
 bool path_equal(const char *a, const char *b) _pure_;
-bool path_equal_or_files_same(const char *a, const char *b);
+bool path_equal_or_files_same(const char *a, const char *b, int flags);
 char* path_join(const char *root, const char *path, const char *rest);
 
 static inline bool path_equal_ptr(const char *a, const char *b) {
@@ -143,3 +145,13 @@ bool is_deviceallow_pattern(const char *path);
 int systemd_installation_has_version(const char *root, unsigned minimal_version);
 
 bool dot_or_dot_dot(const char *path);
+
+static inline const char *skip_dev_prefix(const char *p) {
+        const char *e;
+
+        /* Drop any /dev prefix if there is any */
+
+        e = path_startswith(p, "/dev/");
+
+        return e ?: p;
+}

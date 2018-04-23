@@ -51,7 +51,7 @@
  **/
 
 G_DEFINE_TYPE_WITH_CODE (NMSettingIP4Config, nm_setting_ip4_config, NM_TYPE_SETTING_IP_CONFIG,
-                         _nm_register_setting (IP4_CONFIG, 4))
+                         _nm_register_setting (IP4_CONFIG, NM_SETTING_PRIORITY_IP))
 NM_SETTING_REGISTER_TYPE (NM_TYPE_SETTING_IP4_CONFIG)
 
 #define NM_SETTING_IP4_CONFIG_GET_PRIVATE(o) (G_TYPE_INSTANCE_GET_PRIVATE ((o), NM_TYPE_SETTING_IP4_CONFIG, NMSettingIP4ConfigPrivate))
@@ -191,7 +191,7 @@ verify (NMSetting *setting, NMConnection *connection, GError **error)
 		return FALSE;
 	}
 
-	if (priv->dhcp_client_id && !strlen (priv->dhcp_client_id)) {
+	if (priv->dhcp_client_id && !priv->dhcp_client_id[0]) {
 		g_set_error_literal (error,
 		                     NM_CONNECTION_ERROR,
 		                     NM_CONNECTION_ERROR_INVALID_PROPERTY,
@@ -677,6 +677,22 @@ nm_setting_ip4_config_class_init (NMSettingIP4ConfigClass *ip4_class)
 	 * default: -1
 	 * description: IPV4_ROUTE_METRIC is the default IPv4 metric for routes on this connection.
 	 *   If set to -1, a default metric based on the device type is used.
+	 * ---end---
+	 */
+
+	/* ---ifcfg-rh---
+	 * property: route-table
+	 * variable: IPV4_ROUTE_TABLE(+)
+	 * default: 0
+	 * description: IPV4_ROUTE_TABLE enables policy-routing and sets the default routing table.
+	 * ---end---
+	 */
+
+	/* ---ifcfg-rh---
+	 * property: dns-options
+	 * variable: RES_OPTIONS(+)
+	 * description: List of DNS options to be added to /etc/resolv.conf
+	 * example: RES_OPTIONS=ndots:2 timeout:3
 	 * ---end---
 	 */
 

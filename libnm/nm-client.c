@@ -63,6 +63,10 @@
 #include "nm-device-macvlan.h"
 #include "nm-device-modem.h"
 #include "nm-device-olpc-mesh.h"
+#include "nm-device-ovs-interface.h"
+#include "nm-device-ovs-port.h"
+#include "nm-device-ovs-bridge.h"
+#include "nm-device-ppp.h"
 #include "nm-device-team.h"
 #include "nm-device-tun.h"
 #include "nm-device-vlan.h"
@@ -122,6 +126,8 @@ enum {
 	PROP_WIMAX_HARDWARE_ENABLED,
 	PROP_ACTIVE_CONNECTIONS,
 	PROP_CONNECTIVITY,
+	PROP_CONNECTIVITY_CHECK_AVAILABLE,
+	PROP_CONNECTIVITY_CHECK_ENABLED,
 	PROP_PRIMARY_CONNECTION,
 	PROP_ACTIVATING_CONNECTION,
 	PROP_DEVICES,
@@ -473,6 +479,72 @@ nm_client_wimax_hardware_get_enabled (NMClient *client)
 }
 
 /**
+ * nm_client_connectivity_check_get_available:
+ * @client: a #NMClient
+ *
+ * Determine whether connectivity checking is available.  This
+ * requires that the URI of a connectivity service has been set in the
+ * configuration file.
+ *
+ * Returns: %TRUE if connectivity checking is available.
+ *
+ * Since: 1.10
+ */
+gboolean
+nm_client_connectivity_check_get_available (NMClient *client)
+{
+	g_return_val_if_fail (NM_IS_CLIENT (client), FALSE);
+
+	if (!nm_client_get_nm_running (client))
+		return FALSE;
+
+	return nm_manager_connectivity_check_get_available (NM_CLIENT_GET_PRIVATE (client)->manager);
+}
+
+/**
+ * nm_client_connectivity_check_get_enabled:
+ * @client: a #NMClient
+ *
+ * Determine whether connectivity checking is enabled.
+ *
+ * Returns: %TRUE if connectivity checking is enabled.
+ *
+ * Since: 1.10
+ */
+gboolean
+nm_client_connectivity_check_get_enabled (NMClient *client)
+{
+	g_return_val_if_fail (NM_IS_CLIENT (client), FALSE);
+
+	if (!nm_client_get_nm_running (client))
+		return FALSE;
+
+	return nm_manager_connectivity_check_get_enabled (NM_CLIENT_GET_PRIVATE (client)->manager);
+}
+
+/**
+ * nm_client_connectivity_check_set_enabled:
+ * @client: a #NMClient
+ * @enabled: %TRUE to enable connectivity checking
+ *
+ * Enable or disable connectivity checking.  Note that if a
+ * connectivity checking URI has not been configured, this will not
+ * have any effect.
+ *
+ * Since: 1.10
+ */
+void
+nm_client_connectivity_check_set_enabled (NMClient *client, gboolean enabled)
+{
+	g_return_if_fail (NM_IS_CLIENT (client));
+
+	if (!nm_client_get_nm_running (client))
+		return;
+
+	nm_manager_connectivity_check_set_enabled (NM_CLIENT_GET_PRIVATE (client)->manager, enabled);
+}
+
+/**
  * nm_client_get_logging:
  * @client: a #NMClient
  * @level: (allow-none): return location for logging level string
@@ -646,6 +718,8 @@ nm_client_check_connectivity_async (NMClient *client,
 
 	simple = g_simple_async_result_new (G_OBJECT (client), callback, user_data,
 	                                    nm_client_check_connectivity_async);
+	if (cancellable)
+		g_simple_async_result_set_check_cancellable (simple, cancellable);
 	nm_manager_check_connectivity_async (NM_CLIENT_GET_PRIVATE (client)->manager,
 	                                     cancellable, check_connectivity_cb, simple);
 }
@@ -755,6 +829,8 @@ nm_client_save_hostname_async (NMClient *client,
 
 	simple = g_simple_async_result_new (G_OBJECT (client), callback, user_data,
 	                                    nm_client_save_hostname_async);
+	if (cancellable)
+		g_simple_async_result_set_check_cancellable (simple, cancellable);
 	nm_remote_settings_save_hostname_async (NM_CLIENT_GET_PRIVATE (client)->settings,
 	                                        hostname,
 	                                        cancellable, save_hostname_cb, simple);
@@ -1013,7 +1089,7 @@ activate_cb (GObject *object,
  * picks the best available connection for the device and activates it.
  *
  * Note that the callback is invoked when NetworkManager has started activating
- * the new connection, not when it finishes. You can used the returned
+ * the new connection, not when it finishes. You can use the returned
  * #NMActiveConnection object (in particular, #NMActiveConnection:state) to
  * track the activation to its completion.
  **/
@@ -1042,6 +1118,8 @@ nm_client_activate_connection_async (NMClient *client,
 
 	simple = g_simple_async_result_new (G_OBJECT (client), callback, user_data,
 	                                    nm_client_activate_connection_async);
+	if (cancellable)
+		g_simple_async_result_set_check_cancellable (simple, cancellable);
 	nm_manager_activate_connection_async (NM_CLIENT_GET_PRIVATE (client)->manager,
 	                                      connection, device, specific_object,
 	                                      cancellable, activate_cb, simple);
@@ -1147,6 +1225,8 @@ nm_client_add_and_activate_connection_async (NMClient *client,
 
 	simple = g_simple_async_result_new (G_OBJECT (client), callback, user_data,
 	                                    nm_client_add_and_activate_connection_async);
+	if (cancellable)
+		g_simple_async_result_set_check_cancellable (simple, cancellable);
 	nm_manager_add_and_activate_connection_async (NM_CLIENT_GET_PRIVATE (client)->manager,
 	                                              partial, device, specific_object,
 	                                              cancellable, add_activate_cb, simple);
@@ -1250,6 +1330,8 @@ nm_client_deactivate_connection_async (NMClient *client,
 
 	simple = g_simple_async_result_new (G_OBJECT (client), callback, user_data,
 	                                    nm_client_deactivate_connection_async);
+	if (cancellable)
+		g_simple_async_result_set_check_cancellable (simple, cancellable);
 
 	if (!_nm_client_check_nm_running (client, NULL)) {
 		g_simple_async_result_set_op_res_gboolean (simple, TRUE);
@@ -1336,7 +1418,7 @@ nm_client_get_connection_by_id (NMClient *client, const char *id)
 	g_return_val_if_fail (id != NULL, NULL);
 
 	if (!nm_client_get_nm_running (client))
-		NULL;
+		return NULL;
 
 	return nm_remote_settings_get_connection_by_id (NM_CLIENT_GET_PRIVATE (client)->settings, id);
 }
@@ -1361,7 +1443,7 @@ nm_client_get_connection_by_path (NMClient *client, const char *path)
 	g_return_val_if_fail (path != NULL, NULL);
 
 	if (!nm_client_get_nm_running (client))
-		NULL;
+		return NULL;
 
 	return nm_remote_settings_get_connection_by_path (NM_CLIENT_GET_PRIVATE (client)->settings, path);
 }
@@ -1386,7 +1468,7 @@ nm_client_get_connection_by_uuid (NMClient *client, const char *uuid)
 	g_return_val_if_fail (uuid != NULL, NULL);
 
 	if (!nm_client_get_nm_running (client))
-		NULL;
+		return NULL;
 
 	return nm_remote_settings_get_connection_by_uuid (NM_CLIENT_GET_PRIVATE (client)->settings, uuid);
 }
@@ -1456,6 +1538,8 @@ nm_client_add_connection_async (NMClient *client,
 
 	simple = g_simple_async_result_new (G_OBJECT (client), callback, user_data,
 	                                    nm_client_add_connection_async);
+	if (cancellable)
+		g_simple_async_result_set_check_cancellable (simple, cancellable);
 	nm_remote_settings_add_connection_async (NM_CLIENT_GET_PRIVATE (client)->settings,
 	                                         connection, save_to_disk,
 	                                         cancellable, add_connection_cb, simple);
@@ -1581,6 +1665,8 @@ nm_client_load_connections_async (NMClient *client,
 
 	simple = g_simple_async_result_new (G_OBJECT (client), callback, user_data,
 	                                    nm_client_load_connections_async);
+	if (cancellable)
+		g_simple_async_result_set_check_cancellable (simple, cancellable);
 	nm_remote_settings_load_connections_async (NM_CLIENT_GET_PRIVATE (client)->settings,
 	                                           filenames,
 	                                           cancellable, load_connections_cb, simple);
@@ -1693,6 +1779,8 @@ nm_client_reload_connections_async (NMClient *client,
 
 	simple = g_simple_async_result_new (G_OBJECT (client), callback, user_data,
 	                                    nm_client_reload_connections_async);
+	if (cancellable)
+		g_simple_async_result_set_check_cancellable (simple, cancellable);
 	nm_remote_settings_reload_connections_async (NM_CLIENT_GET_PRIVATE (client)->settings,
 	                                             cancellable, reload_connections_cb, simple);
 }
@@ -1859,6 +1947,8 @@ nm_client_new_async (GCancellable *cancellable,
 	GSimpleAsyncResult *simple;
 
 	simple = g_simple_async_result_new (NULL, callback, user_data, nm_client_new_async);
+	if (cancellable)
+		g_simple_async_result_set_check_cancellable (simple, cancellable);
 
 	g_async_initable_new_async (NM_TYPE_CLIENT, G_PRIORITY_DEFAULT,
 	                            cancellable, client_inited, simple,
@@ -2078,6 +2168,14 @@ obj_nm_for_gdbus_object (NMClient *self, GDBusObject *object, GDBusObjectManager
 			type = NM_TYPE_DEVICE_MODEM;
 		else if (strcmp (ifname, NM_DBUS_INTERFACE_DEVICE_OLPC_MESH) == 0)
 			type = NM_TYPE_DEVICE_OLPC_MESH;
+		else if (strcmp (ifname, NM_DBUS_INTERFACE_DEVICE_OVS_INTERFACE) == 0)
+			type = NM_TYPE_DEVICE_OVS_INTERFACE;
+		else if (strcmp (ifname, NM_DBUS_INTERFACE_DEVICE_OVS_PORT) == 0)
+			type = NM_TYPE_DEVICE_OVS_PORT;
+		else if (strcmp (ifname, NM_DBUS_INTERFACE_DEVICE_OVS_BRIDGE) == 0)
+			type = NM_TYPE_DEVICE_OVS_BRIDGE;
+		else if (strcmp (ifname, NM_DBUS_INTERFACE_DEVICE_PPP) == 0)
+			type = NM_TYPE_DEVICE_PPP;
 		else if (strcmp (ifname, NM_DBUS_INTERFACE_DEVICE_TEAM) == 0)
 			type = NM_TYPE_DEVICE_TEAM;
 		else if (strcmp (ifname, NM_DBUS_INTERFACE_DEVICE_TUN) == 0)
@@ -2484,6 +2582,8 @@ prepare_object_manager (NMClient *client,
 	init_data->cancellable = cancellable ? g_object_ref (cancellable) : NULL;
 	init_data->result = g_simple_async_result_new (G_OBJECT (client), callback,
 	                                               user_data, init_async);
+	if (cancellable)
+		g_simple_async_result_set_check_cancellable (init_data->result, cancellable);
 	g_simple_async_result_set_op_res_gboolean (init_data->result, TRUE);
 
 	g_dbus_object_manager_client_new_for_bus (_nm_dbus_bus_type (),
@@ -2591,6 +2691,7 @@ set_property (GObject *object, guint prop_id,
 	case PROP_WIRELESS_ENABLED:
 	case PROP_WWAN_ENABLED:
 	case PROP_WIMAX_ENABLED:
+	case PROP_CONNECTIVITY_CHECK_ENABLED:
 		if (priv->manager)
 			g_object_set_property (G_OBJECT (priv->manager), pspec->name, value);
 		break;
@@ -2657,6 +2758,12 @@ get_property (GObject *object, guint prop_id,
 		break;
 	case PROP_CONNECTIVITY:
 		g_value_set_enum (value, nm_client_get_connectivity (self));
+		break;
+	case PROP_CONNECTIVITY_CHECK_AVAILABLE:
+		g_value_set_boolean (value, nm_client_connectivity_check_get_available (self));
+		break;
+	case PROP_CONNECTIVITY_CHECK_ENABLED:
+		g_value_set_boolean (value, nm_client_connectivity_check_get_enabled (self));
 		break;
 	case PROP_PRIMARY_CONNECTION:
 		g_value_set_object (value, nm_client_get_primary_connection (self));
@@ -2894,6 +3001,34 @@ nm_client_class_init (NMClientClass *client_class)
 		                    NM_CONNECTIVITY_UNKNOWN,
 		                    G_PARAM_READABLE |
 		                    G_PARAM_STATIC_STRINGS));
+
+	/**
+	 * NMClient::connectivity-check-available
+	 *
+	 * Whether a connectivity checking service has been configured.
+	 *
+	 * Since: 1.10
+	 */
+	g_object_class_install_property
+		(object_class, PROP_CONNECTIVITY_CHECK_AVAILABLE,
+		 g_param_spec_boolean (NM_CLIENT_CONNECTIVITY_CHECK_AVAILABLE, "", "",
+		                       FALSE,
+		                       G_PARAM_READABLE |
+		                       G_PARAM_STATIC_STRINGS));
+
+	/**
+	 * NMClient::connectivity-check-enabled
+	 *
+	 * Whether a connectivity checking service has been enabled.
+	 *
+	 * Since: 1.10
+	 */
+	g_object_class_install_property
+		(object_class, PROP_CONNECTIVITY_CHECK_ENABLED,
+		 g_param_spec_boolean (NM_CLIENT_CONNECTIVITY_CHECK_ENABLED, "", "",
+		                       FALSE,
+		                       G_PARAM_READWRITE |
+		                       G_PARAM_STATIC_STRINGS));
 
 	/**
 	 * NMClient:primary-connection:

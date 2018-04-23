@@ -16,7 +16,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
  * Copyright (C) 2008 Novell, Inc.
- * Copyright (C) 2008 - 2015 Red Hat, Inc.
+ * Copyright (C) 2008 - 2017 Red Hat, Inc.
  */
 
 #include "nm-default.h"
@@ -47,7 +47,7 @@ typedef struct {
  * NMSettingConnection's 'type' property (which specifies the base type of the
  * connection, eg ethernet or wifi) or the 802-11-wireless setting's
  * 'security' property which specifies whether or not the AP requires
- * encrpytion.  This function handles translating those properties' values
+ * encryption.  This function handles translating those properties' values
  * from the real setting name to the more-readable alias.
  */
 static void
@@ -193,14 +193,9 @@ write_ip_values (GKeyFile *file,
 
 		if (is_route) {
 			gs_free char *attributes = NULL;
-			gs_strfreev char **names = NULL;
-			gs_unref_hashtable GHashTable *hash = g_hash_table_new (g_str_hash, g_str_equal);
-			int j;
+			GHashTable *hash;
 
-			names = nm_ip_route_get_attribute_names (array->pdata[i]);
-			for (j = 0; names && names[j]; j++)
-				g_hash_table_insert (hash, names[j], nm_ip_route_get_attribute (array->pdata[i], names[j]));
-
+			hash = _nm_ip_route_get_attributes_direct (array->pdata[i]);
 			attributes = nm_utils_format_variant_attributes (hash, ',', '=');
 			if (attributes) {
 				g_strlcat (key_name, "_options", sizeof (key_name));
@@ -256,6 +251,72 @@ route_writer (KeyfileWriterInfo *info,
 	array = (GPtrArray *) g_value_get_boxed (value);
 	if (array && array->len)
 		write_ip_values (info->keyfile, setting_name, array, NULL, TRUE);
+}
+
+static void
+qdisc_writer (KeyfileWriterInfo *info,
+              NMSetting *setting,
+              const char *key,
+              const GValue *value)
+{
+	gsize i;
+	GPtrArray *array;
+
+	array = (GPtrArray *) g_value_get_boxed (value);
+	if (!array || !array->len)
+		return;
+
+	for (i = 0; i < array->len; i++) {
+		NMTCQdisc *qdisc = array->pdata[i];
+		GString *key_name = g_string_sized_new (16);
+		GString *value_str = g_string_sized_new (60);
+
+		g_string_append (key_name, "qdisc.");
+		_nm_utils_string_append_tc_parent (key_name, NULL,
+		                                   nm_tc_qdisc_get_parent (qdisc));
+		_nm_utils_string_append_tc_qdisc_rest (value_str, qdisc);
+
+		nm_keyfile_plugin_kf_set_string (info->keyfile,
+		                                 NM_SETTING_TC_CONFIG_SETTING_NAME,
+		                                 key_name->str,
+		                                 value_str->str);
+
+		g_string_free (key_name, TRUE);
+		g_string_free (value_str, TRUE);
+	}
+}
+
+static void
+tfilter_writer (KeyfileWriterInfo *info,
+              NMSetting *setting,
+              const char *key,
+              const GValue *value)
+{
+	gsize i;
+	GPtrArray *array;
+
+	array = (GPtrArray *) g_value_get_boxed (value);
+	if (!array || !array->len)
+		return;
+
+	for (i = 0; i < array->len; i++) {
+		NMTCTfilter *tfilter = array->pdata[i];
+		GString *key_name = g_string_sized_new (16);
+		GString *value_str = g_string_sized_new (60);
+
+		g_string_append (key_name, "tfilter.");
+		_nm_utils_string_append_tc_parent (key_name, NULL,
+		                                   nm_tc_tfilter_get_parent (tfilter));
+		_nm_utils_string_append_tc_tfilter_rest (value_str, tfilter, NULL);
+
+		nm_keyfile_plugin_kf_set_string (info->keyfile,
+		                                 NM_SETTING_TC_CONFIG_SETTING_NAME,
+		                                 key_name->str,
+		                                 value_str->str);
+
+		g_string_free (key_name, TRUE);
+		g_string_free (value_str, TRUE);
+	}
 }
 
 static void
@@ -506,6 +567,15 @@ cert_writer (KeyfileWriterInfo *info,
 	cert_writer_default (info->connection, info->keyfile, &type_data);
 }
 
+static void
+null_writer (KeyfileWriterInfo *info,
+             NMSetting *setting,
+             const char *key,
+             const GValue *value)
+{
+	/* skip */
+}
+
 /*****************************************************************************/
 
 typedef struct {
@@ -581,6 +651,75 @@ static KeyWriter key_writers[] = {
 	{ NM_SETTING_802_1X_SETTING_NAME,
 	  NM_SETTING_802_1X_PHASE2_PRIVATE_KEY,
 	  cert_writer },
+	{ NM_SETTING_TC_CONFIG_SETTING_NAME,
+	  NM_SETTING_TC_CONFIG_QDISCS,
+	  qdisc_writer },
+	{ NM_SETTING_TC_CONFIG_SETTING_NAME,
+	  NM_SETTING_TC_CONFIG_TFILTERS,
+	  tfilter_writer },
+	{ NM_SETTING_TEAM_SETTING_NAME,
+	  NM_SETTING_TEAM_NOTIFY_PEERS_COUNT,
+	  null_writer},
+	{ NM_SETTING_TEAM_SETTING_NAME,
+	  NM_SETTING_TEAM_NOTIFY_PEERS_INTERVAL,
+	  null_writer},
+	{ NM_SETTING_TEAM_SETTING_NAME,
+	  NM_SETTING_TEAM_MCAST_REJOIN_COUNT,
+	  null_writer},
+	{ NM_SETTING_TEAM_SETTING_NAME,
+	  NM_SETTING_TEAM_MCAST_REJOIN_INTERVAL,
+	  null_writer},
+	{ NM_SETTING_TEAM_SETTING_NAME,
+	  NM_SETTING_TEAM_RUNNER,
+	  null_writer},
+	{ NM_SETTING_TEAM_SETTING_NAME,
+	  NM_SETTING_TEAM_RUNNER_HWADDR_POLICY,
+	  null_writer},
+	{ NM_SETTING_TEAM_SETTING_NAME,
+	  NM_SETTING_TEAM_RUNNER_TX_HASH,
+	  null_writer},
+	{ NM_SETTING_TEAM_SETTING_NAME,
+	  NM_SETTING_TEAM_RUNNER_TX_BALANCER,
+	  null_writer},
+	{ NM_SETTING_TEAM_SETTING_NAME,
+	  NM_SETTING_TEAM_RUNNER_TX_BALANCER_INTERVAL,
+	  null_writer},
+	{ NM_SETTING_TEAM_SETTING_NAME,
+	  NM_SETTING_TEAM_RUNNER_ACTIVE,
+	  null_writer},
+	{ NM_SETTING_TEAM_SETTING_NAME,
+	  NM_SETTING_TEAM_RUNNER_FAST_RATE,
+	  null_writer},
+	{ NM_SETTING_TEAM_SETTING_NAME,
+	  NM_SETTING_TEAM_RUNNER_SYS_PRIO,
+	  null_writer},
+	{ NM_SETTING_TEAM_SETTING_NAME,
+	  NM_SETTING_TEAM_RUNNER_MIN_PORTS,
+	  null_writer},
+	{ NM_SETTING_TEAM_SETTING_NAME,
+	  NM_SETTING_TEAM_RUNNER_AGG_SELECT_POLICY,
+	  null_writer},
+	{ NM_SETTING_TEAM_SETTING_NAME,
+	  NM_SETTING_TEAM_LINK_WATCHERS,
+	  null_writer},
+	{ NM_SETTING_TEAM_PORT_SETTING_NAME,
+	  NM_SETTING_TEAM_PORT_QUEUE_ID,
+	  null_writer},
+	{ NM_SETTING_TEAM_PORT_SETTING_NAME,
+	  NM_SETTING_TEAM_PORT_PRIO,
+	  null_writer},
+	{ NM_SETTING_TEAM_PORT_SETTING_NAME,
+	  NM_SETTING_TEAM_PORT_STICKY,
+	  null_writer},
+	{ NM_SETTING_TEAM_PORT_SETTING_NAME,
+	  NM_SETTING_TEAM_PORT_LACP_PRIO,
+	  null_writer},
+	{ NM_SETTING_TEAM_PORT_SETTING_NAME,
+	  NM_SETTING_TEAM_PORT_LACP_KEY,
+	  null_writer},
+	{ NM_SETTING_TEAM_PORT_SETTING_NAME,
+	  NM_SETTING_TEAM_PORT_LINK_WATCHERS,
+	  null_writer},
 	{ NULL, NULL, NULL }
 };
 

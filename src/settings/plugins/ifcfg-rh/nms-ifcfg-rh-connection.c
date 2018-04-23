@@ -36,13 +36,13 @@
 #include "nm-setting-wireless-security.h"
 #include "nm-setting-8021x.h"
 #include "platform/nm-platform.h"
-#include "settings/nm-inotify-helper.h"
 #include "nm-config.h"
 
 #include "nms-ifcfg-rh-common.h"
 #include "nms-ifcfg-rh-reader.h"
 #include "nms-ifcfg-rh-writer.h"
 #include "nms-ifcfg-rh-utils.h"
+#include "nm-inotify-helper.h"
 
 /*****************************************************************************/
 
@@ -95,14 +95,6 @@ G_DEFINE_TYPE (NMIfcfgConnection, nm_ifcfg_connection, NM_TYPE_SETTINGS_CONNECTI
 #define NM_IFCFG_CONNECTION_GET_PRIVATE(self) _NM_GET_PRIVATE (self, NMIfcfgConnection, NM_IS_IFCFG_CONNECTION)
 
 /*****************************************************************************/
-
-static NMInotifyHelper *
-_get_inotify_helper (NMIfcfgConnectionPrivate *priv)
-{
-	if (!priv->inotify_helper)
-		priv->inotify_helper = g_object_ref (nm_inotify_helper_get ());
-	return priv->inotify_helper;
-}
 
 static gboolean
 devtimeout_ready (gpointer user_data)
@@ -225,37 +217,17 @@ static void
 path_watch_stop (NMIfcfgConnection *self)
 {
 	NMIfcfgConnectionPrivate *priv = NM_IFCFG_CONNECTION_GET_PRIVATE (self);
-	NMInotifyHelper *ih;
 
-	ih = _get_inotify_helper (priv);
+	nm_clear_g_signal_handler (priv->inotify_helper, &priv->ih_event_id);
 
-	nm_clear_g_signal_handler (ih, &priv->ih_event_id);
+	nm_inotify_helper_clear_watch (priv->inotify_helper, &priv->file_wd);
+	nm_inotify_helper_clear_watch (priv->inotify_helper, &priv->keyfile_wd);
+	nm_inotify_helper_clear_watch (priv->inotify_helper, &priv->routefile_wd);
+	nm_inotify_helper_clear_watch (priv->inotify_helper, &priv->route6file_wd);
 
-	if (priv->file_wd >= 0) {
-		nm_inotify_helper_remove_watch (ih, priv->file_wd);
-		priv->file_wd = -1;
-	}
-
-	g_free (priv->keyfile);
-	priv->keyfile = NULL;
-	if (priv->keyfile_wd >= 0) {
-		nm_inotify_helper_remove_watch (ih, priv->keyfile_wd);
-		priv->keyfile_wd = -1;
-	}
-
-	g_free (priv->routefile);
-	priv->routefile = NULL;
-	if (priv->routefile_wd >= 0) {
-		nm_inotify_helper_remove_watch (ih, priv->routefile_wd);
-		priv->routefile_wd = -1;
-	}
-
-	g_free (priv->route6file);
-	priv->route6file = NULL;
-	if (priv->route6file_wd >= 0) {
-		nm_inotify_helper_remove_watch (ih, priv->route6file_wd);
-		priv->route6file_wd = -1;
-	}
+	nm_clear_g_free (&priv->keyfile);
+	nm_clear_g_free (&priv->routefile);
+	nm_clear_g_free (&priv->route6file);
 }
 
 static void
@@ -280,7 +252,9 @@ filename_changed (GObject *object,
 	if (nm_config_get_monitor_connection_files (nm_config_get ())) {
 		NMInotifyHelper *ih;
 
-		ih = _get_inotify_helper (priv);
+		if (!priv->inotify_helper)
+			priv->inotify_helper = g_object_ref (nm_inotify_helper_get ());
+		ih = priv->inotify_helper;
 
 		priv->ih_event_id = g_signal_connect (ih, "event", G_CALLBACK (files_changed_cb), self);
 		priv->file_wd = nm_inotify_helper_add_watch (ih, ifcfg_path);
@@ -306,75 +280,52 @@ nm_ifcfg_connection_get_unrecognized_spec (NMIfcfgConnection *self)
 	return NM_IFCFG_CONNECTION_GET_PRIVATE (self)->unrecognized_spec;
 }
 
-static void
-replace_and_commit (NMSettingsConnection *connection,
-                    NMConnection *new_connection,
-                    NMSettingsConnectionCommitFunc callback,
-                    gpointer user_data)
-{
-	const char *filename;
-	GError *error = NULL;
-
-	filename = nm_settings_connection_get_filename (connection);
-	if (filename && utils_has_complex_routes (filename)) {
-		if (callback) {
-			error = g_error_new_literal (NM_SETTINGS_ERROR, NM_SETTINGS_ERROR_FAILED,
-			                             "Cannot modify a connection that has an associated 'rule-' or 'rule6-' file");
-			callback (connection, error, user_data);
-			g_clear_error (&error);
-		}
-		return;
-	}
-
-	NM_SETTINGS_CONNECTION_CLASS (nm_ifcfg_connection_parent_class)->replace_and_commit (connection, new_connection, callback, user_data);
-}
-
-static void
+static gboolean
 commit_changes (NMSettingsConnection *connection,
+                NMConnection *new_connection,
                 NMSettingsConnectionCommitReason commit_reason,
-                NMSettingsConnectionCommitFunc callback,
-                gpointer user_data)
+                NMConnection **out_reread_connection,
+                char **out_logmsg_change,
+                GError **error)
 {
-	GError *error = NULL;
-	gboolean success = FALSE;
-	char *ifcfg_path = NULL;
 	const char *filename;
+	gs_unref_object NMConnection *reread = NULL;
+	gboolean reread_same = TRUE;
+	const char *operation_message;
+	gs_free char *ifcfg_path = NULL;
+
+	nm_assert (out_reread_connection && !*out_reread_connection);
+	nm_assert (!out_logmsg_change || !*out_logmsg_change);
 
 	filename = nm_settings_connection_get_filename (connection);
-	if (filename) {
-		success = writer_update_connection (NM_CONNECTION (connection),
-		                                    IFCFG_DIR,
-		                                    filename,
-		                                    NULL,
-		                                    NULL,
-		                                    &error);
-	} else {
-		success = writer_new_connection (NM_CONNECTION (connection),
-		                                 IFCFG_DIR,
-		                                 &ifcfg_path,
-		                                 NULL,
-		                                 NULL,
-		                                 &error);
-		if (success) {
-			nm_settings_connection_set_filename (connection, ifcfg_path);
-			g_free (ifcfg_path);
-		}
-	}
+	if (!nms_ifcfg_rh_writer_write_connection (new_connection,
+	                                           IFCFG_DIR,
+	                                           filename,
+	                                           &ifcfg_path,
+	                                           &reread,
+	                                           &reread_same,
+	                                           error))
+		return FALSE;
 
-	if (success) {
-		/* Chain up to parent to handle success */
-		NM_SETTINGS_CONNECTION_CLASS (nm_ifcfg_connection_parent_class)->commit_changes (connection, commit_reason, callback, user_data);
-	} else {
-		/* Otherwise immediate error */
-		callback (connection, error, user_data);
-		g_error_free (error);
-	}
+	nm_assert ((!filename && ifcfg_path) || (filename && !ifcfg_path));
+	if (ifcfg_path) {
+		nm_settings_connection_set_filename (connection, ifcfg_path);
+		operation_message = "persist";
+	} else
+		operation_message = "update";
+
+	if (reread && !reread_same)
+		*out_reread_connection = g_steal_pointer (&reread);
+
+	NM_SET_OUT (out_logmsg_change,
+	            g_strdup_printf ("ifcfg-rh: %s %s",
+	                             operation_message, filename));
+	return TRUE;
 }
 
-static void
-do_delete (NMSettingsConnection *connection,
-	       NMSettingsConnectionDeleteFunc callback,
-	       gpointer user_data)
+static gboolean
+delete (NMSettingsConnection *connection,
+        GError **error)
 {
 	NMIfcfgConnectionPrivate *priv = NM_IFCFG_CONNECTION_GET_PRIVATE ((NMIfcfgConnection *) connection);
 	const char *filename;
@@ -390,7 +341,7 @@ do_delete (NMSettingsConnection *connection,
 			g_unlink (priv->route6file);
 	}
 
-	NM_SETTINGS_CONNECTION_CLASS (nm_ifcfg_connection_parent_class)->delete (connection, callback, user_data);
+	return TRUE;
 }
 
 /*****************************************************************************/
@@ -438,6 +389,13 @@ set_property (GObject *object, guint prop_id,
 static void
 nm_ifcfg_connection_init (NMIfcfgConnection *connection)
 {
+	NMIfcfgConnectionPrivate *priv = NM_IFCFG_CONNECTION_GET_PRIVATE (connection);
+
+	priv->file_wd = -1;
+	priv->keyfile_wd = -1;
+	priv->routefile_wd = -1;
+	priv->route6file_wd = -1;
+
 	g_signal_connect (connection, "notify::" NM_SETTINGS_CONNECTION_FILENAME,
 	                  G_CALLBACK (filename_changed), NULL);
 }
@@ -452,17 +410,11 @@ nm_ifcfg_connection_new (NMConnection *source,
 	NMConnection *tmp;
 	char *unhandled_spec = NULL;
 	const char *unmanaged_spec = NULL, *unrecognized_spec = NULL;
-	gboolean update_unsaved = TRUE;
 
 	g_assert (source || full_path);
 
 	if (out_ignore_error)
 		*out_ignore_error = FALSE;
-
-	if (full_path) {
-		/* The connection already is on the disk */
-		update_unsaved = FALSE;
-	}
 
 	/* If we're given a connection already, prefer that instead of re-reading */
 	if (source)
@@ -487,11 +439,14 @@ nm_ifcfg_connection_new (NMConnection *source,
 	                                   NM_IFCFG_CONNECTION_UNRECOGNIZED_SPEC, unrecognized_spec,
 	                                   NULL);
 	/* Update our settings with what was read from the file */
-	if (nm_settings_connection_replace_settings (NM_SETTINGS_CONNECTION (object),
-	                                             tmp,
-	                                             update_unsaved,
-	                                             NULL,
-	                                             error))
+	if (nm_settings_connection_update (NM_SETTINGS_CONNECTION (object),
+	                                   tmp,
+	                                   full_path
+	                                     ? NM_SETTINGS_CONNECTION_PERSIST_MODE_KEEP_SAVED
+	                                     : NM_SETTINGS_CONNECTION_PERSIST_MODE_UNSAVED,
+	                                   NM_SETTINGS_CONNECTION_COMMIT_REASON_NONE,
+	                                   NULL,
+	                                   error))
 		nm_ifcfg_connection_check_devtimeout (NM_IFCFG_CONNECTION (object));
 	else
 		g_clear_object (&object);
@@ -529,8 +484,7 @@ nm_ifcfg_connection_class_init (NMIfcfgConnectionClass *ifcfg_connection_class)
 	object_class->get_property = get_property;
 	object_class->dispose      = dispose;
 
-	settings_class->delete = do_delete;
-	settings_class->replace_and_commit = replace_and_commit;
+	settings_class->delete = delete;
 	settings_class->commit_changes = commit_changes;
 
 	obj_properties[PROP_UNMANAGED_SPEC] =

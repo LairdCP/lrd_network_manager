@@ -153,7 +153,23 @@ nm_checkpoint_manager_create (NMCheckpointManager *self,
 	manager = GET_MANAGER (self);
 
 	if (!device_paths || !device_paths[0]) {
-		device_paths_free = nm_manager_get_device_paths (manager);
+		const char *device_path;
+		const GSList *iter;
+		GPtrArray *paths;
+
+		paths = g_ptr_array_new ();
+		for (iter = nm_manager_get_devices (manager);
+		     iter;
+		     iter = g_slist_next (iter)) {
+			device = NM_DEVICE (iter->data);
+			if (!nm_device_is_real (device))
+				continue;
+			device_path = nm_exported_object_get_path (NM_EXPORTED_OBJECT (device));
+			if (device_path)
+				g_ptr_array_add (paths, (gpointer) device_path);
+		}
+		g_ptr_array_add (paths, NULL);
+		device_paths_free = (const char **) g_ptr_array_free (paths, FALSE);
 		device_paths = (const char *const *) device_paths_free;
 	} else if (NM_FLAGS_HAS (flags, NM_CHECKPOINT_CREATE_FLAG_DISCONNECT_NEW_DEVICES)) {
 		g_set_error_literal (error, NM_MANAGER_ERROR, NM_MANAGER_ERROR_INVALID_ARGUMENTS,
@@ -175,10 +191,12 @@ nm_checkpoint_manager_create (NMCheckpointManager *self,
 	if (!NM_FLAGS_HAS (flags, NM_CHECKPOINT_CREATE_FLAG_DESTROY_ALL)) {
 		for (i = 0; i < devices->len; i++) {
 			device = devices->pdata[i];
-			if (find_checkpoint_for_device (self, device)) {
+			checkpoint = find_checkpoint_for_device (self, device);
+			if (checkpoint) {
 				g_set_error (error, NM_MANAGER_ERROR, NM_MANAGER_ERROR_INVALID_ARGUMENTS,
-				             "a checkpoint for device '%s' already exists",
-				             nm_device_get_iface (device));
+				             "device '%s' is already included in checkpoint %s",
+				             nm_device_get_iface (device),
+				             nm_exported_object_get_path (NM_EXPORTED_OBJECT (checkpoint)));
 				return NULL;
 			}
 		}
@@ -283,7 +301,7 @@ nm_checkpoint_manager_new (NMManager *manager)
 	 * of NMManager shall surpass the lifetime of the NMCheckpointManager
 	 * instance. */
 	self->_manager = manager;
-	self->checkpoints = g_hash_table_new_full (g_str_hash, g_str_equal,
+	self->checkpoints = g_hash_table_new_full (nm_str_hash, g_str_equal,
 	                                           NULL, checkpoint_destroy);
 
 	return self;

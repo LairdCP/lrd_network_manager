@@ -19,7 +19,7 @@
 %global rpm_version __VERSION__
 %global real_version __VERSION__
 %global release_version __RELEASE_VERSION__
-%global snapshot %{nil}
+%global snapshot __SNAPSHOT__
 %global git_sha __COMMIT__
 
 %global obsoletes_device_plugins 1:0.9.9.95-1
@@ -50,6 +50,7 @@
 %bcond_without wwan
 %bcond_without team
 %bcond_without wifi
+%bcond_without ovs
 %bcond_without ppp
 %bcond_without nmtui
 %bcond_without regen_docs
@@ -60,6 +61,11 @@
 %endif
 %bcond_without test
 %bcond_with    sanitizer
+%if 0%{?fedora} > 28 || 0%{?rhel} > 7
+%bcond_with libnm_glib
+%else
+%bcond_without libnm_glib
+%endif
 
 ###############################################################################
 
@@ -240,6 +246,19 @@ This package contains NetworkManager support for mobile broadband (WWAN)
 devices.
 %endif
 
+
+%if %{with ovs}
+%package ovs
+Summary: OpenVSwitch device plugin for NetworkManager
+Group: System Environment/Base
+Requires: %{name}%{?_isa} = %{epoch}:%{version}-%{release}
+Requires: openvswitch
+
+%description ovs
+This package contains NetworkManager support for OpenVSwitch bridges.
+%endif
+
+
 %if %{with ppp}
 %package ppp
 Summary: PPP plugin for NetworkManager
@@ -370,9 +389,11 @@ gtkdocize
 autoreconf --install --force
 intltoolize --automake --copy --force
 %configure \
+	--disable-silent-rules \
 	--disable-static \
 	--with-dhclient=yes \
 	--with-dhcpcd=no \
+	--with-dhcpcanon=no \
 	--with-config-dhcp-default=dhclient \
 	--with-crypto=nss \
 %if %{with test}
@@ -423,6 +444,11 @@ intltoolize --automake --copy --force
 %else
 	--enable-teamdctl=no \
 %endif
+%if %{with ovs}
+	--enable-ovs=yes \
+%else
+	--enable-ovs=no \
+%endif
 	--with-selinux=yes \
 	--enable-polkit=yes \
 	--enable-polkit-agent \
@@ -453,7 +479,12 @@ intltoolize --automake --copy --force
 	--with-config-plugins-default='ifcfg-rh,ibft' \
 	--with-config-dns-rc-manager-default=symlink \
 	--with-config-logging-backend-default=journal \
-	--enable-json-validation
+	--enable-json-validation \
+%if %{with libnm_glib}
+	--with-libnm-glib
+%else
+	--without-libnm-glib
+%endif
 
 make %{?_smp_mflags}
 
@@ -562,7 +593,7 @@ fi
 %dir %{nmlibdir}/VPN
 %{_mandir}/man1/*
 %{_mandir}/man5/*
-%{_mandir}/man7/*
+%{_mandir}/man7/nmcli-examples.7*
 %{_mandir}/man8/*
 %dir %{_localstatedir}/lib/NetworkManager
 %dir %{_sysconfdir}/NetworkManager/system-connections
@@ -607,19 +638,29 @@ fi
 %{_libdir}/%{name}/libnm-wwan.so
 %endif
 
+%if %{with ovs}
+%files ovs
+%{_libdir}/%{name}/libnm-device-plugin-ovs.so
+%{systemd_dir}/NetworkManager.service.d/NetworkManager-ovs.conf
+%{_mandir}/man7/nm-openvswitch.7*
+%endif
+
 %if %{with ppp}
 %files ppp
 %{_libdir}/pppd/%{ppp_version}/nm-pppd-plugin.so
 %{_libdir}/%{name}/libnm-ppp-plugin.so
 %endif
 
+%if %{with libnm_glib}
 %files glib -f %{name}.lang
 %{_libdir}/libnm-glib.so.*
 %{_libdir}/libnm-glib-vpn.so.*
 %{_libdir}/libnm-util.so.*
 %{_libdir}/girepository-1.0/NetworkManager-1.0.typelib
 %{_libdir}/girepository-1.0/NMClient-1.0.typelib
+%endif
 
+%if %{with libnm_glib}
 %files glib-devel
 %doc docs/api/html/*
 %dir %{_includedir}/libnm-glib
@@ -646,10 +687,9 @@ fi
 %{_datadir}/gtk-doc/html/libnm-glib/*
 %dir %{_datadir}/gtk-doc/html/libnm-util
 %{_datadir}/gtk-doc/html/libnm-util/*
-%dir %{_datadir}/gtk-doc/html/NetworkManager
-%{_datadir}/gtk-doc/html/NetworkManager/*
 %{_datadir}/vala/vapi/libnm-*.deps
 %{_datadir}/vala/vapi/libnm-*.vapi
+%endif
 
 %files libnm -f %{name}.lang
 %{_libdir}/libnm.so.*
@@ -664,6 +704,8 @@ fi
 %{_datadir}/gir-1.0/NM-1.0.gir
 %dir %{_datadir}/gtk-doc/html/libnm
 %{_datadir}/gtk-doc/html/libnm/*
+%dir %{_datadir}/gtk-doc/html/NetworkManager
+%{_datadir}/gtk-doc/html/NetworkManager/*
 %{_datadir}/vala/vapi/libnm.deps
 %{_datadir}/vala/vapi/libnm.vapi
 %{_datadir}/dbus-1/interfaces/*.xml
@@ -694,4 +736,3 @@ fi
 
 %changelog
 __CHANGELOG__
-

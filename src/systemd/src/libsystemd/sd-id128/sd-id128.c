@@ -70,7 +70,7 @@ _public_ int sd_id128_from_string(const char s[], sd_id128_t *ret) {
 
                         if (i == 8)
                                 is_guid = true;
-                        else if (i == 13 || i == 18 || i == 23) {
+                        else if (IN_SET(i, 13, 18, 23)) {
                                 if (!is_guid)
                                         return -EINVAL;
                         } else
@@ -294,7 +294,7 @@ _public_ int sd_id128_randomize(sd_id128_t *ret) {
 
         assert_return(ret, -EINVAL);
 
-        r = dev_urandom(&t, sizeof(t));
+        r = acquire_random_bytes(&t, sizeof t, true);
         if (r < 0)
                 return r;
 

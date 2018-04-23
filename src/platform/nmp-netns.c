@@ -290,6 +290,7 @@ _netns_new (GError **error)
 		g_set_error (error, NM_UTILS_ERROR, NM_UTILS_ERROR_UNKNOWN,
 		             "Failed opening netns: %s",
 		             g_strerror (errsv));
+		errno = errsv;
 		return NULL;
 	}
 
@@ -299,7 +300,8 @@ _netns_new (GError **error)
 		g_set_error (error, NM_UTILS_ERROR, NM_UTILS_ERROR_UNKNOWN,
 		             "Failed opening mntns: %s",
 		             g_strerror (errsv));
-		close (fd_net);
+		nm_close (fd_net);
+		errno = errsv;
 		return NULL;
 	}
 
@@ -473,12 +475,14 @@ nmp_netns_new (void)
 	NMPNetns *self;
 	int errsv;
 	GError *error = NULL;
+	unsigned long mountflags = 0;
 
 	_stack_ensure_init ();
 
 	if (!_stack_peek ()) {
 		/* there are no netns instances. We cannot create a new one
 		 * (because after unshare we couldn't return to the original one). */
+		errno = ENOTSUP;
 		return NULL;
 	}
 
@@ -500,7 +504,10 @@ nmp_netns_new (void)
 		goto err_out;
 	}
 
-	if (mount ("sysfs", "/sys", "sysfs", 0, NULL) != 0) {
+	if (access ("/sys", W_OK) == -1)
+		mountflags = MS_RDONLY;
+
+	if (mount ("sysfs", "/sys", "sysfs", mountflags, NULL) != 0) {
 		errsv = errno;
 		_LOGE (NULL, "failed mount /sys: %s", g_strerror (errsv));
 		goto err_out;
@@ -508,6 +515,7 @@ nmp_netns_new (void)
 
 	self = _netns_new (&error);
 	if (!self) {
+		errsv = errno;
 		_LOGE (NULL, "failed to create netns after unshare: %s", error->message);
 		g_clear_error (&error);
 		goto err_out;
@@ -518,6 +526,7 @@ nmp_netns_new (void)
 	return self;
 err_out:
 	_netns_switch_pop (NULL, _CLONE_NS_ALL);
+	errno = errsv;
 	return NULL;
 }
 
@@ -620,7 +629,7 @@ nmp_netns_bind_to_path (NMPNetns *self, const char *filename, int *out_fd)
 		       filename, g_strerror (errsv));
 		return FALSE;
 	}
-	close (fd);
+	nm_close (fd);
 
 	if (mount (PROC_SELF_NS_NET, filename, "none", MS_BIND, NULL) != 0) {
 		errsv = errno;
@@ -702,15 +711,11 @@ dispose (GObject *object)
 	NMPNetns *self = NMP_NETNS (object);
 	NMPNetnsPrivate *priv = NMP_NETNS_GET_PRIVATE (self);
 
-	if (priv->fd_net > 0) {
-		close (priv->fd_net);
-		priv->fd_net = 0;
-	}
+	nm_close (priv->fd_net);
+	priv->fd_net = -1;
 
-	if (priv->fd_mnt > 0) {
-		close (priv->fd_mnt);
-		priv->fd_mnt = 0;
-	}
+	nm_close (priv->fd_mnt);
+	priv->fd_mnt = -1;
 
 	G_OBJECT_CLASS (nmp_netns_parent_class)->dispose (object);
 }

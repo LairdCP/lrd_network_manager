@@ -92,6 +92,17 @@ void         nm_ip_route_ref                 (NMIPRoute  *route);
 void         nm_ip_route_unref               (NMIPRoute  *route);
 gboolean     nm_ip_route_equal               (NMIPRoute  *route,
                                               NMIPRoute  *other);
+
+enum {
+	NM_IP_ROUTE_EQUAL_CMP_FLAGS_NONE         = 0,
+	NM_IP_ROUTE_EQUAL_CMP_FLAGS_WITH_ATTRS   = (1LL <<  0),
+};
+
+NM_AVAILABLE_IN_1_10
+gboolean     nm_ip_route_equal_full          (NMIPRoute  *route,
+                                              NMIPRoute  *other,
+                                              guint       cmp_flags);
+
 NMIPRoute   *nm_ip_route_dup                 (NMIPRoute  *route);
 
 int          nm_ip_route_get_family          (NMIPRoute  *route);
@@ -131,9 +142,11 @@ gboolean     nm_ip_route_attribute_validate  (const char *name,
                                               gboolean *known,
                                               GError **error);
 
+#define NM_IP_ROUTE_ATTRIBUTE_TABLE          "table"
 #define NM_IP_ROUTE_ATTRIBUTE_SRC            "src"
 #define NM_IP_ROUTE_ATTRIBUTE_FROM           "from"
 #define NM_IP_ROUTE_ATTRIBUTE_TOS            "tos"
+#define NM_IP_ROUTE_ATTRIBUTE_ONLINK         "onlink"
 #define NM_IP_ROUTE_ATTRIBUTE_WINDOW         "window"
 #define NM_IP_ROUTE_ATTRIBUTE_CWND           "cwnd"
 #define NM_IP_ROUTE_ATTRIBUTE_INITCWND       "initcwnd"
@@ -163,6 +176,7 @@ gboolean     nm_ip_route_attribute_validate  (const char *name,
 #define NM_SETTING_IP_CONFIG_GATEWAY            "gateway"
 #define NM_SETTING_IP_CONFIG_ROUTES             "routes"
 #define NM_SETTING_IP_CONFIG_ROUTE_METRIC       "route-metric"
+#define NM_SETTING_IP_CONFIG_ROUTE_TABLE        "route-table"
 #define NM_SETTING_IP_CONFIG_IGNORE_AUTO_ROUTES "ignore-auto-routes"
 #define NM_SETTING_IP_CONFIG_IGNORE_AUTO_DNS    "ignore-auto-dns"
 #define NM_SETTING_IP_CONFIG_DHCP_HOSTNAME      "dhcp-hostname"
@@ -270,6 +284,9 @@ gboolean      nm_setting_ip_config_remove_route_by_value      (NMSettingIPConfig
 void          nm_setting_ip_config_clear_routes               (NMSettingIPConfig *setting);
 
 gint64        nm_setting_ip_config_get_route_metric           (NMSettingIPConfig *setting);
+
+NM_AVAILABLE_IN_1_10
+guint32       nm_setting_ip_config_get_route_table            (NMSettingIPConfig *setting);
 
 gboolean      nm_setting_ip_config_get_ignore_auto_routes     (NMSettingIPConfig *setting);
 gboolean      nm_setting_ip_config_get_ignore_auto_dns        (NMSettingIPConfig *setting);

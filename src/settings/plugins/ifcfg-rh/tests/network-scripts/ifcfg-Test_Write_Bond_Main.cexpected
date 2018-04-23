@@ -1,5 +1,4 @@
-DEVICE=bond0
-BONDING_OPTS=mode=balance-rr
+BONDING_OPTS="downdelay=5 miimon=100 mode=balance-rr updelay=10"
 TYPE=Bond
 BONDING_MASTER=yes
 PROXY_METHOD=none
@@ -13,4 +12,5 @@ IPV4_FAILURE_FATAL=no
 IPV6INIT=no
 NAME="Test Write Bond Main"
 UUID=${UUID}
+DEVICE=bond0
 ONBOOT=yes

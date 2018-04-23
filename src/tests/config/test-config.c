@@ -26,6 +26,7 @@
 #include "nm-test-device.h"
 #include "platform/nm-fake-platform.h"
 #include "nm-bus-manager.h"
+#include "nm-connectivity.h"
 
 #include "nm-test-utils-core.h"
 
@@ -317,6 +318,42 @@ test_config_global_dns (void)
 	g_object_unref (config);
 }
 
+#if WITH_CONCHECK
+static void
+test_config_connectivity_check (void)
+{
+	const char *CONFIG_INTERN = BUILDDIR"/test-connectivity-check-intern.conf";
+	NMConfig *config;
+	NMConnectivity *connectivity;
+
+	g_assert (g_file_set_contents (CONFIG_INTERN, "", 0, NULL));
+	config = setup_config (NULL, SRCDIR "/NetworkManager.conf", CONFIG_INTERN, NULL,
+	                       "/no/such/dir", "", NULL);
+	connectivity = nm_connectivity_get();
+
+	g_assert (nm_connectivity_check_enabled (connectivity));
+
+	/* disable connectivity checking */
+	g_test_expect_message ("NetworkManager", G_LOG_LEVEL_INFO, "*config: signal *");
+	nm_config_set_connectivity_check_enabled (config, FALSE);
+	g_test_assert_expected_messages ();
+
+	g_assert (!nm_connectivity_check_enabled (connectivity));
+
+	/* re-enable connectivity checking */
+	g_test_expect_message ("NetworkManager", G_LOG_LEVEL_INFO, "*config: signal *");
+	nm_config_set_connectivity_check_enabled (config, TRUE);
+	g_test_assert_expected_messages ();
+
+	g_assert (nm_connectivity_check_enabled (connectivity));
+
+	g_object_unref (connectivity);
+	g_object_unref (config);
+
+	g_assert (remove (CONFIG_INTERN) == 0);
+}
+#endif
+
 static void
 test_config_no_auto_default (void)
 {
@@ -333,7 +370,7 @@ test_config_no_auto_default (void)
 	g_assert_cmpint (nwrote, ==, 18);
 	nwrote = write (fd, "44:44:44:44:44:44\n", 18);
 	g_assert_cmpint (nwrote, ==, 18);
-	close (fd);
+	nm_close (fd);
 
 	config = setup_config (NULL, SRCDIR "/NetworkManager.conf", "", NULL, "/no/such/dir", "",
 	                       "--no-auto-default", state_file,
@@ -1018,6 +1055,9 @@ main (int argc, char **argv)
 
 	g_test_add_func ("/config/set-values", test_config_set_values);
 	g_test_add_func ("/config/global-dns", test_config_global_dns);
+#if WITH_CONCHECK
+	g_test_add_func ("/config/connectivity-check", test_config_connectivity_check);
+#endif
 
 	g_test_add_func ("/config/signal", test_config_signal);
 

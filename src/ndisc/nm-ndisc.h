@@ -55,36 +55,34 @@ typedef enum {
 	NM_NDISC_DHCP_LEVEL_MANAGED
 } NMNDiscDHCPLevel;
 
-typedef enum {
-	NM_NDISC_PREFERENCE_INVALID,
-	NM_NDISC_PREFERENCE_LOW,
-	NM_NDISC_PREFERENCE_MEDIUM,
-	NM_NDISC_PREFERENCE_HIGH
-} NMNDiscPreference;
+#define NM_NDISC_INFINITY  G_MAXUINT32
 
-typedef struct {
+struct _NMNDiscGateway {
 	struct in6_addr address;
 	guint32 timestamp;
 	guint32 lifetime;
-	NMNDiscPreference preference;
-} NMNDiscGateway;
+	NMIcmpv6RouterPref preference;
+};
+typedef struct _NMNDiscGateway NMNDiscGateway;
 
-typedef struct {
+struct _NMNDiscAddress {
 	struct in6_addr address;
 	guint8 dad_counter;
 	guint32 timestamp;
 	guint32 lifetime;
 	guint32 preferred;
-} NMNDiscAddress;
+};
+typedef struct _NMNDiscAddress NMNDiscAddress;
 
-typedef struct {
+struct _NMNDiscRoute {
 	struct in6_addr network;
 	guint8 plen;
 	struct in6_addr gateway;
 	guint32 timestamp;
 	guint32 lifetime;
-	NMNDiscPreference preference;
-} NMNDiscRoute;
+	NMIcmpv6RouterPref preference;
+};
+typedef struct _NMNDiscRoute NMNDiscRoute;
 
 typedef struct {
 	struct in6_addr address;

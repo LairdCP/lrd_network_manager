@@ -452,6 +452,35 @@ _nm_g_variant_new_take_string (gchar *string)
 }
 #define g_variant_new_take_string _nm_g_variant_new_take_string
 
+#if !GLIB_CHECK_VERSION(2, 38, 0)
+_nm_printf (1, 2)
+static inline GVariant *
+_nm_g_variant_new_printf (const char *format_string, ...)
+{
+	char *string;
+	va_list ap;
+
+	g_return_val_if_fail (format_string, NULL);
+
+	va_start (ap, format_string);
+	string = g_strdup_vprintf (format_string, ap);
+	va_end (ap);
+
+	return g_variant_new_take_string (string);
+}
+#define g_variant_new_printf(...) _nm_g_variant_new_printf(__VA_ARGS__)
+#else
+#define g_variant_new_printf(...) \
+	({ \
+		GVariant *_v; \
+		\
+		G_GNUC_BEGIN_IGNORE_DEPRECATIONS \
+		_v = g_variant_new_printf (__VA_ARGS__); \
+		G_GNUC_END_IGNORE_DEPRECATIONS \
+		_v; \
+	})
+#endif
+
 #if !GLIB_CHECK_VERSION (2, 56, 0)
 #define g_object_ref(Obj)      ((typeof(Obj)) g_object_ref (Obj))
 #define g_object_ref_sink(Obj) ((typeof(Obj)) g_object_ref_sink (Obj))

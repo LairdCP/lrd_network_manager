@@ -84,6 +84,7 @@ typedef struct {
 	char *name;
 	guint32 capabilities;
 	gboolean connected;
+	gboolean paired;
 
 	char *b4_iface;
 #if WITH_BLUEZ5_DUN
@@ -278,10 +279,11 @@ check_emit_usable (NMBluezDevice *self)
 	/* only expect the supported capabilities set. */
 	nm_assert ((priv->capabilities & ~(NM_BT_CAPABILITY_NAP | NM_BT_CAPABILITY_DUN)) == NM_BT_CAPABILITY_NONE );
 
-	new_usable = (priv->initialized && priv->capabilities && priv->name &&
-	              ((priv->bluez_version == 4) ||
-	               (priv->bluez_version == 5 && priv->adapter5 && priv->adapter_powered) ) &&
-	              priv->dbus_connection && priv->address && priv->adapter_address);
+	new_usable = (   priv->initialized && priv->capabilities
+	              && priv->name && priv->paired
+	              && (   (priv->bluez_version == 4)
+	                  || (priv->bluez_version == 5 && priv->adapter5 && priv->adapter_powered))
+	              && priv->dbus_connection && priv->address && priv->adapter_address);
 
 	if (!new_usable)
 		goto END;
@@ -343,6 +345,10 @@ connection_compatible (NMBluezDevice *self, NMConnection *connection)
 		return FALSE;
 
 	bt_type = nm_setting_bluetooth_get_connection_type (s_bt);
+
+	if (nm_streq (bt_type, NM_SETTING_BLUETOOTH_TYPE_NAP))
+		return FALSE;
+
 	if (   g_str_equal (bt_type, NM_SETTING_BLUETOOTH_TYPE_DUN)
 	    && !(priv->capabilities & NM_BT_CAPABILITY_DUN))
 		return FALSE;
@@ -465,7 +471,7 @@ nm_bluez_device_disconnect (NMBluezDevice *self)
 			if (!priv->b4_iface)
 				goto out;
 			args = g_variant_new ("(s)", priv->b4_iface),
-			dbus_iface = BLUEZ4_SERIAL_INTERFACE;
+			dbus_iface = NM_BLUEZ4_SERIAL_INTERFACE;
 		} else if (priv->bluez_version == 5) {
 #if WITH_BLUEZ5_DUN
 			nm_bluez5_dun_cleanup (priv->b5_dun_context);
@@ -475,16 +481,16 @@ nm_bluez_device_disconnect (NMBluezDevice *self)
 		}
 	} else if (priv->connection_bt_type == NM_BT_CAPABILITY_NAP) {
 		if (priv->bluez_version == 4)
-			dbus_iface = BLUEZ4_NETWORK_INTERFACE;
+			dbus_iface = NM_BLUEZ4_NETWORK_INTERFACE;
 		else if (priv->bluez_version == 5)
-			dbus_iface = BLUEZ5_NETWORK_INTERFACE;
+			dbus_iface = NM_BLUEZ5_NETWORK_INTERFACE;
 		else
 			g_assert_not_reached ();
 	} else
 		g_assert_not_reached ();
 
 	g_dbus_connection_call (priv->dbus_connection,
-	                        BLUEZ_SERVICE,
+	                        NM_BLUEZ_SERVICE,
 	                        priv->path,
 	                        dbus_iface,
 	                        "Disconnect",
@@ -577,13 +583,13 @@ nm_bluez_device_connect_async (NMBluezDevice *self,
 	if (connection_bt_type == NM_BT_CAPABILITY_NAP) {
 		connect_type = BLUETOOTH_CONNECT_NAP;
 		if (priv->bluez_version == 4)
-			dbus_iface = BLUEZ4_NETWORK_INTERFACE;
+			dbus_iface = NM_BLUEZ4_NETWORK_INTERFACE;
 		else if (priv->bluez_version == 5)
-			dbus_iface = BLUEZ5_NETWORK_INTERFACE;
+			dbus_iface = NM_BLUEZ5_NETWORK_INTERFACE;
 	} else if (connection_bt_type == NM_BT_CAPABILITY_DUN) {
 		connect_type = BLUETOOTH_CONNECT_DUN;
 		if (priv->bluez_version == 4)
-			dbus_iface = BLUEZ4_SERIAL_INTERFACE;
+			dbus_iface = NM_BLUEZ4_SERIAL_INTERFACE;
 		else if (priv->bluez_version == 5) {
 #if WITH_BLUEZ5_DUN
 			if (priv->b5_dun_context == NULL)
@@ -602,7 +608,7 @@ nm_bluez_device_connect_async (NMBluezDevice *self,
 		g_assert_not_reached ();
 
 	g_dbus_connection_call (priv->dbus_connection,
-	                        BLUEZ_SERVICE,
+	                        NM_BLUEZ_SERVICE,
 	                        priv->path,
 	                        dbus_iface,
 	                        "Connect",
@@ -795,6 +801,17 @@ _take_variant_property_connected (NMBluezDevice *self, GVariant *v)
 		g_variant_unref (v);
 }
 
+static void
+_take_variant_property_paired (NMBluezDevice *self, GVariant *v)
+{
+	NMBluezDevicePrivate *priv = NM_BLUEZ_DEVICE_GET_PRIVATE (self);
+
+	if (VARIANT_IS_OF_TYPE_BOOLEAN (v))
+		priv->paired = g_variant_get_boolean (v);
+
+	if (v)
+		g_variant_unref (v);
+}
 
 static void
 adapter5_on_properties_changed (GDBusProxy *proxy,
@@ -864,6 +881,8 @@ _take_one_variant_property (NMBluezDevice *self, const char *property, GVariant 
 			_take_variant_property_address (self, v);
 		else if (!g_strcmp0 (property, "Connected"))
 			_take_variant_property_connected (self, v);
+		else if (!g_strcmp0 (property, "Paired"))
+			_take_variant_property_paired (self, v);
 		else if (!g_strcmp0 (property, "Name"))
 			_take_variant_property_name (self, v);
 		else if (!g_strcmp0 (property, "UUIDs"))
@@ -963,6 +982,7 @@ query_properties (NMBluezDevice *self)
 		g_object_freeze_notify (G_OBJECT (self));
 		_take_variant_property_address   (self, g_dbus_proxy_get_cached_property (priv->proxy, "Address"));
 		_take_variant_property_connected (self, g_dbus_proxy_get_cached_property (priv->proxy, "Connected"));
+		_take_variant_property_paired    (self, g_dbus_proxy_get_cached_property (priv->proxy, "Paired"));
 		_take_variant_property_name      (self, g_dbus_proxy_get_cached_property (priv->proxy, "Name"));
 		_take_variant_property_uuids     (self, g_dbus_proxy_get_cached_property (priv->proxy, "UUIDs"));
 		g_object_thaw_notify (G_OBJECT (self));
@@ -972,9 +992,9 @@ query_properties (NMBluezDevice *self)
 			g_dbus_proxy_new_for_bus (G_BUS_TYPE_SYSTEM,
 			                          G_DBUS_PROXY_FLAGS_NONE,
 			                          NULL,
-			                          BLUEZ_SERVICE,
+			                          NM_BLUEZ_SERVICE,
 			                          g_variant_get_string (v, NULL),
-			                          BLUEZ5_ADAPTER_INTERFACE,
+			                          NM_BLUEZ5_ADAPTER_INTERFACE,
 			                          NULL,
 			                          (GAsyncReadyCallback) adapter5_on_acquired,
 			                          g_object_ref (self));
@@ -1134,17 +1154,17 @@ nm_bluez_device_new (const char *path,
 
 	switch (priv->bluez_version) {
 	case 4:
-		interface_name = BLUEZ4_DEVICE_INTERFACE;
+		interface_name = NM_BLUEZ4_DEVICE_INTERFACE;
 		break;
 	case 5:
-		interface_name = BLUEZ5_DEVICE_INTERFACE;
+		interface_name = NM_BLUEZ5_DEVICE_INTERFACE;
 		break;
 	}
 
 	g_dbus_proxy_new_for_bus (G_BUS_TYPE_SYSTEM,
 	                          G_DBUS_PROXY_FLAGS_NONE,
 	                          NULL,
-	                          BLUEZ_SERVICE,
+	                          NM_BLUEZ_SERVICE,
 	                          priv->path,
 	                          interface_name,
 	                          NULL,
@@ -1165,7 +1185,8 @@ dispose (GObject *object)
 	if (priv->pan_connection) {
 		/* Check whether we want to remove the created connection. If so, we take a reference
 		 * and delete it at the end of dispose(). */
-		if (nm_settings_connection_get_nm_generated (NM_SETTINGS_CONNECTION (priv->pan_connection)))
+		if (NM_FLAGS_HAS (nm_settings_connection_get_flags (NM_SETTINGS_CONNECTION (priv->pan_connection)),
+		                  NM_SETTINGS_CONNECTION_FLAGS_NM_GENERATED))
 			to_delete = g_object_ref (priv->pan_connection);
 
 		priv->pan_connection = NULL;
@@ -1199,7 +1220,7 @@ dispose (GObject *object)
 	if (to_delete) {
 		nm_log_dbg (LOGD_BT, "bluez[%s] removing Bluetooth connection for NAP device: '%s' (%s)", priv->path,
 		            nm_connection_get_id (to_delete), nm_connection_get_uuid (to_delete));
-		nm_settings_connection_delete (NM_SETTINGS_CONNECTION (to_delete), NULL, NULL);
+		nm_settings_connection_delete (NM_SETTINGS_CONNECTION (to_delete), NULL);
 		g_object_unref (to_delete);
 	}
 
@@ -1274,7 +1295,7 @@ nm_bluez_device_class_init (NMBluezDeviceClass *config_class)
 
 	g_object_class_install_properties (object_class, _PROPERTY_ENUMS_LAST, obj_properties);
 
-	signals[INITIALIZED] = g_signal_new ("initialized",
+	signals[INITIALIZED] = g_signal_new (NM_BLUEZ_DEVICE_INITIALIZED,
 	                                     G_OBJECT_CLASS_TYPE (object_class),
 	                                     G_SIGNAL_RUN_LAST,
 	                                     0,

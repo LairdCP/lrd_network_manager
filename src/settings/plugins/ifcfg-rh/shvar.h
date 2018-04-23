@@ -35,8 +35,8 @@ typedef struct _shvarFile shvarFile;
 
 const char *svFileGetName (const shvarFile *s);
 
-void svFileSetName_test_only (shvarFile *s, const char *fileName);
-void svFileSetModified_test_only (shvarFile *s);
+void _nmtst_svFileSetName (shvarFile *s, const char *fileName);
+void _nmtst_svFileSetModified (shvarFile *s);
 
 /* Create the file <name>, return a shvarFile (never fails) */
 shvarFile *svCreateFile (const char *name);
@@ -68,19 +68,33 @@ gint svGetValueBoolean (shvarFile *s, const char *key, gint def);
 
 gint64 svGetValueInt64 (shvarFile *s, const char *key, guint base, gint64 min, gint64 max, gint64 fallback);
 
+gboolean svGetValueEnum (shvarFile *s, const char *key,
+                         GType gtype, int *out_value,
+                         GError **error);
+
 /* Set the variable <key> equal to the value <value>.
  * If <key> does not exist, and the <current> pointer is set, append
  * the key=value pair after that line.  Otherwise, prepend the pair
  * to the top of the file.
  */
-void svSetValue (shvarFile *s, const char *key, const char *value);
-void svSetValueStr (shvarFile *s, const char *key, const char *value);
-void svSetValueBoolean (shvarFile *s, const char *key, gboolean value);
-void svSetValueInt64 (shvarFile *s, const char *key, gint64 value);
+gboolean svSetValue (shvarFile *s, const char *key, const char *value);
+gboolean svSetValueStr (shvarFile *s, const char *key, const char *value);
+gboolean svSetValueBoolean (shvarFile *s, const char *key, gboolean value);
+gboolean svSetValueInt64 (shvarFile *s, const char *key, gint64 value);
+gboolean svSetValueInt64_cond (shvarFile *s, const char *key, gboolean do_set, gint64 value);
+gboolean svSetValueEnum (shvarFile *s, const char *key, GType gtype, int value);
 
-void svUnsetValue (shvarFile *s, const char *key);
+gboolean svUnsetValue (shvarFile *s, const char *key);
 
-void svUnsetValuesWithPrefix (shvarFile *s, const char *prefix);
+typedef enum {
+	SV_KEY_TYPE_ANY                     = (1LL << 0),
+	SV_KEY_TYPE_ROUTE_SVFORMAT          = (1LL << 1),
+	SV_KEY_TYPE_IP4_ADDRESS             = (1LL << 2),
+	SV_KEY_TYPE_TC                      = (1LL << 3),
+	SV_KEY_TYPE_USER                    = (1LL << 4),
+} SvKeyType;
+
+gboolean svUnsetAll (shvarFile *s, SvKeyType match_key_type);
 
 /* Write the current contents iff modified.  Returns FALSE on error
  * and TRUE on success.  Do not write if no values have been modified.

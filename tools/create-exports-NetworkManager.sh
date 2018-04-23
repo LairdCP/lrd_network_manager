@@ -30,13 +30,13 @@ _sort() {
 }
 
 call_nm() {
-    "${BINUTILS_NM:-${NM:-nm}}" "$1" |
+    "${NM:-nm}" "$1" |
         sed -n 's/.* \([^ ]\) \([^ ]*\)$/\1 \2/p'
 }
 
 get_symbols_nm () {
     call_nm ./src/.libs/libNetworkManager.a |
-        sed -n 's/^[tTDRB] //p' |
+        sed -n 's/^[tTDGRBS] //p' |
         _sort
 }
 

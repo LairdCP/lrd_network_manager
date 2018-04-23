@@ -32,12 +32,24 @@
 #define CLOCK_BOOTTIME 7
 #endif
 
+#if defined(HAVE_DECL_EXPLICIT_BZERO) && HAVE_DECL_EXPLICIT_BZERO == 1
+#define HAVE_EXPLICIT_BZERO 1
+#else
+#define HAVE_EXPLICIT_BZERO 0
+#endif
+
+#define ENABLE_DEBUG_HASHMAP 0
+
+#ifndef HAVE_SYS_AUXV_H
+#define HAVE_SYS_AUXV_H 0
+#endif
+
 /*****************************************************************************/
 
 static inline NMLogLevel
 _slog_level_to_nm (int slevel)
 {
-    switch (slevel) {
+    switch (LOG_PRI (slevel)) {
     case LOG_DEBUG:   return LOGL_DEBUG;
 	case LOG_WARNING: return LOGL_WARN;
 	case LOG_CRIT:
@@ -48,7 +60,15 @@ _slog_level_to_nm (int slevel)
 	}
 }
 
-#define log_internal(level, error, file, line, func, format, ...) \
+static inline int
+_nm_log_get_max_level_realm (void)
+{
+	/* inline function, to avoid coverity warning about constant expression. */
+	return LOG_DEBUG;
+}
+#define log_get_max_level_realm(realm) _nm_log_get_max_level_realm ()
+
+#define log_internal_realm(level, error, file, line, func, format, ...) \
 ({ \
 	const int _nm_e = (error); \
 	const NMLogLevel _nm_l = _slog_level_to_nm ((level)); \
@@ -59,11 +79,6 @@ _slog_level_to_nm (int slevel)
 		_nm_log_impl (_nm_location ? _nm_location + 1 : (""file), (line), (func), _nm_l, LOGD_DHCP, _nm_e, NULL, NULL, ("%s"format), "libsystemd: ", ## __VA_ARGS__); \
 	} \
 	(_nm_e > 0 ? -_nm_e : _nm_e); \
-})
-
-#define log_full_errno(level, error, ...) \
-({ \
-	log_internal(level, error, __FILE__, __LINE__, __func__, __VA_ARGS__); \
 })
 
 #define log_assert_failed(text, file, line, func) \
@@ -169,10 +184,6 @@ sd_notify (int unset_environment, const char *state)
 
 static inline pid_t gettid(void) {
         return (pid_t) syscall(SYS_gettid);
-}
-
-static inline bool is_main_thread(void) {
-        return TRUE;
 }
 
 #endif /* (NETWORKMANAGER_COMPILATION) == NM_NETWORKMANAGER_COMPILATION_SYSTEMD */

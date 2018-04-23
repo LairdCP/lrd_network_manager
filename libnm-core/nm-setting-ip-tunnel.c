@@ -31,7 +31,7 @@
  **/
 
 G_DEFINE_TYPE_WITH_CODE (NMSettingIPTunnel, nm_setting_ip_tunnel, NM_TYPE_SETTING,
-                         _nm_register_setting (IP_TUNNEL, 1))
+                         _nm_register_setting (IP_TUNNEL, NM_SETTING_PRIORITY_HW_BASE))
 NM_SETTING_REGISTER_TYPE (NM_TYPE_SETTING_IP_TUNNEL)
 
 #define NM_SETTING_IP_TUNNEL_GET_PRIVATE(o) (G_TYPE_INSTANCE_GET_PRIVATE ((o), NM_TYPE_SETTING_IP_TUNNEL, NMSettingIPTunnelPrivate))
@@ -758,7 +758,7 @@ nm_setting_ip_tunnel_class_init (NMSettingIPTunnelClass *setting_class)
 		                    G_PARAM_STATIC_STRINGS));
 
 	/**
-	 * NMSettingIPTunel:mtu:
+	 * NMSettingIPTunnel:mtu:
 	 *
 	 * If non-zero, only transmit packets of the specified size or smaller,
 	 * breaking larger packets up into multiple fragments.

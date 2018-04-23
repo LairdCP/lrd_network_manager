@@ -31,6 +31,7 @@
 #include "nm-auth-subject.h"
 #include "NetworkManagerUtils.h"
 #include "nm-utils.h"
+#include "nm-setting-ip4-config.h"
 
 typedef struct {
 	char *value;
@@ -47,6 +48,15 @@ typedef struct {
 	guint32    ccx;
 	gboolean   fast_required;
 	gboolean   dispose_has_run;
+
+	guint32    scan_delay;
+	guint32    scan_dwell;
+	guint32    scan_passive_dwell;
+	guint32    scan_suspend_time;
+	guint32    scan_roam_delta;
+	guint32    frequency_dfs;
+
+	NMSupplicantFeature laird_support;
 } NMSupplicantConfigPrivate;
 
 struct _NMSupplicantConfig {
@@ -88,11 +98,11 @@ nm_supplicant_config_init (NMSupplicantConfig * self)
 {
 	NMSupplicantConfigPrivate *priv = NM_SUPPLICANT_CONFIG_GET_PRIVATE (self);
 
-	priv->config = g_hash_table_new_full (g_str_hash, g_str_equal,
+	priv->config = g_hash_table_new_full (nm_str_hash, g_str_equal,
 	                                      (GDestroyNotify) g_free,
 	                                      (GDestroyNotify) config_option_free);
 
-	priv->blobs = g_hash_table_new_full (g_str_hash, g_str_equal,
+	priv->blobs = g_hash_table_new_full (nm_str_hash, g_str_equal,
 	                                     (GDestroyNotify) g_free,
 	                                     (GDestroyNotify) blob_free);
 
@@ -289,6 +299,63 @@ nm_supplicant_config_get_ccx (NMSupplicantConfig * self)
 	return NM_SUPPLICANT_CONFIG_GET_PRIVATE (self)->ccx;
 }
 
+guint32
+nm_supplicant_config_get_scan_delay (NMSupplicantConfig * self)
+{
+	g_return_val_if_fail (NM_IS_SUPPLICANT_CONFIG (self), 0);
+
+	return NM_SUPPLICANT_CONFIG_GET_PRIVATE (self)->scan_delay;
+}
+
+guint32
+nm_supplicant_config_get_scan_dwell (NMSupplicantConfig * self)
+{
+	g_return_val_if_fail (NM_IS_SUPPLICANT_CONFIG (self), 0);
+
+	return NM_SUPPLICANT_CONFIG_GET_PRIVATE (self)->scan_dwell;
+}
+
+guint32
+nm_supplicant_config_get_scan_passive_dwell (NMSupplicantConfig * self)
+{
+	g_return_val_if_fail (NM_IS_SUPPLICANT_CONFIG (self), 0);
+
+	return NM_SUPPLICANT_CONFIG_GET_PRIVATE (self)->scan_passive_dwell;
+}
+
+guint32
+nm_supplicant_config_get_scan_suspend_time (NMSupplicantConfig * self)
+{
+	g_return_val_if_fail (NM_IS_SUPPLICANT_CONFIG (self), 0);
+
+	return NM_SUPPLICANT_CONFIG_GET_PRIVATE (self)->scan_suspend_time;
+}
+
+guint32
+nm_supplicant_config_get_scan_roam_delta (NMSupplicantConfig * self)
+{
+	g_return_val_if_fail (NM_IS_SUPPLICANT_CONFIG (self), 0);
+
+	return NM_SUPPLICANT_CONFIG_GET_PRIVATE (self)->scan_roam_delta;
+}
+
+guint32
+nm_supplicant_config_get_frequency_dfs (NMSupplicantConfig * self)
+{
+	g_return_val_if_fail (NM_IS_SUPPLICANT_CONFIG (self), 0);
+
+	return NM_SUPPLICANT_CONFIG_GET_PRIVATE (self)->frequency_dfs;
+}
+
+/* set laird_support before building config to allow exclusion of laird features */
+gboolean
+nm_supplicant_config_set_laird_support (NMSupplicantConfig * self,
+										NMSupplicantFeature laird_support)		{
+	g_return_val_if_fail (NM_IS_SUPPLICANT_CONFIG (self), FALSE);
+	NM_SUPPLICANT_CONFIG_GET_PRIVATE (self)->laird_support = laird_support;
+	return TRUE;
+}
+
 gboolean
 nm_supplicant_config_fast_required (NMSupplicantConfig *self)
 {
@@ -459,6 +526,7 @@ nm_supplicant_config_add_setting_wireless (NMSupplicantConfig * self,
 	gboolean is_adhoc, is_ap;
 	const char *mode, *band;
 	guint32 channel;
+	const char *frequency_list;
 	GBytes *ssid;
 	const char *bssid;
 	const char *client_name;
@@ -477,7 +545,15 @@ nm_supplicant_config_add_setting_wireless (NMSupplicantConfig * self,
 	else
 		priv->ap_scan = 1;
 
-	priv->ccx = nm_setting_wireless_get_ccx (setting);
+	if (priv->laird_support == NM_SUPPLICANT_FEATURE_YES) {
+		priv->ccx = nm_setting_wireless_get_ccx (setting);
+		priv->scan_delay = nm_setting_wireless_get_scan_delay (setting);
+		priv->scan_dwell = nm_setting_wireless_get_scan_dwell (setting);
+		priv->scan_passive_dwell = nm_setting_wireless_get_scan_passive_dwell (setting);
+		priv->scan_suspend_time = nm_setting_wireless_get_scan_suspend_time (setting);
+		priv->scan_roam_delta = nm_setting_wireless_get_scan_roam_delta (setting);
+		priv->frequency_dfs = nm_setting_wireless_get_frequency_dfs (setting);
+	}
 
 	ssid = nm_setting_wireless_get_ssid (setting);
 	if (!nm_supplicant_config_add_option (self, "ssid",
@@ -524,6 +600,13 @@ nm_supplicant_config_add_setting_wireless (NMSupplicantConfig * self,
 
 	band = nm_setting_wireless_get_band (setting);
 	channel = nm_setting_wireless_get_channel (setting);
+	frequency_list = nm_setting_wireless_get_frequency_list (setting);
+	if (frequency_list) {
+		if (!nm_supplicant_config_add_option (self, "freq_list", frequency_list, -1, NULL, error))
+				return FALSE;
+		if (!nm_supplicant_config_add_option (self, "scan_freq", frequency_list, -1, NULL, error))
+				return FALSE;
+	} else
 	if (band) {
 		if (channel) {
 			guint32 freq;
@@ -553,7 +636,76 @@ nm_supplicant_config_add_setting_wireless (NMSupplicantConfig * self,
 				return FALSE;
 	}
 
+	if (priv->laird_support == NM_SUPPLICANT_FEATURE_YES) {
+		guint32 auth_timeout;
+		auth_timeout = nm_setting_wireless_get_auth_timeout (setting);
+		if (auth_timeout) {
+			char buf[32];
+			snprintf (buf, sizeof (buf), "%d", auth_timeout);
+			if (!nm_supplicant_config_add_option (self, "laird_auth_timeout", buf, -1, NULL, error))
+				return FALSE;
+		}
+	}
+
 	return TRUE;
+}
+
+gboolean
+nm_supplicant_config_add_bgscan (NMSupplicantConfig *self,
+                                 NMConnection *connection,
+                                 GError **error)
+{
+	NMSettingWireless *s_wifi;
+	NMSettingWirelessSecurity *s_wsec;
+	const char *bgscan;
+
+	s_wifi = nm_connection_get_setting_wireless (connection);
+	g_assert (s_wifi);
+
+	/* Don't scan when a shared connection (either AP or Ad-Hoc) is active;
+	 * it will disrupt connected clients.
+	 */
+	if (NM_IN_STRSET (nm_setting_wireless_get_mode (s_wifi),
+	                  NM_SETTING_WIRELESS_MODE_AP,
+	                  NM_SETTING_WIRELESS_MODE_ADHOC))
+		return TRUE;
+
+	/* Don't scan when the connection is locked to a specifc AP, since
+	 * intra-ESS roaming (which requires periodic scanning) isn't being
+	 * used due to the specific AP lock. (bgo #513820)
+	 */
+	if (nm_setting_wireless_get_bssid (s_wifi))
+		return TRUE;
+
+	/* Laird: bgscan from configuration */
+	{
+		bgscan = nm_setting_wireless_get_bgscan (s_wifi);
+		if (bgscan) {
+			return nm_supplicant_config_add_option (self, "bgscan", bgscan, -1, FALSE, error);
+		}
+	}
+
+	/* Default to a very long bgscan interval when signal is OK on the assumption
+	 * that either (a) there aren't multiple APs and we don't need roaming, or
+	 * (b) since EAP/802.1x isn't used and thus there are fewer steps to fail
+	 * during a roam, we can wait longer before scanning for roam candidates.
+	 */
+	bgscan = "simple:30:-80:86400";
+
+	/* If using WPA Enterprise or Dynamic WEP use a shorter bgscan interval on
+	 * the assumption that this is a multi-AP ESS in which we want more reliable
+	 * roaming between APs.  Thus trigger scans when the signal is still somewhat
+	 * OK so we have an up-to-date roam candidate list when the signal gets bad.
+	 */
+	s_wsec = nm_connection_get_setting_wireless_security (connection);
+	if (s_wsec) {
+		if (NM_IN_STRSET (nm_setting_wireless_security_get_key_mgmt (s_wsec),
+		                  "ieee8021x",
+		                  "wpa-eap"))
+			bgscan = "simple:30:-65:300";
+	}
+
+	return nm_supplicant_config_add_option (self, "bgscan", bgscan, -1, FALSE, error);
 }
 
 static gboolean
@@ -735,9 +887,11 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
                                                     NMSetting8021x *setting_8021x,
                                                     const char *con_uuid,
                                                     guint32 mtu,
+                                                    NMSettingWirelessSecurityPmf pmf,
                                                     GError **error)
 {
-	const char *key_mgmt, *auth_alg;
+	NMSupplicantConfigPrivate *priv;
+	const char *key_mgmt, *key_mgmt_conf, *auth_alg;
 	const char *psk;
 
 	g_return_val_if_fail (NM_IS_SUPPLICANT_CONFIG (self), FALSE);
@@ -745,8 +899,21 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
 	g_return_val_if_fail (con_uuid != NULL, FALSE);
 	g_return_val_if_fail (!error || !*error, FALSE);
 
-	key_mgmt = nm_setting_wireless_security_get_key_mgmt (setting);
-	if (!add_string_val (self, key_mgmt, "key_mgmt", TRUE, NULL, error))
+	priv = NM_SUPPLICANT_CONFIG_GET_PRIVATE (self);
+
+	key_mgmt = key_mgmt_conf = nm_setting_wireless_security_get_key_mgmt (setting);
+	if (pmf == NM_SETTING_WIRELESS_SECURITY_PMF_OPTIONAL) {
+		if (nm_streq (key_mgmt_conf, "wpa-psk"))
+			key_mgmt_conf = "wpa-psk wpa-psk-sha256";
+		else if (nm_streq (key_mgmt_conf, "wpa-eap"))
+			key_mgmt_conf = "wpa-eap wpa-eap-sha256";
+	} else if (pmf == NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED) {
+		if (nm_streq (key_mgmt_conf, "wpa-psk"))
+			key_mgmt_conf = "wpa-psk-sha256";
+		else if (nm_streq (key_mgmt_conf, "wpa-eap"))
+			key_mgmt_conf = "wpa-eap-sha256";
+	}
+	if (!add_string_val (self, key_mgmt_conf, "key_mgmt", TRUE, NULL, error))
 		return FALSE;
 
 	auth_alg = nm_setting_wireless_security_get_auth_alg (setting);
@@ -802,6 +969,19 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
 			return FALSE;
 		if (!ADD_STRING_LIST_VAL (self, setting, wireless_security, group, groups, "group", ' ', TRUE, NULL, error))
 			return FALSE;
+
+		if (   !nm_streq (key_mgmt, "wpa-none")
+		    && NM_IN_SET (pmf,
+		                  NM_SETTING_WIRELESS_SECURITY_PMF_OPTIONAL,
+		                  NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED)) {
+			if (!nm_supplicant_config_add_option (self,
+			                                      "ieee80211w",
+			                                      pmf == NM_SETTING_WIRELESS_SECURITY_PMF_OPTIONAL ? "1" : "2",
+			                                      -1,
+			                                      NULL,
+			                                      error))
+				return FALSE;
+		}
 	}
 
 	/* WEP keys if required */
@@ -863,12 +1043,6 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
 		}
 
 		if (!strcmp (key_mgmt, "wpa-eap") || !strcmp (key_mgmt, "cckm")) {
-			/* If using WPA Enterprise, enable optimized background scanning
-			 * to ensure roaming within an ESS works well.
-			 */
-			if (!nm_supplicant_config_add_option (self, "bgscan", "simple:30:-65:300", -1, NULL, error))
-				return FALSE;
-
 			/* When using WPA-Enterprise, we want to use Proactive Key Caching (also
 			 * called Opportunistic Key Caching) to avoid full EAP exchanges when
 			 * roaming between access points in the same mobility group.
@@ -921,11 +1095,11 @@ add_pkcs11_uri_with_pin (NMSupplicantConfig *self,
 	}
 
 	tmp = g_strdup_printf ("%s%s%s", split[0],
-	                       (pin_qattr ? "&" : ""),
+	                       (pin_qattr ? "?" : ""),
 	                       (pin_qattr ? pin_qattr : ""));
 
 	tmp_log = g_strdup_printf ("%s%s%s", split[0],
-	                           (pin_qattr ? "&" : ""),
+	                           (pin_qattr ? "?" : ""),
 	                           (pin_qattr ? "pin-value=<hidden>" : ""));
 
 	return add_string_val (self, tmp, name, FALSE, tmp_log, error);
@@ -1094,6 +1268,14 @@ nm_supplicant_config_add_setting_8021x (NMSupplicantConfig *self,
 	if (path) {
 		if (!add_string_val (self, path, "pac_file", FALSE, NULL, error))
 			return FALSE;
+
+		if (priv->laird_support == NM_SUPPLICANT_FEATURE_YES) {
+			/* PAC file password for manually provisioned PAC files */
+			const char *pwd = nm_setting_802_1x_get_pac_file_password (setting);
+			if (pwd && !add_string_val (self, pwd, "pac_file_password", FALSE, "<hidden>", error))
+				return FALSE;
+		}
+
 	} else {
 		/* PAC file is not specified.
 		 * If provisioning is allowed, use an blob format.

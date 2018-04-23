@@ -1684,7 +1684,7 @@
       <row>
         <entry align="left">type</entry>
         <entry align="left"><link linkend="nm-settings.property.connection.type">connection.type</link></entry>
-        <entry align="left" valign="top">This option also accepts values of <option>bond-slave</option>,
+        <entry align="left" valign="top">This alias also accepts values of <option>bond-slave</option>,
 <option>team-slave</option> and <option>bridge-slave</option>. They create
 <option>ethernet</option> connection profiles. Their use is discouraged in
 favor of using a specific type with <option>master</option> option.</entry>
@@ -1724,6 +1724,7 @@ property as well.
       <row><entry align="left">username</entry><entry align="left"><link linkend="nm-settings.property.pppoe.username">pppoe.username</link></entry></row>
       <row><entry align="left">password</entry><entry align="left"><link linkend="nm-settings.property.pppoe.password">pppoe.password</link></entry></row>
       <row><entry align="left">service</entry><entry align="left"><link linkend="nm-settings.property.pppoe.service">pppoe.service</link></entry></row>
+      <row><entry align="left">parent</entry><entry align="left"><link linkend="nm-settings.property.pppoe.parent">pppoe.parent</link></entry></row>
     </tbody>
     </tgroup></table>
 
@@ -1804,10 +1805,10 @@ property as well.
       <row>
         <entry align="left">bt-type</entry>
         <entry align="left"><link linkend="nm-settings.property.bluetooth.type">bluetooth.type</link></entry>
-        <entry align="left" valign="top">Apart from the usual <literal>dun</literal> and
-<literal>panu</literal> options, the values of <literal>dun-gsm</literal>
-and <literal>dun-cdma</literal> can be used for compatibility with older
-versions. They are equivalent to using <literal>dun</literal> and setting
+        <entry align="left" valign="top">Apart from the usual <literal>panu</literal>,
+<literal>nap</literal> and <literal>dun</literal> options, the values of
+<literal>dun-gsm</literal> and <literal>dun-cdma</literal> can be used for compatibility
+with older versions. They are equivalent to using <literal>dun</literal> and setting
 appropriate <literal>gsm.*</literal> or <literal>cdma.*</literal> properties.</entry>
       </row>
     </tbody>
@@ -1835,7 +1836,7 @@ appropriate <literal>gsm.*</literal> or <literal>cdma.*</literal> properties.</e
         <entry align="left">mode</entry>
         <entry align="left" morerows="7">bond.options</entry>
         <entry align="left" morerows="7" valign="top">Setting each of these adds the option to <literal>bond.options</literal> property.
-It's equivalent of using the <literal>+bond.options 'option=value'</literal> syntax.</entry>
+It's equivalent to the <literal>+bond.options 'option=value'</literal> syntax.</entry>
       </row>
       <row><entry align="left">primary</entry></row>
       <row><entry align="left">miimon</entry></row>
@@ -1880,6 +1881,7 @@ It's equivalent of using the <literal>+bond.options 'option=value'</literal> syn
       <row><entry align="left">hello-time</entry><entry align="left"><link linkend="nm-settings.property.bridge.hello-time">bridge.hello-time</link></entry></row>
       <row><entry align="left">max-age</entry><entry align="left"><link linkend="nm-settings.property.bridge.max-age">bridge.max-age</link></entry></row>
       <row><entry align="left">ageing-time</entry><entry align="left"><link linkend="nm-settings.property.bridge.ageing-time">bridge.ageing-time</link></entry></row>
+      <row><entry align="left">group-forward-mask</entry><entry align="left"><link linkend="nm-settings.property.bridge.group-forward-mask">bridge.group-forward-mask</link></entry></row>
       <row><entry align="left">multicast-snooping</entry><entry align="left"><link linkend="nm-settings.property.bridge.multicast-snooping">bridge.multicast-snooping</link></entry></row>
       <row><entry align="left">mac</entry><entry align="left"><link linkend="nm-settings.property.bridge.mac-address">bridge.mac-address</link></entry></row>
       <row><entry align="left">priority</entry><entry align="left"><link linkend="nm-settings.property.bridge-port.priority">bridge-port.priority</link></entry></row>
@@ -1932,6 +1934,20 @@ It's equivalent of using the <literal>+bond.options 'option=value'</literal> syn
     </tbody>
     </tgroup></table>
 
+    <table><title>MACsec options</title><tgroup cols="2">
+    <thead>
+      <row><entry>Alias</entry><entry>Property</entry></row>
+    </thead>
+    <tbody>
+      <row><entry align="left">dev</entry><entry align="left"><link linkend="nm-settings.property.macsec.parent">macsec.parent</link></entry></row>
+      <row><entry align="left">mode</entry><entry align="left"><link linkend="nm-settings.property.macsec.mode">macsec.mode</link></entry></row>
+      <row><entry align="left">encrypt</entry><entry align="left"><link linkend="nm-settings.property.macsec.encrypt">macsec.encrypt</link></entry></row>
+      <row><entry align="left">cak</entry><entry align="left"><link linkend="nm-settings.property.macsec.cak">macsec.cak</link></entry></row>
+      <row><entry align="left">ckn</entry><entry align="left"><link linkend="nm-settings.property.macsec.ckn">macsec.ckn</link></entry></row>
+      <row><entry align="left">port</entry><entry align="left"><link linkend="nm-settings.property.macsec.port">macsec.port</link></entry></row>
+    </tbody>
+    </tgroup></table>
+
     <table><title>VxLAN options</title><tgroup cols="2">
     <thead>
       <row><entry>Alias</entry><entry>Property</entry></row>
@@ -1980,10 +1996,8 @@ It's equivalent of using the <literal>+bond.options 'option=value'</literal> syn
     <tbody>
       <row>
         <entry align="left">ip4</entry>
-        <entry align="left"><link linkend="nm-settings.property.ipv4.addresses">ipv4.addresses</link>
-                            <link linkend="nm-settings.property.ipv4.method">ipv4.method</link></entry>
-        <entry align="left" valign="top">This option can be specified multiple times.
-It's equivalent of using <literal>+ipv4.addresses</literal> syntax and setting <literal>ipv4.method</literal> to <literal>manual</literal>.</entry>
+        <entry align="left"><link linkend="nm-settings.property.ipv4.addresses">ipv4.addresses</link> <link linkend="nm-settings.property.ipv4.method">ipv4.method</link></entry>
+        <entry align="left" valign="top">The alias is equivalent to the <literal>+ipv4.addresses</literal> syntax and also sets <literal>ipv4.method</literal> to <literal>manual</literal>. It can be specified multiple times.</entry>
       </row>
       <row><entry align="left">gw4</entry><entry align="left"><link linkend="nm-settings.property.ipv4.gateway">ipv4.gateway</link></entry><entry align="left" /></row>
     </tbody>
@@ -1996,10 +2010,8 @@ It's equivalent of using <literal>+ipv4.addresses</literal> syntax and setting <
     <tbody>
       <row>
         <entry align="left">ip6</entry>
-        <entry align="left"><link linkend="nm-settings.property.ipv6.addresses">ipv6.addresses</link>
-                            <link linkend="nm-settings.property.ipv6.method">ipv6.method</link></entry>
-        <entry align="left" valign="top">This option can be specified multiple times.
-It's equivalent of using <literal>+ipv6.addresses</literal> syntax and setting <literal>ipv6.method</literal> to <literal>manual</literal>.</entry>
+        <entry align="left"><link linkend="nm-settings.property.ipv6.addresses">ipv6.addresses</link> <link linkend="nm-settings.property.ipv6.method">ipv6.method</link></entry>
+        <entry align="left" valign="top">The alias is equivalent to the <literal>+ipv6.addresses</literal> syntax and also sets <literal>ipv6.method</literal> to <literal>manual</literal>. It can be specified multiple times.</entry>
       </row>
       <row><entry align="left">gw6</entry><entry align="left"><link linkend="nm-settings.property.ipv6.gateway">ipv6.gateway</link></entry><entry align="left" /></row>
     </tbody>
@@ -2010,10 +2022,13 @@ It's equivalent of using <literal>+ipv6.addresses</literal> syntax and setting <
       <row><entry>Alias</entry><entry>Property</entry><entry>Note</entry></row>
     </thead>
     <tbody>
+      <row><entry align="left">method</entry><entry align="left"><link linkend="nm-settings.property.proxy.method">proxy.method</link></entry><entry align="left" /></row>
+      <row><entry align="left">browser-only</entry><entry align="left"><link linkend="nm-settings.property.proxy.browser-only">proxy.browser-only</link></entry><entry align="left" /></row>
+      <row><entry align="left">pac-url</entry><entry align="left"><link linkend="nm-settings.property.proxy.pac-url">proxy.pac-url</link></entry><entry align="left" /></row>
       <row>
-        <entry align="left"></entry>
+        <entry align="left">pac-script</entry>
         <entry align="left"><link linkend="nm-settings.property.proxy.pac-script">proxy.pac-script</link></entry>
-        <entry align="left" valign="top">Read the java script pac-script from file or pass it directly on the command line. Prefix the value with "file://" or "js://" to force one or the other.</entry>
+        <entry align="left" valign="top">Read the JavaScript PAC (proxy auto-config) script from file or pass it directly on the command line. Prefix the value with "file://" or "js://" to force one or the other.</entry>
       </row>
     </tbody>
     </tgroup></table>

@@ -16,7 +16,7 @@
  * Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
  * Boston, MA 02110-1301 USA.
  *
- * Copyright 2005 - 2014 Red Hat, Inc.
+ * Copyright 2005 - 2017 Red Hat, Inc.
  */
 
 #include "nm-default.h"
@@ -32,11 +32,16 @@
 #include <libintl.h>
 #include <gmodule.h>
 #include <sys/stat.h>
+#include <net/if.h>
+#include <linux/pkt_sched.h>
 
 #if WITH_JANSSON
+#include "nm-json.h"
 #include <jansson.h>
 #endif
 
+#include "nm-utils/nm-enum-utils.h"
+#include "nm-utils/nm-hash-utils.h"
 #include "nm-common-macros.h"
 #include "nm-utils-private.h"
 #include "nm-setting-private.h"
@@ -58,85 +63,79 @@
  * access points and devices, among other things.
  */
 
-struct EncodingTriplet
-{
-	const char *encoding1;
-	const char *encoding2;
-	const char *encoding3;
-};
-
 struct IsoLangToEncodings
 {
-	const char *	lang;
-	struct EncodingTriplet encodings;
+	const char *lang;
+	const char *const *encodings;
 };
+
+#define LANG_ENCODINGS(l, ...) { .lang = l, .encodings = (const char *[]) { __VA_ARGS__, NULL }}
 
 /* 5-letter language codes */
 static const struct IsoLangToEncodings isoLangEntries5[] =
 {
 	/* Simplified Chinese */
-	{ "zh_cn",	{"euc-cn",	"gb2312",			"gb18030"} },	/* PRC */
-	{ "zh_sg",	{"euc-cn",	"gb2312",			"gb18030"} },	/* Singapore */
+	LANG_ENCODINGS ("zh_cn",   "euc-cn", "gb2312", "gb18030"),         /* PRC */
+	LANG_ENCODINGS ("zh_sg",   "euc-cn", "gb2312", "gb18030"),         /* Singapore */
 
 	/* Traditional Chinese */
-	{ "zh_tw",	{"big5",		"euc-tw",			NULL} },		/* Taiwan */
-	{ "zh_hk",	{"big5",		"euc-tw",			"big5-hkcs"} },/* Hong Kong */
-	{ "zh_mo",	{"big5",		"euc-tw",			NULL} },		/* Macau */
+	LANG_ENCODINGS ("zh_tw",   "big5", "euc-tw"),                      /* Taiwan */
+	LANG_ENCODINGS ("zh_hk",   "big5", "euc-tw", "big5-hkcs"),         /* Hong Kong */
+	LANG_ENCODINGS ("zh_mo",   "big5", "euc-tw"),                      /* Macau */
 
-	/* Table end */
-	{ NULL, {NULL, NULL, NULL} }
+	LANG_ENCODINGS (NULL, NULL)
 };
 
 /* 2-letter language codes; we don't care about the other 3 in this table */
 static const struct IsoLangToEncodings isoLangEntries2[] =
 {
 	/* Japanese */
-	{ "ja",		{"euc-jp",	"shift_jis",		"iso-2022-jp"} },
+	LANG_ENCODINGS ("ja",      "euc-jp", "shift_jis", "iso-2022-jp"),
 
 	/* Korean */
-	{ "ko",		{"euc-kr",	"iso-2022-kr",		"johab"} },
+	LANG_ENCODINGS ("ko",      "euc-kr", "iso-2022-kr", "johab"),
 
 	/* Thai */
-	{ "th",		{"iso-8859-11","windows-874",		NULL} },
+	LANG_ENCODINGS ("th",      "iso-8859-11", "windows-874"),
 
 	/* Central European */
-	{ "hu",		{"iso-8859-2",	"windows-1250",	NULL} },	/* Hungarian */
-	{ "cs",		{"iso-8859-2",	"windows-1250",	NULL} },	/* Czech */
-	{ "hr",		{"iso-8859-2",	"windows-1250",	NULL} },	/* Croatian */
-	{ "pl",		{"iso-8859-2",	"windows-1250",	NULL} },	/* Polish */
-	{ "ro",		{"iso-8859-2",	"windows-1250",	NULL} },	/* Romanian */
-	{ "sk",		{"iso-8859-2",	"windows-1250",	NULL} },	/* Slovakian */
-	{ "sl",		{"iso-8859-2",	"windows-1250",	NULL} },	/* Slovenian */
-	{ "sh",		{"iso-8859-2",	"windows-1250",	NULL} },	/* Serbo-Croatian */
+	LANG_ENCODINGS ("hu",      "iso-8859-2", "windows-1250"),          /* Hungarian */
+	LANG_ENCODINGS ("cs",      "iso-8859-2", "windows-1250"),          /* Czech */
+	LANG_ENCODINGS ("hr",      "iso-8859-2", "windows-1250"),          /* Croatian */
+	LANG_ENCODINGS ("pl",      "iso-8859-2", "windows-1250"),          /* Polish */
+	LANG_ENCODINGS ("ro",      "iso-8859-2", "windows-1250"),          /* Romanian */
+	LANG_ENCODINGS ("sk",      "iso-8859-2", "windows-1250"),          /* Slovakian */
+	LANG_ENCODINGS ("sl",      "iso-8859-2", "windows-1250"),          /* Slovenian */
+	LANG_ENCODINGS ("sh",      "iso-8859-2", "windows-1250"),          /* Serbo-Croatian */
 
 	/* Cyrillic */
-	{ "ru",		{"koi8-r",	"windows-1251",	"iso-8859-5"} },	/* Russian */
-	{ "be",		{"koi8-r",	"windows-1251",	"iso-8859-5"} },	/* Belorussian */
-	{ "bg",		{"windows-1251","koi8-r",		"iso-8859-5"} },	/* Bulgarian */
-	{ "mk",		{"koi8-r",	"windows-1251",	"iso-8859-5"} },	/* Macedonian */
-	{ "sr",		{"koi8-r",	"windows-1251",	"iso-8859-5"} },	/* Serbian */
-	{ "uk",		{"koi8-u",	"koi8-r",			"windows-1251"} },	/* Ukranian */
+	LANG_ENCODINGS ("ru",      "koi8-r", "windows-1251","iso-8859-5"), /* Russian */
+	LANG_ENCODINGS ("be",      "koi8-r", "windows-1251","iso-8859-5"), /* Belorussian */
+	LANG_ENCODINGS ("bg",      "windows-1251","koi8-r", "iso-8859-5"), /* Bulgarian */
+	LANG_ENCODINGS ("mk",      "koi8-r", "windows-1251", "iso-8859-5"),/* Macedonian */
+	LANG_ENCODINGS ("sr",      "koi8-r", "windows-1251", "iso-8859-5"),/* Serbian */
+	LANG_ENCODINGS ("uk",      "koi8-u", "koi8-r", "windows-1251"),    /* Ukranian */
 
 	/* Arabic */
-	{ "ar",		{"iso-8859-6",	"windows-1256",	NULL} },
+	LANG_ENCODINGS ("ar",      "iso-8859-6","windows-1256"),
 
 	/* Baltic */
-	{ "et",		{"iso-8859-4",	"windows-1257",	NULL} },	/* Estonian */
-	{ "lt",		{"iso-8859-4",	"windows-1257",	NULL} },	/* Lithuanian */
-	{ "lv",		{"iso-8859-4",	"windows-1257",	NULL} },	/* Latvian */
+	LANG_ENCODINGS ("et",      "iso-8859-4", "windows-1257"),          /* Estonian */
+	LANG_ENCODINGS ("lt",      "iso-8859-4", "windows-1257"),          /* Lithuanian */
+	LANG_ENCODINGS ("lv",      "iso-8859-4", "windows-1257"),          /* Latvian */
 
 	/* Greek */
-	{ "el",		{"iso-8859-7",	"windows-1253",	NULL} },
+	LANG_ENCODINGS ("el",      "iso-8859-7","windows-1253"),
 
 	/* Hebrew */
-	{ "he",		{"iso-8859-8",	"windows-1255",	NULL} },
-	{ "iw",		{"iso-8859-8",	"windows-1255",	NULL} },
+	LANG_ENCODINGS ("he",      "iso-8859-8", "windows-1255"),
+	LANG_ENCODINGS ("iw",      "iso-8859-8", "windows-1255"),
 
 	/* Turkish */
-	{ "tr",		{"iso-8859-9",	"windows-1254",	NULL} },
+	LANG_ENCODINGS ("tr",      "iso-8859-9", "windows-1254"),
 
 	/* Table end */
-	{ NULL, {NULL, NULL, NULL} }
+	LANG_ENCODINGS (NULL, NULL)
 };
 
 
@@ -154,7 +153,7 @@ init_lang_to_encodings_hash (void)
 		langToEncodings5 = g_hash_table_new (g_str_hash, g_str_equal);
 		while (enc->lang) {
 			g_hash_table_insert (langToEncodings5, (gpointer) enc->lang,
-			                     (gpointer) &enc->encodings);
+			                     (gpointer) enc->encodings);
 			enc++;
 		}
 	}
@@ -165,54 +164,73 @@ init_lang_to_encodings_hash (void)
 		langToEncodings2 = g_hash_table_new (g_str_hash, g_str_equal);
 		while (enc->lang) {
 			g_hash_table_insert (langToEncodings2, (gpointer) enc->lang,
-			                     (gpointer) &enc->encodings);
+			                     (gpointer) enc->encodings);
 			enc++;
 		}
 	}
 }
 
-
 static gboolean
-get_encodings_for_lang (const char *lang,
-                        char **encoding1,
-                        char **encoding2,
-                        char **encoding3)
+get_encodings_for_lang (const char *lang, const char *const **encodings)
 {
-	struct EncodingTriplet *	encodings;
-	gboolean				success = FALSE;
-	char *				tmp_lang;
+	gs_free char *tmp_lang = NULL;
 
-	g_return_val_if_fail (lang != NULL, FALSE);
-	g_return_val_if_fail (encoding1 != NULL, FALSE);
-	g_return_val_if_fail (encoding2 != NULL, FALSE);
-	g_return_val_if_fail (encoding3 != NULL, FALSE);
-
-	*encoding1 = "iso-8859-1";
-	*encoding2 = "windows-1251";
-	*encoding3 = NULL;
+	g_return_val_if_fail (lang, FALSE);
+	g_return_val_if_fail (encodings, FALSE);
 
 	init_lang_to_encodings_hash ();
 
-	tmp_lang = g_strdup (lang);
-	if ((encodings = g_hash_table_lookup (langToEncodings5, tmp_lang))) {
-		*encoding1 = (char *) encodings->encoding1;
-		*encoding2 = (char *) encodings->encoding2;
-		*encoding3 = (char *) encodings->encoding3;
-		success = TRUE;
-	}
+	if ((*encodings = g_hash_table_lookup (langToEncodings5, lang)))
+		return TRUE;
 
 	/* Truncate tmp_lang to length of 2 */
-	if (strlen (tmp_lang) > 2)
+	if (strlen (lang) > 2) {
+		tmp_lang = g_strdup (lang);
 		tmp_lang[2] = '\0';
-	if (!success && (encodings = g_hash_table_lookup (langToEncodings2, tmp_lang))) {
-		*encoding1 = (char *) encodings->encoding1;
-		*encoding2 = (char *) encodings->encoding2;
-		*encoding3 = (char *) encodings->encoding3;
-		success = TRUE;
+		if ((*encodings = g_hash_table_lookup (langToEncodings2, tmp_lang)))
+			return TRUE;
 	}
 
-	g_free (tmp_lang);
-	return success;
+	return FALSE;
+}
+
+static const char *const *
+get_system_encodings (void)
+{
+	static const char *const *cached_encodings;
+	static char *default_encodings[4];
+	const char *const *encodings = NULL;
+	char *lang;
+
+	if (cached_encodings)
+		return cached_encodings;
+
+	/* Use environment variables as encoding hint */
+	lang = getenv ("LC_ALL");
+	if (!lang)
+		lang = getenv ("LC_CTYPE");
+	if (!lang)
+		lang = getenv ("LANG");
+	if (lang) {
+		char *dot;
+
+		lang = g_ascii_strdown (lang, -1);
+		if ((dot = strchr (lang, '.')))
+			*dot = '\0';
+
+		get_encodings_for_lang (lang, &encodings);
+		g_free (lang);
+	}
+	if (!encodings) {
+		g_get_charset ((const char **) &default_encodings[0]);
+		default_encodings[1] = "iso-8859-1";
+		default_encodings[2] = "windows-1251";
+		default_encodings[3] = NULL;
+		encodings = (const char *const *) default_encodings;
+	}
+
+	cached_encodings = encodings;
+	return cached_encodings;
 }
 
 /* init libnm */
@@ -281,37 +299,26 @@ gboolean _nm_utils_is_manager_process;
 char *
 nm_utils_ssid_to_utf8 (const guint8 *ssid, gsize len)
 {
+	const char *const *encodings;
+	const char *const *e;
 	char *converted = NULL;
-	char *lang, *e1 = NULL, *e2 = NULL, *e3 = NULL;
 
 	g_return_val_if_fail (ssid != NULL, NULL);
 
 	if (g_utf8_validate ((const gchar *) ssid, len, NULL))
 		return g_strndup ((const gchar *) ssid, len);
 
-	/* LANG may be a good encoding hint */
-	g_get_charset ((const char **)(&e1));
-	if ((lang = getenv ("LANG"))) {
-		char * dot;
+	encodings = get_system_encodings ();
 
-		lang = g_ascii_strdown (lang, -1);
-		if ((dot = strchr (lang, '.')))
-			*dot = '\0';
-
-		get_encodings_for_lang (lang, &e1, &e2, &e3);
-		g_free (lang);
+	for (e = encodings; *e; e++) {
+		converted = g_convert ((const gchar *) ssid, len, "UTF-8", *e, NULL, NULL, NULL);
+		if (converted)
+			break;
 	}
-
-	converted = g_convert ((const gchar *) ssid, len, "UTF-8", e1, NULL, NULL, NULL);
-	if (!converted && e2)
-		converted = g_convert ((const gchar *) ssid, len, "UTF-8", e2, NULL, NULL, NULL);
-
-	if (!converted && e3)
-		converted = g_convert ((const gchar *) ssid, len, "UTF-8", e3, NULL, NULL, NULL);
 
 	if (!converted) {
 		converted = g_convert_with_fallback ((const gchar *) ssid, len,
-		                                     "UTF-8", e1, "?", NULL, NULL, NULL);
+		                                     "UTF-8", encodings[0], "?", NULL, NULL, NULL);
 	}
 
 	if (!converted) {
@@ -325,7 +332,7 @@ nm_utils_ssid_to_utf8 (const guint8 *ssid, gsize len)
 		                     "ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`"
 		                     "abcdefghijklmnopqrstuvwxyz{|}~";
 
-		converted = g_strndup ((const gchar *)ssid, len);
+		converted = g_strndup ((const char *) ssid, len);
 		g_strcanon (converted, valid_chars, '?');
 	}
 
@@ -443,36 +450,6 @@ nm_utils_same_ssid (const guint8 *ssid1, gsize len1,
 	return memcmp (ssid1, ssid2, len1) == 0 ? TRUE : FALSE;
 }
 
-char **
-_nm_utils_strv_cleanup (char **strv,
-                        gboolean strip_whitespace,
-                        gboolean skip_empty,
-                        gboolean skip_repeated)
-{
-	guint i, j;
-
-	if (!strv || !*strv)
-		return strv;
-
-	if (strip_whitespace) {
-		for (i = 0; strv[i]; i++)
-			g_strstrip (strv[i]);
-	}
-	if (!skip_empty && !skip_repeated)
-		return strv;
-	j = 0;
-	for (i = 0; strv[i]; i++) {
-		if (   (skip_empty && !*strv[i])
-		    || (skip_repeated && nm_utils_strv_find_first (strv, j, strv[i]) >= 0))
-			g_free (strv[i]);
-		else
-			strv[j++] = strv[i];
-	}
-	strv[j] = NULL;
-	return strv;
-}
-
-
 gboolean
 _nm_utils_string_slist_validate (GSList *list, const char **valid_values)
 {
@@ -519,17 +496,45 @@ _nm_utils_strdict_to_dbus (const GValue *prop_value)
 {
 	GHashTable *hash;
 	GHashTableIter iter;
-	gpointer key, value;
+	const char *key, *value;
 	GVariantBuilder builder;
+	guint i, len;
 
 	g_variant_builder_init (&builder, G_VARIANT_TYPE ("a{ss}"));
+
 	hash = g_value_get_boxed (prop_value);
-	if (hash) {
-		g_hash_table_iter_init (&iter, hash);
-		while (g_hash_table_iter_next (&iter, &key, &value))
-			g_variant_builder_add (&builder, "{ss}", key, value);
+	if (!hash)
+		goto out;
+	len = g_hash_table_size (hash);
+	if (!len)
+		goto out;
+
+	g_hash_table_iter_init (&iter, hash);
+	if (!g_hash_table_iter_next (&iter, (gpointer *) &key, (gpointer *) &value))
+		nm_assert_not_reached ();
+
+	if (len == 1)
+		g_variant_builder_add (&builder, "{ss}", key, value);
+	else {
+		gs_free NMUtilsNamedValue *idx = NULL;
+
+		idx = g_new (NMUtilsNamedValue, len);
+		i = 0;
+		do {
+			idx[i].name = key;
+			idx[i].value_str = value;
+			i++;
+		} while (g_hash_table_iter_next (&iter, (gpointer *) &key, (gpointer *) &value));
+		nm_assert (i == len);
+
+		g_qsort_with_data (idx, len, sizeof (idx[0]),
+		                   nm_utils_named_entry_cmp_with_data, NULL);
+
+		for (i = 0; i < len; i++)
+			g_variant_builder_add (&builder, "{ss}", idx[i].name, idx[i].value_str);
 	}
 
+out:
 	return g_variant_builder_end (&builder);
 }
 
@@ -646,36 +651,82 @@ _nm_utils_ptrarray_find_first (gconstpointer *list, gssize len, gconstpointer ne
 }
 
 gssize
-_nm_utils_ptrarray_find_binary_search (gconstpointer *list, gsize len, gconstpointer needle, GCompareDataFunc cmpfcn, gpointer user_data)
+_nm_utils_ptrarray_find_binary_search (gconstpointer *list,
+                                       gsize len,
+                                       gconstpointer needle,
+                                       GCompareDataFunc cmpfcn,
+                                       gpointer user_data,
+                                       gssize *out_idx_first,
+                                       gssize *out_idx_last)
 {
-	gssize imin, imax, imid;
+	gssize imin, imax, imid, i2min, i2max, i2mid;
 	int cmp;
 
 	g_return_val_if_fail (list || !len, ~((gssize) 0));
 	g_return_val_if_fail (cmpfcn, ~((gssize) 0));
 
 	imin = 0;
-	if (len == 0)
-		return ~imin;
+	if (len > 0) {
+		imax = len - 1;
 
-	imax = len - 1;
+		while (imin <= imax) {
+			imid = imin + (imax - imin) / 2;
 
-	while (imin <= imax) {
-		imid = imin + (imax - imin) / 2;
+			cmp = cmpfcn (list[imid], needle, user_data);
+			if (cmp == 0) {
+				/* we found a matching entry at index imid.
+				 *
+				 * Does the caller request the first/last index as well (in case that
+				 * there are multiple entries which compare equal). */
 
-		cmp = cmpfcn (list[imid], needle, user_data);
-		if (cmp == 0)
-			return imid;
+				if (out_idx_first) {
+					i2min = imin;
+					i2max = imid + 1;
+					while (i2min <= i2max) {
+						i2mid = i2min + (i2max - i2min) / 2;
 
-		if (cmp < 0)
-			imin = imid + 1;
-		else
-			imax = imid - 1;
+						cmp = cmpfcn (list[i2mid], needle, user_data);
+						if (cmp == 0)
+							i2max = i2mid -1;
+						else {
+							nm_assert (cmp < 0);
+							i2min = i2mid + 1;
+						}
+					}
+					*out_idx_first = i2min;
+				}
+				if (out_idx_last) {
+					i2min = imid + 1;
+					i2max = imax;
+					while (i2min <= i2max) {
+						i2mid = i2min + (i2max - i2min) / 2;
+
+						cmp = cmpfcn (list[i2mid], needle, user_data);
+						if (cmp == 0)
+							i2min = i2mid + 1;
+						else {
+							nm_assert (cmp > 0);
+							i2max = i2mid - 1;
+						}
+					}
+					*out_idx_last = i2min - 1;
+				}
+				return imid;
+			}
+
+			if (cmp < 0)
+				imin = imid + 1;
+			else
+				imax = imid - 1;
+		}
 	}
 
 	/* return the inverse of @imin. This is a negative number, but
 	 * also is ~imin the position where the value should be inserted. */
-	return ~imin;
+	imin = ~imin;
+	NM_SET_OUT (out_idx_first, imin);
+	NM_SET_OUT (out_idx_last, imin);
+	return imin;
 }
 
 gssize
@@ -845,41 +896,6 @@ _nm_utils_strv_equal (char **strv1, char **strv2)
 		;
 
 	return !*strv1 && !*strv2;
-}
-
-/**
- * _nm_utils_strsplit_set:
- * @str: string to split
- * @delimiters: string of delimiter characters
- * @max_tokens: the maximum number of tokens to split string into. When it is
- * less than 1, the @str is split completely.
- *
- * Utility function for splitting string into a string array. It is a wrapper
- * for g_strsplit_set(), but it also removes empty strings from the vector as
- * they are not useful in most cases.
- *
- * Returns: (transfer full): a newly allocated NULL-terminated array of strings.
- * The caller must free the returned array with g_strfreev().
- **/
-char **
-_nm_utils_strsplit_set (const char *str, const char *delimiters, int max_tokens)
-{
-	char **result;
-	uint i;
-	uint j;
-
-	result = g_strsplit_set (str, delimiters, max_tokens);
-
-	/* remove empty strings */
-	for (i = 0; result && result[i]; i++) {
-		if (*result[i] == '\0') {
-			g_free (result[i]);
-			for (j = i; result[j]; j++)
-				result[j] = result[j + 1];
-			i--;
-		}
-	}
-	return result;
 }
 
 static gboolean
@@ -1519,9 +1535,8 @@ nm_utils_ip4_netmask_to_prefix (guint32 netmask)
 guint32
 nm_utils_ip4_prefix_to_netmask (guint32 prefix)
 {
-	return prefix < 32 ? ~htonl(0xFFFFFFFF >> prefix) : 0xFFFFFFFF;
+	return _nm_utils_ip4_prefix_to_netmask (prefix);
 }
-
 
 /**
  * nm_utils_ip4_get_default_prefix:
@@ -1538,12 +1553,7 @@ nm_utils_ip4_prefix_to_netmask (guint32 prefix)
 guint32
 nm_utils_ip4_get_default_prefix (guint32 ip)
 {
-	if (((ntohl (ip) & 0xFF000000) >> 24) <= 127)
-		return 8;  /* Class A - 255.0.0.0 */
-	else if (((ntohl (ip) & 0xFF000000) >> 24) <= 191)
-		return 16;  /* Class B - 255.255.0.0 */
-
-	return 24;  /* Class C - 255.255.255.0 */
+	return _nm_utils_ip4_get_default_prefix (ip);
 }
 
 /**
@@ -1993,8 +2003,8 @@ nm_utils_ip_routes_to_variant (GPtrArray *routes)
 		for (i = 0; i < routes->len; i++) {
 			NMIPRoute *route = routes->pdata[i];
 			GVariantBuilder route_builder;
-			char **names;
-			int n;
+			gs_free const char **names = NULL;
+			guint j, len;
 
 			g_variant_builder_init (&route_builder, G_VARIANT_TYPE ("a{sv}"));
 			g_variant_builder_add (&route_builder, "{sv}",
@@ -2014,13 +2024,12 @@ nm_utils_ip_routes_to_variant (GPtrArray *routes)
 				                       g_variant_new_uint32 ((guint32) nm_ip_route_get_metric (route)));
 			}
 
-			names = nm_ip_route_get_attribute_names (route);
-			for (n = 0; names[n]; n++) {
+			names = _nm_ip_route_get_attribute_names (route, TRUE, &len);
+			for (j = 0; j < len; j++) {
 				g_variant_builder_add (&route_builder, "{sv}",
-				                       names[n],
-				                       nm_ip_route_get_attribute (route, names[n]));
+				                       names[j],
+				                       nm_ip_route_get_attribute (route, names[j]));
 			}
-			g_strfreev (names);
 
 			g_variant_builder_add (&builder, "a{sv}", &route_builder);
 		}
@@ -2098,6 +2107,550 @@ next:
 	}
 
 	return routes;
+}
+
+/*****************************************************************************/
+
+static void
+_string_append_tc_handle (GString *string, guint32 handle)
+{
+	g_string_append_printf (string, "%x:", TC_H_MAJ (handle) >> 16);
+	if (TC_H_MIN (handle) != TC_H_UNSPEC)
+		g_string_append_printf (string, "%x", TC_H_MIN (handle));
+}
+
+/**
+ * _nm_utils_string_append_tc_parent:
+ * @string: the string to write the parent handle to
+ * @prefix: optional prefix for the numeric handle
+ * @parent: the parent handle
+ *
+ * This is used to either write out the parent handle to the tc qdisc string
+ * or to pretty-format (use symbolic name for root) the key in keyfile.
+ * The presence of prefix determnines which one is the case.
+ *
+ * Private API due to general uglyness and overall uselessness for anything
+ * sensible.
+ */
+void
+_nm_utils_string_append_tc_parent (GString *string, const char *prefix, guint32 parent)
+{
+	if (parent == TC_H_ROOT) {
+		g_string_append (string, "root");
+	} else {
+		if (prefix) {
+			if (parent == TC_H_INGRESS)
+				return;
+			g_string_append_printf (string, "%s ", prefix);
+		}
+		_string_append_tc_handle (string, parent);
+	}
+
+	if (prefix)
+		g_string_append_c (string, ' ');
+}
+
+/**
+ * _nm_utils_parse_tc_handle:
+ * @str: the string representation of a qdisc handle
+ * @error: location of the error
+ *
+ * Parses tc style handle number into a numeric representation.
+ * Don't use this, use nm_utils_tc_qdisc_from_str() instead.
+ */
+guint32
+_nm_utils_parse_tc_handle (const char *str, GError **error)
+{
+	gint64 maj, min;
+	char *sep;
+
+	maj = g_ascii_strtoll (str, &sep, 0x10);
+	if (*sep == ':')
+		min = g_ascii_strtoll (&sep[1], &sep, 0x10);
+	else
+		min = 0;
+
+	if (*sep != '\0' || maj <= 0 || maj > 0xffff || min < 0 || min > 0xffff) {
+		g_set_error (error, 1, 0, _("'%s' is not a valid handle."), str);
+		return TC_H_UNSPEC;
+	}
+
+	return TC_H_MAKE (maj << 16, min);
+}
+
+#define TC_ATTR_SPEC_PTR(name, type, no_value, consumes_rest, str_type) \
+	&(NMVariantAttributeSpec) { name, type, FALSE, FALSE, no_value, consumes_rest, str_type }
+
+static const NMVariantAttributeSpec * const tc_object_attribute_spec[] = {
+	TC_ATTR_SPEC_PTR ("root",    G_VARIANT_TYPE_BOOLEAN, TRUE,  FALSE, 0   ),
+	TC_ATTR_SPEC_PTR ("parent",  G_VARIANT_TYPE_STRING,  FALSE, FALSE, 'a' ),
+	TC_ATTR_SPEC_PTR ("handle",  G_VARIANT_TYPE_STRING,  FALSE, FALSE, 'a' ),
+	TC_ATTR_SPEC_PTR ("kind",    G_VARIANT_TYPE_STRING,  TRUE,  FALSE, 'a' ),
+	TC_ATTR_SPEC_PTR ("",        G_VARIANT_TYPE_STRING,  TRUE,  TRUE,  'a' ),
+	NULL,
+};
+
+/*****************************************************************************/
+
+/**
+ * _nm_utils_string_append_tc_qdisc_rest:
+ * @string: the string to write the formatted qdisc to
+ * @qdisc: the %NMTCQdisc
+ *
+ * This formats the rest of the qdisc string but the parent. Useful to format
+ * the keyfile value and nowhere else.
+ * Use nm_utils_tc_qdisc_to_str() that also includes the parent instead.
+ */
+void
+_nm_utils_string_append_tc_qdisc_rest (GString *string, NMTCQdisc *qdisc)
+{
+	guint32 handle = nm_tc_qdisc_get_handle (qdisc);
+	const char *kind = nm_tc_qdisc_get_kind (qdisc);
+
+	if (handle != TC_H_UNSPEC && strcmp (kind, "ingress") != 0) {
+		g_string_append (string, "handle ");
+		_string_append_tc_handle (string, handle);
+		g_string_append_c (string, ' ');
+	}
+
+	g_string_append (string, kind);
+}
+
+/**
+ * nm_utils_tc_qdisc_to_str:
+ * @qdisc: the %NMTCQdisc
+ * @error: location of the error
+ *
+ * Turns the %NMTCQdisc into a tc style string representation of the queueing
+ * discipline.
+ *
+ * Returns: formatted string or %NULL
+ *
+ * Since: 1.10.2
+ */
+char *
+nm_utils_tc_qdisc_to_str (NMTCQdisc *qdisc, GError **error)
+{
+	GString *string;
+
+	string = g_string_sized_new (60);
+
+	_nm_utils_string_append_tc_parent (string, "parent",
+	                                   nm_tc_qdisc_get_parent (qdisc));
+	_nm_utils_string_append_tc_qdisc_rest (string, qdisc);
+
+	return g_string_free (string, FALSE);
+}
+
+
+static gboolean
+_tc_read_common_opts (const char *str,
+                      guint32 *handle,
+                      guint32 *parent,
+                      char **kind,
+                      char **rest,
+                      GError **error)
+{
+	gs_unref_hashtable GHashTable *ht = NULL;
+	GVariant *variant;
+
+        ht = nm_utils_parse_variant_attributes (str,
+                                                ' ', ' ', FALSE,
+                                                tc_object_attribute_spec,
+                                                error);
+	if (!ht)
+		return FALSE;
+
+	if (g_hash_table_contains (ht, "root"))
+		*parent = TC_H_ROOT;
+
+	variant = g_hash_table_lookup (ht, "parent");
+	if (variant) {
+		if (*parent != TC_H_UNSPEC) {
+			g_set_error (error, 1, 0,
+			             _("'%s' unexpected: parent already specified."),
+			             g_variant_get_string (variant, NULL));
+			return FALSE;
+		}
+		*parent = _nm_utils_parse_tc_handle (g_variant_get_string (variant, NULL), error);
+		if (*parent == TC_H_UNSPEC)
+			return FALSE;
+	}
+
+	variant = g_hash_table_lookup (ht, "handle");
+	if (variant) {
+		*handle = _nm_utils_parse_tc_handle (g_variant_get_string (variant, NULL), error);
+		if (*handle == TC_H_UNSPEC)
+			return FALSE;
+		if (TC_H_MIN (*handle)) {
+			g_set_error (error, 1, 0,
+			             _("invalid handle: '%s'"),
+			             g_variant_get_string (variant, NULL));
+			return FALSE;
+		}
+	}
+
+	variant = g_hash_table_lookup (ht, "kind");
+	if (variant) {
+		*kind = g_variant_dup_string (variant, NULL);
+		if (strcmp (*kind, "ingress") == 0) {
+			if (*parent == TC_H_UNSPEC)
+				*parent = TC_H_INGRESS;
+			if (*handle == TC_H_UNSPEC)
+				*handle = TC_H_MAKE (TC_H_INGRESS, 0);
+		}
+	}
+
+	if (*parent == TC_H_UNSPEC) {
+		if (*kind) {
+			g_free (*kind);
+			*kind = NULL;
+		}
+		g_set_error_literal (error, 1, 0, _("parent not specified."));
+		return FALSE;
+	}
+
+	variant = g_hash_table_lookup (ht, "");
+	if (variant)
+		*rest = g_variant_dup_string (variant, NULL);
+
+	return TRUE;
+}
+
+/**
+ * nm_utils_tc_qdisc_from_str:
+ * @str: the string representation of a qdisc
+ * @error: location of the error
+ *
+ * Parces the tc style string qdisc representation of the queueing
+ * discipline to a %NMTCQdisc instance. Supports a subset of the tc language.
+ *
+ * Returns: the %NMTCQdisc or %NULL
+ *
+ * Since: 1.10.2
+ */
+NMTCQdisc *
+nm_utils_tc_qdisc_from_str (const char *str, GError **error)
+{
+	guint32 handle = TC_H_UNSPEC;
+	guint32 parent = TC_H_UNSPEC;
+	gs_free char *kind = NULL;
+	gs_free char *rest = NULL;
+	NMTCQdisc *qdisc = NULL;
+	gs_unref_hashtable GHashTable *ht = NULL;
+
+	nm_assert (str);
+	nm_assert (!error || !*error);
+
+	ht = nm_utils_parse_variant_attributes (str,
+	                                        ' ', ' ', FALSE,
+	                                        tc_object_attribute_spec,
+	                                        error);
+	if (!ht)
+		return NULL;
+
+	if (!_tc_read_common_opts (str, &handle, &parent, &kind, &rest, error))
+		return NULL;
+
+	if (rest) {
+		g_set_error (error, 1, 0, _("unsupported qdisc option: '%s'."), rest);
+		return NULL;
+	}
+
+	qdisc = nm_tc_qdisc_new (kind, parent, error);
+	if (!qdisc)
+		return NULL;
+
+	nm_tc_qdisc_set_handle (qdisc, handle);
+
+	return qdisc;
+}
+/*****************************************************************************/
+
+static const NMVariantAttributeSpec * const tc_action_simple_attribute_spec[] = {
+	TC_ATTR_SPEC_PTR ("sdata",   G_VARIANT_TYPE_BYTESTRING,  FALSE, FALSE, 0   ),
+	NULL,
+};
+
+static const NMVariantAttributeSpec * const tc_action_attribute_spec[] = {
+	TC_ATTR_SPEC_PTR ("kind",    G_VARIANT_TYPE_STRING,      TRUE,  FALSE, 'a' ),
+	TC_ATTR_SPEC_PTR ("",        G_VARIANT_TYPE_STRING,      TRUE,  TRUE,  'a' ),
+	NULL,
+};
+
+static gboolean
+_string_append_tc_action (GString *string, NMTCAction *action, GError **error)
+{
+	gs_unref_hashtable GHashTable *ht = NULL;
+	const char *kind = nm_tc_action_get_kind (action);
+	gs_strfreev char **attr_names = NULL;
+	gs_free char *str = NULL;
+	int i;
+
+	ht = g_hash_table_new_full (nm_str_hash, g_str_equal, NULL, NULL);
+
+	g_string_append (string, kind);
+
+	attr_names = nm_tc_action_get_attribute_names (action);
+	for (i = 0; attr_names[i]; i++) {
+		g_hash_table_insert (ht, attr_names[i],
+		                     nm_tc_action_get_attribute (action, attr_names[i]));
+	}
+
+	if (i) {
+		str = nm_utils_format_variant_attributes (ht, ' ', ' ');
+		g_string_append_c (string, ' ');
+		g_string_append (string, str);
+	}
+
+	return TRUE;
+}
+
+/**
+ * nm_utils_tc_action_to_str:
+ * @action: the %NMTCAction
+ * @error: location of the error
+ *
+ * Turns the %NMTCAction into a tc style string representation of the queueing
+ * discipline.
+ *
+ * Returns: formatted string or %NULL
+ *
+ * Since: 1.10.2
+ */
+char *
+nm_utils_tc_action_to_str (NMTCAction *action, GError **error)
+{
+	GString *string;
+
+	string = g_string_sized_new (60);
+	if (!_string_append_tc_action (string, action, error)) {
+		g_string_free (string, TRUE);
+		return NULL;
+	}
+
+	return g_string_free (string, FALSE);
+}
+
+/**
+ * nm_utils_tc_action_from_str:
+ * @str: the string representation of a action
+ * @error: location of the error
+ *
+ * Parces the tc style string action representation of the queueing
+ * discipline to a %NMTCAction instance. Supports a subset of the tc language.
+ *
+ * Returns: the %NMTCAction or %NULL
+ *
+ * Since: 1.10.2
+ */
+NMTCAction *
+nm_utils_tc_action_from_str (const char *str, GError **error)
+{
+	const char *kind = NULL;
+	const char *rest = NULL;
+	NMTCAction *action = NULL;
+	gs_unref_hashtable GHashTable *ht = NULL;
+	gs_unref_hashtable GHashTable *options = NULL;
+	GVariant *variant;
+	const NMVariantAttributeSpec * const *attrs;
+
+	nm_assert (str);
+	nm_assert (!error || !*error);
+
+        ht = nm_utils_parse_variant_attributes (str,
+                                                ' ', ' ', FALSE,
+                                                tc_action_attribute_spec,
+                                                error);
+	if (!ht)
+		return FALSE;
+
+	variant = g_hash_table_lookup (ht, "kind");
+	if (variant) {
+		kind = g_variant_get_string (variant, NULL);
+	} else {
+		g_set_error_literal (error, 1, 0, _("action name missing."));
+		return NULL;
+	}
+
+	kind = g_variant_get_string (variant, NULL);
+	if (strcmp (kind, "simple") == 0)
+		attrs = tc_action_simple_attribute_spec;
+	else
+		attrs = NULL;
+
+	variant = g_hash_table_lookup (ht, "");
+	if (variant)
+		rest = g_variant_get_string (variant, NULL);
+
+	action = nm_tc_action_new (kind, error);
+	if (!action)
+		return NULL;
+
+	if (rest) {
+		GHashTableIter iter;
+		gpointer key, value;
+
+		if (!attrs) {
+			nm_tc_action_unref (action);
+			g_set_error (error, 1, 0, _("unsupported action option: '%s'."), rest);
+			return NULL;
+		}
+
+	        options = nm_utils_parse_variant_attributes (rest,
+	                                                     ' ', ' ', FALSE,
+	                                                     attrs,
+	                                                     error);
+		if (!options) {
+			nm_tc_action_unref (action);
+			return NULL;
+		}
+
+		g_hash_table_iter_init (&iter, options);
+		while (g_hash_table_iter_next (&iter, &key, &value))
+			nm_tc_action_set_attribute (action, key, g_variant_ref_sink (value));
+	}
+
+	return action;
+}
+
+/*****************************************************************************/
+
+/**
+ * _nm_utils_string_append_tc_tfilter_rest:
+ * @string: the string to write the formatted tfilter to
+ * @tfilter: the %NMTCTfilter
+ *
+ * This formats the rest of the tfilter string but the parent. Useful to format
+ * the keyfile value and nowhere else.
+ * Use nm_utils_tc_tfilter_to_str() that also includes the parent instead.
+ */
+gboolean
+_nm_utils_string_append_tc_tfilter_rest (GString *string, NMTCTfilter *tfilter, GError **error)
+{
+	guint32 handle = nm_tc_tfilter_get_handle (tfilter);
+	const char *kind = nm_tc_tfilter_get_kind (tfilter);
+	NMTCAction *action;
+
+	if (handle != TC_H_UNSPEC) {
+		g_string_append (string, "handle ");
+		_string_append_tc_handle (string, handle);
+		g_string_append_c (string, ' ');
+	}
+
+	g_string_append (string, kind);
+
+	action = nm_tc_tfilter_get_action (tfilter);
+	if (action) {
+		g_string_append (string, " action ");
+		if (!_string_append_tc_action (string, action, error))
+			return FALSE;
+	}
+
+	return TRUE;
+}
+
+/**
+ * nm_utils_tc_tfilter_to_str:
+ * @tfilter: the %NMTCTfilter
+ * @error: location of the error
+ *
+ * Turns the %NMTCTfilter into a tc style string representation of the queueing
+ * discipline.
+ *
+ * Returns: formatted string or %NULL
+ *
+ * Since: 1.10.2
+ */
+char *
+nm_utils_tc_tfilter_to_str (NMTCTfilter *tfilter, GError **error)
+{
+	GString *string;
+
+	string = g_string_sized_new (60);
+
+	_nm_utils_string_append_tc_parent (string, "parent",
+	                                   nm_tc_tfilter_get_parent (tfilter));
+	if (!_nm_utils_string_append_tc_tfilter_rest (string, tfilter, error)) {
+		g_string_free (string, TRUE);
+		return NULL;
+	}
+
+	return g_string_free (string, FALSE);
+}
+
+static const NMVariantAttributeSpec * const tc_tfilter_attribute_spec[] = {
+	TC_ATTR_SPEC_PTR ("action",  G_VARIANT_TYPE_BOOLEAN,     TRUE,  FALSE, 0   ),
+	TC_ATTR_SPEC_PTR ("",        G_VARIANT_TYPE_STRING,      TRUE,  TRUE,  'a' ),
+	NULL,
+};
+
+/**
+ * nm_utils_tc_tfilter_from_str:
+ * @str: the string representation of a tfilter
+ * @error: location of the error
+ *
+ * Parces the tc style string tfilter representation of the queueing
+ * discipline to a %NMTCTfilter instance. Supports a subset of the tc language.
+ *
+ * Returns: the %NMTCTfilter or %NULL
+ *
+ * Since: 1.10.2
+ */
+NMTCTfilter *
+nm_utils_tc_tfilter_from_str (const char *str, GError **error)
+{
+	guint32 handle = TC_H_UNSPEC;
+	guint32 parent = TC_H_UNSPEC;
+	gs_free char *kind = NULL;
+	gs_free char *rest = NULL;
+	NMTCAction *action = NULL;
+	const char *extra_opts = NULL;
+	NMTCTfilter *tfilter = NULL;
+	gs_unref_hashtable GHashTable *ht = NULL;
+	GVariant *variant;
+
+	nm_assert (str);
+	nm_assert (!error || !*error);
+
+	if (!_tc_read_common_opts (str, &handle, &parent, &kind, &rest, error))
+		return NULL;
+
+	if (rest) {
+	        ht = nm_utils_parse_variant_attributes (rest,
+	                                                ' ', ' ', FALSE,
+	                                                tc_tfilter_attribute_spec,
+	                                                error);
+		if (!ht)
+			return NULL;
+
+		variant = g_hash_table_lookup (ht, "");
+		if (variant)
+			extra_opts = g_variant_get_string (variant, NULL);
+
+		if (g_hash_table_contains (ht, "action")) {
+			action = nm_utils_tc_action_from_str (extra_opts, error);
+			if (!action) {
+				g_prefix_error (error, _("invalid action: "));
+				return NULL;
+			}
+		} else {
+			g_set_error (error, 1, 0, _("unsupported tfilter option: '%s'."), rest);
+			return NULL;
+		}
+	}
+
+	tfilter = nm_tc_tfilter_new (kind, parent, error);
+	if (!tfilter)
+		return NULL;
+
+	nm_tc_tfilter_set_handle (tfilter, handle);
+	if (action) {
+		nm_tc_tfilter_set_action (tfilter, action);
+		nm_tc_action_unref (action);
+	}
+
+	return tfilter;
 }
 
 /*****************************************************************************/
@@ -3707,36 +4260,41 @@ _nm_utils_generate_mac_address_mask_parse (const char *value,
 gboolean
 nm_utils_is_valid_iface_name (const char *name, GError **error)
 {
-	g_return_val_if_fail (name != NULL, FALSE);
+	int i;
 
-	if (*name == '\0') {
+	g_return_val_if_fail (name, FALSE);
+
+	if (name[0] == '\0') {
 		g_set_error_literal (error, NM_UTILS_ERROR, NM_UTILS_ERROR_UNKNOWN,
 		                     _("interface name is too short"));
 		return FALSE;
 	}
 
-	if (strlen (name) >= 16) {
-		g_set_error_literal (error, NM_UTILS_ERROR, NM_UTILS_ERROR_UNKNOWN,
-		                     _("interface name is longer than 15 characters"));
-		return FALSE;
-	}
-
-	if (!strcmp (name, ".") || !strcmp (name, "..")) {
+	if (   name[0] == '.'
+	    && (   name[1] == '\0'
+	        || (   name[1] == '.'
+	            && name[2] == '\0'))) {
 		g_set_error_literal (error, NM_UTILS_ERROR, NM_UTILS_ERROR_UNKNOWN,
 		                     _("interface name is reserved"));
 		return FALSE;
 	}
 
-	while (*name) {
-		if (*name == '/' || g_ascii_isspace (*name)) {
+	for (i = 0; i < IFNAMSIZ; i++) {
+		char ch = name[i];
+
+		if (ch == '\0')
+			return TRUE;
+		if (   NM_IN_SET (ch, '/', ':')
+		    || g_ascii_isspace (ch)) {
 			g_set_error_literal (error, NM_UTILS_ERROR, NM_UTILS_ERROR_UNKNOWN,
 			                     _("interface name contains an invalid character"));
 			return FALSE;
 		}
-		name++;
 	}
 
-	return TRUE;
+	g_set_error_literal (error, NM_UTILS_ERROR, NM_UTILS_ERROR_UNKNOWN,
+	                     _("interface name is longer than 15 characters"));
+	return FALSE;
 }
 
 /**
@@ -3788,6 +4346,22 @@ nm_utils_is_uuid (const char *str)
 }
 
 static char _nm_utils_inet_ntop_buffer[NM_UTILS_INET_ADDRSTRLEN];
+
+const char *
+nm_utils_inet_ntop (int addr_family, gconstpointer addr, char *dst)
+{
+	const char *s;
+
+	nm_assert_addr_family (addr_family);
+	nm_assert (addr);
+
+	s = inet_ntop (addr_family,
+	               addr,
+	               dst ? dst : _nm_utils_inet_ntop_buffer,
+	               addr_family == AF_INET6 ? INET6_ADDRSTRLEN : INET_ADDRSTRLEN);
+	nm_assert (s);
+	return s;
+}
 
 /**
  * nm_utils_inet4_ntop: (skip)
@@ -3925,8 +4499,8 @@ _nm_utils_inet6_is_token (const struct in6_addr *in6addr)
 gboolean
 nm_utils_check_virtual_device_compatibility (GType virtual_type, GType other_type)
 {
-	g_return_val_if_fail (_nm_setting_type_is_base_type (virtual_type), FALSE);
-	g_return_val_if_fail (_nm_setting_type_is_base_type (other_type), FALSE);
+	g_return_val_if_fail (_nm_setting_type_get_base_type_priority (virtual_type) != NM_SETTING_PRIORITY_INVALID, FALSE);
+	g_return_val_if_fail (_nm_setting_type_get_base_type_priority (other_type)   != NM_SETTING_PRIORITY_INVALID, FALSE);
 
 	if (virtual_type == NM_TYPE_SETTING_BOND) {
 		return (   other_type == NM_TYPE_SETTING_INFINIBAND
@@ -4038,28 +4612,29 @@ guint
 _nm_utils_strstrdictkey_hash (gconstpointer a)
 {
 	const NMUtilsStrStrDictKey *k = a;
-	const signed char *p;
-	guint32 h = 5381;
+	const char *p;
+	NMHashState h;
 
+	nm_hash_init (&h, 76642997u);
 	if (k) {
 		if (((int) k->type) & ~STRSTRDICTKEY_ALL_SET)
 			g_return_val_if_reached (0);
 
-		h = (h << 5) + h + k->type;
+		nm_hash_update_val (&h, k->type);
 		if (k->type & STRSTRDICTKEY_ALL_SET) {
-			p = (void *) k->data;
-			for (; *p != '\0'; p++)
-				h = (h << 5) + h + *p;
+			gsize n;
+
+			n = 0;
+			p = strchr (k->data, '\0');
 			if (k->type == STRSTRDICTKEY_ALL_SET) {
 				/* the key contains two strings. Continue... */
-				h = (h << 5) + h + '\0';
-				for (p++; *p != '\0'; p++)
-					h = (h << 5) + h + *p;
+				p = strchr (p + 1, '\0');
 			}
+			if (p != k->data)
+				nm_hash_update (&h, k->data, p - k->data);
 		}
 	}
-
-	return h;
+	return nm_hash_complete (&h);
 }
 
 gboolean
@@ -4224,11 +4799,11 @@ out:
  * Returns: the index of the option in the array or -1 if was not
  * found.
  */
-int _nm_utils_dns_option_find_idx (GPtrArray *array, const char *option)
+gssize _nm_utils_dns_option_find_idx (GPtrArray *array, const char *option)
 {
 	gboolean ret;
 	char *option_name, *tmp_name;
-	int i;
+	guint i;
 
 	if (!_nm_utils_dns_option_validate (option, &option_name, NULL, FALSE, NULL))
 		return -1;
@@ -4249,82 +4824,7 @@ int _nm_utils_dns_option_find_idx (GPtrArray *array, const char *option)
 	return -1;
 }
 
-#define IS_FLAGS_SEPARATOR(ch)  (NM_IN_SET ((ch), ' ', '\t', ',', '\n', '\r'))
-
-static gboolean
-_is_hex_string (const char *str)
-{
-	return    str[0] == '0'
-	       && str[1] == 'x'
-	       && str[2]
-	       && NM_STRCHAR_ALL (&str[2], ch, g_ascii_isxdigit (ch));
-}
-
-static gboolean
-_enum_is_valid_enum_nick (const char *str)
-{
-	return    str[0]
-	       && !NM_STRCHAR_ANY (str, ch, g_ascii_isspace (ch))
-	       && !NM_STRCHAR_ALL (str, ch, g_ascii_isdigit (ch));
-}
-
-static gboolean
-_enum_is_valid_flags_nick (const char *str)
-{
-	return    str[0]
-	       && !NM_STRCHAR_ANY (str, ch, IS_FLAGS_SEPARATOR (ch))
-	       && !_is_hex_string (str);
-}
-
-char *
-_nm_utils_enum_to_str_full (GType type,
-                            int value,
-                            const char *flags_separator)
-{
-	GTypeClass *class;
-	char *ret;
-
-	if (   flags_separator
-	    && (   !flags_separator[0]
-	        || NM_STRCHAR_ANY (flags_separator, ch, !IS_FLAGS_SEPARATOR (ch))))
-		g_return_val_if_reached (NULL);
-
-	class = g_type_class_ref (type);
-
-	if (G_IS_ENUM_CLASS (class)) {
-		GEnumValue *enum_value;
-
-		enum_value = g_enum_get_value (G_ENUM_CLASS (class), value);
-		if (   !enum_value
-		    || !_enum_is_valid_enum_nick (enum_value->value_nick))
-			ret = g_strdup_printf ("%d", value);
-		else
-			ret = strdup (enum_value->value_nick);
-	} else if (G_IS_FLAGS_CLASS (class)) {
-		GFlagsValue *flags_value;
-		GString *str = g_string_new ("");
-
-		flags_separator = flags_separator ?: " ";
-
-		while (value) {
-			flags_value = g_flags_get_first_value (G_FLAGS_CLASS (class), value);
-			if (str->len)
-				g_string_append (str, flags_separator);
-			if (   !flags_value
-			    || !_enum_is_valid_flags_nick (flags_value->value_nick)) {
-				g_string_append_printf (str, "0x%x", (unsigned) value);
-				break;
-			}
-			g_string_append (str, flags_value->value_nick);
-			value &= ~flags_value->value;
-		}
-		ret = g_string_free (str, FALSE);
-	} else
-		g_return_val_if_reached (NULL);
-
-	g_type_class_unref (class);
-	return ret;
-}
+/*****************************************************************************/
 
 /**
  * nm_utils_enum_to_str:
@@ -4333,8 +4833,9 @@ _nm_utils_enum_to_str_full (GType type,
  *
  * Converts an enum value to its string representation. If the enum is a
  * %G_TYPE_FLAGS the function returns a comma-separated list of matching values.
- * If the enum is a %G_TYPE_ENUM and the given value is not valid the
- * function returns %NULL.
+ * If the value has no corresponding string representation, it is converted
+ * to a number. For enums it is converted to a decimal number, for flags
+ * to an (unsigned) hex number.
  *
  * Returns: a newly allocated string or %NULL
  *
@@ -4368,81 +4869,7 @@ gboolean
 nm_utils_enum_from_str (GType type, const char *str,
                         int *out_value, char **err_token)
 {
-	GTypeClass *class;
-	gboolean ret = FALSE;
-	int value = 0;
-	gs_free char *str_clone = NULL;
-	char *s;
-	gint64 v64;
-
-	g_return_val_if_fail (str, FALSE);
-
-	str_clone = strdup (str);
-	s = nm_str_skip_leading_spaces (str_clone);
-	g_strchomp (s);
-
-	class = g_type_class_ref (type);
-
-	if (G_IS_ENUM_CLASS (class)) {
-		GEnumValue *enum_value;
-
-		if (s[0]) {
-			if (NM_STRCHAR_ALL (s, ch, g_ascii_isdigit (ch))) {
-				v64 = _nm_utils_ascii_str_to_int64 (s, 10, 0, G_MAXINT, -1);
-				if (v64 != -1) {
-					value = (int) v64;
-					ret = TRUE;
-				}
-			} else {
-				enum_value = g_enum_get_value_by_nick (G_ENUM_CLASS (class), s);
-				if (enum_value) {
-					value = enum_value->value;
-					ret = TRUE;
-				}
-			}
-		}
-	} else if (G_IS_FLAGS_CLASS (class)) {
-		GFlagsValue *flags_value;
-
-		ret = TRUE;
-		while (s[0]) {
-			char *s_end;
-
-			for (s_end = s; s_end[0]; s_end++) {
-				if (IS_FLAGS_SEPARATOR (s_end[0])) {
-					s_end[0] = '\0';
-					s_end++;
-					break;
-				}
-			}
-
-			if (s[0]) {
-				if (_is_hex_string (s)) {
-					v64 = _nm_utils_ascii_str_to_int64 (&s[2], 16, 0, G_MAXUINT, -1);
-					if (v64 == -1) {
-						ret = FALSE;
-						break;
-					}
-					value |= (int) v64;
-				} else {
-					flags_value = g_flags_get_value_by_nick (G_FLAGS_CLASS (class), s);
-					if (!flags_value) {
-						ret = FALSE;
-						break;
-					}
-					value |= flags_value->value;
-				}
-			}
-
-			s = s_end;
-		}
-	} else
-		g_return_val_if_reached (FALSE);
-
-	NM_SET_OUT (err_token, !ret && s[0] ? g_strdup (s) : NULL);
-	NM_SET_OUT (out_value, ret ? value : 0);
-	g_type_class_unref (class);
-	return ret;
+	return _nm_utils_enum_from_str_full (type, str, out_value, err_token, NULL);
 }
 
 /**
@@ -4460,53 +4887,490 @@ nm_utils_enum_from_str (GType type, const char *str,
  */
 const char **nm_utils_enum_get_values (GType type, gint from, gint to)
 {
-	GTypeClass *class;
-	GPtrArray *array;
-	gint i;
-	char sbuf[64];
+	return _nm_utils_enum_get_values (type, from, to);
+}
 
-	class = g_type_class_ref (type);
-	array = g_ptr_array_new ();
+/*****************************************************************************/
 
-	if (G_IS_ENUM_CLASS (class)) {
-		GEnumClass *enum_class = G_ENUM_CLASS (class);
-		GEnumValue *enum_value;
-
-		for (i = 0; i < enum_class->n_values; i++) {
-			enum_value = &enum_class->values[i];
-			if (enum_value->value >= from && enum_value->value <= to) {
-				if (_enum_is_valid_enum_nick (enum_value->value_nick))
-					g_ptr_array_add (array, (gpointer) enum_value->value_nick);
-				else
-					g_ptr_array_add (array, (gpointer) g_intern_string (nm_sprintf_buf (sbuf, "%d", enum_value->value)));
-			}
+static gboolean
+_nm_utils_is_json_object_no_validation (const char *str, GError **error)
+{
+	if (str) {
+		/* libjansson also requires only utf-8 encoding. */
+		if (!g_utf8_validate (str, -1, NULL)) {
+			g_set_error_literal (error,
+			                     NM_CONNECTION_ERROR,
+			                     NM_CONNECTION_ERROR_INVALID_PROPERTY,
+			                     _("not valid utf-8"));
+			return FALSE;
 		}
-	} else if (G_IS_FLAGS_CLASS (class)) {
-		GFlagsClass *flags_class = G_FLAGS_CLASS (class);
-		GFlagsValue *flags_value;
-
-		for (i = 0; i < flags_class->n_values; i++) {
-			flags_value = &flags_class->values[i];
-			if (flags_value->value >= from && flags_value->value <= to) {
-				if (_enum_is_valid_flags_nick (flags_value->value_nick))
-					g_ptr_array_add (array, (gpointer) flags_value->value_nick);
-				else
-					g_ptr_array_add (array, (gpointer) g_intern_string (nm_sprintf_buf (sbuf, "0x%x", (unsigned) flags_value->value)));
-			}
-		}
-	} else {
-		g_type_class_unref (class);
-		g_ptr_array_free (array, TRUE);
-		g_return_val_if_reached (NULL);
+		while (g_ascii_isspace (str[0]))
+			str++;
 	}
 
-	g_type_class_unref (class);
-	g_ptr_array_add (array, NULL);
+	/* do some very basic validation to see if this might be a JSON object. */
+	if (str[0] == '{') {
+		gsize l;
 
-	return (const char **) g_ptr_array_free (array, FALSE);
+		l = strlen (str) - 1;
+		while (l > 0 && g_ascii_isspace (str[l]))
+			l--;
+
+		if (str[l] == '}')
+			return TRUE;
+	}
+
+	g_set_error_literal (error,
+	                     NM_CONNECTION_ERROR,
+	                     NM_CONNECTION_ERROR_INVALID_PROPERTY,
+	                     _("is not a JSON object"));
+	return FALSE;
 }
 
 #if WITH_JANSSON
+
+/* Added in Jansson v2.3 (released Jan 27 2012) */
+#ifndef json_object_foreach
+#define json_object_foreach(object, key, value) \
+    for(key = json_object_iter_key(json_object_iter(object)); \
+        key && (value = json_object_iter_value(json_object_iter_at (object, key) )); \
+        key = json_object_iter_key(json_object_iter_next(object, json_object_iter_at (object, key))))
+#endif
+
+/* Added in Jansson v2.4 (released Sep 23 2012), but travis.ci has v2.2. */
+#ifndef json_boolean
+#define json_boolean(val) ((val) ? json_true() : json_false())
+#endif
+
+/* Added in Jansson v2.5 (released Sep 19 2013), but travis.ci has v2.2. */
+#ifndef json_array_foreach
+#define json_array_foreach(array, index, value) \
+        for (index = 0; \
+             index < json_array_size(array) && (value = json_array_get(array, index)); \
+             index++)
+#endif
+
+/* Added in Jansson v2.7 */
+#ifndef json_boolean_value
+#define json_boolean_value json_is_true
+#endif
+
+static void
+_json_add_object (json_t *json,
+                  const char *key1,
+                  const char *key2,
+                  const char *key3,
+                  json_t *value)
+{
+	json_t *json_element, *json_link;
+
+	json_element = json_object_get (json, key1);
+	if (!json_element) {
+		json_element = value;
+		if (key2) {
+			if (key3) {
+				json_element = json_object ();
+				json_object_set_new (json_element, key3, value);
+			}
+			json_link = json_object ();
+			json_object_set_new (json_link, key2, json_element);
+			json_element = json_link;
+		}
+		json_object_set_new (json, key1, json_element);
+		return;
+	}
+
+	if (!key2)
+		goto key_already_there;
+
+	json_link = json_element;
+	json_element = json_object_get (json_element, key2);
+	if (!json_element) {
+		json_element = value;
+		if (key3) {
+			json_element = json_object ();
+			json_object_set_new (json_element, key3, value);
+		}
+		json_object_set_new (json_link, key2, json_element);
+		return;
+	}
+
+	if (!key3)
+		goto key_already_there;
+
+	json_link = json_element;
+	json_element = json_object_get (json_element, key3);
+	if (!json_element) {
+		json_object_set_new (json_link, key3, value);
+		return;
+	}
+
+key_already_there:
+	json_decref (value);
+}
+
+/*
+ * Removes the specified key1[.key2.key3] from json.
+ * Returns TRUE if json has been modified, FALSE otherwise. */
+static gboolean
+_json_del_object (json_t *json,
+                  const char *key1,
+                  const char *key2,
+                  const char *key3)
+{
+	json_t *json_element = json;
+	json_t *json_link = NULL;
+	const char *iter_key = key1;
+
+	if (key2) {
+		json_link = json;
+		json_element = json_object_get (json, key1);
+		if (!json_element)
+			return FALSE;
+		iter_key = key2;
+	}
+	if (key3) {
+		json_link = json_element;
+		json_element = json_object_get (json_element, key2);
+		if (!json_element)
+			return FALSE;
+		iter_key = key3;
+	}
+
+	if (json_object_del (json_element, iter_key) != 0)
+		return FALSE;
+
+	/* 1st level key only */
+	if (!json_link)
+		return TRUE;
+
+	if (json_object_size (json_element) == 0)
+		json_object_del (json_link, (key3 ? key2 : key1));
+
+	if (key3 && json_object_size (json_link) == 0)
+		json_object_del (json, key1);
+
+	return TRUE;
+}
+
+/* Adds in place to json the defaults for missing properties;
+ * the "add_implicit" allows to add to the json also the default
+ * values used but not shown with teamdctl */
+static void
+_json_team_add_defaults (json_t *json,
+                         gboolean port_config,
+                         gboolean add_implicit)
+{
+	json_t *json_element;
+	const char *runner = NULL;
+
+	if (port_config) {
+		_json_add_object (json, "link_watch", "name", NULL,
+		                  json_string (NM_TEAM_LINK_WATCHER_ETHTOOL));
+		return;
+	}
+
+	/* Retrieve runner or add default one */
+	json_element = json_object_get (json, "runner");
+	if (json_element) {
+		runner = json_string_value (json_object_get (json_element, "name"));
+	} else {
+		json_element = json_object ();
+		json_object_set_new (json, "runner", json_element);
+	}
+	if (!runner) {
+		runner = NM_SETTING_TEAM_RUNNER_DEFAULT;
+		json_object_set_new (json_element, "name", json_string (runner));
+	}
+
+
+	if (nm_streq (runner, NM_SETTING_TEAM_RUNNER_ACTIVEBACKUP)) {
+		_json_add_object (json, "notify_peers", "count", NULL,
+				  json_integer (NM_SETTING_TEAM_NOTIFY_PEERS_COUNT_ACTIVEBACKUP_DEFAULT));
+		_json_add_object (json, "mcast_rejoin", "count", NULL,
+				  json_integer (NM_SETTING_TEAM_NOTIFY_MCAST_COUNT_ACTIVEBACKUP_DEFAULT));
+	} else if (   nm_streq (runner, NM_SETTING_TEAM_RUNNER_LOADBALANCE)
+		   || nm_streq (runner, NM_SETTING_TEAM_RUNNER_LACP)) {
+		json_element = json_array ();
+		json_array_append_new (json_element, json_string ("eth"));
+		json_array_append_new (json_element, json_string ("ipv4"));
+		json_array_append_new (json_element, json_string ("ipv6"));
+		_json_add_object (json, "runner", "tx_hash", NULL, json_element);
+	}
+
+	if (!add_implicit)
+		return;
+
+	if (nm_streq (runner, NM_SETTING_TEAM_RUNNER_ACTIVEBACKUP))
+		_json_add_object (json, "runner", "hwaddr_policy", NULL, json_string ("same_all"));
+	else if (NM_IN_STRSET (runner,
+	                       NM_SETTING_TEAM_RUNNER_LOADBALANCE,
+	                       NM_SETTING_TEAM_RUNNER_LACP)) {
+		_json_add_object (json, "runner", "tx_balancer", "balancing_interval",
+		                  json_integer (NM_SETTING_TEAM_RUNNER_TX_BALANCER_INTERVAL_DEFAULT));
+		if (nm_streq (runner, NM_SETTING_TEAM_RUNNER_LACP)) {
+			_json_add_object (json, "runner", "active", NULL, json_boolean (TRUE));
+			_json_add_object (json, "runner", "sys_prio", NULL,
+			                  json_integer (NM_SETTING_TEAM_RUNNER_SYS_PRIO_DEFAULT));
+			_json_add_object (json, "runner", "min_ports", NULL, json_integer (0));
+			_json_add_object (json, "runner", "agg_select_policy", NULL,
+			                  json_string (NM_SETTING_TEAM_RUNNER_AGG_SELECT_POLICY_DEFAULT));
+		}
+	}
+}
+
+static json_t *
+_json_find_object (json_t *json,
+                   const char *key1,
+                   const char *key2,
+                   const char *key3)
+{
+	json_t *json_element;
+
+	if (!key1)
+		return NULL;
+	json_element = json_object_get (json, key1);
+	if (!key2 || !json_element)
+		return json_element;
+
+	json_element = json_object_get (json_element, key2);
+	if (!key3 || !json_element)
+		return json_element;
+
+	json_element = json_object_get (json_element, key3);
+	return json_element;
+}
+
+static inline void
+_json_delete_object_on_int_match (json_t *json,
+                                  const char *key1,
+                                  const char *key2,
+                                  const char *key3,
+                                  int val)
+{
+	json_t *json_element;
+
+	json_element = _json_find_object (json, key1, key2, key3);
+	if (!json_element || !json_is_integer (json_element))
+		return;
+	if (json_integer_value (json_element) == val)
+		_json_del_object (json, key1, key2, key3);
+}
+
+static inline void
+_json_delete_object_on_bool_match (json_t *json,
+                                   const char *key1,
+                                   const char *key2,
+                                   const char *key3,
+                                   gboolean val)
+{
+	json_t *json_element;
+
+	json_element = _json_find_object (json, key1, key2, key3);
+	if (!json_element || !json_is_boolean (json_element))
+		return;
+	if (json_boolean_value (json_element) == val)
+		_json_del_object (json, key1, key2, key3);
+}
+
+static inline void
+_json_delete_object_on_string_match (json_t *json,
+                                     const char *key1,
+                                     const char *key2,
+                                     const char *key3,
+                                     const char *val)
+{
+	json_t *json_element;
+
+	json_element = _json_find_object (json, key1, key2, key3);
+	if (!json_element || !json_is_string (json_element))
+		return;
+	if (nm_streq0 (json_string_value (json_element), val))
+		_json_del_object (json, key1, key2, key3);
+}
+
+static void
+_json_team_normalize_defaults (json_t *json, gboolean reset)
+{
+	json_t *json_element;
+	const char *runner = NM_SETTING_TEAM_RUNNER_DEFAULT;
+	int notify_peers_count = 0, notify_peers_interval = 0;
+	int mcast_rejoin_count = 0, mcast_rejoin_interval = 0;
+	int runner_tx_balancer_interval = -1;
+	gboolean runner_active = FALSE, runner_fast_rate = FALSE;
+	int runner_sys_prio = -1, runner_min_ports = -1;
+
+	json_element = _json_find_object (json, "runner", "name", NULL);
+	if (json_element) {
+		runner = json_string_value (json_element);
+		_json_delete_object_on_string_match (json, "runner", "name", NULL,
+		                                     NM_SETTING_TEAM_RUNNER_DEFAULT);
+	}
+
+	/* the runner changed: clear all the properties. Then team.config will be saved
+	 * and reloaded triggering the reset of the values through _nm_utils_team_config_get
+	 */
+	if (reset) {
+		_json_del_object (json, "notify_peers", "count", NULL);
+		_json_del_object (json, "notify_peers", "interval", NULL);
+		_json_del_object (json, "mcast_rejoin", "count", NULL);
+		_json_del_object (json, "mcast_rejoin", "interval", NULL);
+		_json_del_object (json, "runner", "hwaddr_policy", NULL);
+		_json_del_object (json, "runner", "tx_hash", NULL);
+		_json_del_object (json, "runner", "tx_balancer", "name");
+		_json_del_object (json, "runner", "tx_balancer", "balancing_interval");
+		_json_del_object (json, "runner", "active", NULL);
+		_json_del_object (json, "runner", "fast_rate", NULL);
+		_json_del_object (json, "runner", "sys_prio", NULL);
+		_json_del_object (json, "runner", "min_ports", NULL);
+		_json_del_object (json, "runner", "agg_select_policy", NULL);
+		return;
+	}
+
+	if (nm_streq (runner, NM_SETTING_TEAM_RUNNER_ACTIVEBACKUP)) {
+		notify_peers_count = 1;
+		mcast_rejoin_count = 1;
+		_json_delete_object_on_string_match (json, "runner", "hwaddr_policy", NULL,
+		                                     NM_SETTING_TEAM_RUNNER_HWADDR_POLICY_DEFAULT);
+	} else if (nm_streq (runner, NM_SETTING_TEAM_RUNNER_LACP)) {
+		runner_tx_balancer_interval = NM_SETTING_TEAM_RUNNER_TX_BALANCER_INTERVAL_DEFAULT;
+		runner_active = TRUE;
+		runner_sys_prio = NM_SETTING_TEAM_RUNNER_SYS_PRIO_DEFAULT;
+		runner_min_ports = 0;
+		_json_delete_object_on_string_match (json, "runner", "agg_select_policy", NULL,
+		                                     NM_SETTING_TEAM_RUNNER_AGG_SELECT_POLICY_DEFAULT);
+	} else if (nm_streq (runner, NM_SETTING_TEAM_RUNNER_LOADBALANCE))
+		runner_tx_balancer_interval = 50;
+
+	_json_delete_object_on_int_match (json, "notify_peers", "count", NULL, notify_peers_count);
+	_json_delete_object_on_int_match (json, "notify_peers", "interval", NULL, notify_peers_interval);
+	_json_delete_object_on_int_match (json, "mcast_rejoin", "count", NULL, mcast_rejoin_count);
+	_json_delete_object_on_int_match (json, "macst_rejoin", "interval", NULL, mcast_rejoin_interval);
+	_json_delete_object_on_int_match (json, "runner", "tx_balancer", "balancing_interval",
+	                                  runner_tx_balancer_interval);
+	_json_delete_object_on_int_match (json, "runner", "sys_prio", NULL, runner_sys_prio);
+	_json_delete_object_on_int_match (json, "runner", "min_ports", NULL, runner_min_ports);
+	_json_delete_object_on_bool_match (json, "runner", "active", NULL, runner_active);
+	_json_delete_object_on_bool_match (json, "runner", "active", NULL, runner_active);
+	_json_delete_object_on_bool_match (json, "runner", "fast_rate", NULL, runner_fast_rate);
+}
+
+static NMTeamLinkWatcher *
+_nm_utils_team_link_watcher_from_json (json_t *json_element)
+{
+	const char *j_key;
+	json_t *j_val;
+	gs_free char *name = NULL, *target_host = NULL, *source_host = NULL;
+	int val1 = 0, val2 = 0, val3 = 3;
+	NMTeamLinkWatcherArpPingFlags flags = 0;
+
+	g_return_val_if_fail (json_element, NULL);
+
+	json_object_foreach (json_element, j_key, j_val) {
+		if (nm_streq (j_key, "name")) {
+			g_free (name);
+			name = strdup (json_string_value (j_val));
+		} else if (nm_streq (j_key, "target_host")) {
+			g_free (target_host);
+			target_host = strdup (json_string_value (j_val));
+		} else if (nm_streq (j_key, "source_host")) {
+			g_free (source_host);
+			source_host = strdup (json_string_value (j_val));
+		} else if (NM_IN_STRSET (j_key, "delay_up", "init_wait"))
+			val1 = json_integer_value (j_val);
+		else if (NM_IN_STRSET (j_key, "delay_down", "interval"))
+			val2 = json_integer_value (j_val);
+		else if (nm_streq (j_key, "missed_max"))
+			val3 = json_integer_value (j_val);
+		else if (nm_streq (j_key, "validate_active")) {
+			if (json_is_true (j_val))
+				flags |= NM_TEAM_LINK_WATCHER_ARP_PING_FLAG_VALIDATE_ACTIVE;
+		} else if (nm_streq (j_key, "validate_inactive")) {
+			if (json_is_true (j_val))
+				flags |= NM_TEAM_LINK_WATCHER_ARP_PING_FLAG_VALIDATE_INACTIVE;
+		} else if (nm_streq (j_key, "send_always")) {
+			if (json_is_true (j_val))
+				flags |= NM_TEAM_LINK_WATCHER_ARP_PING_FLAG_SEND_ALWAYS;
+		}
+	}
+
+	if (nm_streq0 (name, NM_TEAM_LINK_WATCHER_ETHTOOL))
+		return nm_team_link_watcher_new_ethtool (val1, val2, NULL);
+	else if (nm_streq0 (name, NM_TEAM_LINK_WATCHER_NSNA_PING))
+		return nm_team_link_watcher_new_nsna_ping (val1, val2, val3, target_host, NULL);
+	else if (nm_streq0 (name, NM_TEAM_LINK_WATCHER_ARP_PING)) {
+		return nm_team_link_watcher_new_arp_ping (val1, val2, val3, target_host,
+		                                          source_host, flags, NULL);
+	} else
+		return NULL;
+}
+
+static json_t *
+_nm_utils_team_link_watcher_to_json (NMTeamLinkWatcher *watcher)
+{
+	const char *name;
+	int int_val;
+	const char *str_val;
+	NMTeamLinkWatcherArpPingFlags flags = 0;
+	json_t *json_element;
+
+	g_return_val_if_fail (watcher, NULL);
+
+	json_element = json_object ();
+	name = nm_team_link_watcher_get_name (watcher);
+	if (!name)
+		goto fail;
+
+	json_object_set_new (json_element, "name", json_string (name));
+
+	if (nm_streq (name, NM_TEAM_LINK_WATCHER_ETHTOOL)) {
+		int_val = nm_team_link_watcher_get_delay_up (watcher);
+		if (int_val)
+			json_object_set_new (json_element, "delay_up", json_integer (int_val));
+		int_val = nm_team_link_watcher_get_delay_down (watcher);
+		if (int_val)
+			json_object_set_new (json_element, "delay_down", json_integer (int_val));
+		return json_element;
+	}
+
+	int_val = nm_team_link_watcher_get_init_wait (watcher);
+	if (int_val)
+		json_object_set_new (json_element, "init_wait", json_integer (int_val));
+	int_val = nm_team_link_watcher_get_interval (watcher);
+	if (int_val)
+		json_object_set_new (json_element, "interval", json_integer (int_val));
+	int_val = nm_team_link_watcher_get_missed_max (watcher);
+	if (int_val != 3)
+		json_object_set_new (json_element, "missed_max", json_integer (int_val));
+	str_val = nm_team_link_watcher_get_target_host (watcher);
+	if (!str_val)
+		goto fail;
+	json_object_set_new (json_element, "target_host", json_string (str_val));
+
+	if (nm_streq (name, NM_TEAM_LINK_WATCHER_NSNA_PING))
+		return json_element;
+
+	str_val = nm_team_link_watcher_get_source_host (watcher);
+	if (!str_val)
+		goto fail;
+	json_object_set_new (json_element, "source_host", json_string (str_val));
+
+	flags = nm_team_link_watcher_get_flags (watcher);
+	if (flags & NM_TEAM_LINK_WATCHER_ARP_PING_FLAG_VALIDATE_ACTIVE)
+		json_object_set_new (json_element, "validate_active", json_string ("true"));
+	if (flags & NM_TEAM_LINK_WATCHER_ARP_PING_FLAG_VALIDATE_INACTIVE)
+		json_object_set_new (json_element, "validate_inactive", json_string ("true"));
+	if (flags & NM_TEAM_LINK_WATCHER_ARP_PING_FLAG_SEND_ALWAYS)
+		json_object_set_new (json_element, "send_always", json_string ("true"));
+
+	return json_element;
+
+fail:
+	json_decref (json_element);
+	return NULL;
+}
+
+
 /**
  * nm_utils_is_json_object:
  * @str: the JSON string to test
@@ -4535,7 +5399,10 @@ nm_utils_is_json_object (const char *str, GError **error)
 		return FALSE;
 	}
 
-	json = json_loads (str, 0, &jerror);
+	if (!nm_jansson_load ())
+		return _nm_utils_is_json_object_no_validation (str, error);
+
+	json = json_loads (str, JSON_REJECT_DUPLICATES, &jerror);
 	if (!json) {
 		g_set_error (error,
 		             NM_CONNECTION_ERROR,
@@ -4576,7 +5443,7 @@ _nm_utils_team_config_equal (const char *conf1,
 {
 	json_t *json1 = NULL, *json2 = NULL, *json;
 	gs_free char *dump1 = NULL, *dump2 = NULL;
-	json_t *value, *property;
+	json_t *value;
 	json_error_t jerror;
 	const char *key;
 	gboolean ret;
@@ -4585,11 +5452,13 @@ _nm_utils_team_config_equal (const char *conf1,
 
 	if (nm_streq0 (conf1, conf2))
 		return TRUE;
+	else if (!nm_jansson_load ())
+		return FALSE;
 
 	/* A NULL configuration is equivalent to default value '{}' */
-	json1 = json_loads (conf1 ?: "{}", 0, &jerror);
+	json1 = json_loads (conf1 ?: "{}", JSON_REJECT_DUPLICATES, &jerror);
 	if (json1)
-		json2 = json_loads (conf2 ?: "{}", 0, &jerror);
+		json2 = json_loads (conf2 ?: "{}", JSON_REJECT_DUPLICATES, &jerror);
 
 	if (!json1 || !json2) {
 		ret = FALSE;
@@ -4600,23 +5469,8 @@ _nm_utils_team_config_equal (const char *conf1,
 	 * configuration.  Add them with the default value if necessary, depending
 	 * on the configuration type.
 	 */
-	for (i = 0, json = json1; i < 2; i++, json = json2) {
-		if  (port_config) {
-			property = json_object_get (json, "link_watch");
-			if (!property) {
-				property = json_object ();
-				json_object_set_new (property, "name", json_string ("ethtool"));
-				json_object_set_new (json, "link_watch", property);
-			}
-		} else {
-			property = json_object_get (json, "runner");
-			if (!property) {
-				property = json_object ();
-				json_object_set_new (property, "name", json_string ("roundrobin"));
-				json_object_set_new (json, "runner", property);
-			}
-		}
-	}
+	for (i = 0, json = json1; i < 2; i++, json = json2)
+		_json_team_add_defaults (json, port_config, FALSE);
 
 	/* Only consider a given subset of nodes, others can change depending on
 	 * current state */
@@ -4641,25 +5495,251 @@ out:
 	return ret;
 }
 
+
+GValue *
+_nm_utils_team_config_get (const char *conf,
+                           const char *key,
+                           const char *key2,
+                           const char *key3,
+                           gboolean port_config)
+{
+	json_t *json;
+	json_t *json_element;
+	GValue *value = NULL;
+	json_error_t jerror;
+
+	if (!key)
+		return NULL;
+
+	if (!nm_jansson_load ())
+		return NULL;
+
+	json = json_loads (conf ?: "{}", JSON_REJECT_DUPLICATES, &jerror);
+
+	/* Invalid json in conf */
+	if (!json)
+		return NULL;
+
+	/* Some properties are added by teamd when missing from the initial
+	 * configuration.  Add them with the default value if necessary, depending
+	 * on the configuration type.
+	 * Skip this for port config, as some properties change on the basis of the
+	 * runner specified in the master connection... but we don't want to check
+	 * against properties in another connection. Moreover, for team-port we have
+	 * the link-watchers property only here: and for this compound property it is
+	 * fine to show the default value only if explicitly set.
+	 */
+	if (!port_config)
+		_json_team_add_defaults (json, port_config, TRUE);
+
+	/* Now search the property to retrieve */
+	json_element = json_object_get (json, key);
+	if (json_element && key2)
+		json_element = json_object_get (json_element, key2);
+	if (json_element && key3)
+		json_element = json_object_get (json_element, key3);
+
+	if (json_element) {
+		value = g_new0 (GValue, 1);
+		if (json_is_string (json_element)) {
+			g_value_init (value, G_TYPE_STRING);
+			g_value_set_string (value, json_string_value (json_element));
+		} else if (json_is_integer (json_element)) {
+			g_value_init (value, G_TYPE_INT);
+			g_value_set_int (value, json_integer_value (json_element));
+		} else if (json_is_boolean (json_element)) {
+			g_value_init (value, G_TYPE_BOOLEAN);
+			g_value_set_boolean (value, json_boolean_value (json_element));
+		} else if (nm_streq (key, "link_watch")) {
+			NMTeamLinkWatcher *watcher;
+			GPtrArray *data = g_ptr_array_new_with_free_func
+			                  ((GDestroyNotify) nm_team_link_watcher_unref);
+
+			if (json_is_array (json_element)) {
+				json_t *j_watcher;
+				int index;
+
+				json_array_foreach (json_element, index, j_watcher) {
+					watcher = _nm_utils_team_link_watcher_from_json (j_watcher);
+					if (watcher)
+						g_ptr_array_add (data, watcher);
+				}
+			} else {
+				watcher = _nm_utils_team_link_watcher_from_json (json_element);
+				if (watcher)
+					g_ptr_array_add (data, watcher);
+			}
+			if (data->len) {
+				g_value_init (value, G_TYPE_PTR_ARRAY);
+				g_value_take_boxed (value, data);
+			} else
+				g_ptr_array_free (data, TRUE);
+
+		} else if (json_is_array (json_element)) {
+			GPtrArray *data = g_ptr_array_new_with_free_func ((GDestroyNotify) g_free);
+			json_t *str_element;
+			int index;
+
+			json_array_foreach (json_element, index, str_element) {
+				if (json_is_string (str_element))
+					g_ptr_array_add (data, g_strdup (json_string_value (str_element)));
+			}
+			if (data->len) {
+				g_value_init (value, G_TYPE_STRV);
+				g_value_take_boxed (value, _nm_utils_ptrarray_to_strv (data));
+			}
+			g_ptr_array_free (data, TRUE);
+		} else {
+			g_assert_not_reached ();
+			g_free (value);
+			value = NULL;
+		}
+	}
+
+	if (json)
+		json_decref (json);
+
+	return value;
+}
+
+/* if conf is updated in place returns TRUE */
+gboolean
+_nm_utils_team_config_set (char **conf,
+                           const char *key,
+                           const char *key2,
+                           const char *key3,
+                           const GValue *value)
+{
+	json_t *json, *json_element, *json_link, *json_value = NULL;
+	json_error_t jerror;
+	gboolean updated = FALSE;
+	char **strv;
+	GPtrArray *array;
+	const char *iter_key = key;
+	int i;
+	NMTeamLinkWatcher *watcher;
+
+	g_return_val_if_fail (key, FALSE);
+
+	if (!nm_jansson_load ())
+		return FALSE;
+
+	json = json_loads (*conf?: "{}", JSON_REJECT_DUPLICATES, &jerror);
+	if (!json)
+		return FALSE;
+
+	/* no new value? delete element */
+	if (!value) {
+		updated = _json_del_object (json, key, key2, key3);
+		goto done;
+	}
+
+	/* insert new value */
+	updated = TRUE;
+	if (G_VALUE_HOLDS_STRING (value))
+		json_value = json_string (g_value_get_string (value));
+	else if (G_VALUE_HOLDS_INT (value))
+		json_value = json_integer (g_value_get_int (value));
+	else if (G_VALUE_HOLDS_BOOLEAN (value))
+		json_value = json_boolean (g_value_get_boolean (value));
+	else if (G_VALUE_HOLDS_BOXED (value)) {
+		if (nm_streq (key, "link_watch")) {
+			array = g_value_get_boxed (value);
+			if (!array || !array->len) {
+				updated = FALSE;
+				goto done;
+			}
+
+			/*
+			 * json_value:   will hold the final link_watcher json (array) object
+			 * json_element: is the next link_watcher to append to json_value
+			 * json_link:    used to transit the json_value from a single link_watcher
+			 *               object to an array of link watcher objects
+			 */
+			json_value = NULL;
+			for (i = 0; i < array->len; i++) {
+				watcher = array->pdata[i];
+				json_element = _nm_utils_team_link_watcher_to_json (watcher);
+				if (!json_element)
+					continue;
+				if (!json_value) {
+					json_value = json_element;
+					continue;
+				}
+				if (!json_is_array (json_value)) {
+					json_link = json_value;
+					json_value = json_array ();
+					json_array_append_new (json_value, json_link);
+				}
+				json_array_append_new (json_value, json_element);
+			}
+		} else if (   nm_streq (key, "runner")
+		           && nm_streq0 (key2, "tx_hash")) {
+			strv = g_value_get_boxed (value);
+			if (!strv) {
+				updated = FALSE;
+				goto done;
+			}
+			json_value = json_array ();
+			for (i = 0; strv[i]; i++)
+				json_array_append_new (json_value, json_string (strv[i]));
+		} else {
+			updated = FALSE;
+			goto done;
+		}
+	} else {  /* G_VALUE_HOLDS_? */
+		g_assert_not_reached ();
+		updated = FALSE;
+		goto done;
+	}
+
+	/* Simplest case: first level key only */
+	json_element = json;
+	json_link = NULL;
+
+	if (key2) {
+		json_link = json;
+		json_element = json_object_get (json, iter_key);
+		if (!json_element) {
+			json_element = json_object ();
+			json_object_set_new (json_link, iter_key, json_element);
+		}
+		iter_key = key2;
+	}
+	if (key3) {
+		json_link = json_element;
+		json_element = json_object_get (json_link, iter_key);
+		if (!json_element) {
+			json_element = json_object ();
+			json_object_set_new (json_link, iter_key, json_element);
+		}
+		iter_key = key3;
+	}
+
+	json_object_set_new (json_element, iter_key, json_value);
+
+done:
+	if (updated) {
+		_json_team_normalize_defaults (json, (   nm_streq0 (key, "runner")
+		                                      && nm_streq0 (key2, "name")));
+		g_free (*conf);
+		*conf = json_dumps (json, JSON_PRESERVE_ORDER);
+		/* Don't save an empty config */
+		if (nm_streq0 (*conf, "{}")) {
+			g_free (*conf);
+			*conf = NULL;
+		}
+	}
+	json_decref (json);
+	return updated;
+}
+
 #else /* WITH_JANSSON */
 
 gboolean
 nm_utils_is_json_object (const char *str, GError **error)
 {
 	g_return_val_if_fail (!error || !*error, FALSE);
-
-	if (str) {
-		/* libjansson also requires only utf-8 encoding. */
-		if (!g_utf8_validate (str, -1, NULL)) {
-			g_set_error_literal (error,
-			                     NM_CONNECTION_ERROR,
-			                     NM_CONNECTION_ERROR_INVALID_PROPERTY,
-			                     _("not valid utf-8"));
-			return FALSE;
-		}
-		while (g_ascii_isspace (str[0]))
-			str++;
-	}
 
 	if (!str || !str[0]) {
 		g_set_error_literal (error,
@@ -4669,23 +5749,7 @@ nm_utils_is_json_object (const char *str, GError **error)
 		return FALSE;
 	}
 
-	/* do some very basic validation to see if this might be a JSON object. */
-	if (str[0] == '{') {
-		gsize l;
-
-		l = strlen (str) - 1;
-		while (l > 0 && g_ascii_isspace (str[l]))
-			l--;
-
-		if (str[l] == '}')
-			return TRUE;
-	}
-
-	g_set_error_literal (error,
-	                     NM_CONNECTION_ERROR,
-	                     NM_CONNECTION_ERROR_INVALID_PROPERTY,
-	                     _("is not a JSON object"));
-	return FALSE;
+	return _nm_utils_is_json_object_no_validation (str, error);
 }
 
 gboolean
@@ -4695,7 +5759,223 @@ _nm_utils_team_config_equal (const char *conf1,
 {
 	return nm_streq0 (conf1, conf2);
 }
+
+GValue *
+_nm_utils_team_config_get (const char *conf,
+                           const char *key,
+                           const char *key2,
+                           const char *key3,
+                           gboolean port_config)
+{
+	return NULL;
+}
+
+gboolean
+_nm_utils_team_config_set (char **conf,
+                           const char *key,
+                           const char *key2,
+                           const char *key3,
+                           const GValue *value)
+{
+	return FALSE;
+}
 #endif
+
+/**
+ * _nm_utils_team_link_watchers_to_variant:
+ * @link_watchers: (element-type NMTeamLinkWatcher): array of #NMTeamLinkWatcher
+ *
+ * Utility function to convert a #GPtrArray of #NMTeamLinkWatcher objects
+ * representing link watcher configuration for team devices into a #GVariant
+ * of type 'aa{sv}' representing an array of link watchers.
+ *
+ * Returns: (transfer none): a new floating #GVariant representing link watchers.
+ **/
+GVariant *
+_nm_utils_team_link_watchers_to_variant (GPtrArray *link_watchers)
+{
+	GVariantBuilder builder;
+	int i;
+
+	g_variant_builder_init (&builder, G_VARIANT_TYPE ("aa{sv}"));
+
+	if (!link_watchers)
+		goto end;
+
+	for (i = 0; i < link_watchers->len; i++) {
+		NMTeamLinkWatcher *watcher = link_watchers->pdata[i];
+		GVariantBuilder watcher_builder;
+		const char *name;
+		int int_val;
+		NMTeamLinkWatcherArpPingFlags flags;
+
+		g_variant_builder_init (&watcher_builder, G_VARIANT_TYPE ("a{sv}"));
+
+		name = nm_team_link_watcher_get_name (watcher);
+		g_variant_builder_add (&watcher_builder, "{sv}",
+				       "name",
+				       g_variant_new_string (name));
+
+		if nm_streq (name, NM_TEAM_LINK_WATCHER_ETHTOOL) {
+			int_val = nm_team_link_watcher_get_delay_up (watcher);
+			if (int_val) {
+				g_variant_builder_add (&watcher_builder, "{sv}",
+						       "delay-up",
+						       g_variant_new_int32 (int_val));
+			}
+			int_val = nm_team_link_watcher_get_delay_down (watcher);
+			if (int_val) {
+				g_variant_builder_add (&watcher_builder, "{sv}",
+				                       "delay-down",
+				                       g_variant_new_int32 (int_val));
+			}
+			g_variant_builder_add (&builder, "a{sv}", &watcher_builder);
+			continue;
+		}
+
+		/* Common properties for arp_ping and nsna_ping link watchers */
+		int_val = nm_team_link_watcher_get_init_wait (watcher);
+		if (int_val) {
+			g_variant_builder_add (&watcher_builder, "{sv}",
+			                       "init-wait",
+			                       g_variant_new_int32 (int_val));
+		}
+		int_val = nm_team_link_watcher_get_interval (watcher);
+		if (int_val) {
+			g_variant_builder_add (&watcher_builder, "{sv}",
+			                       "interval",
+			                       g_variant_new_int32 (int_val));
+		}
+		int_val = nm_team_link_watcher_get_missed_max (watcher);
+		if (int_val != 3) {
+			g_variant_builder_add (&watcher_builder, "{sv}",
+			                       "missed-max",
+			                       g_variant_new_int32 (int_val));
+		}
+		g_variant_builder_add (&watcher_builder, "{sv}",
+		                       "target-host",
+		                       g_variant_new_string (nm_team_link_watcher_get_target_host (watcher)));
+
+		if nm_streq (name, NM_TEAM_LINK_WATCHER_NSNA_PING) {
+			g_variant_builder_add (&builder, "a{sv}", &watcher_builder);
+			continue;
+		}
+
+		/* arp_ping watcher only */
+		g_variant_builder_add (&watcher_builder, "{sv}",
+		                       "source-host",
+		                       g_variant_new_string (nm_team_link_watcher_get_source_host (watcher)));
+		flags = nm_team_link_watcher_get_flags (watcher);
+		if (flags & NM_TEAM_LINK_WATCHER_ARP_PING_FLAG_VALIDATE_ACTIVE) {
+			g_variant_builder_add (&watcher_builder, "{sv}",
+			                       "validate-active",
+			                       g_variant_new_boolean (TRUE));
+		}
+		if (flags & NM_TEAM_LINK_WATCHER_ARP_PING_FLAG_VALIDATE_INACTIVE) {
+			g_variant_builder_add (&watcher_builder, "{sv}",
+			                       "validate-inactive",
+			                       g_variant_new_boolean (TRUE));
+		}
+		if (flags & NM_TEAM_LINK_WATCHER_ARP_PING_FLAG_SEND_ALWAYS) {
+			g_variant_builder_add (&watcher_builder, "{sv}",
+			                       "send-always",
+			                       g_variant_new_boolean (TRUE));
+		}
+		g_variant_builder_add (&builder, "a{sv}", &watcher_builder);
+	}
+end:
+	return g_variant_builder_end (&builder);
+}
+
+/**
+ * _nm_utils_team_link_watchers_from_variant:
+ * @value: a #GVariant of type 'aa{sv}'
+ *
+ * Utility function to convert a #GVariant representing a list of team link
+ * watchers int a #GPtrArray of #NMTeamLinkWatcher objects.
+ *
+ * Returns: (transfer full) (element-type NMTeamLinkWatcher): a newly allocated
+ *   #GPtrArray of #NMTeamLinkWatcher objects.
+ **/
+GPtrArray *
+_nm_utils_team_link_watchers_from_variant (GVariant *value)
+{
+	GPtrArray *link_watchers;
+	GVariantIter iter;
+	GVariant *watcher_var;
+
+	g_return_val_if_fail (g_variant_is_of_type (value, G_VARIANT_TYPE ("aa{sv}")), NULL);
+
+	link_watchers = g_ptr_array_new_with_free_func ((GDestroyNotify) nm_team_link_watcher_unref);
+	g_variant_iter_init (&iter, value);
+
+	while (g_variant_iter_next (&iter, "@a{sv}", &watcher_var)) {
+		NMTeamLinkWatcher *watcher;
+		const char *name;
+		int val1, val2, val3 = 0;
+		const char *target_host = NULL, *source_host = NULL;
+		gboolean bval;
+		NMTeamLinkWatcherArpPingFlags flags = NM_TEAM_LINK_WATCHER_ARP_PING_FLAG_NONE;
+		GError *error = NULL;
+
+		if (!g_variant_lookup (watcher_var, "name", "&s", &name))
+			goto next;
+		if (!NM_IN_STRSET (name,
+		                   NM_TEAM_LINK_WATCHER_ETHTOOL,
+		                   NM_TEAM_LINK_WATCHER_ARP_PING,
+		                   NM_TEAM_LINK_WATCHER_NSNA_PING)) {
+			goto next;
+		}
+
+		if (nm_streq (name, NM_TEAM_LINK_WATCHER_ETHTOOL)) {
+			if (!g_variant_lookup (watcher_var, "delay-up", "i", &val1))
+				val1 = 0;
+			if (!g_variant_lookup (watcher_var, "delay-down", "i", &val2))
+				val2 = 0;
+			watcher = nm_team_link_watcher_new_ethtool (val1, val2, &error);
+		} else {
+			if (!g_variant_lookup (watcher_var, "target-host", "&s", &target_host))
+				goto next;
+			if (!g_variant_lookup (watcher_var, "init_wait", "i", &val1))
+				val1 = 0;
+			if (!g_variant_lookup (watcher_var, "interval", "i", &val2))
+				val2 = 0;
+			if (!g_variant_lookup (watcher_var, "missed-max", "i", &val3))
+				val3 = 3;
+			if nm_streq (name, NM_TEAM_LINK_WATCHER_ARP_PING) {
+				if (!g_variant_lookup (watcher_var, "source-host", "&s", &source_host))
+					goto next;
+				if (!g_variant_lookup (watcher_var, "validate-active", "b", &bval))
+					bval = FALSE;
+				if (bval)
+					flags |= NM_TEAM_LINK_WATCHER_ARP_PING_FLAG_VALIDATE_ACTIVE;
+				if (!g_variant_lookup (watcher_var, "validate-inactive", "b", &bval))
+					bval = FALSE;
+				if (bval)
+					flags |= NM_TEAM_LINK_WATCHER_ARP_PING_FLAG_VALIDATE_INACTIVE;
+				if (!g_variant_lookup (watcher_var, "send-always", "b", &bval))
+					bval = FALSE;
+				if (bval)
+					flags |= NM_TEAM_LINK_WATCHER_ARP_PING_FLAG_SEND_ALWAYS;
+				watcher = nm_team_link_watcher_new_arp_ping (val1, val2, val3,
+				                                             target_host, source_host,
+				                                             flags, &error);
+			} else
+				watcher = nm_team_link_watcher_new_nsna_ping (val1, val2, val3,
+				                                              target_host, &error);
+		}
+		if (!watcher) {
+			g_clear_error (&error);
+			goto next;
+		}
+
+		g_ptr_array_add (link_watchers, watcher);
+next:
+		g_variant_unref (watcher_var);
+	}
+
+	return link_watchers;
+}
 
 static char *
 attribute_escape (const char *src, char c1, char c2)
@@ -4778,8 +6058,10 @@ nm_utils_parse_variant_attributes (const char *string,
 		if (*ptr == '\\') {
 			ptr++;
 			if (!*ptr) {
-				g_set_error (error, NM_CONNECTION_ERROR, NM_CONNECTION_ERROR_FAILED,
-				             _("unterminated escape sequence"));
+				g_set_error_literal (error,
+				                     NM_CONNECTION_ERROR,
+				                     NM_CONNECTION_ERROR_FAILED,
+				                     _("unterminated escape sequence"));
 				return NULL;
 			}
 			goto next;
@@ -4796,8 +6078,10 @@ nm_utils_parse_variant_attributes (const char *string,
 				if (*sep == '\\') {
 					sep++;
 					if (!*sep) {
-						g_set_error (error, NM_CONNECTION_ERROR, NM_CONNECTION_ERROR_FAILED,
-						             _("unterminated escape sequence"));
+						g_set_error_literal (error,
+						                     NM_CONNECTION_ERROR,
+						                     NM_CONNECTION_ERROR_FAILED,
+						                     _("unterminated escape sequence"));
 						return NULL;
 					}
 				}
@@ -4805,17 +6089,15 @@ nm_utils_parse_variant_attributes (const char *string,
 					break;
 			}
 
-			if (*sep != key_value_separator) {
-				g_set_error (error, NM_CONNECTION_ERROR, NM_CONNECTION_ERROR_FAILED,
-				             _("missing key-value separator '%c'"), key_value_separator);
-				return NULL;
-			}
-
 			name = attribute_unescape (start, sep);
-			value = attribute_unescape (sep + 1, ptr);
 
 			for (s = spec; *s; s++) {
+				if (g_hash_table_contains (ht, (*s)->name))
+					continue;
 				if (nm_streq (name, (*s)->name))
+					break;
+				if (   (*s)->no_value
+				    && g_variant_type_equal ((*s)->type, G_VARIANT_TYPE_STRING))
 					break;
 			}
 
@@ -4829,12 +6111,33 @@ nm_utils_parse_variant_attributes (const char *string,
 				}
 			}
 
+			if ((*s)->no_value) {
+				if ((*s)->consumes_rest) {
+					value = g_strdup (start);
+					ptr = strchr (start, '\0');
+				} else {
+					value = g_steal_pointer (&name);
+				}
+			} else {
+				if (*sep != key_value_separator) {
+					g_set_error (error, NM_CONNECTION_ERROR, NM_CONNECTION_ERROR_FAILED,
+					             _("missing key-value separator '%c' after '%s'"), key_value_separator, name);
+					return NULL;
+				}
+
+				/* The attribute and key/value separators are the same. Look for the next one. */
+				if (ptr == sep)
+					goto next;
+
+				value = attribute_unescape (sep + 1, ptr);
+			}
+
 			if (g_variant_type_equal ((*s)->type, G_VARIANT_TYPE_UINT32)) {
 				gint64 num = _nm_utils_ascii_str_to_int64 (value, 10, 0, G_MAXUINT32, -1);
 
 				if (num == -1) {
 					g_set_error (error, NM_CONNECTION_ERROR, NM_CONNECTION_ERROR_FAILED,
-					             _("invalid uint32 value '%s' for attribute '%s'"), value, name);
+					             _("invalid uint32 value '%s' for attribute '%s'"), value, (*s)->name);
 					return NULL;
 				}
 				variant = g_variant_new_uint32 (num);
@@ -4843,33 +6146,32 @@ nm_utils_parse_variant_attributes (const char *string,
 
 				if (num == -1) {
 					g_set_error (error, NM_CONNECTION_ERROR, NM_CONNECTION_ERROR_FAILED,
-					             _("invalid uint8 value '%s' for attribute '%s'"), value, name);
+					             _("invalid uint8 value '%s' for attribute '%s'"), value, (*s)->name);
 					return NULL;
 				}
 				variant = g_variant_new_byte ((guchar) num);
 			} else if (g_variant_type_equal ((*s)->type, G_VARIANT_TYPE_BOOLEAN)) {
-				gboolean b;
+				int b;
 
-				if (nm_streq (value, "true"))
-					b = TRUE;
-				else if (nm_streq (value, "false"))
-					b = FALSE;
-				else {
+				b = (*s)->no_value ? TRUE :_nm_utils_ascii_str_to_bool (value, -1);
+				if (b == -1) {
 					g_set_error (error, NM_CONNECTION_ERROR, NM_CONNECTION_ERROR_FAILED,
-					             _("invalid boolean value '%s' for attribute '%s'"), value, name);
+					             _("invalid boolean value '%s' for attribute '%s'"), value, (*s)->name);
 					return NULL;
 				}
 				variant = g_variant_new_boolean (b);
 			} else if (g_variant_type_equal ((*s)->type, G_VARIANT_TYPE_STRING)) {
 				variant = g_variant_new_take_string (g_steal_pointer (&value));
+			} else if (g_variant_type_equal ((*s)->type, G_VARIANT_TYPE_BYTESTRING)) {
+				variant = g_variant_new_bytestring (value);
 			} else {
 				g_set_error (error, NM_CONNECTION_ERROR, NM_CONNECTION_ERROR_FAILED,
-				             _("unsupported attribute '%s' of type '%s'"), name,
+				             _("unsupported attribute '%s' of type '%s'"), (*s)->name,
 				             (char *) (*s)->type);
 				return NULL;
 			}
 
-			g_hash_table_insert (ht, g_steal_pointer (&name), variant);
+			g_hash_table_insert (ht, g_strdup ((*s)->name), variant);
 			start = NULL;
 		}
 next:
@@ -4930,6 +6232,8 @@ nm_utils_format_variant_attributes (GHashTable *attributes,
 			value = g_variant_get_boolean (variant) ? "true" : "false";
 		else if (g_variant_is_of_type (variant, G_VARIANT_TYPE_STRING))
 			value = g_variant_get_string (variant, NULL);
+		else if (g_variant_is_of_type (variant, G_VARIANT_TYPE_BYTESTRING))
+			value = g_variant_get_bytestring (variant);
 		else
 			continue;
 

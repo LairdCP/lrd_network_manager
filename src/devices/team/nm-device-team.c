@@ -56,6 +56,8 @@ typedef struct {
 	guint teamd_read_timeout;
 	guint teamd_dbus_watch;
 	char *config;
+	gboolean kill_in_progress;
+	NMConnection *connection;
 } NMDeviceTeamPrivate;
 
 struct _NMDeviceTeam {
@@ -81,24 +83,6 @@ static NMDeviceCapabilities
 get_generic_capabilities (NMDevice *device)
 {
 	return NM_DEVICE_CAP_CARRIER_DETECT | NM_DEVICE_CAP_IS_SOFTWARE;
-}
-
-static gboolean
-is_available (NMDevice *device, NMDeviceCheckDevAvailableFlags flags)
-{
-	return TRUE;
-}
-
-static gboolean
-check_connection_available (NMDevice *device,
-                            NMConnection *connection,
-                            NMDeviceCheckConAvailableFlags flags,
-                            const char *specific_object)
-{
-	/* Connections are always available because the carrier state is determined
-	 * by the team port carrier states, not the team's state.
-	 */
-	return TRUE;
 }
 
 static gboolean
@@ -306,6 +290,26 @@ master_update_slave_connection (NMDevice *self,
 }
 
 /*****************************************************************************/
+static void
+teamd_kill_cb (pid_t pid, gboolean success, int child_status, void *user_data)
+{
+	NMDevice *device = NM_DEVICE (user_data);
+	NMDeviceTeam *self = (NMDeviceTeam *) device;
+	NMDeviceTeamPrivate *priv = NM_DEVICE_TEAM_GET_PRIVATE (self);
+
+	priv->kill_in_progress = FALSE;
+
+	if (priv->connection) {
+		_LOGT (LOGD_TEAM, "kill terminated, starting teamd...");
+		if (!teamd_start (device, priv->connection)) {
+			nm_device_state_changed (device,
+			                         NM_DEVICE_STATE_FAILED,
+			                         NM_DEVICE_STATE_REASON_TEAMD_CONTROL_FAILED);
+		}
+		g_clear_object (&priv->connection);
+	}
+	g_object_unref (device);
+}
 
 static void
 teamd_cleanup (NMDevice *device, gboolean free_tdc)
@@ -317,7 +321,12 @@ teamd_cleanup (NMDevice *device, gboolean free_tdc)
 	nm_clear_g_source (&priv->teamd_read_timeout);
 
 	if (priv->teamd_pid > 0) {
-		nm_utils_kill_child_async (priv->teamd_pid, SIGTERM, LOGD_TEAM, "teamd", 2000, NULL, NULL);
+		priv->kill_in_progress = TRUE;
+		nm_utils_kill_child_async (priv->teamd_pid, SIGTERM,
+		                           LOGD_TEAM, "teamd",
+		                           2000,
+		                           teamd_kill_cb,
+		                           g_object_ref (device));
 		priv->teamd_pid = 0;
 	}
 
@@ -340,7 +349,7 @@ teamd_timeout_cb (gpointer user_data)
 
 	if (priv->teamd_pid && !priv->tdc) {
 		/* Timed out launching our own teamd process */
-		_LOGW (LOGD_TEAM, "teamd timed out.");
+		_LOGW (LOGD_TEAM, "teamd timed out");
 		teamd_cleanup (device, TRUE);
 
 		g_warn_if_fail (nm_device_is_activating (device));
@@ -568,7 +577,7 @@ teamd_start (NMDevice *device, NMConnection *connection)
 		/* Inject the hwaddr property into the JSON configuration.
 		 * While doing so, detect potential conflicts */
 
-		json = json_loads (config ?: "{}", 0, &jerror);
+		json = json_loads (config ?: "{}", JSON_REJECT_DUPLICATES, &jerror);
 		g_return_val_if_fail (json, FALSE);
 
 		hwaddr = json_object_get (json, "hwaddr");
@@ -663,6 +672,12 @@ act_stage1_prepare (NMDevice *device, NMDeviceStateReason *out_failure_reason)
 		teamd_cleanup (device, TRUE);
 	}
 
+	if (priv->kill_in_progress) {
+		_LOGT (LOGD_TEAM, "kill in progress, wait before starting teamd");
+		priv->connection = g_object_ref (connection);
+		return NM_ACT_STAGE_RETURN_POSTPONE;
+	}
+
 	return teamd_start (device, connection) ?
 		NM_ACT_STAGE_RETURN_POSTPONE : NM_ACT_STAGE_RETURN_FAILURE;
 }
@@ -679,6 +694,7 @@ deactivate (NMDevice *device)
 	if (!priv->teamd_pid)
 		teamd_kill (self, NULL, NULL);
 	teamd_cleanup (device, TRUE);
+	g_clear_object (&priv->connection);
 }
 
 static gboolean
@@ -792,7 +808,7 @@ create_and_realize (NMDevice *device,
 		             "Failed to create team master interface '%s' for '%s': %s",
 		             iface,
 		             nm_connection_get_id (connection),
-		             nm_platform_error_to_string (plerr));
+		             nm_platform_error_to_string_a (plerr));
 		return FALSE;
 	}
 
@@ -822,6 +838,7 @@ get_property (GObject *object, guint prop_id,
 static void
 nm_device_team_init (NMDeviceTeam * self)
 {
+	nm_assert (nm_device_is_master (NM_DEVICE (self)));
 }
 
 static void
@@ -854,7 +871,6 @@ nm_device_team_new (const char *iface)
 	                                  NM_DEVICE_TYPE_DESC, "Team",
 	                                  NM_DEVICE_DEVICE_TYPE, NM_DEVICE_TYPE_TEAM,
 	                                  NM_DEVICE_LINK_TYPE, NM_LINK_TYPE_TEAM,
-	                                  NM_DEVICE_IS_MASTER, TRUE,
 	                                  NULL);
 }
 
@@ -887,11 +903,10 @@ nm_device_team_class_init (NMDeviceTeamClass *klass)
 	object_class->dispose = dispose;
 	object_class->get_property = get_property;
 
+	parent_class->is_master = TRUE;
 	parent_class->create_and_realize = create_and_realize;
 	parent_class->get_generic_capabilities = get_generic_capabilities;
-	parent_class->is_available = is_available;
 	parent_class->check_connection_compatible = check_connection_compatible;
-	parent_class->check_connection_available = check_connection_available;
 	parent_class->complete_connection = complete_connection;
 	parent_class->update_connection = update_connection;
 	parent_class->master_update_slave_connection = master_update_slave_connection;

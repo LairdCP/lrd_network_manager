@@ -76,7 +76,7 @@ test_bogus(void)
 	g_assert (!addrlen);
 	g_assert (!nm_platform_link_get_address (NM_PLATFORM_GET, BOGUS_IFINDEX, NULL));
 
-	g_assert (!nm_platform_link_set_mtu (NM_PLATFORM_GET, BOGUS_IFINDEX, MTU));
+	g_assert (nm_platform_link_set_mtu (NM_PLATFORM_GET, BOGUS_IFINDEX, MTU) != NM_PLATFORM_ERROR_SUCCESS);
 
 	g_assert (!nm_platform_link_get_mtu (NM_PLATFORM_GET, BOGUS_IFINDEX));
 
@@ -264,7 +264,8 @@ test_slave (int master, int type, SignalData *master_changed)
 	}
 	g_assert (!nm_platform_link_is_up (NM_PLATFORM_GET, ifindex));
 	g_assert (!nm_platform_link_is_connected (NM_PLATFORM_GET, ifindex));
-	if (nm_platform_link_is_connected (NM_PLATFORM_GET, master)) {
+	if (   nmtstp_is_root_test ()
+	    && nm_platform_link_is_connected (NM_PLATFORM_GET, master)) {
 		if (nm_platform_link_get_type (NM_PLATFORM_GET, master) == NM_LINK_TYPE_TEAM) {
 			/* Older team versions (e.g. Fedora 17) have a bug that team master stays
 			 * IFF_LOWER_UP even if its slave is down. Double check it with iproute2 and if
@@ -285,7 +286,7 @@ test_slave (int master, int type, SignalData *master_changed)
 	g_assert (nm_platform_link_is_connected (NM_PLATFORM_GET, master));
 	accept_signals (link_changed, 1, 3);
 	/* NM running, can cause additional change of addrgenmode */
-	accept_signals (master_changed, 1, 2);
+	accept_signals (master_changed, 0, 2);
 
 	/* Enslave again
 	 *
@@ -327,7 +328,7 @@ test_slave (int master, int type, SignalData *master_changed)
 		ensure_no_signal (link_changed);
 		accept_signal (link_removed);
 	}
-	accept_signals (master_changed, 1, 2);
+	accept_signals (master_changed, 0, 2);
 
 	ensure_no_signal (master_changed);
 
@@ -511,7 +512,8 @@ test_bridge_addr (void)
 	plink = nm_platform_link_get (NM_PLATFORM_GET, link.ifindex);
 	g_assert (plink);
 
-	if (nm_platform_check_support_user_ipv6ll (NM_PLATFORM_GET)) {
+	if (nm_platform_check_kernel_support (NM_PLATFORM_GET,
+	                                      NM_PLATFORM_KERNEL_SUPPORT_USER_IPV6LL)) {
 		g_assert (!nm_platform_link_get_user_ipv6ll_enabled (NM_PLATFORM_GET, link.ifindex));
 		g_assert_cmpint (_nm_platform_uint8_inv (plink->inet6_addr_gen_mode_inv), ==, NM_IN6_ADDR_GEN_MODE_EUI64);
 
@@ -601,7 +603,7 @@ test_internal (void)
 	accept_signal (link_changed);
 
 	/* Set MTU */
-	g_assert (nm_platform_link_set_mtu (NM_PLATFORM_GET, ifindex, MTU));
+	g_assert (nm_platform_link_set_mtu (NM_PLATFORM_GET, ifindex, MTU) == NM_PLATFORM_ERROR_SUCCESS);
 	g_assert_cmpint (nm_platform_link_get_mtu (NM_PLATFORM_GET, ifindex), ==, MTU);
 	accept_signal (link_changed);
 
@@ -790,7 +792,7 @@ test_software_detect (gconstpointer user_data)
 		 * namespaced, the creation can fail if a macvtap in another namespace
 		 * has the same index. Try to detect this situation and skip already
 		 * used indexes.
-		 * http://git.kernel.org/cgit/linux/kernel/git/torvalds/linux.git/commit/?id=17af2bce88d31e65ed73d638bb752d2e13c66ced
+		 * The fix (17af2bce) is included kernel 4.7, dated 24 July, 2016.
 		 */
 		for (i = ifindex_parent + 1; i < ifindex_parent + 100; i++) {
 			snprintf (buf, sizeof (buf), "/sys/class/macvtap/tap%d", i);
@@ -1713,9 +1715,8 @@ test_nl_bugs_veth (void)
 	NMTstpNamespaceHandle *ns_handle = NULL;
 
 	/* create veth pair. */
-	nmtstp_run_command_check ("ip link add dev %s type veth peer name %s", IFACE_VETH0, IFACE_VETH1);
-	ifindex_veth0 = nmtstp_assert_wait_for_link (NM_PLATFORM_GET, IFACE_VETH0, NM_LINK_TYPE_VETH, 100)->ifindex;
-	ifindex_veth1 = nmtstp_assert_wait_for_link (NM_PLATFORM_GET, IFACE_VETH1, NM_LINK_TYPE_VETH, 100)->ifindex;
+	ifindex_veth0 = nmtstp_link_veth_add (NM_PLATFORM_GET, -1, IFACE_VETH0, IFACE_VETH1)->ifindex;
+	ifindex_veth1 = nmtstp_link_get_typed (NM_PLATFORM_GET, -1, IFACE_VETH1, NM_LINK_TYPE_VETH)->ifindex;
 
 	/* assert that nm_platform_link_veth_get_properties() returns the expected peer ifindexes. */
 	g_assert (nm_platform_link_veth_get_properties (NM_PLATFORM_GET, ifindex_veth0, &i));
@@ -1728,8 +1729,8 @@ test_nl_bugs_veth (void)
 	pllink_veth0 = nm_platform_link_get (NM_PLATFORM_GET, ifindex_veth0);
 	g_assert (pllink_veth0);
 	if (pllink_veth0->parent == 0) {
-		/* pre-4.1 kernels don't support exposing the veth peer as IFA_LINK. skip the remainder
-		 * of the test. */
+		/* Kernels prior to 4.1 dated 21 June, 2015 don't support exposing the veth peer
+		 * as IFA_LINK. skip the remainder of the test. */
 		goto out;
 	}
 	g_assert_cmpint (pllink_veth0->parent, ==, ifindex_veth1);
@@ -1915,6 +1916,7 @@ _test_netns_check_skip (void)
 	static int support = -1;
 	static int support_errsv = 0;
 	NMPNetns *netns;
+	gs_unref_object NMPNetns *netns2 = NULL;
 
 	netns = nmp_netns_get_current ();
 	if (!netns) {
@@ -1930,10 +1932,31 @@ _test_netns_check_skip (void)
 			support_errsv = errno;
 	}
 	if (!support) {
-			_LOGD ("setns() failed with \"%s\". This indicates missing support (valgrind?)", g_strerror (support_errsv));
-			g_test_skip ("No netns support (setns failed)");
+		_LOGD ("setns() failed with \"%s\". This indicates missing support (valgrind?)", g_strerror (support_errsv));
+		g_test_skip ("No netns support (setns failed)");
 		return TRUE;
 	}
+
+	netns2 = nmp_netns_new ();
+	if (!netns2) {
+		/* skip tests for https://bugzilla.gnome.org/show_bug.cgi?id=790214 */
+		g_assert_cmpint (errno, ==, EINVAL);
+		g_test_skip ("No netns support to create another netns");
+		return TRUE;
+	}
+	nmp_netns_pop (netns2);
+
+	return FALSE;
+}
+
+static gboolean
+_check_sysctl_skip (void)
+{
+	if (access ("/proc/sys/net/ipv4/ip_forward", W_OK) == -1) {
+		g_test_skip ("Can not write sysctls");
+		return TRUE;
+	}
+
 	return FALSE;
 }
 
@@ -1959,6 +1982,9 @@ test_netns_general (gpointer fixture, gconstpointer test_data)
 	NMPUtilsEthtoolDriverInfo driver_info;
 
 	if (_test_netns_check_skip ())
+		return;
+
+	if (_check_sysctl_skip ())
 		return;
 
 	platform_1 = nm_linux_platform_new (TRUE, TRUE);
@@ -2023,8 +2049,8 @@ test_netns_general (gpointer fixture, gconstpointer test_data)
 	_sysctl_assert_eq (platform_1, "/proc/sys/net/ipv6/conf/dummy2b/disable_ipv6", NULL);
 	_sysctl_assert_eq (platform_2, "/proc/sys/net/ipv6/conf/dummy2a/disable_ipv6", NULL);
 
-	/* older kernels (Ubuntu 12.04) don't support ethtool -i for dummy devices. Work around that and
-	 * skip asserts that are known to fail. */
+	/* Kernels prior to 3.19 dated 8 February, 2015 don't support ethtool -i for dummy devices.
+	 * Work around that and skip asserts that are known to fail. */
 	ethtool_support = nmtstp_run_command ("ethtool -i dummy1_ > /dev/null") == 0;
 	if (ethtool_support) {
 		g_assert (nmp_utils_ethtool_get_driver_info (nmtstp_link_get_typed (platform_1, 0, "dummy1_", NM_LINK_TYPE_DUMMY)->ifindex, &driver_info));
@@ -2154,6 +2180,9 @@ test_netns_push (gpointer fixture, gconstpointer test_data)
 	int nstack;
 
 	if (_test_netns_check_skip ())
+		return;
+
+	if (_check_sysctl_skip ())
 		return;
 
 	pl[0].platform = platform_0 = nm_linux_platform_new (TRUE, TRUE);

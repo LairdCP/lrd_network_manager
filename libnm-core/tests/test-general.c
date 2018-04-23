@@ -25,6 +25,9 @@
 
 #include <string.h>
 
+#include "nm-utils/c-list-util.h"
+#include "nm-utils/nm-hash-utils.h"
+
 #include "nm-utils.h"
 #include "nm-setting-private.h"
 #include "nm-utils.h"
@@ -60,6 +63,7 @@
 #include "nm-setting-wireless-security.h"
 #include "nm-simple-connection.h"
 #include "nm-keyfile-internal.h"
+#include "nm-utils/nm-dedup-multi.h"
 
 #include "test-general-enums.h"
 
@@ -72,6 +76,598 @@
  * will just work correctly. */
 G_STATIC_ASSERT (sizeof (gboolean) == sizeof (int));
 G_STATIC_ASSERT (sizeof (bool) <= sizeof (int));
+
+/*****************************************************************************/
+
+typedef struct _nm_packed {
+	int v0;
+	char v1;
+	double v2;
+	guint8 v3;
+} TestHashStruct;
+
+static void
+_test_hash_struct (int v0, char v1, double v2, guint8 v3)
+{
+	const TestHashStruct s = {
+		.v0 = v0,
+		.v1 = v1,
+		.v2 = v2,
+		.v3 = v3,
+	};
+	NMHashState h;
+	guint hh;
+
+	nm_hash_init (&h, 100);
+	nm_hash_update (&h, &s, sizeof (s));
+	hh = nm_hash_complete (&h);
+
+	nm_hash_init (&h, 100);
+	nm_hash_update_val (&h, v0);
+	nm_hash_update_val (&h, v1);
+	nm_hash_update_val (&h, v2);
+	nm_hash_update_val (&h, v3);
+	g_assert_cmpint (hh, ==, nm_hash_complete (&h));
+
+	nm_hash_init (&h, 100);
+	nm_hash_update_vals (&h, v0, v1, v2, v3);
+	g_assert_cmpint (hh, ==, nm_hash_complete (&h));
+}
+
+static guint
+_test_hash_str (const char *str)
+{
+	NMHashState h;
+	guint v, v2;
+	const guint SEED = 10;
+
+	nm_hash_init (&h, SEED);
+	nm_hash_update_str0 (&h, str);
+	v = nm_hash_complete (&h);
+
+	/* assert that hashing a string and a buffer yields the
+	 * same result.
+	 *
+	 * I think that is a desirable property. */
+	nm_hash_init (&h, SEED);
+	nm_hash_update_mem (&h, str, strlen (str));
+	v2 = nm_hash_complete (&h);
+
+	g_assert (v == v2);
+	return v;
+}
+
+#define _test_hash_vals(type, ...) \
+	G_STMT_START { \
+		NMHashState h0, h1, h2, h3; \
+		const type v[] = { __VA_ARGS__ }; \
+		guint h; \
+		guint i; \
+		\
+		nm_hash_init (&h0, 10); \
+		nm_hash_init (&h1, 10); \
+		nm_hash_init (&h2, 10); \
+		nm_hash_init (&h3, 10); \
+		\
+		/* assert that it doesn't matter, whether we hash the values individually,
+		 * or all at once, or via the convenience macros nm_hash_update_val()
+		 * and nm_hash_update_vals(). */ \
+		for (i = 0; i < G_N_ELEMENTS (v); i++) { \
+			nm_hash_update (&h0, &v[i], sizeof (type)); \
+			nm_hash_update_val (&h1, v[i]); \
+		} \
+		nm_hash_update_vals (&h2, __VA_ARGS__); \
+		nm_hash_update (&h3, v, sizeof (v)); \
+		\
+		h = nm_hash_complete (&h0); \
+		g_assert_cmpint (h, ==, nm_hash_complete (&h1)); \
+		g_assert_cmpint (h, ==, nm_hash_complete (&h2)); \
+		g_assert_cmpint (h, ==, nm_hash_complete (&h3)); \
+	} G_STMT_END
+
+static void
+test_nm_hash (void)
+{
+	_test_hash_str ("");
+	_test_hash_str ("a");
+	_test_hash_str ("aa");
+	_test_hash_str ("diceros bicornis longipes");
+
+	/* assert that nm_hash_update_vals() is the same as calling nm_hash_update_val() multiple times. */
+	_test_hash_vals (int, 1);
+	_test_hash_vals (int, 1, 2);
+	_test_hash_vals (int, 1, 2, 3);
+	_test_hash_vals (int, 1, 2, 3, 4);
+	_test_hash_vals (long, 1l);
+	_test_hash_vals (long, 1l, 2l, 3l, 4l, 5l);
+
+	_test_hash_struct (10, 'a', 5.4, 7);
+	_test_hash_struct (-10, '\0', -5.4e49, 255);
+
+	g_assert_cmpint (NM_HASH_COMBINE_BOOLS (guint8,                       1, 0), ==, 0x002);
+	g_assert_cmpint (NM_HASH_COMBINE_BOOLS (guint8,                       1, 1), ==, 0x003);
+	g_assert_cmpint (NM_HASH_COMBINE_BOOLS (guint8,           1, 1, 0, 0, 0, 0), ==, 0x030);
+	g_assert_cmpint (NM_HASH_COMBINE_BOOLS (guint8,           1, 1, 0, 0, 0, 1), ==, 0x031);
+	g_assert_cmpint (NM_HASH_COMBINE_BOOLS (guint8,     0, 0, 1, 1, 0, 0, 0, 1), ==, 0x031);
+	g_assert_cmpint (NM_HASH_COMBINE_BOOLS (guint16,    0, 0, 1, 1, 0, 0, 0, 1), ==, 0x031);
+	g_assert_cmpint (NM_HASH_COMBINE_BOOLS (guint16, 0, 0, 0, 1, 1, 0, 0, 0, 1), ==, 0x031);
+	g_assert_cmpint (NM_HASH_COMBINE_BOOLS (guint16, 1, 0, 0, 1, 1, 0, 0, 0, 1), ==, 0x131);
+}
+
+/*****************************************************************************/
+
+static void
+test_nm_g_slice_free_fcn (void)
+{
+	gpointer p;
+
+	p = g_slice_new (gint64);
+	(nm_g_slice_free_fcn (gint64)) (p);
+
+	p = g_slice_new (gint32);
+	(nm_g_slice_free_fcn (gint32)) (p);
+
+	p = g_slice_new (gint);
+	(nm_g_slice_free_fcn (gint)) (p);
+
+	p = g_slice_new (gint64);
+	nm_g_slice_free_fcn_gint64 (p);
+}
+
+/*****************************************************************************/
+
+static void
+_do_test_nm_utils_strsplit_set (const char *str, ...)
+{
+	gs_unref_ptrarray GPtrArray *args_array = g_ptr_array_new ();
+	const char *const*args;
+	gs_free const char **words = NULL;
+	const char *arg;
+	gsize i;
+	va_list ap;
+
+	va_start (ap, str);
+	while ((arg = va_arg (ap, const char *)))
+		g_ptr_array_add (args_array, (gpointer) arg);
+	va_end (ap);
+	g_ptr_array_add (args_array, NULL);
+
+	args = (const char *const*) args_array->pdata;
+
+	words = nm_utils_strsplit_set (str, " \t\n");
+
+	if (!args[0]) {
+		g_assert (!words);
+		g_assert (   !str
+		          || NM_STRCHAR_ALL (str, ch, NM_IN_SET (ch, ' ', '\t', '\n')));
+		return;
+	}
+	g_assert (words);
+	for (i = 0; args[i] || words[i]; i++) {
+		g_assert (args[i]);
+		g_assert (words[i]);
+		g_assert (args[i][0]);
+		g_assert (NM_STRCHAR_ALL (args[i], ch, !NM_IN_SET (ch, ' ', '\t', '\n')));
+		g_assert_cmpstr (args[i], ==, words[i]);
+	}
+}
+
+#define do_test_nm_utils_strsplit_set(str, ...) \
+	_do_test_nm_utils_strsplit_set (str, ##__VA_ARGS__, NULL)
+
+static void
+test_nm_utils_strsplit_set (void)
+{
+	do_test_nm_utils_strsplit_set (NULL);
+	do_test_nm_utils_strsplit_set ("");
+	do_test_nm_utils_strsplit_set ("\t");
+	do_test_nm_utils_strsplit_set (" \t\n");
+	do_test_nm_utils_strsplit_set ("a", "a");
+	do_test_nm_utils_strsplit_set ("a b", "a", "b");
+	do_test_nm_utils_strsplit_set ("a\rb", "a\rb");
+	do_test_nm_utils_strsplit_set ("  a\rb  ", "a\rb");
+	do_test_nm_utils_strsplit_set ("  a bbbd afds ere", "a", "bbbd", "afds", "ere");
+	do_test_nm_utils_strsplit_set ("1 2 3 4 5 6 7 8 9 0 "
+	                               "1 2 3 4 5 6 7 8 9 0 "
+	                               "1 2 3 4 5 6 7 8 9 0",
+	                               "1", "2", "3", "4", "5", "6", "7", "8", "9", "0",
+	                               "1", "2", "3", "4", "5", "6", "7", "8", "9", "0",
+	                               "1", "2", "3", "4", "5", "6", "7", "8", "9", "0");
+}
+
+/*****************************************************************************/
+
+typedef struct {
+	int val;
+	int idx;
+	CList lst;
+} CListSort;
+
+static int
+_c_list_sort_cmp (const CList *lst_a, const CList *lst_b, const void *user_data)
+{
+	const CListSort *a, *b;
+
+	g_assert (lst_a);
+	g_assert (lst_b);
+	g_assert (lst_a != lst_b);
+
+	a = c_list_entry (lst_a, CListSort, lst);
+	b = c_list_entry (lst_b, CListSort, lst);
+
+	if (a->val < b->val)
+		return -1;
+	if (a->val > b->val)
+		return 1;
+	return 0;
+}
+
+static void
+test_c_list_sort (void)
+{
+	guint i, n_list, repeat, headless;
+	CList head, *iter, *iter_prev, *lst;
+	CListSort elements[30];
+	const CListSort *el_prev;
+
+	c_list_init (&head);
+	c_list_sort (&head, _c_list_sort_cmp, NULL);
+	g_assert (c_list_length (&head) == 0);
+	g_assert (c_list_is_empty (&head));
+
+	for (repeat = 0; repeat < 10; repeat++) {
+		for (n_list = 1; n_list < G_N_ELEMENTS (elements); n_list++) {
+			for (headless = 0; headless < 2; headless++) {
+				c_list_init (&head);
+				for (i = 0; i < n_list; i++) {
+					CListSort *el;
+
+					el = &elements[i];
+					el->val = nmtst_get_rand_int () % (2*n_list);
+					el->idx = i;
+					c_list_link_tail (&head, &el->lst);
+				}
+
+				if (headless) {
+					lst = head.next;
+					c_list_unlink_stale (&head);
+					lst = c_list_sort_headless (lst, _c_list_sort_cmp, NULL);
+					g_assert (lst);
+					g_assert (lst->next);
+					g_assert (lst->prev);
+					g_assert (c_list_length (lst) == n_list - 1);
+					iter_prev = lst->prev;
+					for (iter = lst; iter != lst; iter = iter->next) {
+						g_assert (iter);
+						g_assert (iter->next);
+						g_assert (iter->prev == iter_prev);
+					}
+					c_list_link_before (lst, &head);
+				} else {
+					c_list_sort (&head, _c_list_sort_cmp, NULL);
+				}
+
+				g_assert (!c_list_is_empty (&head));
+				g_assert (c_list_length (&head) == n_list);
+
+				el_prev = NULL;
+				c_list_for_each (iter, &head) {
+					CListSort *el;
+
+					el = c_list_entry (iter, CListSort, lst);
+					g_assert (el->idx >= 0 && el->idx < n_list);
+					g_assert (el == &elements[el->idx]);
+					if (el_prev) {
+						g_assert (el_prev->val <= el->val);
+						if (el_prev->val == el->val)
+							g_assert (el_prev->idx < el->idx);
+						g_assert (iter->prev == &el_prev->lst);
+						g_assert (el_prev->lst.next == iter);
+					}
+					el_prev = el;
+				}
+				g_assert (head.prev == &el_prev->lst);
+			}
+		}
+	}
+}
+
+/*****************************************************************************/
+
+typedef struct {
+	NMDedupMultiObj parent;
+	guint val;
+	guint other;
+} DedupObj;
+
+static const NMDedupMultiObjClass dedup_obj_class;
+
+static DedupObj *
+_dedup_obj_assert (const NMDedupMultiObj *obj)
+{
+	DedupObj *o;
+
+	g_assert (obj);
+	o = (DedupObj *) obj;
+	g_assert (o->parent.klass == &dedup_obj_class);
+	g_assert (o->parent._ref_count > 0);
+	g_assert (o->val > 0);
+	return o;
+}
+
+static const NMDedupMultiObj *
+_dedup_obj_clone (const NMDedupMultiObj *obj)
+{
+	DedupObj *o, *o2;
+
+	o = _dedup_obj_assert (obj);
+	o2 = g_slice_new0 (DedupObj);
+	o2->parent.klass = &dedup_obj_class;
+	o2->parent._ref_count = 1;
+	o2->val = o->val;
+	o2->other = o->other;
+	return (NMDedupMultiObj *) o2;
+}
+
+static void
+_dedup_obj_destroy (NMDedupMultiObj *obj)
+{
+	DedupObj *o = (DedupObj *) obj;
+
+	nm_assert (o->parent._ref_count == 0);
+	o->parent._ref_count = 1;
+	o = _dedup_obj_assert (obj);
+	g_slice_free (DedupObj, o);
+}
+
+static void
+_dedup_obj_full_hash_update (const NMDedupMultiObj *obj, NMHashState *h)
+{
+	const DedupObj *o;
+
+	o = _dedup_obj_assert (obj);
+	nm_hash_update_vals (h,
+	                     o->val,
+	                     o->other);
+}
+
+static gboolean
+_dedup_obj_full_equal (const NMDedupMultiObj *obj_a,
+                       const NMDedupMultiObj *obj_b)
+{
+	const DedupObj *o_a = _dedup_obj_assert (obj_a);
+	const DedupObj *o_b = _dedup_obj_assert (obj_b);
+
+	return    o_a->val == o_b->val
+	       && o_a->other == o_b->other;
+}
+
+static const NMDedupMultiObjClass dedup_obj_class = {
+	.obj_clone = _dedup_obj_clone,
+	.obj_destroy = _dedup_obj_destroy,
+	.obj_full_hash_update = _dedup_obj_full_hash_update,
+	.obj_full_equal = _dedup_obj_full_equal,
+};
+
+#define DEDUP_OBJ_INIT(val_val, other_other) \
+	(&((DedupObj) { \
+		.parent = { \
+			.klass = &dedup_obj_class, \
+			._ref_count = NM_OBJ_REF_COUNT_STACKINIT, \
+		}, \
+		.val = (val_val), \
+		.other = (other_other), \
+	}))
+
+typedef struct {
+	NMDedupMultiIdxType parent;
+	guint partition_size;
+	guint val_mod;
+} DedupIdxType;
+
+static const NMDedupMultiIdxTypeClass dedup_idx_type_class;
+
+static const DedupIdxType *
+_dedup_idx_assert (const NMDedupMultiIdxType *idx_type)
+{
+	DedupIdxType *t;
+
+	g_assert (idx_type);
+	t = (DedupIdxType *) idx_type;
+	g_assert (t->parent.klass == &dedup_idx_type_class);
+	g_assert (t->partition_size > 0);
+	g_assert (t->val_mod > 0);
+	return t;
+}
+
+static void
+_dedup_idx_obj_id_hash_update (const NMDedupMultiIdxType *idx_type,
+                               const NMDedupMultiObj *obj,
+                               NMHashState *h)
+{
+	const DedupIdxType *t;
+	const DedupObj *o;
+
+	t = _dedup_idx_assert (idx_type);
+	o = _dedup_obj_assert (obj);
+
+	nm_hash_update_val (h, o->val / t->partition_size);
+	nm_hash_update_val (h, o->val % t->val_mod);
+}
+
+static gboolean
+_dedup_idx_obj_id_equal (const NMDedupMultiIdxType *idx_type,
+                         const NMDedupMultiObj *obj_a,
+                         const NMDedupMultiObj *obj_b)
+{
+	const DedupIdxType *t;
+	const DedupObj *o_a;
+	const DedupObj *o_b;
+
+	t = _dedup_idx_assert (idx_type);
+	o_a = _dedup_obj_assert (obj_a);
+	o_b = _dedup_obj_assert (obj_b);
+
+	return    (o_a->val / t->partition_size) == (o_b->val / t->partition_size)
+	       && (o_a->val % t->val_mod) == (o_b->val % t->val_mod);
+}
+
+static void
+_dedup_idx_obj_partition_hash_update (const NMDedupMultiIdxType *idx_type,
+                                      const NMDedupMultiObj *obj,
+                                      NMHashState *h)
+{
+	const DedupIdxType *t;
+	const DedupObj *o;
+
+	t = _dedup_idx_assert (idx_type);
+	o = _dedup_obj_assert (obj);
+
+	nm_hash_update_val (h, o->val / t->partition_size);
+}
+
+static gboolean
+_dedup_idx_obj_partition_equal (const NMDedupMultiIdxType *idx_type,
+                                const NMDedupMultiObj *obj_a,
+                                const NMDedupMultiObj *obj_b)
+{
+	const DedupIdxType *t;
+	const DedupObj *o_a;
+	const DedupObj *o_b;
+
+	t = _dedup_idx_assert (idx_type);
+	o_a = _dedup_obj_assert (obj_a);
+	o_b = _dedup_obj_assert (obj_b);
+
+	return (o_a->val / t->partition_size) == (o_b->val / t->partition_size);
+}
+
+static const NMDedupMultiIdxTypeClass dedup_idx_type_class = {
+	.idx_obj_id_hash_update = _dedup_idx_obj_id_hash_update,
+	.idx_obj_id_equal = _dedup_idx_obj_id_equal,
+	.idx_obj_partition_hash_update = _dedup_idx_obj_partition_hash_update,
+	.idx_obj_partition_equal = _dedup_idx_obj_partition_equal,
+};
+
+static const DedupIdxType *
+DEDUP_IDX_TYPE_INIT (DedupIdxType *idx_type, guint partition_size, guint val_mod)
+{
+	nm_dedup_multi_idx_type_init ((NMDedupMultiIdxType *) idx_type, &dedup_idx_type_class);
+	idx_type->val_mod = val_mod;
+	idx_type->partition_size = partition_size;
+	return idx_type;
+}
+
+static gboolean
+_dedup_idx_add (NMDedupMultiIndex *idx, const DedupIdxType *idx_type, const DedupObj *obj, NMDedupMultiIdxMode mode, const NMDedupMultiEntry **out_entry)
+{
+	g_assert (idx);
+	_dedup_idx_assert ((NMDedupMultiIdxType *) idx_type);
+	if (obj)
+		_dedup_obj_assert ((NMDedupMultiObj *) obj);
+	return nm_dedup_multi_index_add (idx, (NMDedupMultiIdxType *) idx_type,
+	                                 obj, mode, out_entry, NULL);
+}
+
+static void
+_dedup_head_entry_assert (const NMDedupMultiHeadEntry *entry)
+{
+	g_assert (entry);
+	g_assert (entry->len > 0);
+	g_assert (entry->len == c_list_length (&entry->lst_entries_head));
+	g_assert (entry->idx_type);
+	g_assert (entry->is_head);
+}
+
+static const DedupObj *
+_dedup_entry_assert (const NMDedupMultiEntry *entry)
+{
+	g_assert (entry);
+	g_assert (!c_list_is_empty (&entry->lst_entries));
+	g_assert (entry->head);
+	g_assert (!entry->is_head);
+	g_assert (entry->head != (gpointer) entry);
+	_dedup_head_entry_assert (entry->head);
+	return _dedup_obj_assert (entry->obj);
+}
+
+static const DedupIdxType *
+_dedup_entry_get_idx_type (const NMDedupMultiEntry *entry)
+{
+	_dedup_entry_assert (entry);
+
+	g_assert (entry->head);
+	g_assert (entry->head->idx_type);
+	return _dedup_idx_assert (entry->head->idx_type);
+}
+
+static void
+_dedup_entry_assert_all (const NMDedupMultiEntry *entry, gssize expected_idx, const DedupObj *const*expected_obj)
+{
+	gsize n, i;
+	CList *iter;
+
+	g_assert (entry);
+	_dedup_entry_assert (entry);
+
+	g_assert (expected_obj);
+	n = NM_PTRARRAY_LEN (expected_obj);
+
+	g_assert (n == c_list_length (&entry->lst_entries));
+
+	g_assert (expected_idx >= -1 && expected_idx < n);
+	g_assert (entry->head);
+	if (expected_idx == -1)
+		g_assert (entry->head == (gpointer) entry);
+	else
+		g_assert (entry->head != (gpointer) entry);
+
+	i = 0;
+	c_list_for_each (iter, &entry->head->lst_entries_head) {
+		const NMDedupMultiEntry *entry_current = c_list_entry (iter, NMDedupMultiEntry, lst_entries);
+		const DedupObj *obj_current;
+		const DedupIdxType *idx_type = _dedup_entry_get_idx_type (entry_current);
+
+		obj_current = _dedup_entry_assert (entry_current);
+		g_assert (obj_current);
+		g_assert (i < n);
+		if (expected_idx == i)
+			g_assert (entry_current == entry);
+		g_assert (idx_type->parent.klass->idx_obj_partition_equal (&idx_type->parent,
+		                                                           entry_current->obj,
+		                                                           c_list_entry (entry->head->lst_entries_head.next, NMDedupMultiEntry, lst_entries)->obj));
+		i++;
+	}
+}
+#define _dedup_entry_assert_all(entry, expected_idx, ...) _dedup_entry_assert_all (entry, expected_idx, (const DedupObj *const[]) { __VA_ARGS__, NULL })
+
+static void
+test_dedup_multi (void)
+{
+	NMDedupMultiIndex *idx;
+	DedupIdxType IDX_20_3_a_stack;
+	const DedupIdxType *const IDX_20_3_a = DEDUP_IDX_TYPE_INIT (&IDX_20_3_a_stack, 20, 3);
+	const NMDedupMultiEntry *entry1;
+
+	idx = nm_dedup_multi_index_new ();
+
+	g_assert (_dedup_idx_add (idx, IDX_20_3_a, DEDUP_OBJ_INIT (1, 1), NM_DEDUP_MULTI_IDX_MODE_APPEND, &entry1));
+	_dedup_entry_assert_all (entry1, 0, DEDUP_OBJ_INIT (1, 1));
+
+	g_assert (nm_dedup_multi_index_obj_find (idx, (NMDedupMultiObj *) DEDUP_OBJ_INIT (1, 1)));
+	g_assert (!nm_dedup_multi_index_obj_find (idx, (NMDedupMultiObj *) DEDUP_OBJ_INIT (1, 2)));
+
+	g_assert (_dedup_idx_add (idx, IDX_20_3_a, DEDUP_OBJ_INIT (1, 2), NM_DEDUP_MULTI_IDX_MODE_APPEND, &entry1));
+	_dedup_entry_assert_all (entry1, 0, DEDUP_OBJ_INIT (1, 2));
+
+	g_assert (!nm_dedup_multi_index_obj_find (idx, (NMDedupMultiObj *) DEDUP_OBJ_INIT (1, 1)));
+	g_assert (nm_dedup_multi_index_obj_find (idx, (NMDedupMultiObj *) DEDUP_OBJ_INIT (1, 2)));
+
+	g_assert (_dedup_idx_add (idx, IDX_20_3_a, DEDUP_OBJ_INIT (2, 2), NM_DEDUP_MULTI_IDX_MODE_APPEND, &entry1));
+	_dedup_entry_assert_all (entry1, 1, DEDUP_OBJ_INIT (1, 2), DEDUP_OBJ_INIT (2, 2));
+
+	nm_dedup_multi_index_unref (idx);
+}
 
 /*****************************************************************************/
 
@@ -1975,6 +2571,7 @@ test_connection_diff_a_only (void)
 			{ NM_SETTING_CONNECTION_GATEWAY_PING_TIMEOUT, NM_SETTING_DIFF_RESULT_IN_A },
 			{ NM_SETTING_CONNECTION_METERED,              NM_SETTING_DIFF_RESULT_IN_A },
 			{ NM_SETTING_CONNECTION_LLDP,                 NM_SETTING_DIFF_RESULT_IN_A },
+			{ NM_SETTING_CONNECTION_AUTH_RETRIES,         NM_SETTING_DIFF_RESULT_IN_A },
 			{ NULL, NM_SETTING_DIFF_RESULT_UNKNOWN }
 		} },
 		{ NM_SETTING_WIRED_SETTING_NAME, {
@@ -2003,6 +2600,7 @@ test_connection_diff_a_only (void)
 			{ NM_SETTING_IP_CONFIG_GATEWAY,            NM_SETTING_DIFF_RESULT_IN_A },
 			{ NM_SETTING_IP_CONFIG_ROUTES,             NM_SETTING_DIFF_RESULT_IN_A },
 			{ NM_SETTING_IP_CONFIG_ROUTE_METRIC,       NM_SETTING_DIFF_RESULT_IN_A },
+			{ NM_SETTING_IP_CONFIG_ROUTE_TABLE,        NM_SETTING_DIFF_RESULT_IN_A },
 			{ NM_SETTING_IP_CONFIG_IGNORE_AUTO_ROUTES, NM_SETTING_DIFF_RESULT_IN_A },
 			{ NM_SETTING_IP_CONFIG_IGNORE_AUTO_DNS,    NM_SETTING_DIFF_RESULT_IN_A },
 			{ NM_SETTING_IP4_CONFIG_DHCP_CLIENT_ID,    NM_SETTING_DIFF_RESULT_IN_A },
@@ -2834,7 +3432,7 @@ test_ip4_prefix_to_netmask (void)
 	int i;
 
 	for (i = 0; i<=32; i++) {
-		guint32 netmask = nm_utils_ip4_prefix_to_netmask (i);
+		guint32 netmask = _nm_utils_ip4_prefix_to_netmask (i);
 		int plen = nm_utils_ip4_netmask_to_prefix (netmask);
 
 		g_assert_cmpint (i, ==, plen);
@@ -2862,8 +3460,8 @@ test_ip4_netmask_to_prefix (void)
 	g_rand_set_seed (rand, 1);
 
 	for (i = 2; i<=32; i++) {
-		guint32 netmask = nm_utils_ip4_prefix_to_netmask (i);
-		guint32 netmask_lowest_bit = netmask & ~nm_utils_ip4_prefix_to_netmask (i-1);
+		guint32 netmask = _nm_utils_ip4_prefix_to_netmask (i);
+		guint32 netmask_lowest_bit = netmask & ~_nm_utils_ip4_prefix_to_netmask (i-1);
 
 		g_assert_cmpint (i, ==, nm_utils_ip4_netmask_to_prefix (netmask));
 
@@ -3008,7 +3606,7 @@ test_setting_ip4_changed_signal (void)
 	ASSERT_CHANGED (nm_setting_ip_config_add_dns (s_ip4, "11.22.0.0"));
 	ASSERT_CHANGED (nm_setting_ip_config_remove_dns (s_ip4, 0));
 
-	g_test_expect_message ("libnm", G_LOG_LEVEL_CRITICAL, NMTST_G_RETURN_MSG (idx < priv->dns->len));
+	g_test_expect_message ("libnm", G_LOG_LEVEL_CRITICAL, NMTST_G_RETURN_MSG (idx >= 0 && idx < priv->dns->len));
 	ASSERT_UNCHANGED (nm_setting_ip_config_remove_dns (s_ip4, 1));
 	g_test_assert_expected_messages ();
 
@@ -3018,7 +3616,7 @@ test_setting_ip4_changed_signal (void)
 	ASSERT_CHANGED (nm_setting_ip_config_add_dns_search (s_ip4, "foobar.com"));
 	ASSERT_CHANGED (nm_setting_ip_config_remove_dns_search (s_ip4, 0));
 
-	g_test_expect_message ("libnm", G_LOG_LEVEL_CRITICAL, NMTST_G_RETURN_MSG (idx < priv->dns_search->len));
+	g_test_expect_message ("libnm", G_LOG_LEVEL_CRITICAL, NMTST_G_RETURN_MSG (idx >= 0 && idx < priv->dns_search->len));
 	ASSERT_UNCHANGED (nm_setting_ip_config_remove_dns_search (s_ip4, 1));
 	g_test_assert_expected_messages ();
 
@@ -3030,7 +3628,7 @@ test_setting_ip4_changed_signal (void)
 	ASSERT_CHANGED (nm_setting_ip_config_add_address (s_ip4, addr));
 	ASSERT_CHANGED (nm_setting_ip_config_remove_address (s_ip4, 0));
 
-	g_test_expect_message ("libnm", G_LOG_LEVEL_CRITICAL, NMTST_G_RETURN_MSG (idx < priv->addresses->len));
+	g_test_expect_message ("libnm", G_LOG_LEVEL_CRITICAL, NMTST_G_RETURN_MSG (idx >= 0 && idx < priv->addresses->len));
 	ASSERT_UNCHANGED (nm_setting_ip_config_remove_address (s_ip4, 1));
 	g_test_assert_expected_messages ();
 
@@ -3043,7 +3641,7 @@ test_setting_ip4_changed_signal (void)
 	ASSERT_CHANGED (nm_setting_ip_config_add_route (s_ip4, route));
 	ASSERT_CHANGED (nm_setting_ip_config_remove_route (s_ip4, 0));
 
-	g_test_expect_message ("libnm", G_LOG_LEVEL_CRITICAL, NMTST_G_RETURN_MSG (idx < priv->routes->len));
+	g_test_expect_message ("libnm", G_LOG_LEVEL_CRITICAL, NMTST_G_RETURN_MSG (idx >= 0 && idx < priv->routes->len));
 	ASSERT_UNCHANGED (nm_setting_ip_config_remove_route (s_ip4, 1));
 	g_test_assert_expected_messages ();
 
@@ -3053,7 +3651,7 @@ test_setting_ip4_changed_signal (void)
 	ASSERT_CHANGED (nm_setting_ip_config_add_dns_option (s_ip4, "debug"));
 	ASSERT_CHANGED (nm_setting_ip_config_remove_dns_option (s_ip4, 0));
 
-	g_test_expect_message ("libnm", G_LOG_LEVEL_CRITICAL, NMTST_G_RETURN_MSG (idx < priv->dns_options->len));
+	g_test_expect_message ("libnm", G_LOG_LEVEL_CRITICAL, NMTST_G_RETURN_MSG (idx >= 0 && idx < priv->dns_options->len));
 	ASSERT_UNCHANGED (nm_setting_ip_config_remove_dns_option (s_ip4, 1));
 	g_test_assert_expected_messages ();
 
@@ -3084,7 +3682,7 @@ test_setting_ip6_changed_signal (void)
 	ASSERT_CHANGED (nm_setting_ip_config_add_dns (s_ip6, "1:2:3::4:5:6"));
 	ASSERT_CHANGED (nm_setting_ip_config_remove_dns (s_ip6, 0));
 
-	g_test_expect_message ("libnm", G_LOG_LEVEL_CRITICAL, NMTST_G_RETURN_MSG (idx < priv->dns->len));
+	g_test_expect_message ("libnm", G_LOG_LEVEL_CRITICAL, NMTST_G_RETURN_MSG (idx >= 0 && idx < priv->dns->len));
 	ASSERT_UNCHANGED (nm_setting_ip_config_remove_dns (s_ip6, 1));
 	g_test_assert_expected_messages ();
 
@@ -3094,7 +3692,7 @@ test_setting_ip6_changed_signal (void)
 	ASSERT_CHANGED (nm_setting_ip_config_add_dns_search (s_ip6, "foobar.com"));
 	ASSERT_CHANGED (nm_setting_ip_config_remove_dns_search (s_ip6, 0));
 
-	g_test_expect_message ("libnm", G_LOG_LEVEL_CRITICAL, NMTST_G_RETURN_MSG (idx < priv->dns_search->len));
+	g_test_expect_message ("libnm", G_LOG_LEVEL_CRITICAL, NMTST_G_RETURN_MSG (idx >= 0 && idx < priv->dns_search->len));
 	ASSERT_UNCHANGED (nm_setting_ip_config_remove_dns_search (s_ip6, 1));
 	g_test_assert_expected_messages ();
 
@@ -3107,7 +3705,7 @@ test_setting_ip6_changed_signal (void)
 	ASSERT_CHANGED (nm_setting_ip_config_add_address (s_ip6, addr));
 	ASSERT_CHANGED (nm_setting_ip_config_remove_address (s_ip6, 0));
 
-	g_test_expect_message ("libnm", G_LOG_LEVEL_CRITICAL, NMTST_G_RETURN_MSG (idx < priv->addresses->len));
+	g_test_expect_message ("libnm", G_LOG_LEVEL_CRITICAL, NMTST_G_RETURN_MSG (idx >= 0 && idx < priv->addresses->len));
 	ASSERT_UNCHANGED (nm_setting_ip_config_remove_address (s_ip6, 1));
 	g_test_assert_expected_messages ();
 
@@ -3120,7 +3718,7 @@ test_setting_ip6_changed_signal (void)
 	ASSERT_CHANGED (nm_setting_ip_config_add_route (s_ip6, route));
 	ASSERT_CHANGED (nm_setting_ip_config_remove_route (s_ip6, 0));
 
-	g_test_expect_message ("libnm", G_LOG_LEVEL_CRITICAL, NMTST_G_RETURN_MSG (idx < priv->routes->len));
+	g_test_expect_message ("libnm", G_LOG_LEVEL_CRITICAL, NMTST_G_RETURN_MSG (idx >= 0 && idx < priv->routes->len));
 	ASSERT_UNCHANGED (nm_setting_ip_config_remove_route (s_ip6, 1));
 	g_test_assert_expected_messages ();
 
@@ -3492,7 +4090,7 @@ _test_connection_normalize_type_normalizable_setting (const char *type,
 
 	base_type = nm_setting_lookup_type (type);
 	g_assert (base_type != G_TYPE_INVALID);
-	g_assert (_nm_setting_type_is_base_type (base_type));
+	g_assert (_nm_setting_type_get_base_type_priority (base_type) != NM_SETTING_PRIORITY_INVALID);
 
 	con = nmtst_create_minimal_connection (id, NULL, NULL, &s_con);
 
@@ -3522,7 +4120,7 @@ _test_connection_normalize_type_unnormalizable_setting (const char *type)
 
 	base_type = nm_setting_lookup_type (type);
 	g_assert (base_type != G_TYPE_INVALID);
-	g_assert (_nm_setting_type_is_base_type (base_type));
+	g_assert (_nm_setting_type_get_base_type_priority (base_type) != NM_SETTING_PRIORITY_INVALID);
 
 	con = nmtst_create_minimal_connection (id, NULL, NULL, &s_con);
 
@@ -3545,7 +4143,7 @@ _test_connection_normalize_type_normalizable_type (const char *type,
 
 	base_type = nm_setting_lookup_type (type);
 	g_assert (base_type != G_TYPE_INVALID);
-	g_assert (_nm_setting_type_is_base_type (base_type));
+	g_assert (_nm_setting_type_get_base_type_priority (base_type) != NM_SETTING_PRIORITY_INVALID);
 
 	con = nmtst_create_minimal_connection (id, NULL, NULL, &s_con);
 
@@ -3558,7 +4156,7 @@ _test_connection_normalize_type_normalizable_type (const char *type,
 		nm_connection_add_setting (con, s_base);
 	}
 
-	g_assert (!nm_connection_get_connection_type (con));
+	g_assert (!nm_setting_connection_get_connection_type (s_con));
 	g_assert (nm_connection_get_setting_by_name (con, type) == s_base);
 
 	nmtst_assert_connection_verifies_after_normalization (con, NM_CONNECTION_ERROR, NM_CONNECTION_ERROR_MISSING_PROPERTY);
@@ -4058,6 +4656,344 @@ test_connection_normalize_shared_addresses (void)
 }
 
 static void
+test_connection_normalize_ovs_interface_type_system (gconstpointer test_data)
+{
+	const guint TEST_CASE = GPOINTER_TO_UINT (test_data);
+	gs_unref_object NMConnection *con = NULL;
+	NMSettingConnection *s_con;
+	NMSettingOvsInterface *s_ovs_if;
+
+	con = nmtst_create_minimal_connection ("test_connection_normalize_ovs_interface_type_system",
+	                                       NULL,
+	                                       NM_SETTING_WIRED_SETTING_NAME, &s_con);
+
+	switch (TEST_CASE) {
+	case 1:
+		g_object_set (s_con,
+		              NM_SETTING_CONNECTION_MASTER, "master0",
+		              NM_SETTING_CONNECTION_SLAVE_TYPE, NM_SETTING_OVS_PORT_SETTING_NAME,
+		              NULL);
+
+		nmtst_assert_connection_verifies_after_normalization (con, NM_CONNECTION_ERROR, NM_CONNECTION_ERROR_MISSING_SETTING);
+
+		nmtst_connection_normalize (con);
+		nmtst_assert_connection_has_settings (con, NM_SETTING_CONNECTION_SETTING_NAME,
+		                                           NM_SETTING_WIRED_SETTING_NAME,
+		                                           NM_SETTING_OVS_INTERFACE_SETTING_NAME);
+		s_ovs_if = nm_connection_get_setting_ovs_interface (con);
+		g_assert (s_ovs_if);
+		g_assert_cmpstr (nm_setting_ovs_interface_get_interface_type (s_ovs_if), ==, "system");
+		break;
+	case 2:
+		g_object_set (s_con,
+		              NM_SETTING_CONNECTION_MASTER, "master0",
+		              NM_SETTING_CONNECTION_SLAVE_TYPE, NM_SETTING_OVS_PORT_SETTING_NAME,
+		              NULL);
+
+		s_ovs_if = NM_SETTING_OVS_INTERFACE (nm_setting_ovs_interface_new ());
+		nm_connection_add_setting (con, NM_SETTING (s_ovs_if));
+
+		nmtst_assert_connection_verifies_after_normalization (con, NM_CONNECTION_ERROR, NM_CONNECTION_ERROR_MISSING_PROPERTY);
+
+		nmtst_connection_normalize (con);
+		nmtst_assert_connection_has_settings (con, NM_SETTING_CONNECTION_SETTING_NAME,
+		                                           NM_SETTING_WIRED_SETTING_NAME,
+		                                           NM_SETTING_OVS_INTERFACE_SETTING_NAME);
+		g_assert (s_ovs_if == nm_connection_get_setting_ovs_interface (con));
+		g_assert_cmpstr (nm_setting_ovs_interface_get_interface_type (s_ovs_if), ==, "system");
+		break;
+	case 3:
+		g_object_set (s_con,
+		              NM_SETTING_CONNECTION_MASTER, "master0",
+		              NM_SETTING_CONNECTION_SLAVE_TYPE, NM_SETTING_OVS_PORT_SETTING_NAME,
+		              NULL);
+
+		s_ovs_if = NM_SETTING_OVS_INTERFACE (nm_setting_ovs_interface_new ());
+		nm_connection_add_setting (con, NM_SETTING (s_ovs_if));
+
+		g_object_set (s_ovs_if,
+		              NM_SETTING_OVS_INTERFACE_TYPE, "system",
+		              NULL);
+		nmtst_assert_connection_verifies_without_normalization (con);
+		nmtst_assert_connection_has_settings (con, NM_SETTING_CONNECTION_SETTING_NAME,
+		                                           NM_SETTING_WIRED_SETTING_NAME,
+		                                           NM_SETTING_OVS_INTERFACE_SETTING_NAME);
+		break;
+	case 4:
+		g_object_set (s_con,
+		              NM_SETTING_CONNECTION_MASTER, "master0",
+		              NM_SETTING_CONNECTION_SLAVE_TYPE, NM_SETTING_OVS_PORT_SETTING_NAME,
+		              NULL);
+
+		s_ovs_if = NM_SETTING_OVS_INTERFACE (nm_setting_ovs_interface_new ());
+		nm_connection_add_setting (con, NM_SETTING (s_ovs_if));
+
+		g_object_set (s_ovs_if,
+		              NM_SETTING_OVS_INTERFACE_TYPE, "internal",
+		              NULL);
+		/* the setting doesn't verify, because the interface-type must be "system". */
+		nmtst_assert_connection_unnormalizable (con, NM_CONNECTION_ERROR, NM_CONNECTION_ERROR_INVALID_PROPERTY);
+		break;
+	case 5:
+		g_object_set (s_con,
+		              NM_SETTING_CONNECTION_MASTER, "master0",
+		              NULL);
+
+		s_ovs_if = NM_SETTING_OVS_INTERFACE (nm_setting_ovs_interface_new ());
+		nm_connection_add_setting (con, NM_SETTING (s_ovs_if));
+
+		g_object_set (s_ovs_if,
+		              NM_SETTING_OVS_INTERFACE_TYPE, "system",
+		              NULL);
+		nmtst_assert_connection_verifies_after_normalization (con, NM_CONNECTION_ERROR, NM_CONNECTION_ERROR_MISSING_PROPERTY);
+		nmtst_connection_normalize (con);
+		nmtst_assert_connection_has_settings (con, NM_SETTING_CONNECTION_SETTING_NAME,
+		                                           NM_SETTING_WIRED_SETTING_NAME,
+		                                           NM_SETTING_OVS_INTERFACE_SETTING_NAME);
+		g_assert (s_con == nm_connection_get_setting_connection (con));
+		g_assert_cmpstr (nm_setting_connection_get_slave_type (s_con), ==, NM_SETTING_OVS_PORT_SETTING_NAME);
+		break;
+	case 6:
+		g_object_set (s_con,
+		              NM_SETTING_CONNECTION_MASTER, "master0",
+		              NM_SETTING_CONNECTION_SLAVE_TYPE, NM_SETTING_BRIDGE_SETTING_NAME,
+		              NULL);
+
+		s_ovs_if = NM_SETTING_OVS_INTERFACE (nm_setting_ovs_interface_new ());
+		nm_connection_add_setting (con, NM_SETTING (s_ovs_if));
+
+		g_object_set (s_ovs_if,
+		              NM_SETTING_OVS_INTERFACE_TYPE, "system",
+		              NULL);
+		nmtst_assert_connection_unnormalizable (con, NM_CONNECTION_ERROR, NM_CONNECTION_ERROR_INVALID_PROPERTY);
+		break;
+	case 7:
+		g_object_set (s_con,
+		              NM_SETTING_CONNECTION_MASTER, "master0",
+		              NM_SETTING_CONNECTION_SLAVE_TYPE, NM_SETTING_BRIDGE_SETTING_NAME,
+		              NULL);
+
+		nm_connection_add_setting (con, nm_setting_bridge_port_new ());
+
+		s_ovs_if = NM_SETTING_OVS_INTERFACE (nm_setting_ovs_interface_new ());
+		nm_connection_add_setting (con, NM_SETTING (s_ovs_if));
+
+		g_object_set (s_ovs_if,
+		              NM_SETTING_OVS_INTERFACE_TYPE, "system",
+		              NULL);
+		nmtst_assert_connection_unnormalizable (con, NM_CONNECTION_ERROR, NM_CONNECTION_ERROR_INVALID_PROPERTY);
+		break;
+	default:
+		g_assert_not_reached ();
+		break;
+	}
+}
+
+static void
+test_connection_normalize_ovs_interface_type_ovs_interface (gconstpointer test_data)
+{
+	const guint TEST_CASE = GPOINTER_TO_UINT (test_data);
+	gs_unref_object NMConnection *con = NULL;
+	NMSettingConnection *s_con;
+	NMSettingOvsInterface *s_ovs_if;
+	NMSettingOvsPatch *s_ovs_patch;
+	NMSettingIP4Config *s_ip4;
+	NMSettingIP6Config *s_ip6;
+
+	con = nmtst_create_minimal_connection ("test_connection_normalize_ovs_interface_type_ovs_interface",
+	                                       NULL,
+	                                       NM_SETTING_OVS_INTERFACE_SETTING_NAME, &s_con);
+	s_ovs_if = nm_connection_get_setting_ovs_interface (con);
+	g_assert (s_ovs_if);
+
+	switch (TEST_CASE) {
+	case 1:
+		nmtst_assert_connection_unnormalizable (con, NM_CONNECTION_ERROR, NM_CONNECTION_ERROR_INVALID_PROPERTY);
+		break;
+	case 2:
+		g_object_set (s_con,
+		              NM_SETTING_CONNECTION_MASTER, "master0",
+		              NULL);
+		nmtst_assert_connection_verifies_after_normalization (con, NM_CONNECTION_ERROR, NM_CONNECTION_ERROR_MISSING_PROPERTY);
+		nmtst_connection_normalize (con);
+		nmtst_assert_connection_has_settings (con, NM_SETTING_CONNECTION_SETTING_NAME,
+		                                           NM_SETTING_IP4_CONFIG_SETTING_NAME,
+		                                           NM_SETTING_IP6_CONFIG_SETTING_NAME,
+		                                           NM_SETTING_PROXY_SETTING_NAME,
+		                                           NM_SETTING_OVS_INTERFACE_SETTING_NAME);
+		g_assert (s_con == nm_connection_get_setting_connection (con));
+		g_assert (s_ovs_if == nm_connection_get_setting_ovs_interface (con));
+		g_assert_cmpstr (nm_setting_connection_get_slave_type (s_con), ==, NM_SETTING_OVS_PORT_SETTING_NAME);
+		g_assert_cmpstr (nm_setting_ovs_interface_get_interface_type (s_ovs_if), ==, "internal");
+		break;
+	case 3:
+		g_object_set (s_con,
+		              NM_SETTING_CONNECTION_MASTER, "master0",
+		              NM_SETTING_CONNECTION_SLAVE_TYPE, NM_SETTING_OVS_PORT_SETTING_NAME,
+		              NULL);
+		nmtst_assert_connection_verifies_after_normalization (con, NM_CONNECTION_ERROR, NM_CONNECTION_ERROR_MISSING_PROPERTY);
+		nmtst_connection_normalize (con);
+		nmtst_assert_connection_has_settings (con, NM_SETTING_CONNECTION_SETTING_NAME,
+		                                           NM_SETTING_IP4_CONFIG_SETTING_NAME,
+		                                           NM_SETTING_IP6_CONFIG_SETTING_NAME,
+		                                           NM_SETTING_PROXY_SETTING_NAME,
+		                                           NM_SETTING_OVS_INTERFACE_SETTING_NAME);
+		g_assert (s_con == nm_connection_get_setting_connection (con));
+		g_assert (s_ovs_if == nm_connection_get_setting_ovs_interface (con));
+		g_assert_cmpstr (nm_setting_connection_get_slave_type (s_con), ==, NM_SETTING_OVS_PORT_SETTING_NAME);
+		g_assert_cmpstr (nm_setting_ovs_interface_get_interface_type (s_ovs_if), ==, "internal");
+		break;
+	case 4:
+		g_object_set (s_con,
+		              NM_SETTING_CONNECTION_MASTER, "master0",
+		              NULL);
+		g_object_set (s_ovs_if,
+		              NM_SETTING_OVS_INTERFACE_TYPE, "internal",
+		              NULL);
+		nmtst_assert_connection_verifies_after_normalization (con, NM_CONNECTION_ERROR, NM_CONNECTION_ERROR_MISSING_PROPERTY);
+		nmtst_connection_normalize (con);
+		nmtst_assert_connection_has_settings (con, NM_SETTING_CONNECTION_SETTING_NAME,
+		                                           NM_SETTING_IP4_CONFIG_SETTING_NAME,
+		                                           NM_SETTING_IP6_CONFIG_SETTING_NAME,
+		                                           NM_SETTING_PROXY_SETTING_NAME,
+		                                           NM_SETTING_OVS_INTERFACE_SETTING_NAME);
+		g_assert (s_con == nm_connection_get_setting_connection (con));
+		g_assert (s_ovs_if == nm_connection_get_setting_ovs_interface (con));
+		g_assert_cmpstr (nm_setting_connection_get_slave_type (s_con), ==, NM_SETTING_OVS_PORT_SETTING_NAME);
+		g_assert_cmpstr (nm_setting_ovs_interface_get_interface_type (s_ovs_if), ==, "internal");
+		break;
+	case 5:
+		g_object_set (s_con,
+		              NM_SETTING_CONNECTION_MASTER, "master0",
+		              NM_SETTING_CONNECTION_SLAVE_TYPE, NM_SETTING_OVS_PORT_SETTING_NAME,
+		              NULL);
+		g_object_set (s_ovs_if,
+		              NM_SETTING_OVS_INTERFACE_TYPE, "internal",
+		              NULL);
+		nm_connection_add_setting (con, nm_setting_ip4_config_new ());
+		nm_connection_add_setting (con, nm_setting_ip6_config_new ());
+		nm_connection_add_setting (con, nm_setting_proxy_new ());
+		s_ip4 = NM_SETTING_IP4_CONFIG (nm_connection_get_setting_ip4_config (con));
+		s_ip6 = NM_SETTING_IP6_CONFIG (nm_connection_get_setting_ip6_config (con));
+		g_object_set (s_ip4,
+		              NM_SETTING_IP_CONFIG_METHOD, "auto",
+		              NULL);
+		g_object_set (s_ip6,
+		              NM_SETTING_IP_CONFIG_METHOD, "auto",
+		              NULL);
+		nmtst_assert_connection_verifies_without_normalization (con);
+		nmtst_assert_connection_has_settings (con, NM_SETTING_CONNECTION_SETTING_NAME,
+		                                           NM_SETTING_IP4_CONFIG_SETTING_NAME,
+		                                           NM_SETTING_IP6_CONFIG_SETTING_NAME,
+		                                           NM_SETTING_PROXY_SETTING_NAME,
+		                                           NM_SETTING_OVS_INTERFACE_SETTING_NAME);
+		break;
+	case 6:
+		g_object_set (s_con,
+		              NM_SETTING_CONNECTION_MASTER, "master0",
+		              NM_SETTING_CONNECTION_SLAVE_TYPE, NM_SETTING_OVS_PORT_SETTING_NAME,
+		              NULL);
+		g_object_set (s_ovs_if,
+		              NM_SETTING_OVS_INTERFACE_TYPE, "internal",
+		              NULL);
+		nmtst_assert_connection_verifies_and_normalizable (con);
+		nmtst_connection_normalize (con);
+		nmtst_assert_connection_has_settings (con, NM_SETTING_CONNECTION_SETTING_NAME,
+		                                           NM_SETTING_IP4_CONFIG_SETTING_NAME,
+		                                           NM_SETTING_IP6_CONFIG_SETTING_NAME,
+		                                           NM_SETTING_PROXY_SETTING_NAME,
+		                                           NM_SETTING_OVS_INTERFACE_SETTING_NAME);
+		g_assert (s_con == nm_connection_get_setting_connection (con));
+		g_assert (s_ovs_if == nm_connection_get_setting_ovs_interface (con));
+		g_assert_cmpstr (nm_setting_connection_get_slave_type (s_con), ==, NM_SETTING_OVS_PORT_SETTING_NAME);
+		g_assert_cmpstr (nm_setting_ovs_interface_get_interface_type (s_ovs_if), ==, "internal");
+		break;
+	case 7:
+		g_object_set (s_con,
+		              NM_SETTING_CONNECTION_MASTER, "master0",
+		              NM_SETTING_CONNECTION_SLAVE_TYPE, NM_SETTING_OVS_PORT_SETTING_NAME,
+		              NULL);
+		g_object_set (s_ovs_if,
+		              NM_SETTING_OVS_INTERFACE_TYPE, "system",
+		              NULL);
+		nmtst_assert_connection_unnormalizable (con, NM_CONNECTION_ERROR, NM_CONNECTION_ERROR_INVALID_PROPERTY);
+		break;
+	case 8:
+		g_object_set (s_con,
+		              NM_SETTING_CONNECTION_MASTER, "master0",
+		              NM_SETTING_CONNECTION_SLAVE_TYPE, NM_SETTING_OVS_PORT_SETTING_NAME,
+		              NULL);
+		g_object_set (s_ovs_if,
+		              NM_SETTING_OVS_INTERFACE_TYPE, "bogus",
+		              NULL);
+		nmtst_assert_connection_unnormalizable (con, NM_CONNECTION_ERROR, NM_CONNECTION_ERROR_INVALID_PROPERTY);
+		break;
+	case 9:
+		g_object_set (s_con,
+		              NM_SETTING_CONNECTION_MASTER, "master0",
+		              NM_SETTING_CONNECTION_SLAVE_TYPE, NM_SETTING_OVS_PORT_SETTING_NAME,
+		              NULL);
+		g_object_set (s_ovs_if,
+		              NM_SETTING_OVS_INTERFACE_TYPE, "patch",
+		              NULL);
+		nmtst_assert_connection_unnormalizable (con, NM_CONNECTION_ERROR, NM_CONNECTION_ERROR_MISSING_SETTING);
+		break;
+	case 10:
+		g_object_set (s_con,
+		              NM_SETTING_CONNECTION_MASTER, "master0",
+		              NM_SETTING_CONNECTION_SLAVE_TYPE, NM_SETTING_OVS_PORT_SETTING_NAME,
+		              NULL);
+		g_object_set (s_ovs_if,
+		              NM_SETTING_OVS_INTERFACE_TYPE, "patch",
+		              NULL);
+		nm_connection_add_setting (con, nm_setting_ovs_patch_new ());
+		nmtst_assert_connection_unnormalizable (con, NM_CONNECTION_ERROR, NM_CONNECTION_ERROR_MISSING_PROPERTY);
+		break;
+	case 11:
+		g_object_set (s_con,
+		              NM_SETTING_CONNECTION_MASTER, "master0",
+		              NM_SETTING_CONNECTION_SLAVE_TYPE, NM_SETTING_OVS_PORT_SETTING_NAME,
+		              NM_SETTING_CONNECTION_INTERFACE_NAME, "adsf",
+		              NULL);
+		g_object_set (s_ovs_if,
+		              NM_SETTING_OVS_INTERFACE_TYPE, "patch",
+		              NULL);
+		nm_connection_add_setting (con, nm_setting_ovs_patch_new ());
+		nmtst_assert_connection_unnormalizable (con, NM_CONNECTION_ERROR, NM_CONNECTION_ERROR_MISSING_PROPERTY);
+		break;
+	case 12:
+		g_object_set (s_con,
+		              NM_SETTING_CONNECTION_MASTER, "master0",
+		              NM_SETTING_CONNECTION_SLAVE_TYPE, NM_SETTING_OVS_PORT_SETTING_NAME,
+		              NM_SETTING_CONNECTION_INTERFACE_NAME, "adsf",
+		              NULL);
+		g_object_set (s_ovs_if,
+		              NM_SETTING_OVS_INTERFACE_TYPE, "patch",
+		              NULL);
+		s_ovs_patch = NM_SETTING_OVS_PATCH (nm_setting_ovs_patch_new ());
+		nm_connection_add_setting (con, NM_SETTING (s_ovs_patch));
+		g_object_set (s_ovs_patch,
+		              NM_SETTING_OVS_PATCH_PEER, "1.2.3.4",
+		              NULL);
+		nmtst_assert_connection_verifies_and_normalizable (con);
+		nmtst_connection_normalize (con);
+		nmtst_assert_connection_has_settings (con, NM_SETTING_CONNECTION_SETTING_NAME,
+		                                           NM_SETTING_IP4_CONFIG_SETTING_NAME,
+		                                           NM_SETTING_IP6_CONFIG_SETTING_NAME,
+		                                           NM_SETTING_PROXY_SETTING_NAME,
+		                                           NM_SETTING_OVS_INTERFACE_SETTING_NAME,
+		                                           NM_SETTING_OVS_PATCH_SETTING_NAME);
+		g_assert (s_con == nm_connection_get_setting_connection (con));
+		g_assert (s_ovs_if == nm_connection_get_setting_ovs_interface (con));
+		g_assert_cmpstr (nm_setting_connection_get_slave_type (s_con), ==, NM_SETTING_OVS_PORT_SETTING_NAME);
+		g_assert_cmpstr (nm_setting_ovs_interface_get_interface_type (s_ovs_if), ==, "patch");
+		break;
+	default:
+		g_assert_not_reached ();
+	}
+}
+
+static void
 test_setting_ip4_gateway (void)
 {
 	NMConnection *conn;
@@ -4375,6 +5311,88 @@ test_hexstr2bin (void)
 
 /*****************************************************************************/
 
+static void
+_do_strquote (const char *str, gsize buf_len, const char *expected)
+{
+	char canary = (char) nmtst_get_rand_int ();
+	gs_free char *buf_full = g_malloc (buf_len + 2);
+	char *buf = &buf_full[1];
+	const char *b;
+
+	buf[-1] = canary;
+	buf[buf_len] = canary;
+
+	if (buf_len == 0) {
+		b = nm_strquote (NULL, 0, str);
+		g_assert (b == NULL);
+		g_assert (expected == NULL);
+		b = nm_strquote (buf, 0, str);
+		g_assert (b == buf);
+	} else {
+		b = nm_strquote (buf, buf_len, str);
+		g_assert (b == buf);
+		g_assert (strlen (b) < buf_len);
+		g_assert_cmpstr (expected, ==, b);
+	}
+
+	g_assert (buf[-1] == canary);
+	g_assert (buf[buf_len] == canary);
+}
+
+static void
+test_nm_strquote (void)
+{
+	_do_strquote (NULL, 0, NULL);
+	_do_strquote ("", 0, NULL);
+	_do_strquote ("a", 0, NULL);
+	_do_strquote ("ab", 0, NULL);
+
+	_do_strquote (NULL, 1, "");
+	_do_strquote (NULL, 2, "(");
+	_do_strquote (NULL, 3, "(n");
+	_do_strquote (NULL, 4, "(nu");
+	_do_strquote (NULL, 5, "(nul");
+	_do_strquote (NULL, 6, "(null");
+	_do_strquote (NULL, 7, "(null)");
+	_do_strquote (NULL, 8, "(null)");
+	_do_strquote (NULL, 100, "(null)");
+
+	_do_strquote ("", 1, "");
+	_do_strquote ("", 2, "^");
+	_do_strquote ("", 3, "\"\"");
+	_do_strquote ("", 4, "\"\"");
+	_do_strquote ("", 5, "\"\"");
+	_do_strquote ("", 100, "\"\"");
+
+	_do_strquote ("a", 1, "");
+	_do_strquote ("a", 2, "^");
+	_do_strquote ("a", 3, "\"^");
+	_do_strquote ("a", 4, "\"a\"");
+	_do_strquote ("a", 5, "\"a\"");
+	_do_strquote ("a", 6, "\"a\"");
+	_do_strquote ("a", 100, "\"a\"");
+
+	_do_strquote ("ab", 1, "");
+	_do_strquote ("ab", 2, "^");
+	_do_strquote ("ab", 3, "\"^");
+	_do_strquote ("ab", 4, "\"a^");
+	_do_strquote ("ab", 5, "\"ab\"");
+	_do_strquote ("ab", 6, "\"ab\"");
+	_do_strquote ("ab", 7, "\"ab\"");
+	_do_strquote ("ab", 100, "\"ab\"");
+
+	_do_strquote ("abc", 1, "");
+	_do_strquote ("abc", 2, "^");
+	_do_strquote ("abc", 3, "\"^");
+	_do_strquote ("abc", 4, "\"a^");
+	_do_strquote ("abc", 5, "\"ab^");
+	_do_strquote ("abc", 6, "\"abc\"");
+	_do_strquote ("abc", 7, "\"abc\"");
+	_do_strquote ("abc", 100, "\"abc\"");
+}
+
+/*****************************************************************************/
+
 #define UUID_NIL        "00000000-0000-0000-0000-000000000000"
 #define UUID_NS_DNS     "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
 
@@ -4655,6 +5673,81 @@ test_nm_utils_strstrdictkey (void)
 
 /*****************************************************************************/
 
+static guint
+_g_strv_length (gconstpointer arr)
+{
+	return arr ? g_strv_length ((char **) arr) : 0;
+}
+
+static void
+test_nm_ptrarray_len (void)
+{
+#define _PTRARRAY_cmp(len, arr) \
+	G_STMT_START { \
+		g_assert_cmpint (len, ==, NM_PTRARRAY_LEN (arr)); \
+		g_assert_cmpint (len, ==, _g_strv_length (arr)); \
+	} G_STMT_END
+#define _PTRARRAY_LEN0(T) \
+	G_STMT_START { \
+		T **vnull = NULL; \
+		T *const*vnull1 = NULL; \
+		T *const*const vnull2 = NULL; \
+		T *v0[] = { NULL }; \
+		T *const*v01 = v0; \
+		T *const*const v02 = v0; \
+		T **const v03 = v0; \
+		\
+		_PTRARRAY_cmp (0, vnull); \
+		_PTRARRAY_cmp (0, vnull1); \
+		_PTRARRAY_cmp (0, vnull2); \
+		_PTRARRAY_cmp (0, v0); \
+		_PTRARRAY_cmp (0, v01); \
+		_PTRARRAY_cmp (0, v02); \
+		_PTRARRAY_cmp (0, v03); \
+	} G_STMT_END
+
+	_PTRARRAY_LEN0 (char);
+	_PTRARRAY_LEN0 (const char);
+	_PTRARRAY_LEN0 (int);
+	_PTRARRAY_LEN0 (const int);
+	_PTRARRAY_LEN0 (void *);
+	_PTRARRAY_LEN0 (void);
+	_PTRARRAY_LEN0 (const void);
+
+#define _PTRARRAY_LENn(T) \
+	G_STMT_START { \
+		T x[5] = { 0 }; \
+		\
+		T *v1[] = { &x[0], NULL }; \
+		T *const*v11 = v1; \
+		T *const*const v12 = v1; \
+		T **const v13 = v1; \
+		\
+		T *v2[] = { &x[0], &x[1], NULL }; \
+		T *const*v21 = v2; \
+		T *const*const v22 = v2; \
+		T **const v23 = v2; \
+		\
+		_PTRARRAY_cmp (1, v1); \
+		_PTRARRAY_cmp (1, v11); \
+		_PTRARRAY_cmp (1, v12); \
+		_PTRARRAY_cmp (1, v13); \
+		\
+		_PTRARRAY_cmp (2, v2); \
+		_PTRARRAY_cmp (2, v21); \
+		_PTRARRAY_cmp (2, v22); \
+		_PTRARRAY_cmp (2, v23); \
+	} G_STMT_END
+
+	_PTRARRAY_LENn (char);
+	_PTRARRAY_LENn (const char);
+	_PTRARRAY_LENn (int);
+	_PTRARRAY_LENn (const int);
+	_PTRARRAY_LENn (void *);
+}
+
+/*****************************************************************************/
+
 static void
 test_nm_utils_dns_option_validate_do (char *option, gboolean ipv6, const NMUtilsDNSOptionDesc *descs,
                                       gboolean exp_result, char *exp_name, gboolean exp_value)
@@ -4808,10 +5901,26 @@ test_nm_utils_team_config_equal (void)
 	                          "{ \"runner\" :  { \"name\" : \"random\"} }",
 	                          FALSE,
 	                          TRUE);
+	_team_config_equal_check ("{ \"runner\" :  { \"name\" : \"loadbalance\"} }",
+	                          "{ \"runner\" :  { \"name\" : \"loadbalance\"} }",
+	                          FALSE,
+	                          TRUE);
 	_team_config_equal_check ("{ \"runner\" :  { \"name\" : \"random\"}, \"ports\" : { \"eth0\" : {} } }",
 	                          "{ \"runner\" :  { \"name\" : \"random\"}, \"ports\" : { \"eth1\" : {} } }",
 	                          FALSE,
 	                          TRUE);
+	_team_config_equal_check ("{ \"runner\" :  { \"name\" : \"lacp\"} }",
+	                          "{ \"runner\" :  { \"name\" : \"lacp\", \"tx_hash\" : [ \"eth\", \"ipv4\", \"ipv6\" ] } }",
+	                          FALSE,
+	                          TRUE);
+	_team_config_equal_check ("{ \"runner\" :  { \"name\" : \"roundrobin\"} }",
+	                          "{ \"runner\" :  { \"name\" : \"roundrobin\", \"tx_hash\" : [ \"eth\", \"ipv4\", \"ipv6\" ] } }",
+	                          FALSE,
+	                          FALSE);
+	_team_config_equal_check ("{ \"runner\" :  { \"name\" : \"lacp\"} }",
+	                          "{ \"runner\" :  { \"name\" : \"lacp\", \"tx_hash\" : [ \"eth\" ] } }",
+	                          FALSE,
+	                          FALSE);
 
 	/* team port config */
 	_team_config_equal_check ("{ }",
@@ -5030,7 +6139,7 @@ static void
 _test_find_binary_search_do (const int *array, gsize len)
 {
 	gsize i;
-	gssize idx;
+	gssize idx, idx_first, idx_last;
 	gs_free gconstpointer *parray = g_new (gconstpointer, len);
 	const int NEEDLE = 0;
 	gconstpointer pneedle = GINT_TO_POINTER (NEEDLE);
@@ -5041,10 +6150,10 @@ _test_find_binary_search_do (const int *array, gsize len)
 
 	expected_result = _nm_utils_ptrarray_find_first (parray, len, pneedle);
 
-	idx = _nm_utils_ptrarray_find_binary_search (parray, len, pneedle, _test_find_binary_search_cmp, NULL);
-	if (expected_result >= 0)
+	idx = _nm_utils_ptrarray_find_binary_search (parray, len, pneedle, _test_find_binary_search_cmp, NULL, &idx_first, &idx_last);
+	if (expected_result >= 0) {
 		g_assert_cmpint (expected_result, ==, idx);
-	else {
+	} else {
 		gssize idx2 = ~idx;
 		g_assert_cmpint (idx, <, 0);
 
@@ -5053,6 +6162,8 @@ _test_find_binary_search_do (const int *array, gsize len)
 		g_assert (idx2 - 1 < 0 || _test_find_binary_search_cmp (parray[idx2 - 1], pneedle, NULL) < 0);
 		g_assert (idx2 >= len || _test_find_binary_search_cmp (parray[idx2], pneedle, NULL) > 0);
 	}
+	g_assert_cmpint (idx, ==, idx_first);
+	g_assert_cmpint (idx, ==, idx_last);
 	for (i = 0; i < len; i++) {
 		int cmp;
 
@@ -5154,6 +6265,94 @@ test_nm_utils_ptrarray_find_binary_search (void)
 }
 
 /*****************************************************************************/
+
+#define BIN_SEARCH_W_DUPS_LEN    100
+#define BIN_SEARCH_W_DUPS_JITTER 10
+
+static int
+_test_bin_search2_cmp (gconstpointer pa,
+                       gconstpointer pb,
+                       gpointer user_data)
+{
+	int a = GPOINTER_TO_INT (pa);
+	int b = GPOINTER_TO_INT (pb);
+
+	g_assert (a >= 0 && a <= BIN_SEARCH_W_DUPS_LEN + BIN_SEARCH_W_DUPS_JITTER);
+	g_assert (b >= 0 && b <= BIN_SEARCH_W_DUPS_LEN + BIN_SEARCH_W_DUPS_JITTER);
+	NM_CMP_DIRECT (a, b);
+	return 0;
+}
+
+static int
+_test_bin_search2_cmp_p (gconstpointer pa,
+                         gconstpointer pb,
+                         gpointer user_data)
+{
+	return _test_bin_search2_cmp (*((gpointer *) pa), *((gpointer *) pb), NULL);
+}
+
+static void
+test_nm_utils_ptrarray_find_binary_search_with_duplicates (void)
+{
+	gssize idx, idx2, idx_first2, idx_first, idx_last;
+	int i_test, i_len, i;
+	gssize j;
+	gconstpointer arr[BIN_SEARCH_W_DUPS_LEN];
+	const int N_TEST = 10;
+
+	for (i_test = 0; i_test < N_TEST; i_test++) {
+		for (i_len = 0; i_len < BIN_SEARCH_W_DUPS_LEN; i_len++) {
+
+			/* fill with random numbers... surely there are some duplicates
+			 * there... or maybe even there are none... */
+			for (i = 0; i < i_len; i++)
+				arr[i] = GINT_TO_POINTER (nmtst_get_rand_int () % (i_len + BIN_SEARCH_W_DUPS_JITTER));
+			g_qsort_with_data (arr,
+			                   i_len,
+			                   sizeof (gpointer),
+			                   _test_bin_search2_cmp_p,
+			                   NULL);
+			for (i = 0; i < i_len + BIN_SEARCH_W_DUPS_JITTER; i++) {
+				gconstpointer p = GINT_TO_POINTER (i);
+
+				idx = _nm_utils_ptrarray_find_binary_search (arr, i_len, p, _test_bin_search2_cmp, NULL, &idx_first, &idx_last);
+
+				idx_first2 = _nm_utils_ptrarray_find_first (arr, i_len, p);
+
+				idx2 = _nm_utils_array_find_binary_search (arr, sizeof (gpointer), i_len, &p, _test_bin_search2_cmp_p, NULL);
+				g_assert_cmpint (idx, ==, idx2);
+
+				if (idx_first2 < 0) {
+					g_assert_cmpint (idx, <, 0);
+					g_assert_cmpint (idx, ==, idx_first);
+					g_assert_cmpint (idx, ==, idx_last);
+					idx = ~idx;
+					g_assert_cmpint (idx, >=, 0);
+					g_assert_cmpint (idx, <=, i_len);
+					if (i_len == 0)
+						g_assert_cmpint (idx, ==, 0);
+					else {
+						g_assert (idx == i_len || GPOINTER_TO_INT (arr[idx]) > i);
+						g_assert (idx == 0     || GPOINTER_TO_INT (arr[idx - 1]) < i);
+					}
+				} else {
+					g_assert_cmpint (idx_first, ==, idx_first2);
+					g_assert_cmpint (idx_first, >=, 0);
+					g_assert_cmpint (idx_last, <, i_len);
+					g_assert_cmpint (idx_first, <=, idx_last);
+					g_assert_cmpint (idx, >=, idx_first);
+					g_assert_cmpint (idx, <=, idx_last);
+					for (j = idx_first; j < idx_last; j++)
+						g_assert (GPOINTER_TO_INT (arr[j]) == i);
+					g_assert (idx_first == 0 || GPOINTER_TO_INT (arr[idx_first - 1]) < i);
+					g_assert (idx_last == i_len - 1 || GPOINTER_TO_INT (arr[idx_last + 1]) > i);
+				}
+			}
+		}
+	}
+}
+
+/*****************************************************************************/
 static void
 test_nm_utils_enum_from_str_do (GType type, const char *str,
                                 gboolean exp_result, int exp_flags,
@@ -5209,7 +6408,7 @@ static void test_nm_utils_enum (void)
 	test_nm_utils_enum_to_str_do (bool_enum, NM_TEST_GENERAL_BOOL_ENUM_67, "67");
 	test_nm_utils_enum_to_str_do (bool_enum, NM_TEST_GENERAL_BOOL_ENUM_46, "64");
 
-	test_nm_utils_enum_to_str_do (meta_flags, NM_TEST_GENERAL_META_FLAGS_NONE, "");
+	test_nm_utils_enum_to_str_do (meta_flags, NM_TEST_GENERAL_META_FLAGS_NONE, "none");
 	test_nm_utils_enum_to_str_do (meta_flags, NM_TEST_GENERAL_META_FLAGS_BAZ, "baz");
 	test_nm_utils_enum_to_str_do (meta_flags, NM_TEST_GENERAL_META_FLAGS_FOO |
 	                                          NM_TEST_GENERAL_META_FLAGS_BAR |
@@ -5707,8 +6906,12 @@ int main (int argc, char **argv)
 {
 	nmtst_init (&argc, &argv, TRUE);
 
-	/* The tests */
+	g_test_add_func ("/core/general/test_nm_hash", test_nm_hash);
+	g_test_add_func ("/core/general/test_nm_g_slice_free_fcn", test_nm_g_slice_free_fcn);
+	g_test_add_func ("/core/general/test_c_list_sort", test_c_list_sort);
+	g_test_add_func ("/core/general/test_dedup_multi", test_dedup_multi);
 	g_test_add_func ("/core/general/test_utils_str_utf8safe", test_utils_str_utf8safe);
+	g_test_add_func ("/core/general/test_nm_utils_strsplit_set", test_nm_utils_strsplit_set);
 	g_test_add_func ("/core/general/test_nm_in_set", test_nm_in_set);
 	g_test_add_func ("/core/general/test_nm_in_strset", test_nm_in_strset);
 	g_test_add_func ("/core/general/test_setting_vpn_items", test_setting_vpn_items);
@@ -5766,6 +6969,25 @@ int main (int argc, char **argv)
 	g_test_add_func ("/core/general/test_connection_normalize_gateway_never_default", test_connection_normalize_gateway_never_default);
 	g_test_add_func ("/core/general/test_connection_normalize_may_fail", test_connection_normalize_may_fail);
 	g_test_add_func ("/core/general/test_connection_normalize_shared_addresses", test_connection_normalize_shared_addresses);
+	g_test_add_data_func ("/core/general/test_connection_normalize_ovs_interface_type_system/1", GUINT_TO_POINTER (1), test_connection_normalize_ovs_interface_type_system);
+	g_test_add_data_func ("/core/general/test_connection_normalize_ovs_interface_type_system/2", GUINT_TO_POINTER (2), test_connection_normalize_ovs_interface_type_system);
+	g_test_add_data_func ("/core/general/test_connection_normalize_ovs_interface_type_system/3", GUINT_TO_POINTER (3), test_connection_normalize_ovs_interface_type_system);
+	g_test_add_data_func ("/core/general/test_connection_normalize_ovs_interface_type_system/4", GUINT_TO_POINTER (4), test_connection_normalize_ovs_interface_type_system);
+	g_test_add_data_func ("/core/general/test_connection_normalize_ovs_interface_type_system/5", GUINT_TO_POINTER (5), test_connection_normalize_ovs_interface_type_system);
+	g_test_add_data_func ("/core/general/test_connection_normalize_ovs_interface_type_system/6", GUINT_TO_POINTER (6), test_connection_normalize_ovs_interface_type_system);
+	g_test_add_data_func ("/core/general/test_connection_normalize_ovs_interface_type_system/7", GUINT_TO_POINTER (7), test_connection_normalize_ovs_interface_type_system);
+	g_test_add_data_func ("/core/general/test_connection_normalize_ovs_interface_type_ovs_interface/1",  GUINT_TO_POINTER (1),  test_connection_normalize_ovs_interface_type_ovs_interface);
+	g_test_add_data_func ("/core/general/test_connection_normalize_ovs_interface_type_ovs_interface/2",  GUINT_TO_POINTER (2),  test_connection_normalize_ovs_interface_type_ovs_interface);
+	g_test_add_data_func ("/core/general/test_connection_normalize_ovs_interface_type_ovs_interface/3",  GUINT_TO_POINTER (3),  test_connection_normalize_ovs_interface_type_ovs_interface);
+	g_test_add_data_func ("/core/general/test_connection_normalize_ovs_interface_type_ovs_interface/4",  GUINT_TO_POINTER (4),  test_connection_normalize_ovs_interface_type_ovs_interface);
+	g_test_add_data_func ("/core/general/test_connection_normalize_ovs_interface_type_ovs_interface/5",  GUINT_TO_POINTER (5),  test_connection_normalize_ovs_interface_type_ovs_interface);
+	g_test_add_data_func ("/core/general/test_connection_normalize_ovs_interface_type_ovs_interface/6",  GUINT_TO_POINTER (6),  test_connection_normalize_ovs_interface_type_ovs_interface);
+	g_test_add_data_func ("/core/general/test_connection_normalize_ovs_interface_type_ovs_interface/7",  GUINT_TO_POINTER (7),  test_connection_normalize_ovs_interface_type_ovs_interface);
+	g_test_add_data_func ("/core/general/test_connection_normalize_ovs_interface_type_ovs_interface/8",  GUINT_TO_POINTER (8),  test_connection_normalize_ovs_interface_type_ovs_interface);
+	g_test_add_data_func ("/core/general/test_connection_normalize_ovs_interface_type_ovs_interface/9",  GUINT_TO_POINTER (9),  test_connection_normalize_ovs_interface_type_ovs_interface);
+	g_test_add_data_func ("/core/general/test_connection_normalize_ovs_interface_type_ovs_interface/10", GUINT_TO_POINTER (10), test_connection_normalize_ovs_interface_type_ovs_interface);
+	g_test_add_data_func ("/core/general/test_connection_normalize_ovs_interface_type_ovs_interface/11", GUINT_TO_POINTER (11), test_connection_normalize_ovs_interface_type_ovs_interface);
+	g_test_add_data_func ("/core/general/test_connection_normalize_ovs_interface_type_ovs_interface/12", GUINT_TO_POINTER (12), test_connection_normalize_ovs_interface_type_ovs_interface);
 
 	g_test_add_func ("/core/general/test_setting_connection_permissions_helpers", test_setting_connection_permissions_helpers);
 	g_test_add_func ("/core/general/test_setting_connection_permissions_property", test_setting_connection_permissions_property);
@@ -5811,6 +7033,7 @@ int main (int argc, char **argv)
 	g_test_add_func ("/core/general/test_setting_user_data", test_setting_user_data);
 
 	g_test_add_func ("/core/general/hexstr2bin", test_hexstr2bin);
+	g_test_add_func ("/core/general/nm_strquote", test_nm_strquote);
 	g_test_add_func ("/core/general/test_nm_utils_uuid_generate_from_string", test_nm_utils_uuid_generate_from_string);
 	g_test_add_func ("/core/general/_nm_utils_uuid_generate_from_strings", test_nm_utils_uuid_generate_from_strings);
 
@@ -5819,7 +7042,9 @@ int main (int argc, char **argv)
 	g_test_add_func ("/core/general/_glib_compat_g_ptr_array_insert", test_g_ptr_array_insert);
 	g_test_add_func ("/core/general/_glib_compat_g_hash_table_get_keys_as_array", test_g_hash_table_get_keys_as_array);
 	g_test_add_func ("/core/general/_nm_utils_ptrarray_find_binary_search", test_nm_utils_ptrarray_find_binary_search);
+	g_test_add_func ("/core/general/_nm_utils_ptrarray_find_binary_search_with_duplicates", test_nm_utils_ptrarray_find_binary_search_with_duplicates);
 	g_test_add_func ("/core/general/_nm_utils_strstrdictkey", test_nm_utils_strstrdictkey);
+	g_test_add_func ("/core/general/nm_ptrarray_len", test_nm_ptrarray_len);
 
 	g_test_add_func ("/core/general/_nm_utils_dns_option_validate", test_nm_utils_dns_option_validate);
 	g_test_add_func ("/core/general/_nm_utils_dns_option_find_idx", test_nm_utils_dns_option_find_idx);

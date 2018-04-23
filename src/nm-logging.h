@@ -142,11 +142,16 @@ typedef enum  { /*< skip >*/
            (prefix) ?: "", \
            self _NM_UTILS_MACRO_REST(__VA_ARGS__))
 
+static inline gboolean
+_nm_log_ptr_is_debug (NMLogLevel level)
+{
+	return level <= LOGL_DEBUG;
+}
+
 /* log a message for an object (with providing a generic @self pointer) */
 #define nm_log_ptr(level, domain, ifname, con_uuid, self, prefix, ...) \
     G_STMT_START { \
-        NM_PRAGMA_WARNING_DISABLE("-Wtautological-compare") \
-        if ((level) <= LOGL_DEBUG) { \
+        if (_nm_log_ptr_is_debug (level)) { \
             _nm_log_ptr ((level), \
                          (domain), \
                          (ifname), \
@@ -165,7 +170,6 @@ typedef enum  { /*< skip >*/
                     __prefix ?: "", \
                     __prefix ? " " : "" _NM_UTILS_MACRO_REST(__VA_ARGS__)); \
         } \
-        NM_PRAGMA_WARNING_REENABLE \
     } G_STMT_END
 
 
@@ -269,7 +273,7 @@ gboolean nm_logging_syslog_enabled (void);
 /*****************************************************************************/
 
 /* Some implementation define a second set of logging macros, for a separate
- * use. As with the _LOGD() macro familiy above, the exact implementation
+ * use. As with the _LOGD() macro family above, the exact implementation
  * depends on the file that uses them.
  * Still, it encourages a common pattern to have the common set of macros
  * like _LOG2D(), _LOG2I(), etc. and have _LOG2t() which by default

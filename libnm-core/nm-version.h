@@ -132,4 +132,24 @@
 # define NM_AVAILABLE_IN_1_8
 #endif
 
+#if NM_VERSION_MIN_REQUIRED >= NM_VERSION_1_10
+# define NM_DEPRECATED_IN_1_10           G_DEPRECATED
+# define NM_DEPRECATED_IN_1_10_FOR(f)    G_DEPRECATED_FOR(f)
+#else
+# define NM_DEPRECATED_IN_1_10
+# define NM_DEPRECATED_IN_1_10_FOR(f)
+#endif
+
+#if NM_VERSION_MAX_ALLOWED < NM_VERSION_1_10
+# define NM_AVAILABLE_IN_1_10            G_UNAVAILABLE(1,10)
+#else
+# define NM_AVAILABLE_IN_1_10
+#endif
+
+#if NM_VERSION_MAX_ALLOWED < NM_VERSION_1_10_2
+# define NM_AVAILABLE_IN_1_10_2          G_UNAVAILABLE(1,10.2)
+#else
+# define NM_AVAILABLE_IN_1_10_2
+#endif
+
 #endif  /* NM_VERSION_H */

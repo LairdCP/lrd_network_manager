@@ -46,7 +46,7 @@
  **/
 
 G_DEFINE_TYPE_WITH_CODE (NMSettingConnection, nm_setting_connection, NM_TYPE_SETTING,
-                         _nm_register_setting (CONNECTION, 0))
+                         _nm_register_setting (CONNECTION, NM_SETTING_PRIORITY_CONNECTION))
 NM_SETTING_REGISTER_TYPE (NM_TYPE_SETTING_CONNECTION)
 
 #define NM_SETTING_CONNECTION_GET_PRIVATE(o) (G_TYPE_INSTANCE_GET_PRIVATE ((o), NM_TYPE_SETTING_CONNECTION, NMSettingConnectionPrivate))
@@ -80,6 +80,7 @@ typedef struct {
 	guint gateway_ping_timeout;
 	NMMetered metered;
 	NMSettingConnectionLldp lldp;
+	gint auth_retries;
 } NMSettingConnectionPrivate;
 
 enum {
@@ -103,6 +104,7 @@ enum {
 	PROP_METERED,
 	PROP_LLDP,
 	PROP_STABLE_ID,
+	PROP_AUTH_RETRIES,
 
 	LAST_PROP
 };
@@ -553,6 +555,25 @@ nm_setting_connection_get_autoconnect_retries (NMSettingConnection *setting)
 }
 
 /**
+ * nm_setting_connection_get_auth_retries:
+ * @setting: the #NMSettingConnection
+ *
+ * Returns the value contained in the #NMSettingConnection:auth-retries property.
+ *
+ * Returns: the configured authentication retries. Zero means
+ * infinity and -1 means a global default value.
+ *
+ * Since: 1.10
+ **/
+gint
+nm_setting_connection_get_auth_retries (NMSettingConnection *setting)
+{
+	g_return_val_if_fail (NM_IS_SETTING_CONNECTION (setting), -1);
+
+	return NM_SETTING_CONNECTION_GET_PRIVATE (setting)->auth_retries;
+}
+
+/**
  * nm_setting_connection_get_timestamp:
  * @setting: the #NMSettingConnection
  *
@@ -859,6 +880,8 @@ verify (NMSetting *setting, NMConnection *connection, GError **error)
 	gboolean is_slave;
 	const char *slave_setting_type;
 	NMSetting *normerr_base_type = NULL;
+	const char *type;
+	const char *slave_type;
 	const char *normerr_slave_setting_type = NULL;
 	const char *normerr_missing_slave_type = NULL;
 	const char *normerr_missing_slave_type_port = NULL;
@@ -904,8 +927,10 @@ verify (NMSetting *setting, NMConnection *connection, GError **error)
 		}
 	}
 
-	if (!priv->type) {
-		if (!connection || !(normerr_base_type = _nm_connection_find_base_type_setting (connection))) {
+	type = priv->type;
+	if (!type) {
+		if (   !connection
+		    || !(normerr_base_type = _nm_connection_find_base_type_setting (connection))) {
 			g_set_error_literal (error,
 			                     NM_CONNECTION_ERROR,
 			                     NM_CONNECTION_ERROR_MISSING_PROPERTY,
@@ -913,10 +938,11 @@ verify (NMSetting *setting, NMConnection *connection, GError **error)
 			g_prefix_error (error, "%s.%s: ", NM_SETTING_CONNECTION_SETTING_NAME, NM_SETTING_CONNECTION_TYPE);
 			return FALSE;
 		}
+		type = nm_setting_get_name (normerr_base_type);
 	} else {
 		GType base_type;
 
-		if (!priv->type[0]) {
+		if (!type[0]) {
 			g_set_error_literal (error,
 			                     NM_CONNECTION_ERROR,
 			                     NM_CONNECTION_ERROR_INVALID_PROPERTY,
@@ -925,20 +951,21 @@ verify (NMSetting *setting, NMConnection *connection, GError **error)
 			return FALSE;
 		}
 
-		base_type = nm_setting_lookup_type (priv->type);
-		if (base_type == G_TYPE_INVALID || !_nm_setting_type_is_base_type (base_type)) {
+		base_type = nm_setting_lookup_type (type);
+		if (   base_type == G_TYPE_INVALID
+		    || _nm_setting_type_get_base_type_priority (base_type) == NM_SETTING_PRIORITY_INVALID) {
 			g_set_error (error,
 			             NM_CONNECTION_ERROR,
 			             NM_CONNECTION_ERROR_INVALID_PROPERTY,
 			             _("connection type '%s' is not valid"),
-			             priv->type);
+			             type);
 			g_prefix_error (error, "%s.%s: ", NM_SETTING_CONNECTION_SETTING_NAME, NM_SETTING_CONNECTION_TYPE);
 			return FALSE;
 		}
 
 		/* Make sure the corresponding 'type' item is present */
 		if (   connection
-		    && !nm_connection_get_setting_by_name (connection, priv->type)) {
+		    && !nm_connection_get_setting_by_name (connection, type)) {
 			NMSetting *s_base;
 			NMConnection *connection2;
 
@@ -951,7 +978,7 @@ verify (NMSetting *setting, NMConnection *connection, GError **error)
 			g_object_unref (connection2);
 
 			if (!normerr_base_setting) {
-				_set_error_missing_base_setting (error, priv->type);
+				_set_error_missing_base_setting (error, type);
 				return FALSE;
 			}
 		}
@@ -959,13 +986,14 @@ verify (NMSetting *setting, NMConnection *connection, GError **error)
 
 	is_slave = FALSE;
 	slave_setting_type = NULL;
-	if (priv->slave_type) {
-		is_slave = _nm_setting_slave_type_is_valid (priv->slave_type, &slave_setting_type);
+	slave_type = priv->slave_type;
+	if (slave_type) {
+		is_slave = _nm_setting_slave_type_is_valid (slave_type, &slave_setting_type);
 		if (!is_slave) {
 			g_set_error (error,
 			             NM_CONNECTION_ERROR,
 			             NM_CONNECTION_ERROR_INVALID_PROPERTY,
-			             _("Unknown slave type '%s'"), priv->slave_type);
+			             _("Unknown slave type '%s'"), slave_type);
 			g_prefix_error (error, "%s.%s: ", NM_SETTING_CONNECTION_SETTING_NAME, NM_SETTING_CONNECTION_SLAVE_TYPE);
 			return FALSE;
 		}
@@ -985,8 +1013,8 @@ verify (NMSetting *setting, NMConnection *connection, GError **error)
 		    && !nm_connection_get_setting_by_name (connection, slave_setting_type))
 			normerr_slave_setting_type = slave_setting_type;
 	} else {
+		nm_assert (!slave_type);
 		if (priv->master) {
-			const char *slave_type;
 			NMSetting *s_port;
 
 			if (   connection
@@ -1003,6 +1031,18 @@ verify (NMSetting *setting, NMConnection *connection, GError **error)
 				return FALSE;
 			}
 		}
+	}
+
+	if (   nm_streq0 (type, NM_SETTING_OVS_PORT_SETTING_NAME)
+	    && !nm_streq0 (slave_type, NM_SETTING_OVS_BRIDGE_SETTING_NAME)) {
+		g_set_error (error,
+		             NM_CONNECTION_ERROR,
+		             NM_CONNECTION_ERROR_MISSING_PROPERTY,
+		             _("Only '%s' connections can be enslaved to '%s'"),
+		             NM_SETTING_OVS_PORT_SETTING_NAME,
+		             NM_SETTING_OVS_BRIDGE_SETTING_NAME);
+		g_prefix_error (error, "%s.%s: ", NM_SETTING_CONNECTION_SETTING_NAME, NM_SETTING_CONNECTION_TYPE);
+		return FALSE;
 	}
 
 	if (priv->metered != NM_METERED_UNKNOWN &&
@@ -1289,6 +1329,9 @@ set_property (GObject *object, guint prop_id,
 	case PROP_LLDP:
 		priv->lldp = g_value_get_int (value);
 		break;
+	case PROP_AUTH_RETRIES:
+		priv->auth_retries = g_value_get_int (value);
+		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
 		break;
@@ -1373,6 +1416,9 @@ get_property (GObject *object, guint prop_id,
 		break;
 	case PROP_LLDP:
 		g_value_set_int (value, priv->lldp);
+		break;
+	case PROP_AUTH_RETRIES:
+		g_value_set_int (value, priv->auth_retries);
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -1462,7 +1508,7 @@ nm_setting_connection_class_init (NMSettingConnectionClass *setting_class)
 	 * hosts/devices yields different addresses.
 	 *
 	 * If the value is unset, an ID unique for the connection is used.
-	 * Specifing a stable-id allows multiple connections to generate the
+	 * Specifying a stable-id allows multiple connections to generate the
 	 * same addresses. Another use is to generate IDs at runtime via
 	 * dynamic substitutions.
 	 *
@@ -1644,9 +1690,11 @@ nm_setting_connection_class_init (NMSettingConnectionClass *setting_class)
 	/**
 	 * NMSettingConnection:autoconnect-retries:
 	 *
-	 * The number of times a connection should be tried when autoctivating before
+	 * The number of times a connection should be tried when autoactivating before
 	 * giving up. Zero means forever, -1 means the global default (4 times if not
-	 * overridden).
+	 * overridden). Setting this to 1 means to try activation only once before
+	 * blocking autoconnect. Note that after a timeout, NetworkManager will try
+	 * to autoconnect again.
 	 */
 	/* ---ifcfg-rh---
 	 * property: autoconnect-retries
@@ -1906,5 +1954,32 @@ nm_setting_connection_class_init (NMSettingConnectionClass *setting_class)
 		                   NM_SETTING_PARAM_FUZZY_IGNORE |
 		                   G_PARAM_READWRITE |
 		                   G_PARAM_CONSTRUCT |
+		                   G_PARAM_STATIC_STRINGS));
+
+	/**
+	 * NMSettingConnection:auth-retries:
+	 *
+	 * The number of retries for the authentication. Zero means to try indefinitely; -1 means
+	 * to use a global default. If the global default is not set, the authentication
+	 * retries for 3 times before failing the connection.
+	 *
+	 * Currently this only applies to 802-1x authentication.
+	 *
+	 * Since: 1.10
+	 **/
+	/* ---ifcfg-rh---
+	 * property: auth-retries
+	 * variable: AUTH_RETRIES(+)
+	 * default: 0
+	 * description: Number of retries for authentication.
+	 * ---end---
+	 */
+	g_object_class_install_property
+		(object_class, PROP_AUTH_RETRIES,
+		 g_param_spec_int (NM_SETTING_CONNECTION_AUTH_RETRIES, "", "",
+		                   -1, G_MAXINT32, -1,
+		                   G_PARAM_READWRITE |
+		                   G_PARAM_CONSTRUCT |
+		                   NM_SETTING_PARAM_FUZZY_IGNORE |
 		                   G_PARAM_STATIC_STRINGS));
 }

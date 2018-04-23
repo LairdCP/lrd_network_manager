@@ -24,6 +24,7 @@
 
 #include "nm-exported-object.h"
 #include "settings/nm-settings-connection.h"
+#include "nm-utils/c-list.h"
 
 #define NM_TYPE_MANAGER            (nm_manager_get_type ())
 #define NM_MANAGER(obj)            (G_TYPE_CHECK_INSTANCE_CAST ((obj), NM_TYPE_MANAGER, NMManager))
@@ -45,6 +46,8 @@
 #define NM_MANAGER_WIMAX_HARDWARE_ENABLED "wimax-hardware-enabled"
 #define NM_MANAGER_ACTIVE_CONNECTIONS "active-connections"
 #define NM_MANAGER_CONNECTIVITY "connectivity"
+#define NM_MANAGER_CONNECTIVITY_CHECK_AVAILABLE "connectivity-check-available"
+#define NM_MANAGER_CONNECTIVITY_CHECK_ENABLED "connectivity-check-enabled"
 #define NM_MANAGER_PRIMARY_CONNECTION "primary-connection"
 #define NM_MANAGER_PRIMARY_CONNECTION_TYPE "primary-connection-type"
 #define NM_MANAGER_ACTIVATING_CONNECTION "activating-connection"
@@ -54,7 +57,6 @@
 #define NM_MANAGER_ALL_DEVICES "all-devices"
 
 /* Not exported */
-#define NM_MANAGER_HOSTNAME "hostname"
 #define NM_MANAGER_SLEEPING "sleeping"
 
 /* signals */
@@ -83,7 +85,19 @@ gboolean      nm_manager_start                         (NMManager *manager,
                                                         GError **error);
 void          nm_manager_stop                          (NMManager *manager);
 NMState       nm_manager_get_state                     (NMManager *manager);
-const GSList *nm_manager_get_active_connections        (NMManager *manager);
+const CList * nm_manager_get_active_connections        (NMManager *manager);
+
+#define nm_manager_for_each_active_connection(manager, iter, tmp_list) \
+	for (tmp_list = nm_manager_get_active_connections (manager), \
+	     iter = c_list_entry (tmp_list->next, NMActiveConnection, active_connections_lst); \
+	     ({ \
+	         gboolean _has_next = (&iter->active_connections_lst != tmp_list); \
+	         \
+	         if (!_has_next) \
+	             iter = NULL; \
+	         _has_next; \
+	    }); \
+	    iter = c_list_entry (iter->active_connections_lst.next, NMActiveConnection, active_connections_lst))
 
 NMSettingsConnection **nm_manager_get_activatable_connections (NMManager *manager,
                                                                guint *out_len,
@@ -94,12 +108,18 @@ void          nm_manager_write_device_state (NMManager *manager);
 /* Device handling */
 
 const GSList *      nm_manager_get_devices             (NMManager *manager);
-const char **       nm_manager_get_device_paths        (NMManager *self);
 
 NMDevice *          nm_manager_get_device_by_ifindex   (NMManager *manager,
                                                         int ifindex);
 NMDevice *          nm_manager_get_device_by_path      (NMManager *manager,
                                                         const char *path);
+
+guint32             nm_manager_device_route_metric_reserve (NMManager *self,
+                                                            int ifindex,
+                                                            NMDeviceType device_type);
+
+void                nm_manager_device_route_metric_clear (NMManager *self,
+                                                          int ifindex);
 
 char *              nm_manager_get_connection_iface (NMManager *self,
                                                      NMConnection *connection,
@@ -124,5 +144,12 @@ gboolean            nm_manager_deactivate_connection   (NMManager *manager,
                                                         GError **error);
 
 void                nm_manager_set_capability   (NMManager *self, NMCapability cap);
+
+NMDevice *          nm_manager_get_device    (NMManager *self,
+                                              const char *ifname,
+                                              NMDeviceType device_type);
+gboolean            nm_manager_remove_device (NMManager *self,
+                                              const char *ifname,
+                                              NMDeviceType device_type);
 
 #endif /* __NETWORKMANAGER_MANAGER_H__ */

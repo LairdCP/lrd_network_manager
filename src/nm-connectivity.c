@@ -35,6 +35,7 @@
 typedef struct {
 	char *uri;
 	char *response;
+	gboolean enabled;
 	guint interval;
 	NMConfig *config;
 	guint periodic_check_id;
@@ -124,6 +125,7 @@ finish_cb_data (ConCheckCbData *cb_data, NMConnectivityState new_state)
 	g_object_unref (cb_data->simple);
 	curl_slist_free_all (cb_data->request_headers);
 	g_free (cb_data->response);
+	g_free (cb_data->msg);
 	g_free (cb_data->ifspec);
 	g_source_remove (cb_data->timeout_id);
 	g_slice_free (ConCheckCbData, cb_data);
@@ -343,7 +345,7 @@ nm_connectivity_check_async (NMConnectivity      *self,
 	simple = g_simple_async_result_new (G_OBJECT (self), callback, user_data,
 	                                    nm_connectivity_check_async);
 
-	if (priv->uri && priv->interval && priv->curl_mhandle)
+	if (priv->enabled)
 		ehandle = curl_easy_init ();
 
 	if (ehandle) {
@@ -401,7 +403,7 @@ nm_connectivity_check_enabled (NMConnectivity *self)
 {
 	NMConnectivityPrivate *priv = NM_CONNECTIVITY_GET_PRIVATE (self);
 
-	return (priv->uri && priv->interval && priv->curl_mhandle);
+	return priv->enabled;
 }
 
 /*****************************************************************************/
@@ -419,6 +421,7 @@ update_config (NMConnectivity *self, NMConfigData *config_data)
 	NMConnectivityPrivate *priv = NM_CONNECTIVITY_GET_PRIVATE (self);
 	const char *uri, *response;
 	guint interval;
+	gboolean enabled;
 	gboolean changed = FALSE;
 
 	/* Set the URI. */
@@ -451,6 +454,18 @@ update_config (NMConnectivity *self, NMConfigData *config_data)
 	interval = nm_config_data_get_connectivity_interval (config_data);
 	if (priv->interval != interval) {
 		priv->interval = interval;
+		changed = TRUE;
+	}
+
+	/* Set enabled flag. */
+	enabled = nm_config_data_get_connectivity_enabled (config_data);
+	/* connectivity checking also requires a valid URI, interval and
+	 * curl_mhandle */
+	if (!(priv->uri && priv->interval && priv->curl_mhandle)) {
+		enabled = FALSE;
+	}
+	if (priv->enabled != enabled) {
+		priv->enabled = enabled;
 		changed = TRUE;
 	}
 

@@ -5,6 +5,7 @@
 #include <arpa/inet.h>
 
 #include "platform/nm-platform.h"
+#include "platform/nmp-object.h"
 #include "platform/nm-fake-platform.h"
 #include "platform/nm-linux-platform.h"
 
@@ -93,9 +94,9 @@ int nmtstp_run_command (const char *format, ...) _nm_printf (1, 2);
 
 /*****************************************************************************/
 
-guint nmtstp_wait_for_signal (NMPlatform *platform, guint timeout_ms);
+guint nmtstp_wait_for_signal (NMPlatform *platform, gint64 timeout_ms);
 guint nmtstp_wait_for_signal_until (NMPlatform *platform, gint64 until_ms);
-const NMPlatformLink *nmtstp_wait_for_link (NMPlatform *platform, const char *ifname, NMLinkType expected_link_type, guint timeout_ms);
+const NMPlatformLink *nmtstp_wait_for_link (NMPlatform *platform, const char *ifname, NMLinkType expected_link_type, gint64 timeout_ms);
 const NMPlatformLink *nmtstp_wait_for_link_until (NMPlatform *platform, const char *ifname, NMLinkType expected_link_type, gint64 until_ms);
 
 #define nmtstp_assert_wait_for_signal(platform, timeout_ms) \
@@ -120,10 +121,45 @@ gboolean nmtstp_run_command_check_external (int external_command);
 
 /*****************************************************************************/
 
-gboolean nmtstp_ip4_route_exists (const char *ifname, guint32 network, int plen, guint32 metric);
+const NMPlatformIP4Route *_nmtstp_assert_ip4_route_exists (const char *file,
+                                                           guint line,
+                                                           const char *func,
+                                                           NMPlatform *platform,
+                                                           int c_exists,
+                                                           const char *ifname,
+                                                           guint32 network,
+                                                           int plen,
+                                                           guint32 metric,
+                                                           guint8 tos);
+#define nmtstp_assert_ip4_route_exists(platform, c_exists, ifname, network, plen, metric, tos) _nmtstp_assert_ip4_route_exists (__FILE__, __LINE__, G_STRFUNC, platform, c_exists, ifname, network, plen, metric, tos)
 
-void _nmtstp_assert_ip4_route_exists (const char *file, guint line, const char *func, NMPlatform *platform, gboolean exists, const char *ifname, guint32 network, int plen, guint32 metric);
-#define nmtstp_assert_ip4_route_exists(platform, exists, ifname, network, plen, metric) _nmtstp_assert_ip4_route_exists (__FILE__, __LINE__, G_STRFUNC, platform, exists, ifname, network, plen, metric)
+const NMPlatformIP4Route *nmtstp_ip4_route_get (NMPlatform *platform,
+                                                int ifindex,
+                                                guint32 network,
+                                                int plen,
+                                                guint32 metric,
+                                                guint8 tos);
+
+const NMPlatformIP6Route *_nmtstp_assert_ip6_route_exists (const char *file,
+                                                           guint line,
+                                                           const char *func,
+                                                           NMPlatform *platform,
+                                                           int c_exists,
+                                                           const char *ifname,
+                                                           const struct in6_addr *network,
+                                                           guint plen,
+                                                           guint32 metric,
+                                                           const struct in6_addr *src,
+                                                           guint8 src_plen);
+#define nmtstp_assert_ip6_route_exists(platform, c_exists, ifname, network, plen, metric, src, src_plen) _nmtstp_assert_ip6_route_exists (__FILE__, __LINE__, G_STRFUNC, platform, c_exists, ifname, network, plen, metric, src, src_plen)
+
+const NMPlatformIP6Route *nmtstp_ip6_route_get (NMPlatform *platform,
+                                                int ifindex,
+                                                const struct in6_addr *network,
+                                                guint plen,
+                                                guint32 metric,
+                                                const struct in6_addr *src,
+                                                guint8 src_plen);
 
 /*****************************************************************************/
 
@@ -187,7 +223,35 @@ void nmtstp_ip6_route_add (NMPlatform *platform,
                            guint32 metric,
                            guint32 mss);
 
+static inline GPtrArray *
+nmtstp_ip4_route_get_all (NMPlatform *platform,
+                          int ifindex)
+{
+	return nm_platform_lookup_object_clone (platform,
+	                                        NMP_OBJECT_TYPE_IP4_ROUTE,
+	                                        ifindex,
+	                                        nm_platform_lookup_predicate_routes_main_skip_rtprot_kernel,
+	                                        NULL);
+}
+
+static inline GPtrArray *
+nmtstp_ip6_route_get_all (NMPlatform *platform,
+                          int ifindex)
+{
+	return nm_platform_lookup_object_clone (platform,
+	                                        NMP_OBJECT_TYPE_IP6_ROUTE,
+	                                        ifindex,
+	                                        nm_platform_lookup_predicate_routes_main_skip_rtprot_kernel,
+	                                        NULL);
+}
+
 /*****************************************************************************/
+
+GArray *nmtstp_platform_ip4_address_get_all (NMPlatform *self, int ifindex);
+GArray *nmtstp_platform_ip6_address_get_all (NMPlatform *self, int ifindex);
+
+gboolean nmtstp_platform_ip4_route_delete (NMPlatform *platform, int ifindex, in_addr_t network, guint8 plen, guint32 metric);
+gboolean nmtstp_platform_ip6_route_delete (NMPlatform *platform, int ifindex, struct in6_addr network, guint8 plen, guint32 metric);
 
 const NMPlatformLink *nmtstp_link_get_typed (NMPlatform *platform, int ifindex, const char *name, NMLinkType link_type);
 const NMPlatformLink *nmtstp_link_get (NMPlatform *platform, int ifindex, const char *name);
@@ -197,6 +261,10 @@ void nmtstp_link_set_updown (NMPlatform *platform,
                              int ifindex,
                              gboolean up);
 
+const NMPlatformLink *nmtstp_link_veth_add (NMPlatform *platform,
+                                            gboolean external_command,
+                                            const char *name,
+                                            const char *peer);
 const NMPlatformLink *nmtstp_link_dummy_add (NMPlatform *platform,
                                              gboolean external_command,
                                              const char *name);
@@ -230,6 +298,100 @@ void nmtstp_link_del (NMPlatform *platform,
                       gboolean external_command,
                       int ifindex,
                       const char *name);
+
+/*****************************************************************************/
+
+extern int NMTSTP_ENV1_IFINDEX;
+extern int NMTSTP_ENV1_EX;
+
+static inline void
+_nmtstp_env1_wrapper_setup (const NmtstTestData *test_data)
+{
+	int *p_ifindex;
+	gpointer p_ifup;
+
+	nmtst_test_data_unpack (test_data, &p_ifindex, NULL, NULL, NULL, &p_ifup);
+
+	g_assert (p_ifindex && *p_ifindex == -1);
+
+	_LOGT ("TEST[%s]: setup", test_data->testpath);
+
+	nm_platform_link_delete (NM_PLATFORM_GET, nm_platform_link_get_ifindex (NM_PLATFORM_GET, DEVICE_NAME));
+	g_assert (!nm_platform_link_get_by_ifname (NM_PLATFORM_GET, DEVICE_NAME));
+	g_assert_cmpint (nm_platform_link_dummy_add (NM_PLATFORM_GET, DEVICE_NAME, NULL), ==, NM_PLATFORM_ERROR_SUCCESS);
+
+	*p_ifindex = nm_platform_link_get_ifindex (NM_PLATFORM_GET, DEVICE_NAME);
+	g_assert_cmpint (*p_ifindex, >, 0);
+	g_assert_cmpint (NMTSTP_ENV1_IFINDEX, ==, -1);
+
+	if (GPOINTER_TO_INT (p_ifup))
+		g_assert (nm_platform_link_set_up (NM_PLATFORM_GET, *p_ifindex, NULL));
+
+	nm_platform_process_events (NM_PLATFORM_GET);
+
+	NMTSTP_ENV1_IFINDEX = *p_ifindex;
+	NMTSTP_ENV1_EX = nmtstp_run_command_check_external_global ();
+}
+
+static inline void
+_nmtstp_env1_wrapper_run (gconstpointer user_data)
+{
+	const NmtstTestData *test_data = user_data;
+	GTestDataFunc test_func_data;
+	GTestFunc test_func;
+	gconstpointer d;
+
+	nmtst_test_data_unpack (test_data, NULL, &test_func, &test_func_data, &d, NULL);
+
+	_LOGT ("TEST[%s]: run", test_data->testpath);
+	if (test_func)
+		test_func ();
+	else
+		test_func_data (d);
+}
+
+static inline void
+_nmtstp_env1_wrapper_teardown (const NmtstTestData *test_data)
+{
+	int *p_ifindex;
+
+	nmtst_test_data_unpack (test_data, &p_ifindex, NULL, NULL, NULL, NULL);
+
+	g_assert_cmpint (NMTSTP_ENV1_IFINDEX, ==, *p_ifindex);
+	NMTSTP_ENV1_IFINDEX = -1;
+
+	_LOGT ("TEST[%s]: teardown", test_data->testpath);
+
+	g_assert_cmpint (*p_ifindex, ==, nm_platform_link_get_ifindex (NM_PLATFORM_GET, DEVICE_NAME));
+	g_assert (nm_platform_link_delete (NM_PLATFORM_GET, *p_ifindex));
+
+	nm_platform_process_events (NM_PLATFORM_GET);
+
+	_LOGT ("TEST[%s]: finished", test_data->testpath);
+
+	*p_ifindex = -1;
+}
+
+/* add test function, that set's up a particular environment, consisting
+ * of a dummy device with ifindex NMTSTP_ENV1_IFINDEX. */
+#define _nmtstp_env1_add_test_func_full(testpath, test_func, test_data_func, arg, ifup) \
+	nmtst_add_test_func_full (testpath, \
+	                          _nmtstp_env1_wrapper_run, \
+	                          _nmtstp_env1_wrapper_setup, \
+	                          _nmtstp_env1_wrapper_teardown, \
+	                          ({ static int _ifindex = -1; &_ifindex; }), \
+	                          ({ GTestFunc _test_func = (test_func); _test_func; }), \
+	                          ({ GTestDataFunc _test_func = (test_data_func); _test_func; }), \
+	                          (arg), \
+	                          ({ gboolean _ifup = (ifup); GINT_TO_POINTER (_ifup);}))
+
+#define nmtstp_env1_add_test_func_data(testpath, test_func, arg, ifup) \
+	_nmtstp_env1_add_test_func_full(testpath, NULL, test_func, arg, ifup)
+
+#define nmtstp_env1_add_test_func(testpath, test_func, ifup) \
+	_nmtstp_env1_add_test_func_full(testpath, test_func, NULL, NULL, ifup)
+
+/*****************************************************************************/
 
 typedef void (*NMTstpSetupFunc) (void);
 extern NMTstpSetupFunc const _nmtstp_setup_platform_func;

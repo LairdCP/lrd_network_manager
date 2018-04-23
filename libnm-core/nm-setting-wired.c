@@ -41,7 +41,7 @@
  **/
 
 G_DEFINE_TYPE_WITH_CODE (NMSettingWired, nm_setting_wired, NM_TYPE_SETTING,
-                         _nm_register_setting (WIRED, 1))
+                         _nm_register_setting (WIRED, NM_SETTING_PRIORITY_HW_BASE))
 NM_SETTING_REGISTER_TYPE (NM_TYPE_SETTING_WIRED)
 
 #define NM_SETTING_WIRED_GET_PRIVATE(o) (G_TYPE_INSTANCE_GET_PRIVATE ((o), NM_TYPE_SETTING_WIRED, NMSettingWiredPrivate))
@@ -1012,9 +1012,9 @@ nm_setting_wired_class_init (NMSettingWiredClass *setting_wired_class)
 	/**
 	 * NMSettingWired:port:
 	 *
-	 * Specific port type to use if multiple the device supports multiple
+	 * Specific port type to use if the device supports multiple
 	 * attachment methods.  One of "tp" (Twisted Pair), "aui" (Attachment Unit
-	 * Interface), "bnc" (Thin Ethernet) or "mii" (Media Independent Interface.
+	 * Interface), "bnc" (Thin Ethernet) or "mii" (Media Independent Interface).
 	 * If the device supports only one port type, this setting is ignored.
 	 **/
 	/* ---ifcfg-rh---
@@ -1033,7 +1033,7 @@ nm_setting_wired_class_init (NMSettingWiredClass *setting_wired_class)
 	/**
 	 * NMSettingWired:speed:
 	 *
-	 * Can be set to a value grater than zero only when "auto-negotiate" is "off".
+	 * Can be set to a value greater than zero only when "auto-negotiate" is "off".
 	 * In that case, statically configures the device to use that specified speed.
 	 * In Mbit/s, ie 100 == 100Mbit/s.
 	 * Must be set together with the "duplex" property when non-zero.
@@ -1147,7 +1147,7 @@ nm_setting_wired_class_init (NMSettingWiredClass *setting_wired_class)
 	 * If specified, request that the device use this MAC address instead.
 	 * This is known as MAC cloning or spoofing.
 	 *
-	 * Beside explicitly specifing a MAC address, the special values "preserve", "permanent",
+	 * Beside explicitly specifying a MAC address, the special values "preserve", "permanent",
 	 * "random" and "stable" are supported.
 	 * "preserve" means not to touch the MAC address on activation.
 	 * "permanent" means to use the permanent hardware address if the device
@@ -1243,7 +1243,7 @@ nm_setting_wired_class_init (NMSettingWiredClass *setting_wired_class)
 	 * "02:00:00:00:00:00 00:00:00:00:00:00" will create a fully scrambled
 	 * globally-administered, burned-in MAC address.
 	 *
-	 * If the value contains more then one additional MAC addresses, one of
+	 * If the value contains more than one additional MAC addresses, one of
 	 * them is chosen randomly. For example, "02:00:00:00:00:00 00:00:00:00:00:00 02:00:00:00:00:00"
 	 * will create a fully scrambled MAC address, randomly locally or globally
 	 * administered.

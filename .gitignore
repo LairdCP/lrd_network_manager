@@ -58,7 +58,7 @@ test-*.trs
 /dispatcher/tests/test-dispatcher-envp
 
 /clients/cli/nmcli
-/clients/cli/settings-docs.c
+/clients/common/settings-docs.c
 /clients/tui/newt/libnmt-newt.a
 /clients/tui/nmtui
 /clients/nm-online
@@ -155,9 +155,7 @@ test-*.trs
 /libnm-core/tests/test-keyfile
 /libnm-core/tests/test-need-secrets
 /libnm-core/tests/test-secrets
-/libnm-core/tests/test-setting-8021x
-/libnm-core/tests/test-setting-bond
-/libnm-core/tests/test-setting-dcb
+/libnm-core/tests/test-setting
 /libnm-core/nm-dbus-types.xml
 /libnm-core/nm-vpn-dbus-types.xml
 
@@ -258,6 +256,7 @@ test-*.trs
 /src/settings/plugins/ifnet/tests/test-ifnet
 /src/settings/plugins/ifupdown/tests/test-ifupdown
 /src/settings/plugins/keyfile/tests/test-keyfile
+/src/settings/plugins/ifcfg-rh/tests/network-scripts/tmp/
 /src/supplicant/tests/test-supplicant-config
 /src/tests/config/test-config
 /src/tests/test-dcb
@@ -271,6 +270,8 @@ test-*.trs
 /src/tests/test-systemd
 /src/tests/test-utils
 /src/tests/test-wired-defname
+
+/clients/common/tests/test-general
 
 /vapi/*.vapi
 
@@ -305,8 +306,7 @@ test-*.trs
 /libnm/nm-keyfile-docs.xml
 /libnm/nm-setting-docs.xml
 /libnm/nm-setting-docs-overrides.xml
-
-# The following names are present on newer upstream. Ignore them
-# also when switching branches
-/clients/common/settings-docs.c
-/clients/common/tests
+/clients/cli/settings-docs.c
+/libnm-core/tests/test-setting-8021x
+/libnm-core/tests/test-setting-bond
+/libnm-core/tests/test-setting-dcb

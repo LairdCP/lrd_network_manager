@@ -233,7 +233,10 @@ no-auto-default=*
             if specified (See <xref linkend="ignore-carrier"/>).
             Otherwise, it is a list of matches to specify for which device
             carrier should be ignored. See <xref linkend="device-spec"/> for the
-            syntax how to specify a device.
+            syntax how to specify a device. Note that master types like
+            bond, bridge, and team ignore carrier by default. You can however
+            revert that default using the "except:" specifier (or better,
+            use the per-device setting instead of the deprecated setting).
           </para>
         </listitem>
       </varlistentry>
@@ -403,8 +406,9 @@ no-auto-default=*
             value applies only to connections that can auto-connect
             and have a
             <literal>connection.autoconnect-retries</literal> property
-            set to -1. If not specified, connections will be retried 4
-            times.
+            set to -1. If not specified, connections will be tried 4
+            times. Setting this value to 1 means to try activation once,
+            without retry.
           </para>
         </listitem>
       </varlistentry>
@@ -526,7 +530,8 @@ unmanaged-devices=mac:00:22:68:1c:59:b1;mac:00:1E:65:30:D1:C4;interface-name:eth
           WIFI_SCAN, IP4, IP6, AUTOIP4, DNS, VPN, SHARING, SUPPLICANT,
           AGENTS, SETTINGS, SUSPEND, CORE, DEVICE, OLPC, WIMAX,
           INFINIBAND, FIREWALL, ADSL, BOND, VLAN, BRIDGE, DBUS_PROPS,
-          TEAM, CONCHECK, DCB, DISPATCH, AUDIT, SYSTEMD, VPN_PLUGIN.</para>
+          TEAM, CONCHECK, DCB, DISPATCH, AUDIT, SYSTEMD, VPN_PLUGIN,
+          PROXY.</para>
           <para>In addition, these special domains can be used: NONE,
           ALL, DEFAULT, DHCP, IP.</para>
           <para>You can specify per-domain log level overrides by
@@ -551,7 +556,7 @@ unmanaged-devices=mac:00:22:68:1c:59:b1;mac:00:1E:65:30:D1:C4;interface-name:eth
           <member>AUTOIP4     : AutoIP operations</member>
           <member>DNS         : Domain Name System related operations</member>
           <member>VPN         : Virtual Private Network connections and operations</member>
-          <member>SHARING     : Connection sharing</member>
+          <member>SHARING     : Connection sharing. With TRACE level log queries for dnsmasq instance</member>
           <member>SUPPLICANT  : WPA supplicant related operations</member>
           <member>AGENTS      : Secret agents operations and communication</member>
           <member>SETTINGS    : Settings/config service operations</member>
@@ -574,6 +579,7 @@ unmanaged-devices=mac:00:22:68:1c:59:b1;mac:00:1E:65:30:D1:C4;interface-name:eth
           <member>AUDIT       : Audit records</member>
           <member>SYSTEMD     : Messages from internal libsystemd</member>
           <member>VPN_PLUGIN  : logging messages from VPN plugins</member>
+          <member>PROXY       : logging messages for proxy handling</member>
           <member> </member>
           <member>NONE        : when given by itself logging is disabled</member>
           <member>ALL         : all log domains</member>
@@ -638,6 +644,11 @@ ipv6.ip6-privacy=0
       explicitly allows for that.
       <variablelist>
         <varlistentry>
+          <term><varname>connection.auth-retries</varname></term>
+          <listitem><para>If left unspecified, the default value is 3 tries before failing the connection.
+          </para></listitem>
+        </varlistentry>
+        <varlistentry>
           <term><varname>connection.autoconnect-slaves</varname></term>
         </varlistentry>
         <varlistentry>
@@ -680,6 +691,18 @@ ipv6.ip6-privacy=0
           <term><varname>ipv4.route-metric</varname></term>
         </varlistentry>
         <varlistentry>
+          <term><varname>ipv4.route-table</varname></term>
+          <listitem><para>If left unspecified, routes are only added to the main table. Note that this
+            is different from explicitly selecting the main table 254, because of how NetworkManager
+            removes extraneous routes from the tables.
+          </para></listitem>
+        </varlistentry>
+        <varlistentry>
+          <term><varname>ipv6.dhcp-timeout</varname></term>
+          <listitem><para>If left unspecified, the default value for
+           the interface type is used.</para></listitem>
+        </varlistentry>
+        <varlistentry>
           <term><varname>ipv6.ip6-privacy</varname></term>
           <listitem><para>If <literal>ipv6.ip6-privacy</literal> is unset, use the content of
             "/proc/sys/net/ipv6/conf/default/use_tempaddr" as last fallback.
@@ -687,6 +710,13 @@ ipv6.ip6-privacy=0
         </varlistentry>
         <varlistentry>
           <term><varname>ipv6.route-metric</varname></term>
+        </varlistentry>
+        <varlistentry>
+          <term><varname>ipv6.route-table</varname></term>
+          <listitem><para>If left unspecified, routes are only added to the main table. Note that this
+            is different from explicitly selecting the main table 254, because of how NetworkManager
+            removes extraneous routes from the tables.
+          </para></listitem>
         </varlistentry>
         <varlistentry>
           <term><varname>vpn.timeout</varname></term>
@@ -713,6 +743,11 @@ ipv6.ip6-privacy=0
           <term><varname>wifi.powersave</varname></term>
           <listitem><para>If left unspecified, the default value
           "<literal>ignore</literal>" will be used.</para></listitem>
+        </varlistentry>
+        <varlistentry>
+          <term><varname>wifi-sec.pmf</varname></term>
+          <listitem><para>If left unspecified, the default value
+          "<literal>optional</literal>" will be used.</para></listitem>
         </varlistentry>
       </variablelist>
     </para>
@@ -800,7 +835,7 @@ ipv6.ip6-privacy=1
 <programlisting>
 [device]
 match-device=interface-name:eth3
-unmanaged=1
+managed=1
 </programlisting>
     </para>
     <refsect2>
@@ -808,6 +843,37 @@ unmanaged=1
     <para>
       The following properties can be configured per-device.
       <variablelist>
+        <varlistentry id="managed">
+          <term><varname>managed</varname></term>
+          <listitem>
+            <para>
+              Whether the device is managed or not. A device can be
+              marked as managed via udev rules (ENV{NM_UNMANAGED}),
+              or via setting plugins (keyfile.unmanaged-devices).
+              This is yet another way. Note that this configuration
+              can be overruled at runtime via D-Bus. Also, it has
+              higher priority then udev rules.
+            </para>
+          </listitem>
+        </varlistentry>
+        <varlistentry id="carrier-wait-timeout">
+          <term><varname>carrier-wait-timeout</varname></term>
+          <listitem>
+            <para>
+              Specify the timeout for waiting for carrier in milliseconds.
+              When the device loses carrier, NetworkManager does not react
+              immediately. Instead, it waits for this timeout before considering
+              the link lost. Also, on startup, NetworkManager considers the
+              device as busy for this time, as long as the device has no carrier.
+              This delays startup-complete signal and NetworkManager-wait-online.
+              Configuring this too high means to block NetworkManager-wait-online
+              longer then necessary. Configuring it too low, means that NetworkManager
+              will declare startup-complete, although carrier is about to come
+              and auto-activation to kick in.
+              The default is 5000 milliseconds.
+            </para>
+          </listitem>
+        </varlistentry>
         <varlistentry id="ignore-carrier">
           <term><varname>ignore-carrier</varname></term>
           <listitem>
@@ -833,6 +899,10 @@ unmanaged=1
               Note that the "carrier" property of NMDevices and device D-Bus
               interfaces will still reflect the actual device state; it's just
               that NetworkManager will not make use of that information.
+            </para>
+            <para>
+              Master types like bond, bridge and team ignore carrier by default,
+              while other device types react on carrier changes by default.
             </para>
             <para>
               This setting overwrites the deprecated <literal>main.ignore-carrier</literal>
@@ -1096,10 +1166,12 @@ enable=nm-version-min:1.3,nm-version-min:1.2.6,nm-version-min:1.0.16
             <filename>/etc/NetworkManager/system-connections</filename>.
           </para>
           <para>
-            The stored connection file may contain passwords and
-            private keys, so it will be made readable only to root,
-            and the plugin will ignore files that are readable or
-            writable by any user or group other than root.
+            The stored connection file may contain passwords, secrets and
+            private keys in plain text, so it will be made readable only to
+            root, and the plugin will ignore files that are readable or
+            writable by any user or group other than root. See "Secret flag types"
+            in <link linkend='nm-settings'><citerefentry><refentrytitle>nm-settings</refentrytitle><manvolnum>5</manvolnum></citerefentry></link>
+            for how to avoid storing passwords in plain text.
           </para>
           <para>
             This plugin is always active, and will automatically be

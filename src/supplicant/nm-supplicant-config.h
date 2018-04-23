@@ -45,6 +45,14 @@ NMSupplicantConfig *nm_supplicant_config_new (void);
 guint32 nm_supplicant_config_get_ap_scan (NMSupplicantConfig *self);
 
 guint32 nm_supplicant_config_get_ccx (NMSupplicantConfig *self);
+guint32 nm_supplicant_config_get_scan_delay (NMSupplicantConfig *self);
+guint32 nm_supplicant_config_get_scan_dwell (NMSupplicantConfig *self);
+guint32 nm_supplicant_config_get_scan_passive_dwell (NMSupplicantConfig *self);
+guint32 nm_supplicant_config_get_scan_suspend_time (NMSupplicantConfig *self);
+guint32 nm_supplicant_config_get_scan_roam_delta (NMSupplicantConfig *self);
+guint32 nm_supplicant_config_get_frequency_dfs (NMSupplicantConfig *self);
+gboolean nm_supplicant_config_set_laird_support (NMSupplicantConfig *self,
+												 NMSupplicantFeature laird_support);
 
 gboolean nm_supplicant_config_fast_required (NMSupplicantConfig *self);
 
@@ -57,11 +65,16 @@ gboolean nm_supplicant_config_add_setting_wireless (NMSupplicantConfig *self,
                                                     guint32 fixed_freq,
                                                     GError **error);
 
+gboolean nm_supplicant_config_add_bgscan           (NMSupplicantConfig *self,
+                                                    NMConnection *connection,
+                                                    GError **error);
+
 gboolean nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
                                                              NMSettingWirelessSecurity *setting,
                                                              NMSetting8021x *setting_8021x,
                                                              const char *con_uuid,
                                                              guint32 mtu,
+                                                             NMSettingWirelessSecurityPmf pmf,
                                                              GError **error);
 
 gboolean nm_supplicant_config_add_no_security (NMSupplicantConfig *self,
@@ -78,4 +91,6 @@ gboolean nm_supplicant_config_add_setting_macsec (NMSupplicantConfig *self,
                                                   NMSettingMacsec *setting,
                                                   GError **error);
 
+gboolean nm_supplicant_config_enable_pmf_akm (NMSupplicantConfig *self,
+                                              GError **error);
 #endif /* __NETWORKMANAGER_SUPPLICANT_CONFIG_H__ */

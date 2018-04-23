@@ -41,7 +41,7 @@
  **/
 
 G_DEFINE_TYPE_WITH_CODE (NMSettingBridgePort, nm_setting_bridge_port, NM_TYPE_SETTING,
-                         _nm_register_setting (BRIDGE_PORT, 3))
+                         _nm_register_setting (BRIDGE_PORT, NM_SETTING_PRIORITY_AUX))
 NM_SETTING_REGISTER_TYPE (NM_TYPE_SETTING_BRIDGE_PORT)
 
 #define NM_SETTING_BRIDGE_PORT_GET_PRIVATE(o) (G_TYPE_INSTANCE_GET_PRIVATE ((o), NM_TYPE_SETTING_BRIDGE_PORT, NMSettingBridgePortPrivate))
@@ -273,7 +273,7 @@ nm_setting_bridge_port_class_init (NMSettingBridgePortClass *setting_class)
 	/**
 	 * NMSettingBridgePort:hairpin-mode:
 	 *
-	 * Enables or disabled "hairpin mode" for the port, which allows frames to
+	 * Enables or disables "hairpin mode" for the port, which allows frames to
 	 * be sent back out through the port the frame was received on.
 	 **/
 	/* ---ifcfg-rh---

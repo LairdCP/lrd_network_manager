@@ -58,24 +58,6 @@ get_generic_capabilities (NMDevice *dev)
 }
 
 static gboolean
-is_available (NMDevice *dev, NMDeviceCheckDevAvailableFlags flags)
-{
-	return TRUE;
-}
-
-static gboolean
-check_connection_available (NMDevice *device,
-                            NMConnection *connection,
-                            NMDeviceCheckConAvailableFlags flags,
-                            const char *specific_object)
-{
-	/* Connections are always available because the carrier state is determined
-	 * by the slave carrier states, not the bonds's state.
-	 */
-	return TRUE;
-}
-
-static gboolean
 check_connection_compatible (NMDevice *device, NMConnection *connection)
 {
 	NMSettingBond *s_bond;
@@ -501,7 +483,7 @@ create_and_realize (NMDevice *device,
 		             "Failed to create bond interface '%s' for '%s': %s",
 		             iface,
 		             nm_connection_get_id (connection),
-		             nm_platform_error_to_string (plerr));
+		             nm_platform_error_to_string_a (plerr));
 		return FALSE;
 	}
 	return TRUE;
@@ -622,6 +604,7 @@ reapply_connection (NMDevice *device, NMConnection *con_old, NMConnection *con_n
 static void
 nm_device_bond_init (NMDeviceBond * self)
 {
+	nm_assert (nm_device_is_master (NM_DEVICE (self)));
 }
 
 static void
@@ -631,10 +614,9 @@ nm_device_bond_class_init (NMDeviceBondClass *klass)
 
 	NM_DEVICE_CLASS_DECLARE_TYPES (klass, NM_SETTING_BOND_SETTING_NAME, NM_LINK_TYPE_BOND)
 
+	parent_class->is_master = TRUE;
 	parent_class->get_generic_capabilities = get_generic_capabilities;
-	parent_class->is_available = is_available;
 	parent_class->check_connection_compatible = check_connection_compatible;
-	parent_class->check_connection_available = check_connection_available;
 	parent_class->complete_connection = complete_connection;
 
 	parent_class->update_connection = update_connection;
@@ -671,7 +653,6 @@ create_device (NMDeviceFactory *factory,
 	                                  NM_DEVICE_TYPE_DESC, "Bond",
 	                                  NM_DEVICE_DEVICE_TYPE, NM_DEVICE_TYPE_BOND,
 	                                  NM_DEVICE_LINK_TYPE, NM_LINK_TYPE_BOND,
-	                                  NM_DEVICE_IS_MASTER, TRUE,
 	                                  NULL);
 }
 

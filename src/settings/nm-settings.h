@@ -46,8 +46,7 @@
 #define NM_SETTINGS_SIGNAL_CONNECTION_ADDED              "connection-added"
 #define NM_SETTINGS_SIGNAL_CONNECTION_UPDATED            "connection-updated"
 #define NM_SETTINGS_SIGNAL_CONNECTION_REMOVED            "connection-removed"
-#define NM_SETTINGS_SIGNAL_CONNECTION_VISIBILITY_CHANGED "connection-visibility-changed"
-#define NM_SETTINGS_SIGNAL_AGENT_REGISTERED              "agent-registered"
+#define NM_SETTINGS_SIGNAL_CONNECTION_FLAGS_CHANGED      "connection-flags-changed"
 
 /**
  * NMConnectionFilterFunc:
@@ -100,10 +99,9 @@ NMSettingsConnection *const* nm_settings_get_connections (NMSettings *settings, 
 NMSettingsConnection **nm_settings_get_connections_clone (NMSettings *self,
                                                           guint *out_len,
                                                           NMSettingsConnectionFilterFunc func,
-                                                          gpointer func_data);
-
-NMSettingsConnection **nm_settings_get_connections_sorted (NMSettings *self,
-                                                           guint *out_len);
+                                                          gpointer func_data,
+                                                          GCompareDataFunc sort_compare_func,
+                                                          gpointer sort_data);
 
 NMSettingsConnection *nm_settings_add_connection (NMSettings *settings,
                                                   NMConnection *connection,
@@ -119,20 +117,10 @@ gboolean nm_settings_has_connection (NMSettings *self, NMSettingsConnection *con
 
 const GSList *nm_settings_get_unmanaged_specs (NMSettings *self);
 
-char *nm_settings_get_hostname (NMSettings *self);
-
 void nm_settings_device_added (NMSettings *self, NMDevice *device);
 
 void nm_settings_device_removed (NMSettings *self, NMDevice *device, gboolean quitting);
 
 gboolean nm_settings_get_startup_complete (NMSettings *self);
-
-void nm_settings_set_transient_hostname (NMSettings *self,
-                                         const char *hostname,
-                                         NMSettingsSetHostnameCb cb,
-                                         gpointer user_data);
-
-gboolean nm_settings_get_transient_hostname (NMSettings *self,
-                                             char **hostname);
 
 #endif  /* __NM_SETTINGS_H__ */

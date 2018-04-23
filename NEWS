@@ -1,65 +1,101 @@
-==============================================
-NetworkManager-1.8.6
-Overview of changes since NetworkManager-1.8.4
-==============================================
+===============================================
+NetworkManager-1.10.6
+Overview of changes since NetworkManager-1.10.4
+===============================================
 
 This is a new stable release of NetworkManager.  Notable changes include:
 
-* Fix a daemon crash on permission check (bgo#787897)
-* Fix a daemon crash on VPN state change (bgo#787893)
-* Fix a nmcli crash in interactive mode's describe command (bgo#788104)
-* Fix termination of the nmcli interactive mode (rh#1517401)
-* Properly handle route metric of zero in keyfiles
-* Add support for DSA switch devices (rh#1371289)
-* Fix a memory leak of connection D-Bus objects (rh#1461643)
-* A double close that could potentially race with the D-Bus thread
-  reusing the same file descriptor (rh#1451236)
-* Connectivity check fixes (bgo#785281) (bgo#784629)
-* Fix the metered properties handling in libnm
-* Avoid dropping agent secrets unnecessarily (bgo#789383)
-* Fix the asynchronous initialization of a secret agent in libnm
+* ovs: fix compilation issue of OVS plugin and various fixes
+* team: add support for team runner "random"
+* core: cleanup activation of device (rh #1537160)
+* dhcp: retry indefinitely to renew the lease (rh #1503587)
+* core: fix blocking autoconnect for no-secrets (rh #794014)
+* libnm: mark async results as cancelled (bgo #794088)
+* Various bug fixes including possible crashes.
+* Updated translations.
 
-==============================================
-NetworkManager-1.8.4
-Overview of changes since NetworkManager-1.8.2
-==============================================
+===============================================
+NetworkManager-1.10.4
+Overview of changes since NetworkManager-1.10.2
+===============================================
 
 This is a new stable release of NetworkManager.  Notable changes include:
 
-* No longer install NetworkManager-wait-online.service in
-  network-online.target.wants directory (rh#1455704).
-* Fix nmcli device connect wifi for APs that support both
-  WPA-PSK and WPA-EAP (rh#1492064).
-* Fix crash unregistering object manager in libnm on restart
-  of NetworkManager.
-* Improve handling externally managed slaves devices.
-* Don't reset MAC address of software devices to fake permanent
-  address.
-* For dhclient use "timeout" option in configuration file, instead
-  of the command line option which is only supported by downstream.
-* Perform the public-suffix check only for the hostname-derived
-  domain.
-* Fix memory leak in connectivity check.
-* Better restore device managed state on rollback of checkpoint.
-* Skip addition of default-route if it already exists.
-* Bug fix detecting error condition when deleting route in platform.
+* Load jansson at runtime. This solves a clash with json-glib that caused
+    a gnome-control-center crash, but also gets rid of a hard dependency.
+* Correct nmcli exit values after receiving a signal.
+* Fix libnm secret agent asynchronous initialization.
+* Add a default route for a modem even if it didn't sent a gateway.
+* Improve communication of DAD failures.
+* Remember device default metrics across daemon restarts.
+* Various bug fixes including possible crashes.
+* Updated translations.
 
-==============================================
-NetworkManager-1.8.2
-Overview of changes since NetworkManager-1.8.0
-==============================================
+===============================================
+NetworkManager-1.10.2
+Overview of changes since NetworkManager-1.10.0
+===============================================
 
 This is a new stable release of NetworkManager.  Notable changes include:
 
-* Fix bug blocking startup wrongly waiting for carrier.
-* Fix handling of non UTF-8 strings in libnm and fix non NUL
-  terminated string.
-* Handle DNS priority for systemd-resolved DNS plugin.
-* Fix assuming master devices as they wait for slaves to activate.
-* Fix reading managed state from device state file.
-* Fix crash activating bluetooth or WWAN connection.
-* No longer add a direct route to the DHCP server.
-* Several bug fixes and improvements.
+* Added support for 'onlink' IPv4 routes attribute.
+* Wait longer for the carrier to come up after a MTU change.
+* Implemented abstraction for team connections that exposes team
+    configuration items as distinct properties.
+* Added basic support for tc queueing disciplines and filters.
+* Introduced an Update2() D-Bus method to update connection settings
+  with more flexibility.
+* Many bug fixes and improvements.
+
+============================================
+NetworkManager-1.10
+Overview of changes since NetworkManager-1.8
+============================================
+
+This is a new stable release of NetworkManager.  Notable changes include:
+
+* NetworkManager includes now basic OpenVSwitch support, good enough
+    to be capable of setting up simple OpenVSwitch configurations.
+* Added support for activating PPP connections on non-Ethernet
+  interfaces.
+* It is now possible to authenticate to a Wi-Fi network using WPS
+    (Wi-Fi Protected Setup).
+* Implemented support for Wi-Fi PMF (Protected Management Frames,
+    802.11w), which can be configured via the wifi-sec.pmf property.
+* Now the maximum rate of wireless access points supporting 802.11 is
+    properly calculated and exposed on D-Bus.
+* Background scanning is now disabled for non-WPA-Enterprise Wi-Fi
+    networks.
+* Added support for the Bluetooth NAP (Network Access Point) profile.
+* Added support for disabling connectivity checking via the D-Bus
+    interface.
+* The internal DHCP client now understands the domain-search option.
+* Bridge connections support the group-forward-mask property.
+* NetworkManager can now configure multiple IPv6 default routes
+    received through RA and each gets configured with the announced
+    preference.
+* It is possible to specify the routing table for each static route.
+* Support specifying a explicit routing table for any non-static-route,
+    including routes from DHCP, device-routes, IPv6 autoconf.
+* Device are left configured when a user sets them as unmanaged by
+    NetworkManager.
+* New connection.auth-retry property to configure how often authentication
+    is prompted before failing the configuration.
+* The platform code that handles synchronization with kernel status
+    via netlink has been reworked and is more efficient.
+* Allowed the update of connections that have an associated ifcfg-rh
+    routing rules file.
+* Non-UTF8 properties are now escaped when they are exported on D-Bus.
+* NetworkManager-wait-online.service now starts NetworkManager.service
+    if needed.
+* The MAC address for bond connections can be changed in nmtui.
+* Fixed dependency problems when setting the MTU of VLAN and master
+    devices.
+* The systemd-resolved DNS plugin properly handles the DNS priority
+    setting.
+* Fixed setting a DHCP timeout greater than 60 seconds (dhclient).
+* Fixed some memory leaks.
+* Many other bug fixes and improvements.
 
 ============================================
 NetworkManager-1.8

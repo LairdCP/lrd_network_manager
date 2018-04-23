@@ -80,22 +80,20 @@ get_ip4_rdns_domains (NMIP4Config *ip4)
 {
 	char **strv;
 	GPtrArray *domains = NULL;
-	int i;
+	NMDedupMultiIter ipconf_iter;
+	const NMPlatformIP4Address *address;
+	const NMPlatformIP4Route *route;
 
 	g_return_val_if_fail (ip4 != NULL, NULL);
 
 	domains = g_ptr_array_sized_new (5);
 
-	for (i = 0; i < nm_ip4_config_get_num_addresses (ip4); i++) {
-		const NMPlatformIP4Address *address = nm_ip4_config_get_address (ip4, i);
-
+	nm_ip_config_iter_ip4_address_for_each (&ipconf_iter, ip4, &address)
 		nm_utils_get_reverse_dns_domains_ip4 (address->address, address->plen, domains);
-	}
 
-	for (i = 0; i < nm_ip4_config_get_num_routes (ip4); i++) {
-		const NMPlatformIP4Route *route = nm_ip4_config_get_route (ip4, i);
-
-		nm_utils_get_reverse_dns_domains_ip4 (route->network, route->plen, domains);
+	nm_ip_config_iter_ip4_route_for_each (&ipconf_iter, ip4, &route) {
+		if (!NM_PLATFORM_IP_ROUTE_IS_DEFAULT (route))
+			nm_utils_get_reverse_dns_domains_ip4 (route->network, route->plen, domains);
 	}
 
 	/* Terminating NULL so we can use g_strfreev() to free it */
@@ -112,22 +110,20 @@ get_ip6_rdns_domains (NMIP6Config *ip6)
 {
 	char **strv;
 	GPtrArray *domains = NULL;
-	int i;
+	NMDedupMultiIter ipconf_iter;
+	const NMPlatformIP6Address *address;
+	const NMPlatformIP6Route *route;
 
 	g_return_val_if_fail (ip6 != NULL, NULL);
 
 	domains = g_ptr_array_sized_new (5);
 
-	for (i = 0; i < nm_ip6_config_get_num_addresses (ip6); i++) {
-		const NMPlatformIP6Address *address = nm_ip6_config_get_address (ip6, i);
-
+	nm_ip_config_iter_ip6_address_for_each (&ipconf_iter, ip6, &address)
 		nm_utils_get_reverse_dns_domains_ip6 (&address->address, address->plen, domains);
-	}
 
-	for (i = 0; i < nm_ip6_config_get_num_routes (ip6); i++) {
-		const NMPlatformIP6Route *route = nm_ip6_config_get_route (ip6, i);
-
-		nm_utils_get_reverse_dns_domains_ip6 (&route->network, route->plen, domains);
+	nm_ip_config_iter_ip6_route_for_each (&ipconf_iter, ip6, &route) {
+		if (!NM_PLATFORM_IP_ROUTE_IS_DEFAULT (route))
+			nm_utils_get_reverse_dns_domains_ip6 (&route->network, route->plen, domains);
 	}
 
 	/* Terminating NULL so we can use g_strfreev() to free it */
@@ -572,12 +568,14 @@ update (NMDnsPlugin *plugin,
 		add_global_config (self, &servers, global_config);
 	else {
 		for (i = 0; i < configs->len; i++) {
-			prio = nm_dns_ip_config_data_get_dns_priority (configs->pdata[i]);
+			const NMDnsIPConfigData *data = configs->pdata[i];
+
+			prio = nm_ip_config_get_dns_priority (data->config);
 			if (i == 0)
 				first_prio = prio;
 			else if (first_prio < 0 && first_prio != prio)
 				break;
-			add_ip_config_data (self, &servers, configs->pdata[i]);
+			add_ip_config_data (self, &servers, data);
 		}
 	}
 

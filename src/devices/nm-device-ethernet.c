@@ -104,18 +104,18 @@ typedef struct _NMDeviceEthernetPrivate {
 	char *              s390_nettype;
 	GHashTable *        s390_options;
 
-	NMActRequestGetSecretsCallId wired_secrets_id;
+	NMActRequestGetSecretsCallId *wired_secrets_id;
 
 	/* PPPoE */
 	NMPPPManager *ppp_manager;
-	NMIP4Config  *pending_ip4_config;
 	gint32        last_pppoe_time;
 	guint         pppoe_wait_id;
 
 	/* DCB */
 	DcbWait       dcb_wait;
 	guint         dcb_timeout_id;
-	gulong        dcb_carrier_id;
+
+	bool          dcb_handle_carrier_changes:1;
 } NMDeviceEthernetPrivate;
 
 NM_GOBJECT_PROPERTIES_DEFINE (NMDeviceEthernet,
@@ -255,22 +255,6 @@ _update_s390_subchannels (NMDeviceEthernet *self)
 }
 
 static void
-reset_8021x_autoconnect_retries (NMDevice *device)
-{
-	NMActRequest *req;
-	NMSettingsConnection *connection;
-
-	req = nm_device_get_act_request (device);
-	if (   req
-	    && nm_device_get_applied_setting (device, NM_TYPE_SETTING_802_1X)) {
-		connection = nm_act_request_get_settings_connection (req);
-		g_return_if_fail (connection);
-		/* Reset autoconnect retries on success, failure, or when deactivating */
-		nm_settings_connection_reset_autoconnect_retries (connection);
-	}
-}
-
-static void
 device_state_changed (NMDevice *device,
                       NMDeviceState new_state,
                       NMDeviceState old_state,
@@ -278,12 +262,6 @@ device_state_changed (NMDevice *device,
 {
 	if (new_state > NM_DEVICE_STATE_ACTIVATED)
 		wired_secrets_cancel (NM_DEVICE_ETHERNET (device));
-
-	if (NM_IN_SET (new_state,
-	               NM_DEVICE_STATE_ACTIVATED,
-	               NM_DEVICE_STATE_FAILED,
-	               NM_DEVICE_STATE_DISCONNECTED))
-		reset_8021x_autoconnect_retries (device);
 }
 
 static void
@@ -294,7 +272,7 @@ nm_device_ethernet_init (NMDeviceEthernet *self)
 	priv = G_TYPE_INSTANCE_GET_PRIVATE (self, NM_TYPE_DEVICE_ETHERNET, NMDeviceEthernetPrivate);
 	self->_priv = priv;
 
-	priv->s390_options = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
+	priv->s390_options = g_hash_table_new_full (nm_str_hash, g_str_equal, g_free, g_free);
 }
 
 static NMDeviceCapabilities
@@ -438,7 +416,7 @@ supplicant_interface_release (NMDeviceEthernet *self)
 
 static void
 wired_secrets_cb (NMActRequest *req,
-                  NMActRequestGetSecretsCallId call_id,
+                  NMActRequestGetSecretsCallId *call_id,
                   NMSettingsConnection *connection,
                   GError *error,
                   gpointer user_data)
@@ -680,25 +658,20 @@ handle_auth_or_fail (NMDeviceEthernet *self,
                      NMActRequest *req,
                      gboolean new_secrets)
 {
+	NMDeviceEthernetPrivate *priv;
 	const char *setting_name;
 	NMConnection *applied_connection;
-	NMSettingsConnection *settings_connection;
-	int tries_left;
 
-	applied_connection = nm_act_request_get_applied_connection (req);
-	settings_connection = nm_act_request_get_settings_connection (req);
+	priv = NM_DEVICE_ETHERNET_GET_PRIVATE (self);
 
-	tries_left = nm_settings_connection_get_autoconnect_retries (settings_connection);
-	if (tries_left == 0)
+	if (!nm_device_auth_retries_try_next (NM_DEVICE (self)))
 		return NM_ACT_STAGE_RETURN_FAILURE;
-
-	if (tries_left > 0)
-		nm_settings_connection_set_autoconnect_retries (settings_connection, tries_left - 1);
 
 	nm_device_state_changed (NM_DEVICE (self), NM_DEVICE_STATE_NEED_AUTH, NM_DEVICE_STATE_REASON_NONE);
 
 	nm_active_connection_clear_secrets (NM_ACTIVE_CONNECTION (req));
 
+	applied_connection = nm_act_request_get_applied_connection (req);
 	setting_name = nm_connection_need_secrets (applied_connection, NULL);
 	if (setting_name) {
 		wired_secrets_get_secrets (self, setting_name,
@@ -1000,6 +973,7 @@ ppp_ip4_config (NMPPPManager *ppp_manager,
 static NMActStageReturn
 pppoe_stage3_ip4_config_start (NMDeviceEthernet *self, NMDeviceStateReason *out_failure_reason)
 {
+	NMDevice *device = NM_DEVICE (self);
 	NMDeviceEthernetPrivate *priv = NM_DEVICE_ETHERNET_GET_PRIVATE (self);
 	NMSettingPppoe *s_pppoe;
 	NMActRequest *req;
@@ -1011,8 +985,16 @@ pppoe_stage3_ip4_config_start (NMDeviceEthernet *self, NMDeviceStateReason *out_
 	s_pppoe = (NMSettingPppoe *) nm_device_get_applied_setting ((NMDevice *) self, NM_TYPE_SETTING_PPPOE);
 	g_return_val_if_fail (s_pppoe, NM_ACT_STAGE_RETURN_FAILURE);
 
-	priv->ppp_manager = nm_ppp_manager_create (nm_device_get_iface (NM_DEVICE (self)),
+	priv->ppp_manager = nm_ppp_manager_create (nm_device_get_iface (device),
 	                                           &err);
+
+	if (priv->ppp_manager) {
+		nm_ppp_manager_set_route_parameters (priv->ppp_manager,
+		                                     nm_device_get_route_table (device, AF_INET, TRUE),
+		                                     nm_device_get_route_metric (device, AF_INET),
+		                                     nm_device_get_route_table (device, AF_INET6, TRUE),
+		                                     nm_device_get_route_metric (device, AF_INET6));
+	}
 
 	if (   !priv->ppp_manager
 	    || !nm_ppp_manager_start (priv->ppp_manager, req,
@@ -1133,7 +1115,7 @@ dcb_state (NMDevice *device, gboolean timeout)
 			_LOGD (LOGD_DCB, "dcb_state() enabling DCB");
 			nm_clear_g_source (&priv->dcb_timeout_id);
 			if (!dcb_enable (device)) {
-				nm_clear_g_signal_handler (device, &priv->dcb_carrier_id);
+				priv->dcb_handle_carrier_changes = FALSE;
 				nm_device_state_changed (device,
 				                         NM_DEVICE_STATE_FAILED,
 				                         NM_DEVICE_STATE_REASON_DCB_FCOE_FAILED);
@@ -1157,7 +1139,7 @@ dcb_state (NMDevice *device, gboolean timeout)
 			_LOGD (LOGD_DCB, "dcb_state() preconfig up configuring DCB");
 			nm_clear_g_source (&priv->dcb_timeout_id);
 			if (!dcb_configure (device)) {
-				nm_clear_g_signal_handler (device, &priv->dcb_carrier_id);
+				priv->dcb_handle_carrier_changes = FALSE;
 				nm_device_state_changed (device,
 				                         NM_DEVICE_STATE_FAILED,
 				                         NM_DEVICE_STATE_REASON_DCB_FCOE_FAILED);
@@ -1180,27 +1162,13 @@ dcb_state (NMDevice *device, gboolean timeout)
 		if (timeout || carrier) {
 			_LOGD (LOGD_DCB, "dcb_state() postconfig up starting IP");
 			nm_clear_g_source (&priv->dcb_timeout_id);
-			nm_clear_g_signal_handler (device, &priv->dcb_carrier_id);
+			priv->dcb_handle_carrier_changes = FALSE;
 			priv->dcb_wait = DCB_WAIT_UNKNOWN;
 			nm_device_activate_schedule_stage3_ip_config_start (device);
 		}
 		break;
 	default:
 		g_assert_not_reached ();
-	}
-}
-
-static void
-dcb_carrier_changed (NMDevice *device, GParamSpec *pspec, gpointer unused)
-{
-	NMDeviceEthernet *self = NM_DEVICE_ETHERNET (device);
-	NMDeviceEthernetPrivate *priv = NM_DEVICE_ETHERNET_GET_PRIVATE (self);
-
-	g_return_if_fail (nm_device_get_state (device) == NM_DEVICE_STATE_CONFIG);
-
-	if (priv->dcb_timeout_id) {
-		_LOGD (LOGD_DCB, "carrier_changed() calling dcb_state()");
-		dcb_state (device, FALSE);
 	}
 }
 
@@ -1262,7 +1230,7 @@ act_stage2_config (NMDevice *device, NMDeviceStateReason *out_failure_reason)
 	g_return_val_if_fail (s_con, NM_ACT_STAGE_RETURN_FAILURE);
 
 	nm_clear_g_source (&priv->dcb_timeout_id);
-	nm_clear_g_signal_handler (device, &priv->dcb_carrier_id);
+	priv->dcb_handle_carrier_changes = FALSE;
 
 	/* 802.1x has to run before any IP configuration since the 802.1x auth
 	 * process opens the port up for normal traffic.
@@ -1296,13 +1264,7 @@ act_stage2_config (NMDevice *device, NMDeviceStateReason *out_failure_reason)
 			priv->dcb_timeout_id = g_timeout_add_seconds (4, dcb_carrier_timeout, device);
 		}
 
-		/* Watch carrier independently of NMDeviceClass::carrier_changed so
-		 * we get instant notifications of disconnection that aren't deferred.
-		 */
-		priv->dcb_carrier_id = g_signal_connect (device,
-		                                         "notify::" NM_DEVICE_CARRIER,
-		                                         G_CALLBACK (dcb_carrier_changed),
-		                                         NULL);
+		priv->dcb_handle_carrier_changes = TRUE;
 		ret = NM_ACT_STAGE_RETURN_POSTPONE;
 	}
 
@@ -1367,15 +1329,7 @@ deactivate (NMDevice *device)
 	NMSettingDcb *s_dcb;
 	GError *error = NULL;
 
-	/* Clear wired secrets tries when deactivating */
-	reset_8021x_autoconnect_retries (device);
-
 	nm_clear_g_source (&priv->pppoe_wait_id);
-
-	if (priv->pending_ip4_config) {
-		g_object_unref (priv->pending_ip4_config);
-		priv->pending_ip4_config = NULL;
-	}
 
 	if (priv->ppp_manager) {
 		nm_ppp_manager_stop_sync (priv->ppp_manager);
@@ -1386,7 +1340,7 @@ deactivate (NMDevice *device)
 
 	priv->dcb_wait = DCB_WAIT_UNKNOWN;
 	nm_clear_g_source (&priv->dcb_timeout_id);
-	nm_clear_g_signal_handler (device, &priv->dcb_carrier_id);
+	priv->dcb_handle_carrier_changes = FALSE;
 
 	/* Tear down DCB/FCoE if it was enabled */
 	s_dcb = (NMSettingDcb *) nm_device_get_applied_setting (device, NM_TYPE_SETTING_DCB);
@@ -1579,7 +1533,7 @@ update_connection (NMDevice *device, NMConnection *connection)
 }
 
 static void
-get_link_speed (NMDevice *device)
+link_speed_update (NMDevice *device)
 {
 	NMDeviceEthernet *self = NM_DEVICE_ETHERNET (device);
 	NMDeviceEthernetPrivate *priv = NM_DEVICE_ETHERNET_GET_PRIVATE (self);
@@ -1591,16 +1545,28 @@ get_link_speed (NMDevice *device)
 		return;
 
 	priv->speed = speed;
-	_notify (self, PROP_SPEED);
-
 	_LOGD (LOGD_PLATFORM | LOGD_ETHER, "speed is now %d Mb/s", speed);
+	_notify (self, PROP_SPEED);
 }
 
 static void
 carrier_changed_notify (NMDevice *device, gboolean carrier)
 {
+	NMDeviceEthernet *self = NM_DEVICE_ETHERNET (device);
+	NMDeviceEthernetPrivate *priv = NM_DEVICE_ETHERNET_GET_PRIVATE (self);
+
+	if (priv->dcb_handle_carrier_changes) {
+		nm_assert (nm_device_get_state (device) == NM_DEVICE_STATE_CONFIG);
+
+		if (priv->dcb_timeout_id) {
+			_LOGD (LOGD_DCB, "carrier_changed() calling dcb_state()");
+			dcb_state (device, FALSE);
+		}
+	}
+
 	if (carrier)
-		get_link_speed (device);
+		link_speed_update (device);
+
 	NM_DEVICE_CLASS (nm_device_ethernet_parent_class)->carrier_changed_notify (device, carrier);
 }
 
@@ -1682,7 +1648,6 @@ dispose (GObject *object)
 	nm_clear_g_source (&priv->pppoe_wait_id);
 
 	nm_clear_g_source (&priv->dcb_timeout_id);
-	nm_clear_g_signal_handler (self, &priv->dcb_carrier_id);
 
 	G_OBJECT_CLASS (nm_device_ethernet_parent_class)->dispose (object);
 }
@@ -1810,8 +1775,24 @@ create_device (NMDeviceFactory *factory,
 	                                  NULL);
 }
 
+static gboolean
+match_connection (NMDeviceFactory *factory, NMConnection *connection)
+{
+	const char *type = nm_connection_get_connection_type (connection);
+	NMSettingPppoe *s_pppoe;
+
+	if (nm_streq (type, NM_SETTING_WIRED_SETTING_NAME))
+		return TRUE;
+
+	nm_assert (nm_streq (type, NM_SETTING_PPPOE_SETTING_NAME));
+	s_pppoe = nm_connection_get_setting_pppoe (connection);
+
+	return !nm_setting_pppoe_get_parent (s_pppoe);
+}
+
 NM_DEVICE_FACTORY_DEFINE_INTERNAL (ETHERNET, Ethernet, ethernet,
 	NM_DEVICE_FACTORY_DECLARE_LINK_TYPES    (NM_LINK_TYPE_ETHERNET)
 	NM_DEVICE_FACTORY_DECLARE_SETTING_TYPES (NM_SETTING_WIRED_SETTING_NAME, NM_SETTING_PPPOE_SETTING_NAME),
 	factory_class->create_device = create_device;
+	factory_class->match_connection = match_connection;
 );

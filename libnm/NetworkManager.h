@@ -15,7 +15,7 @@
  * Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
  * Boston, MA 02110-1301 USA.
  *
- * Copyright 2014 Red Hat, Inc.
+ * Copyright 2014 - 2017 Red Hat, Inc.
  */
 
 #ifndef __NETWORKMANAGER_H__
@@ -41,6 +41,9 @@
 #include "nm-device-macvlan.h"
 #include "nm-device-modem.h"
 #include "nm-device-olpc-mesh.h"
+#include "nm-device-ovs-interface.h"
+#include "nm-device-ovs-port.h"
+#include "nm-device-ovs-bridge.h"
 #include "nm-device-team.h"
 #include "nm-device-tun.h"
 #include "nm-device-vlan.h"
@@ -73,10 +76,15 @@
 #include "nm-setting-macsec.h"
 #include "nm-setting-macvlan.h"
 #include "nm-setting-olpc-mesh.h"
+#include "nm-setting-ovs-bridge.h"
+#include "nm-setting-ovs-interface.h"
+#include "nm-setting-ovs-patch.h"
+#include "nm-setting-ovs-port.h"
 #include "nm-setting-ppp.h"
 #include "nm-setting-pppoe.h"
 #include "nm-setting-proxy.h"
 #include "nm-setting-serial.h"
+#include "nm-setting-tc-config.h"
 #include "nm-setting-team.h"
 #include "nm-setting-team-port.h"
 #include "nm-setting-tun.h"

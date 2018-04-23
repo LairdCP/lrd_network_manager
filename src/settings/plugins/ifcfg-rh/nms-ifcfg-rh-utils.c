@@ -15,7 +15,7 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
- * (C) Copyright 2008 - 2012 Red Hat, Inc.
+ * (C) Copyright 2008 - 2017 Red Hat, Inc.
  */
 
 #include "nm-default.h"
@@ -173,7 +173,7 @@ utils_get_extra_path (const char *parent, const char *tag)
 
 	dirname = g_path_get_dirname (parent);
 	if (!dirname)
-		return NULL;
+		g_return_val_if_reached (NULL);
 
 	name = utils_get_ifcfg_name (parent, FALSE);
 	if (name) {
@@ -243,12 +243,6 @@ utils_get_route_ifcfg (const char *parent, gboolean should_create)
 	return utils_get_extra_ifcfg (parent, ROUTE_TAG, should_create);
 }
 
-shvarFile *
-utils_get_route6_ifcfg (const char *parent, gboolean should_create)
-{
-	return utils_get_extra_ifcfg (parent, ROUTE6_TAG, should_create);
-}
-
 /* Finds out if route file has new or older format
  * Returns TRUE  - new syntax (ADDRESS<n>=a.b.c.d ...), error opening file or empty
  *         FALSE - older syntax, i.e. argument to 'ip route add' (1.2.3.0/24 via 11.22.33.44)
@@ -280,25 +274,22 @@ gone:
 }
 
 gboolean
-utils_has_complex_routes (const char *filename)
+utils_has_complex_routes (const char *filename, int addr_family)
 {
-	char *rules;
+	g_return_val_if_fail (filename, TRUE);
 
-	g_return_val_if_fail (filename != NULL, TRUE);
+	if (NM_IN_SET (addr_family, AF_UNSPEC, AF_INET)) {
+		gs_free char *rules = utils_get_extra_path (filename, RULE_TAG);
 
-	rules = utils_get_extra_path (filename, RULE_TAG);
-	if (g_file_test (rules, G_FILE_TEST_EXISTS)) {
-		g_free (rules);
-		return TRUE;
+		if (g_file_test (rules, G_FILE_TEST_EXISTS))
+			return TRUE;
 	}
-	g_free (rules);
 
-	rules = utils_get_extra_path (filename, RULE6_TAG);
-	if (g_file_test (rules, G_FILE_TEST_EXISTS)) {
-		g_free (rules);
-		return TRUE;
+	if (NM_IN_SET (addr_family, AF_UNSPEC, AF_INET6)) {
+		gs_free char *rules = utils_get_extra_path (filename, RULE6_TAG);
+		if (g_file_test (rules, G_FILE_TEST_EXISTS))
+			return TRUE;
 	}
-	g_free (rules);
 
 	return FALSE;
 }
