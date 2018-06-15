@@ -154,4 +154,19 @@ void nm_supplicant_interface_enroll_wps (NMSupplicantInterface *self,
 void nm_supplicant_interface_cancel_wps (NMSupplicantInterface *self);
 
 
+
+// scan settings to use if in disconnected state
+typedef struct {
+	struct {
+		int *ptr; // ptr to int[count] list of frequencies
+		int count;
+	} freqs; // the union of frequency_list from all profiles
+	guint32 frequency_dfs; // set if dfs enabled in any profile (or no profiles)
+	guint32 scan_delay; // largest value from profiles
+	guint32 scan_dwell; // largest value from profiles
+	guint32 scan_passive_dwell; // largest value from profiles
+} LairdScanSettings;
+
+void nm_supplicant_interface_request_scan_laird (NMSupplicantInterface * self, const GPtrArray *ssids, LairdScanSettings *lss);
+
 #endif /* __NM_SUPPLICANT_INTERFACE_H__ */

@@ -97,6 +97,14 @@ NM_GOBJECT_PROPERTIES_DEFINE (NMSupplicantInterface,
 	PROP_LAIRD_SUPPORT,
 );
 
+// Laird scanning globals that change for disconnected/connected
+typedef struct {
+	guint32 scan_delay;
+	guint32 scan_dwell;
+	guint32 scan_passive_dwell;
+	guint32 disable_dfs;
+} LairdScanGlobals;
+
 typedef struct {
 	char *         dev;
 	NMSupplicantDriver driver;
@@ -132,6 +140,10 @@ typedef struct {
 	char *         current_bss;
 
 	gint32         last_scan; /* timestamp as returned by nm_utils_get_monotonic_timestamp_s() */
+
+	struct {
+		LairdScanGlobals pushed;
+	} laird;
 
 } NMSupplicantInterfacePrivate;
 
@@ -1757,8 +1769,8 @@ set_ccx_cb (GDBusProxy *proxy, GAsyncResult *result, gpointer user_data)
 }
 
 static void
-set_laird_guint32_cb (GDBusProxy *proxy, GAsyncResult *result, gpointer user_data,
-					  const char *key, guint32 value, const char *message)
+laird_set_global_cb (GDBusProxy *proxy, GAsyncResult *result, gpointer user_data,
+					  const char *key)
 {
 	NMSupplicantInterface *self;
 	NMSupplicantInterfacePrivate *priv;
@@ -1770,120 +1782,72 @@ set_laird_guint32_cb (GDBusProxy *proxy, GAsyncResult *result, gpointer user_dat
 		return;
 
 	self = NM_SUPPLICANT_INTERFACE (user_data);
-	priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
 
 	if (error) {
 		if (_nm_dbus_error_has_name (error, "org.freedesktop.DBus.Error.InvalidArgs")) {
 			_LOGD ("%s is not supported", key);
-		} else {
-			assoc_return (self, error, message);
+			return;
 		}
-		return;
+		// other error handled below with !reply
 	}
 
-	if (!reply) {
+	if (error || !reply) {
 		g_dbus_error_strip_remote_error (error);
 		_LOGW ("couldn't send %s to the supplicant interface: %s",
 		       key, error->message);
 		return;
 	}
-
-	_LOGI ("config: set interface %s to %d", key, value);
-
+	_LOGD ("config: set interface %s", key);
 }
 
 static void
 set_scan_delay_cb (GDBusProxy *proxy, GAsyncResult *result, gpointer user_data)
 {
-	NMSupplicantInterface *self;
-	NMSupplicantInterfacePrivate *priv;
-	self = NM_SUPPLICANT_INTERFACE (user_data);
-	priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
-	set_laird_guint32_cb(
-		proxy, result, user_data,
-		"scan delay",
-		nm_supplicant_config_get_scan_delay (priv->assoc_data->cfg),
-		"failure to set scan delay");
+	laird_set_global_cb(proxy, result, user_data, "scan delay");
 }
 
 static void
 set_scan_dwell_cb (GDBusProxy *proxy, GAsyncResult *result, gpointer user_data)
 {
-	NMSupplicantInterface *self;
-	NMSupplicantInterfacePrivate *priv;
-	self = NM_SUPPLICANT_INTERFACE (user_data);
-	priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
-	set_laird_guint32_cb(
-		proxy, result, user_data,
-		"scan dwell",
-		nm_supplicant_config_get_scan_dwell (priv->assoc_data->cfg),
-		"failure to set scan dwell");
+	laird_set_global_cb(proxy, result, user_data, "scan dwell");
 }
 
 static void
 set_scan_passive_dwell_cb (GDBusProxy *proxy, GAsyncResult *result, gpointer user_data)
 {
-	NMSupplicantInterface *self;
-	NMSupplicantInterfacePrivate *priv;
-	self = NM_SUPPLICANT_INTERFACE (user_data);
-	priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
-	set_laird_guint32_cb(
-		proxy, result, user_data,
-		"scan passive dwell",
-		nm_supplicant_config_get_scan_passive_dwell (priv->assoc_data->cfg),
-		"failure to set scan passive dwell");
+	laird_set_global_cb(proxy, result, user_data, "scan passive dwell");
 }
 
 static void
 set_scan_suspend_time_cb (GDBusProxy *proxy, GAsyncResult *result, gpointer user_data)
 {
-	NMSupplicantInterface *self;
-	NMSupplicantInterfacePrivate *priv;
-	self = NM_SUPPLICANT_INTERFACE (user_data);
-	priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
-	set_laird_guint32_cb(
-		proxy, result, user_data,
-		"scan suspend time",
-		nm_supplicant_config_get_scan_suspend_time (priv->assoc_data->cfg),
-		"failure to set scan suspend time");
+	laird_set_global_cb(proxy, result, user_data, "scan suspend time");
 }
 
 static void
 set_scan_roam_delta_cb (GDBusProxy *proxy, GAsyncResult *result, gpointer user_data)
 {
-	NMSupplicantInterface *self;
-	NMSupplicantInterfacePrivate *priv;
-	self = NM_SUPPLICANT_INTERFACE (user_data);
-	priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
-	set_laird_guint32_cb(
-		proxy, result, user_data,
-		"scan roam delta",
-		nm_supplicant_config_get_scan_roam_delta (priv->assoc_data->cfg),
-		"failure to set scan roam delta");
+	laird_set_global_cb(proxy, result, user_data, "scan roam delta");
 }
 
 static void
-set_frequency_dfs_cb (GDBusProxy *proxy, GAsyncResult *result, gpointer user_data)
+set_disable_dfs_cb (GDBusProxy *proxy, GAsyncResult *result, gpointer user_data)
 {
-	NMSupplicantInterface *self;
-	NMSupplicantInterfacePrivate *priv;
-	self = NM_SUPPLICANT_INTERFACE (user_data);
-	priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
-	set_laird_guint32_cb(
-		proxy, result, user_data,
-		"frequency dfs",
-		nm_supplicant_config_get_frequency_dfs (priv->assoc_data->cfg),
-		"failure to set frequency dfs");
+	laird_set_global_cb(proxy, result, user_data, "frequency dfs");
 }
 
+/*================================*/
 static void
 laird_proxy_guint32(NMSupplicantInterface *self,
+					GCancellable *cancellable,
 					const char *key,
 					guint32 value,
 					GAsyncReadyCallback cb)
 {
 	NMSupplicantInterfacePrivate *priv;
 	char buf[32];
+
+	_LOGD("%s: setting %s %d ...", __func__, key, value);
 
 	priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
 	g_snprintf (buf, sizeof(buf), "%d", value);
@@ -1895,9 +1859,57 @@ laird_proxy_guint32(NMSupplicantInterface *self,
 	                                  g_variant_new_string (buf)),
 	                   G_DBUS_CALL_FLAGS_NONE,
 	                   -1,
-	                   priv->assoc_data->cancellable,
+	                   cancellable,
 	                   cb,
 	                   self);
+}
+
+static void
+laird_scan_set_globals (NMSupplicantInterface *self,
+						GCancellable *cancellable,
+						LairdScanGlobals *g)
+{
+	NMSupplicantInterfacePrivate *priv;
+
+	g_return_if_fail (NM_IS_SUPPLICANT_INTERFACE (self));
+
+	priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
+
+	if (priv->laird_support != NM_SUPPLICANT_FEATURE_YES)
+		return;
+
+	// push changes to the supplicant
+	if (g->scan_delay != priv->laird.pushed.scan_delay) {
+		guint32 value = g->scan_delay;
+		laird_proxy_guint32(self, cancellable,
+							"LairdScanDelay", value,
+							(GAsyncReadyCallback) set_scan_delay_cb);
+		priv->laird.pushed.scan_delay = g->scan_delay;
+	}
+	if (g->scan_dwell != priv->laird.pushed.scan_dwell) {
+		guint32 value = g->scan_dwell;
+		laird_proxy_guint32(self, cancellable,
+							"LairdScanDwell", value,
+							(GAsyncReadyCallback) set_scan_dwell_cb);
+		priv->laird.pushed.scan_dwell = g->scan_dwell;
+	}
+	if (g->scan_passive_dwell != priv->laird.pushed.scan_passive_dwell) {
+		guint32 value = g->scan_passive_dwell;
+		laird_proxy_guint32(self, cancellable,
+							"LairdPassiveDwell", value,
+							(GAsyncReadyCallback) set_scan_passive_dwell_cb);
+		priv->laird.pushed.scan_passive_dwell = g->scan_passive_dwell;
+	}
+	if (g->disable_dfs != priv->laird.pushed.disable_dfs) {
+		guint32 value = g->disable_dfs;
+		laird_proxy_guint32(self, cancellable,
+							"DisableDfs", value,
+							(GAsyncReadyCallback) set_disable_dfs_cb);
+		priv->laird.pushed.disable_dfs = g->disable_dfs;
+	}
+	// TBD: add support for setting connected state variables
+	// note, scan_suspend_time only applies to connected state
+	// note, scan_roam_delta only applies to connected state
 }
 
 /**
@@ -1981,35 +1993,25 @@ nm_supplicant_interface_assoc (NMSupplicantInterface *self,
 
 	if (priv->laird_support == NM_SUPPLICANT_FEATURE_YES) {
 		guint32 value;
-		value = nm_supplicant_config_get_scan_delay (priv->assoc_data->cfg);
+		LairdScanGlobals g;
+		memset(&g, 0, sizeof(g));
+		g.scan_delay = nm_supplicant_config_get_scan_delay (cfg);
+		g.scan_dwell = nm_supplicant_config_get_scan_dwell (cfg);
+		g.scan_passive_dwell = nm_supplicant_config_get_scan_passive_dwell (cfg);
+		g.disable_dfs = !nm_supplicant_config_get_frequency_dfs (cfg);
+		laird_scan_set_globals(self, priv->assoc_data->cancellable, &g);
+
+		value = nm_supplicant_config_get_scan_suspend_time (cfg);
 		if (value) {
-			laird_proxy_guint32(self, "LairdScanDelay", value,
-								(GAsyncReadyCallback) set_scan_delay_cb);
-		}
-		value = nm_supplicant_config_get_scan_dwell (priv->assoc_data->cfg);
-		if (value) {
-			laird_proxy_guint32(self, "LairdScanDwell", value,
-								(GAsyncReadyCallback) set_scan_dwell_cb);
-		}
-		value = nm_supplicant_config_get_scan_passive_dwell (priv->assoc_data->cfg);
-		if (value) {
-			laird_proxy_guint32(self, "LairdPassiveDwell", value,
-								(GAsyncReadyCallback) set_scan_passive_dwell_cb);
-		}
-		value = nm_supplicant_config_get_scan_suspend_time (priv->assoc_data->cfg);
-		if (value) {
-			laird_proxy_guint32(self, "LairdScanSuspendTime", value,
+			laird_proxy_guint32(self, priv->assoc_data->cancellable,
+								"LairdScanSuspendTime", value,
 								(GAsyncReadyCallback) set_scan_suspend_time_cb);
 		}
-		value = nm_supplicant_config_get_scan_roam_delta (priv->assoc_data->cfg);
+		value = nm_supplicant_config_get_scan_roam_delta (cfg);
 		if (value) {
-			laird_proxy_guint32(self, "LairdRoamDelta", value,
+			laird_proxy_guint32(self, priv->assoc_data->cancellable,
+								"LairdRoamDelta", value,
 								(GAsyncReadyCallback) set_scan_roam_delta_cb);
-		}
-		value = nm_supplicant_config_get_frequency_dfs (priv->assoc_data->cfg);
-		if (!value) {
-			laird_proxy_guint32(self, "DisableDfs", value ? 0 : 1,
-								(GAsyncReadyCallback) set_frequency_dfs_cb);
 		}
 	}
 }
@@ -2039,7 +2041,7 @@ scan_request_cb (GDBusProxy *proxy, GAsyncResult *result, gpointer user_data)
 }
 
 void
-nm_supplicant_interface_request_scan (NMSupplicantInterface *self, const GPtrArray *ssids)
+nm_supplicant_interface_request_scan_laird (NMSupplicantInterface *self, const GPtrArray *ssids, LairdScanSettings *lss)
 {
 	NMSupplicantInterfacePrivate *priv;
 	GVariantBuilder builder;
@@ -2066,6 +2068,29 @@ nm_supplicant_interface_request_scan (NMSupplicantInterface *self, const GPtrArr
 		g_variant_builder_add (&builder, "{sv}", "SSIDs", g_variant_builder_end (&ssids_builder));
 	}
 
+	if (lss && priv->laird_support == NM_SUPPLICANT_FEATURE_YES &&
+		priv->state <= NM_SUPPLICANT_INTERFACE_STATE_SCANNING) {
+		// not connected, use disconnected settings
+		LairdScanGlobals g;
+		memset(&g, 0, sizeof(g));
+		g.scan_delay = lss->scan_delay;
+		g.scan_dwell = lss->scan_dwell;
+		g.scan_passive_dwell = lss->scan_passive_dwell;
+		g.disable_dfs = !lss->frequency_dfs;
+		laird_scan_set_globals(self, priv->other_cancellable, &g);
+
+		if (lss->freqs.count) {
+			GVariantBuilder channel_builder;
+			guint32 *f = lss->freqs.ptr;
+			int i;
+			g_variant_builder_init (&channel_builder, G_VARIANT_TYPE_ARRAY);
+			for (i=0; i<lss->freqs.count; i++) {
+				g_variant_builder_add (&channel_builder, "(uu)", *f++, 20);
+			}
+			g_variant_builder_add (&builder, "{sv}", "Channels",
+								   g_variant_builder_end (&channel_builder));
+		}
+	}
 	g_dbus_proxy_call (priv->iface_proxy,
 	                   "Scan",
 	                   g_variant_new ("(a{sv})", &builder),
@@ -2076,6 +2101,11 @@ nm_supplicant_interface_request_scan (NMSupplicantInterface *self, const GPtrArr
 	                   self);
 }
 
+void
+nm_supplicant_interface_request_scan (NMSupplicantInterface *self, const GPtrArray *ssids)
+{
+	nm_supplicant_interface_request_scan_laird (self, ssids, NULL);
+}
 /*****************************************************************************/
 
 NMSupplicantInterfaceState

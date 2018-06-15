@@ -1303,6 +1303,131 @@ check_scanning_prohibited (NMDeviceWifi *self, gboolean periodic)
 	return prohibited;
 }
 
+typedef struct {
+	int *ptr;
+	int count;
+} int_list;
+
+// creates an ordered array of unique integers (frequencies)
+static void
+int_list_add_int(int_list *plist, int v)
+{
+	int *pint = plist->ptr;
+	int num_int = plist->count;
+	int i;
+	for (i=0; i<num_int; i++) {
+		if (v == pint[i]) return;
+		if (v < pint[i]) break;
+	}
+	pint = realloc(pint, sizeof(int) * (num_int + 1));
+	if (!pint)
+		return; // allocate failed? return unmodified list.
+	if (i != num_int) {
+		// move entries up
+		memmove(&pint[i+1], &pint[i], sizeof(int) * (num_int - i));
+	}
+	pint[i] = v;
+	plist->ptr = pint;
+	plist->count = num_int + 1;
+}
+
+static void
+int_list_add_string(int_list *plist, const char *v)
+{
+	if (!v)
+		return;
+	if (strspn(v, "1234567890 ") != strlen(v)) {
+		// invalid characters in list
+		return;
+	}
+	while (*v) {
+		if (*v == ' ') {
+			v++;
+		} else {
+			guint32 add_int;
+			char *end;
+			add_int = strtoul (v, &end, 10);
+			if (*end != '\0' && *end != ' ') {
+				// invalid characters in list
+				return;
+			}
+			v = end;
+			int_list_add_int(plist, add_int);
+		}
+	}
+}
+
+typedef struct {
+	int profile_count; // count of profiles
+	int require_bcast_ssid; // set if any profile has hidden==0
+	int require_all_freq; // set if any profile does not have a frequency_list
+	int require_dfs; // set if any profile has dfs channels enabled
+	LairdScanSettings lss;
+} BuildLSS;
+
+
+// determine scan settings to use when disconnected, from connection profiles
+static void
+build_laird_scan(NMSettingWireless *s_wifi, gpointer user_data)
+{
+	BuildLSS *scan = (BuildLSS*)user_data;
+	const char *frequency_list;
+	guint32 v;
+
+	scan->profile_count++;
+
+	// if any profile is not a hidden ssid, then include broadcast ssid
+	if (nm_setting_wireless_get_hidden (s_wifi) == 0)
+		scan->require_bcast_ssid = 1;
+
+	if (!scan->require_all_freq) {
+		frequency_list = nm_setting_wireless_get_frequency_list (s_wifi);
+		if (!frequency_list) {
+			// no frequency list -- must scan all channels
+			scan->require_all_freq = 1;
+			free(scan->lss.freqs.ptr);
+			scan->lss.freqs.ptr = NULL;
+			scan->lss.freqs.count = 0;
+		} else {
+			// accumulate frequency list from profiles
+			int_list_add_string((int_list*)(&scan->lss.freqs), frequency_list);
+		}
+	}
+
+	// disable dfs channels if all profiles have dfs disabled
+	if (!scan->require_dfs) {
+		if (nm_setting_wireless_get_frequency_dfs(s_wifi)) {
+			scan->require_dfs = 1;
+			scan->lss.frequency_dfs = 1;
+		} else {
+			scan->lss.frequency_dfs = 0;
+		}
+	}
+
+	// take the largest scan_delay/scan_dwell/scan_passive_dwell
+	v = nm_setting_wireless_get_scan_delay(s_wifi);
+	if (v > scan->lss.scan_delay) scan->lss.scan_delay = v;
+	v = nm_setting_wireless_get_scan_dwell(s_wifi);
+	if (v > scan->lss.scan_dwell) scan->lss.scan_dwell = v;
+	v = nm_setting_wireless_get_scan_passive_dwell(s_wifi);
+	if (v > scan->lss.scan_passive_dwell) scan->lss.scan_passive_dwell = v;
+}
+
+static void
+build_laird_scan_init(BuildLSS *blss)
+{
+	memset(blss, 0, sizeof(*blss));
+	// default to dfs channels enabled; will get cleared if all profile have dfs disabled
+	blss->lss.frequency_dfs = 1;
+}
+
+static void
+build_laird_scan_end(BuildLSS *blss)
+{
+	free(blss->lss.freqs.ptr);
+}
+
+
 static gboolean
 hidden_filter_func (NMSettings *settings,
                     NMSettingsConnection *connection,
@@ -1318,15 +1443,13 @@ hidden_filter_func (NMSettings *settings,
 	if (nm_streq0 (nm_setting_wireless_get_mode (s_wifi), NM_SETTING_WIRELESS_MODE_AP))
 		return FALSE;
 	if (user_data) {
-		int *pdata = (int *)user_data;
-		if (!nm_setting_wireless_get_hidden (s_wifi))
-			*pdata = 1;
+		build_laird_scan(s_wifi, user_data);
 	}
 	return nm_setting_wireless_get_hidden (s_wifi);
 }
 
 static GPtrArray *
-build_hidden_probe_list (NMDeviceWifi *self)
+build_hidden_probe_list (NMDeviceWifi *self, BuildLSS *blss)
 {
 	NMDeviceWifiPrivate *priv = NM_DEVICE_WIFI_GET_PRIVATE (self);
 	guint max_scan_ssids = nm_supplicant_interface_get_max_scan_ssids (priv->sup_iface);
@@ -1334,7 +1457,6 @@ build_hidden_probe_list (NMDeviceWifi *self)
 	guint i, len;
 	GPtrArray *ssids = NULL;
 	static GByteArray *nullssid = NULL;
-	int have_non_hidden = 0;
 
 	/* Need at least two: wildcard SSID and one or more hidden SSIDs */
 	if (max_scan_ssids < 2)
@@ -1343,7 +1465,8 @@ build_hidden_probe_list (NMDeviceWifi *self)
 	connections = nm_settings_get_connections_clone (nm_device_get_settings ((NMDevice *) self),
 	                                                 &len,
 	                                                 hidden_filter_func,
-	                                                 (gpointer)(&have_non_hidden),	                                                 NULL, NULL);
+	                                                 (gpointer)(blss),
+	                                                 NULL, NULL);
 	if (!connections[0])
 		return NULL;
 
@@ -1356,7 +1479,7 @@ build_hidden_probe_list (NMDeviceWifi *self)
 		nullssid = g_byte_array_new ();
 
 	/* Laird: only add wildcard SSID if non-hidden connections exist */
-	if (have_non_hidden)
+	if (blss->require_bcast_ssid)
 		g_ptr_array_add (ssids, g_byte_array_ref (nullssid));
 
 	for (i = 0; connections[i]; i++) {
@@ -1389,6 +1512,9 @@ request_wireless_scan (NMDeviceWifi *self,
 {
 	NMDeviceWifiPrivate *priv = NM_DEVICE_WIFI_GET_PRIVATE (self);
 	gboolean request_started = FALSE;
+	BuildLSS blss;
+
+	build_laird_scan_init(&blss);  // builds laird scan parameters
 
 	nm_clear_g_source (&priv->pending_scan_id);
 
@@ -1403,8 +1529,9 @@ request_wireless_scan (NMDeviceWifi *self,
 		_LOGD (LOGD_WIFI, "wifi-scan: scanning requested");
 
 		if (!ssids) {
-			ssids = hidden_ssids = build_hidden_probe_list (self);
+			ssids = hidden_ssids = build_hidden_probe_list (self, &blss);
 		}
+		// else, manual scan request without laird scan settings
 
 		if (_LOGD_ENABLED (LOGD_WIFI)) {
 			if (ssids) {
@@ -1427,8 +1554,10 @@ request_wireless_scan (NMDeviceWifi *self,
 
 		_hw_addr_set_scanning (self, FALSE);
 
-		nm_supplicant_interface_request_scan (priv->sup_iface, ssids);
+		nm_supplicant_interface_request_scan_laird (priv->sup_iface, ssids, &blss.lss);
 		request_started = TRUE;
+
+		build_laird_scan_end(&blss);
 	} else
 		_LOGD (LOGD_WIFI, "wifi-scan: scanning requested but not allowed at this time");
 
