@@ -1029,6 +1029,7 @@ global:
 	nm_setting_wireless_get_scan_suspend_time;
 	nm_setting_wireless_get_scan_roam_delta;
 	nm_setting_wireless_get_frequency_dfs;
+	nm_setting_wireless_get_max_scan_interval;
 	nm_utils_bond_mode_int_to_string;
 	nm_utils_bond_mode_string_to_int;
 	nm_utils_enum_from_str;

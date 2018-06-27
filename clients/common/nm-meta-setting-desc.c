@@ -7449,6 +7449,9 @@ static const NMMetaPropertyInfo *const property_infos_WIRELESS[] = {
 	PROPERTY_INFO_WITH_DESC (NM_SETTING_WIRELESS_FREQUENCY_DFS,
 		.property_type =                &_pt_gobject_bool,
 	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_WIRELESS_MAX_SCAN_INTERVAL,
+		.property_type =                &_pt_gobject_int,
+	),
 	NULL
 };
 

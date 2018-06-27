@@ -75,6 +75,7 @@ typedef struct {
 	guint32 auth_timeout;
 	char *frequency_list;
 	guint32 frequency_dfs;
+	guint32 max_scan_interval;
 } NMSettingWirelessPrivate;
 
 enum {
@@ -108,6 +109,7 @@ enum {
 	PROP_AUTH_TIMEOUT,
 	PROP_FREQUENCY_LIST,
 	PROP_FREQUENCY_DFS,
+	PROP_MAX_SCAN_INTERVAL,
 
 	LAST_PROP
 };
@@ -850,6 +852,20 @@ nm_setting_wireless_get_frequency_dfs (NMSettingWireless *setting)
 }
 
 /**
+ * nm_setting_wireless_get_max_scan_interval:
+ * @setting: the #NMSettingWireless
+ *
+ * Returns: the #NMSettingWireless:maximum scan interval to use while disconnected
+ **/
+guint32
+nm_setting_wireless_get_max_scan_interval (NMSettingWireless *setting)
+{
+	g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), 0);
+
+	return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->max_scan_interval;
+}
+
+/**
  * nm_setting_wireless_add_seen_bssid:
  * @setting: the #NMSettingWireless
  * @bssid: the new BSSID to add to the list
@@ -1315,6 +1331,9 @@ set_property (GObject *object, guint prop_id,
 	case PROP_FREQUENCY_DFS:
 		priv->frequency_dfs = g_value_get_uint (value);
 		break;
+	case PROP_MAX_SCAN_INTERVAL:
+		priv->max_scan_interval = g_value_get_uint (value);
+		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
 		break;
@@ -1409,6 +1428,9 @@ get_property (GObject *object, guint prop_id,
 		break;
 	case PROP_FREQUENCY_DFS:
 		g_value_set_uint (value, nm_setting_wireless_get_frequency_dfs (setting));
+		break;
+	case PROP_MAX_SCAN_INTERVAL:
+		g_value_set_uint (value, nm_setting_wireless_get_max_scan_interval (setting));
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -2083,6 +2105,22 @@ nm_setting_wireless_class_init (NMSettingWirelessClass *setting_wireless_class)
 		(object_class, PROP_FREQUENCY_DFS,
 		 g_param_spec_uint (NM_SETTING_WIRELESS_FREQUENCY_DFS, "", "",
 		                    0, 1, NM_SETTING_WIRELESS_FREQUENCY_DFS_DEFAULT,
+		                    G_PARAM_READWRITE |
+		                    G_PARAM_CONSTRUCT |
+		                    NM_SETTING_PARAM_FUZZY_IGNORE |
+		                    G_PARAM_STATIC_STRINGS));
+
+	/**
+	 * NMSettingWireless:max_scan_interval:
+	 *
+	 * The maximum scan interval to use for NM scanning for this profile.
+	 *
+	 * Since: 1.8
+	 **/
+	g_object_class_install_property
+		(object_class, PROP_MAX_SCAN_INTERVAL,
+		 g_param_spec_uint (NM_SETTING_WIRELESS_MAX_SCAN_INTERVAL, "", "",
+		                    0, 60, 0,
 		                    G_PARAM_READWRITE |
 		                    G_PARAM_CONSTRUCT |
 		                    NM_SETTING_PARAM_FUZZY_IGNORE |

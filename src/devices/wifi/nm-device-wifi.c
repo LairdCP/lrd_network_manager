@@ -118,6 +118,8 @@ typedef struct {
 	gint32 hw_addr_scan_expire;
 
 	guint             wps_timeout_id;
+
+	guint8            max_scan_interval; // max scan_interval while disconnected
 } NMDeviceWifiPrivate;
 
 struct _NMDeviceWifi
@@ -1362,6 +1364,7 @@ typedef struct {
 	int require_bcast_ssid; // set if any profile has hidden==0
 	int require_all_freq; // set if any profile does not have a frequency_list
 	int require_dfs; // set if any profile has dfs channels enabled
+	int max_scan_interval; // the smallest non-default(0) max_scan_interval
 	LairdScanSettings lss;
 } BuildLSS;
 
@@ -1402,6 +1405,13 @@ build_laird_scan(NMSettingWireless *s_wifi, gpointer user_data)
 		} else {
 			scan->lss.frequency_dfs = 0;
 		}
+	}
+
+	// take the smallest non-default(0) max_scan_interval
+	v = nm_setting_wireless_get_max_scan_interval(s_wifi);
+	if (v != 0) {
+		if (0 == scan->max_scan_interval || v < scan->max_scan_interval)
+			scan->max_scan_interval = v;
 	}
 
 	// take the largest scan_delay/scan_dwell/scan_passive_dwell
@@ -1530,8 +1540,18 @@ request_wireless_scan (NMDeviceWifi *self,
 
 		if (!ssids) {
 			ssids = hidden_ssids = build_hidden_probe_list (self, &blss);
+
+			// set max_scan_interval based on profiles
+			if (blss.max_scan_interval) {
+				if (blss.max_scan_interval < SCAN_INTERVAL_MIN)
+					blss.max_scan_interval = SCAN_INTERVAL_MIN;
+				else if (blss.max_scan_interval > SCAN_INTERVAL_MAX)
+					blss.max_scan_interval = 0;
+			}
+			priv->max_scan_interval = (guint8)blss.max_scan_interval;
 		}
 		// else, manual scan request without laird scan settings
+
 
 		if (_LOGD_ENABLED (LOGD_WIFI)) {
 			if (ssids) {
@@ -1607,8 +1627,17 @@ schedule_scan (NMDeviceWifi *self, gboolean backoff)
 		                                               self);
 
 		priv->scheduled_scan_time = now + priv->scan_interval;
-		if (backoff && (priv->scan_interval < (SCAN_INTERVAL_MAX / factor))) {
+		if (backoff) {
 				priv->scan_interval += (SCAN_INTERVAL_STEP / factor);
+				/* Laird: scan interval never greater than max_scan_interval */
+				if (nm_supplicant_interface_get_state (priv->sup_iface) <=
+					NM_SUPPLICANT_INTERFACE_STATE_SCANNING &&
+					priv->max_scan_interval)
+				{
+					/* Laird: while disconnected, apply max_scan_interval */
+					priv->scan_interval = MIN(priv->scan_interval,
+											  priv->max_scan_interval);
+				}
 				/* Ensure the scan interval will never be less than 20s... */
 				priv->scan_interval = MAX(priv->scan_interval, SCAN_INTERVAL_MIN + SCAN_INTERVAL_STEP);
 				/* ... or more than 120s */

@@ -71,6 +71,7 @@ G_BEGIN_DECLS
 #define NM_SETTING_WIRELESS_FREQUENCY_LIST "frequency-list"
 #define NM_SETTING_WIRELESS_FREQUENCY_DFS "frequency-dfs"
 #define NM_SETTING_WIRELESS_FREQUENCY_DFS_DEFAULT 1
+#define NM_SETTING_WIRELESS_MAX_SCAN_INTERVAL "max-scan-interval"
 
 /**
  * NM_SETTING_WIRELESS_MODE_ADHOC:
@@ -195,6 +196,7 @@ const char       *nm_setting_wireless_get_bgscan             (NMSettingWireless 
 guint32           nm_setting_wireless_get_auth_timeout       (NMSettingWireless *setting);
 const char       *nm_setting_wireless_get_frequency_list     (NMSettingWireless *setting);
 guint32           nm_setting_wireless_get_frequency_dfs      (NMSettingWireless *setting);
+guint32           nm_setting_wireless_get_max_scan_interval     (NMSettingWireless *setting);
 
 gboolean          nm_setting_wireless_add_seen_bssid         (NMSettingWireless *setting,
                                                               const char *bssid);
