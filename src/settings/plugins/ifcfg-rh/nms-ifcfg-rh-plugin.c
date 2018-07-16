@@ -125,7 +125,6 @@ connection_ifcfg_changed (NMIfcfgConnection *connection, gpointer user_data)
 	path = nm_settings_connection_get_filename (NM_SETTINGS_CONNECTION (connection));
 	g_return_if_fail (path != NULL);
 
-
 	if (!priv->ifcfg_monitor) {
 		_LOGD ("connection_ifcfg_changed("NM_IFCFG_CONNECTION_LOG_FMTD"): %s", NM_IFCFG_CONNECTION_LOG_ARGD (connection), "ignore event");
 		return;
@@ -326,21 +325,21 @@ update_connection (SettingsPluginIfcfg *self,
 
 			if (new_unmanaged || new_unrecognized) {
 				if (!old_unmanaged && !old_unrecognized) {
+					/* ref connection first, because we put it into priv->connections below.
+					 * Emitting signal-removed might otherwise delete it. */
 					g_object_ref (connection_by_uuid);
+
 					/* Unexport the connection by telling the settings service it's
 					 * been removed.
 					 */
 					nm_settings_connection_signal_remove (NM_SETTINGS_CONNECTION (connection_by_uuid));
-					/* Remove the path so that claim_connection() doesn't complain later when
-					 * interface gets managed and connection is re-added. */
-					nm_connection_set_path (NM_CONNECTION (connection_by_uuid), NULL);
 
 					/* signal_remove() will end up removing the connection from our hash,
 					 * so add it back now.
 					 */
 					g_hash_table_insert (priv->connections,
 					                     g_strdup (nm_connection_get_uuid (NM_CONNECTION (connection_by_uuid))),
-					                     connection_by_uuid);
+					                     connection_by_uuid /* we took reference above and pass it on */);
 				}
 			} else {
 				if (old_unmanaged /* && !new_unmanaged */) {
@@ -372,7 +371,9 @@ update_connection (SettingsPluginIfcfg *self,
 			_LOGI ("add connection "NM_IFCFG_CONNECTION_LOG_FMT, NM_IFCFG_CONNECTION_LOG_ARG (connection_new));
 		else
 			_LOGI ("new connection "NM_IFCFG_CONNECTION_LOG_FMT, NM_IFCFG_CONNECTION_LOG_ARG (connection_new));
-		g_hash_table_insert (priv->connections, g_strdup (uuid), connection_new);
+		g_hash_table_insert (priv->connections,
+		                     g_strdup (uuid),
+		                     connection_new /* take reference */);
 
 		g_signal_connect (connection_new, NM_SETTINGS_CONNECTION_REMOVED,
 		                  G_CALLBACK (connection_removed_cb),
@@ -417,7 +418,7 @@ ifcfg_dir_changed (GFileMonitor *monitor,
 	path = g_file_get_path (file);
 
 	ifcfg_path = utils_detect_ifcfg_path (path, FALSE);
-	_LOGD ("ifcfg_dir_changed(%s) = %d // %s", path, event_type, ifcfg_path ? ifcfg_path : "(none)");
+	_LOGD ("ifcfg_dir_changed(%s) = %d // %s", path, event_type, ifcfg_path ?: "(none)");
 	if (ifcfg_path) {
 		connection = find_by_path (plugin, ifcfg_path);
 		switch (event_type) {
@@ -748,7 +749,7 @@ impl_ifcfgrh_get_ifcfg_details (SettingsPluginIfcfg *plugin,
 		return;
 	}
 
-	path = nm_connection_get_path (NM_CONNECTION (connection));
+	path = nm_dbus_object_get_path (NM_DBUS_OBJECT (connection));
 	if (!path) {
 		g_dbus_method_invocation_return_error (context,
 		                                       NM_SETTINGS_ERROR,
@@ -890,7 +891,7 @@ _dbus_request_name_done (GObject *source_object,
 		}
 	}
 
-	_LOGD ("dbus: aquired D-Bus service %s and exported %s object",
+	_LOGD ("dbus: acquired D-Bus service %s and exported %s object",
 	       IFCFGRH1_BUS_NAME,
 	       IFCFGRH1_OBJECT_PATH);
 }
@@ -997,28 +998,6 @@ config_changed_cb (NMConfig *config,
 /*****************************************************************************/
 
 static void
-get_property (GObject *object, guint prop_id,
-              GValue *value, GParamSpec *pspec)
-{
-	switch (prop_id) {
-	case NM_SETTINGS_PLUGIN_PROP_NAME:
-		g_value_set_string (value, IFCFG_PLUGIN_NAME);
-		break;
-	case NM_SETTINGS_PLUGIN_PROP_INFO:
-		g_value_set_string (value, IFCFG_PLUGIN_INFO);
-		break;
-	case NM_SETTINGS_PLUGIN_PROP_CAPABILITIES:
-		g_value_set_uint (value, NM_SETTINGS_PLUGIN_CAP_MODIFY_CONNECTIONS);
-		break;
-	default:
-		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
-		break;
-	}
-}
-
-/*****************************************************************************/
-
-static void
 init (NMSettingsPlugin *config)
 {
 }
@@ -1086,19 +1065,6 @@ settings_plugin_ifcfg_class_init (SettingsPluginIfcfgClass *req_class)
 
 	object_class->constructed = constructed;
 	object_class->dispose = dispose;
-	object_class->get_property = get_property;
-
-	g_object_class_override_property (object_class,
-	                                  NM_SETTINGS_PLUGIN_PROP_NAME,
-	                                  NM_SETTINGS_PLUGIN_NAME);
-
-	g_object_class_override_property (object_class,
-	                                  NM_SETTINGS_PLUGIN_PROP_INFO,
-	                                  NM_SETTINGS_PLUGIN_INFO);
-
-	g_object_class_override_property (object_class,
-	                                  NM_SETTINGS_PLUGIN_PROP_CAPABILITIES,
-	                                  NM_SETTINGS_PLUGIN_CAPABILITIES);
 }
 
 static void

@@ -434,7 +434,7 @@ static gboolean
 complete_connection (NMDevice *device,
                      NMConnection *connection,
                      const char *specific_object,
-                     const GSList *existing_connections,
+                     NMConnection *const*existing_connections,
                      GError **error)
 {
 	NMDeviceModemPrivate *priv = NM_DEVICE_MODEM_GET_PRIVATE ((NMDeviceModem *) device);
@@ -542,7 +542,7 @@ act_stage3_ip6_config_start (NMDevice *device,
                              NMDeviceStateReason *out_failure_reason)
 {
 	return nm_modem_stage3_ip6_config_start (NM_DEVICE_MODEM_GET_PRIVATE ((NMDeviceModem *) device)->modem,
-	                                         nm_device_get_act_request (device),
+	                                         device,
 	                                         out_failure_reason);
 }
 

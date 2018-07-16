@@ -35,8 +35,6 @@
 
 #define PLUGIN_PREFIX "libnm-device-plugin-"
 
-static NM_CACHED_QUARK_FCN ("NMManager-plugin-path", plugin_path_quark)
-
 /*****************************************************************************/
 
 enum {
@@ -303,7 +301,10 @@ _add_factory (NMDeviceFactory *factory,
 
 	nm_device_factory_get_supported_types (factory, &link_types, &setting_types);
 
-	g_object_set_qdata_full (G_OBJECT (factory), plugin_path_quark (), g_strdup (path), g_free);
+	g_return_val_if_fail (   (link_types && link_types[0] > NM_LINK_TYPE_UNKNOWN)
+	                      || (setting_types && setting_types[0]),
+	                      FALSE);
+
 	for (i = 0; link_types && link_types[i] > NM_LINK_TYPE_UNKNOWN; i++)
 		g_hash_table_insert (factories_by_link, GUINT_TO_POINTER (link_types[i]), g_object_ref (factory));
 	for (i = 0; setting_types && setting_types[i]; i++) {
@@ -319,7 +320,12 @@ _add_factory (NMDeviceFactory *factory,
 
 	callback (factory, user_data);
 
-	nm_log_info (LOGD_PLATFORM, "Loaded device plugin: %s (%s)", G_OBJECT_TYPE_NAME (factory), path);
+	nm_log (path ? LOGL_INFO : LOGL_DEBUG,
+	        LOGD_PLATFORM,
+	        NULL, NULL,
+	        "Loaded device plugin: %s (%s)",
+	        G_OBJECT_TYPE_NAME (factory),
+	        path ?: "internal");
 	return TRUE;
 }
 
@@ -328,10 +334,10 @@ _load_internal_factory (GType factory_gtype,
                         NMDeviceFactoryManagerFactoryFunc callback,
                         gpointer user_data)
 {
-	NMDeviceFactory *factory;
+	gs_unref_object NMDeviceFactory *factory = NULL;
 
 	factory = (NMDeviceFactory *) g_object_new (factory_gtype, NULL);
-	_add_factory (factory, "internal", callback, user_data);
+	_add_factory (factory, NULL, callback, user_data);
 }
 
 static void

@@ -29,17 +29,15 @@
 
 /* core */
 typedef struct _NMDBusObject         NMDBusObject;
-typedef struct _NMExportedObject     NMExportedObject;
 typedef struct _NMActiveConnection   NMActiveConnection;
 typedef struct _NMAuditManager       NMAuditManager;
 typedef struct _NMVpnConnection      NMVpnConnection;
 typedef struct _NMActRequest         NMActRequest;
 typedef struct _NMAuthSubject        NMAuthSubject;
-typedef struct _NMDBusManager         NMDBusManager;
+typedef struct _NMDBusManager        NMDBusManager;
 typedef struct _NMConfig             NMConfig;
 typedef struct _NMConfigData         NMConfigData;
-typedef struct _NMArpingManager      NMArpingManager;
-typedef struct _NMConnectionProvider NMConnectionProvider;
+typedef struct _NMAcdManager         NMAcdManager;
 typedef struct _NMConnectivity       NMConnectivity;
 typedef struct _NMDevice             NMDevice;
 typedef struct _NMDhcp4Config        NMDhcp4Config;
@@ -77,6 +75,15 @@ typedef enum {
 } NMActivationType;
 
 typedef enum {
+	NM_ACTIVATION_REASON_UNSET,
+	NM_ACTIVATION_REASON_EXTERNAL,
+	NM_ACTIVATION_REASON_ASSUME,
+	NM_ACTIVATION_REASON_AUTOCONNECT,
+	NM_ACTIVATION_REASON_AUTOCONNECT_SLAVES,
+	NM_ACTIVATION_REASON_USER_REQUEST,
+} NMActivationReason;
+
+typedef enum {
 	/* In priority order; higher number == higher priority */
 
 	NM_IP_CONFIG_SOURCE_UNKNOWN                 = 0,
@@ -96,6 +103,7 @@ typedef enum {
 	NM_IP_CONFIG_SOURCE_KERNEL,
 	NM_IP_CONFIG_SOURCE_SHARED,
 	NM_IP_CONFIG_SOURCE_IP4LL,
+	NM_IP_CONFIG_SOURCE_IP6LL,
 	NM_IP_CONFIG_SOURCE_PPP,
 	NM_IP_CONFIG_SOURCE_WWAN,
 	NM_IP_CONFIG_SOURCE_VPN,
@@ -158,7 +166,6 @@ typedef enum {
 	NM_LINK_TYPE_OPENVSWITCH,
 	NM_LINK_TYPE_PPP,
 	NM_LINK_TYPE_SIT,
-	NM_LINK_TYPE_TAP,
 	NM_LINK_TYPE_TUN,
 	NM_LINK_TYPE_VETH,
 	NM_LINK_TYPE_VLAN,
@@ -192,6 +199,7 @@ typedef enum {
 	NMP_OBJECT_TYPE_LNK_MACVLAN,
 	NMP_OBJECT_TYPE_LNK_MACVTAP,
 	NMP_OBJECT_TYPE_LNK_SIT,
+	NMP_OBJECT_TYPE_LNK_TUN,
 	NMP_OBJECT_TYPE_LNK_VLAN,
 	NMP_OBJECT_TYPE_LNK_VXLAN,
 
@@ -205,7 +213,6 @@ typedef enum {
 	NM_IP_CONFIG_MERGE_NO_DEFAULT_ROUTES        = (1LL << 1),
 	NM_IP_CONFIG_MERGE_NO_DNS                   = (1LL << 2),
 } NMIPConfigMergeFlags;
-
 
 /**
  * NMIPRouteTableSyncMode:
@@ -221,7 +228,6 @@ typedef enum {
 	NM_IP_ROUTE_TABLE_SYNC_MODE_FULL        = 2,
 	NM_IP_ROUTE_TABLE_SYNC_MODE_ALL         = 3,
 } NMIPRouteTableSyncMode;
-
 
 /* settings */
 typedef struct _NMAgentManager       NMAgentManager;

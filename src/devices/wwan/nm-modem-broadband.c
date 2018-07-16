@@ -286,7 +286,7 @@ create_gsm_connect_properties (NMConnection *connection)
 
 	/* Blank APN ("") means the default subscription APN */
 	str = nm_setting_gsm_get_apn (setting);
-	mm_simple_connect_properties_set_apn (properties, str ? str : "");
+	mm_simple_connect_properties_set_apn (properties, str ?: "");
 
 	str = nm_setting_gsm_get_network_id (setting);
 	if (str)
@@ -339,7 +339,7 @@ connect_context_clear (NMModemBroadband *self)
 		ConnectContext *ctx = self->_priv.ctx;
 
 		g_clear_error (&ctx->first_error);
-		g_clear_pointer (&ctx->ip_types, (GDestroyNotify) g_array_unref);
+		g_clear_pointer (&ctx->ip_types, g_array_unref);
 		nm_clear_g_cancellable (&ctx->cancellable);
 		g_clear_object (&ctx->connection);
 		g_clear_object (&ctx->connect_properties);
@@ -663,7 +663,7 @@ check_connection_compatible (NMModem *_self, NMConnection *connection)
 static gboolean
 complete_connection (NMModem *_self,
                      NMConnection *connection,
-                     const GSList *existing_connections,
+                     NMConnection *const*existing_connections,
                      GError **error)
 {
 	NMModemBroadband *self = NM_MODEM_BROADBAND (_self);
@@ -923,7 +923,6 @@ static_stage3_ip4_done (NMModemBroadband *self)
 		nm_ip4_config_add_address (config, &address);
 
 	_LOGI ("  address %s/%d", address_string, address.plen);
-
 
 	nm_modem_get_route_parameters (NM_MODEM (self),
 	                               &ip4_route_table,
@@ -1282,7 +1281,6 @@ get_sim_ready (MMModem *modem,
 {
 	GError *error = NULL;
 	MMSim *new_sim;
-
 
 	new_sim = mm_modem_get_sim_finish (modem, res, &error);
 	if (new_sim != self->_priv.sim_iface) {

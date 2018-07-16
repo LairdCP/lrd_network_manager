@@ -29,7 +29,7 @@ cflags = nm_cflags + [
   '-DRUNDIR="@0@"'.format(nm_pkgrundir),
   '-DNMCONFDIR="@0@"'.format(nm_pkgconfdir),
   '-DNMLOCALEDIR="@0@"'.format(nm_localedir),
-  '-DNMPLUGINDIR="@0@"'.format(nm_pkglibdir),
+  '-DNMPLUGINDIR="@0@"'.format(nm_plugindir),
   '-DNMRUNDIR="@0@"'.format(nm_pkgrundir),
   '-DNMSTATEDIR="@0@"'.format(nm_pkgstatedir),
   '-DNMLIBDIR="@0@"'.format(nm_pkglibdir)
@@ -91,7 +91,7 @@ libnetwork_manager_base = static_library(
 )
 
 sources = files(
-  'devices/nm-arping-manager.c',
+  'devices/nm-acd-manager.c',
   'devices/nm-device-bond.c',
   'devices/nm-device-bridge.c',
   'devices/nm-device.c',
@@ -150,6 +150,7 @@ sources = files(
   'nm-checkpoint-manager.c',
   'nm-config.c',
   'nm-config-data.c',
+  'nm-connectivity.c',
   'nm-dcb.c',
   'nm-dhcp4-config.c',
   'nm-dhcp6-config.c',
@@ -173,12 +174,11 @@ deps = [
   #        this dependency might be needed
   #libnmdbus_dep,
   libudev_dep,
-  nm_core_dep
+  nm_core_dep,
+  shared_n_acd_dep
 ]
 
 if enable_concheck
-  sources += files('nm-connectivity.c')
-
   deps += libcurl_dep
 endif
 

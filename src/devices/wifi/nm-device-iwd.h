@@ -38,6 +38,7 @@
 #define NM_DEVICE_IWD_ACTIVE_ACCESS_POINT NM_DEVICE_WIFI_ACTIVE_ACCESS_POINT
 #define NM_DEVICE_IWD_CAPABILITIES        NM_DEVICE_WIFI_CAPABILITIES
 #define NM_DEVICE_IWD_SCANNING            NM_DEVICE_WIFI_SCANNING
+#define NM_DEVICE_IWD_LAST_SCAN           NM_DEVICE_WIFI_LAST_SCAN
 
 #define NM_DEVICE_IWD_SCANNING_PROHIBITED  NM_DEVICE_WIFI_SCANNING_PROHIBITED
 
@@ -50,10 +51,10 @@ NMDevice *nm_device_iwd_new (const char *iface, NMDeviceWifiCapabilities capabil
 
 void nm_device_iwd_set_dbus_object (NMDeviceIwd *device, GDBusObject *object);
 
-gboolean nm_device_iwd_agent_psk_query (NMDeviceIwd *device,
-                                        GDBusMethodInvocation *invocation);
+gboolean nm_device_iwd_agent_query (NMDeviceIwd *device,
+                                    GDBusMethodInvocation *invocation);
 
-GHashTable *_nm_device_iwd_get_aps (NMDeviceIwd *self);
+const CList *_nm_device_iwd_get_aps (NMDeviceIwd *self);
 
 void _nm_device_iwd_request_scan (NMDeviceIwd *self,
                                   GVariant *options,

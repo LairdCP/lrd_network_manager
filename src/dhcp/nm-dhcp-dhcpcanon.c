@@ -76,7 +76,6 @@ nm_dhcp_dhcpcanon_get_path (void)
 	return nm_utils_find_helper ("dhcpcanon", DHCPCANON_PATH, NULL);
 }
 
-
 static gboolean
 dhcpcanon_start (NMDhcpClient *client,
                 const char *mode_opt,
@@ -141,7 +140,6 @@ dhcpcanon_start (NMDhcpClient *client,
 		g_ptr_array_add (argv, (gpointer) "-e");
 		g_ptr_array_add (argv, (gpointer) system_bus_address_env);
 	}
-
 
 	g_ptr_array_add (argv, (gpointer) iface);
 	g_ptr_array_add (argv, NULL);
@@ -265,7 +263,6 @@ const NMDhcpClientFactory _nm_dhcp_client_factory_dhcpcanon = {
 	.name = "dhcpcanon",
 	.get_type = nm_dhcp_dhcpcanon_get_type,
 	.get_path = nm_dhcp_dhcpcanon_get_path,
-	.get_lease_ip_configs = NULL,
 };
 
 #endif /* WITH_DHCPCANON */

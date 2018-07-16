@@ -70,8 +70,10 @@ nm_checkpoint_get_devices (NMCheckpoint *checkpoint)
  * nm_checkpoint_get_created:
  * @checkpoint: a #NMCheckpoint
  *
- * Gets the timestamp (in CLOCK_BOOTTIME milliseconds)
- * of checkpoint creation.
+ * Gets the timestamp (in CLOCK_BOOTTIME milliseconds) of checkpoint creation.
+ *
+ * Use nm_utils_get_timestamp_msec() to obtain current time value suitable for
+ * comparing to this value.
  *
  * Returns: the timestamp of checkpoint creation.
  *
@@ -163,7 +165,6 @@ init_dbus (NMObject *object)
 	                                property_info);
 }
 
-
 static void
 nm_checkpoint_class_init (NMCheckpointClass *checkpoint_class)
 {
@@ -176,7 +177,7 @@ nm_checkpoint_class_init (NMCheckpointClass *checkpoint_class)
 	nm_object_class->init_dbus = init_dbus;
 
 	/**
-	 * NMCheckpoint:devices:
+	 * NMCheckpoint:devices: (type GPtrArray(NMDevice))
 	 *
 	 * The devices that are part of this checkpoint.
 	 *

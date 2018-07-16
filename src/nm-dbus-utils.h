@@ -122,6 +122,7 @@ typedef struct _NMDBusMethodInfoExtended {
 	                const char *sender,
 	                GDBusMethodInvocation *invocation,
 	                GVariant *parameters);
+	bool allow_during_shutdown;
 } NMDBusMethodInfoExtended;
 
 #define NM_DEFINE_DBUS_METHOD_INFO_EXTENDED(parent_, ...) \
@@ -152,7 +153,8 @@ extern const GDBusSignalInfo nm_signal_info_property_changed_legacy;
 /*****************************************************************************/
 
 GDBusPropertyInfo *nm_dbus_utils_interface_info_lookup_property (const GDBusInterfaceInfo *interface_info,
-                                                                 const char *property_name);
+                                                                 const char *property_name,
+                                                                 guint *property_idx);
 
 GDBusMethodInfo *nm_dbus_utils_interface_info_lookup_method (const GDBusInterfaceInfo *interface_info,
                                                              const char *method_name);
@@ -163,11 +165,49 @@ GVariant *nm_dbus_utils_get_property (GObject *obj,
 
 /*****************************************************************************/
 
+struct CList;
+
+const char **nm_dbus_utils_get_paths_for_clist (const struct CList *lst_head,
+                                                gssize lst_len,
+                                                guint member_offset,
+                                                gboolean expect_all_exported);
+
 void nm_dbus_utils_g_value_set_object_path (GValue *value, gpointer object);
 
-void nm_dbus_utils_g_value_set_object_path_array (GValue *value,
-                                                  GSList *objects,
-                                                  gboolean (*filter_func) (GObject *object, gpointer user_data),
-                                                  gpointer user_data);
+void nm_dbus_utils_g_value_set_object_path_still_exported (GValue *value, gpointer object);
+
+void nm_dbus_utils_g_value_set_object_path_from_hash (GValue *value,
+                                                      GHashTable *hash,
+                                                      gboolean expect_all_exported);
+
+/*****************************************************************************/
+
+typedef struct {
+	union {
+		gpointer const obj;
+		gpointer _obj;
+	};
+	GObject *_notify_target;
+	const GParamSpec *_notify_pspec;
+	gulong _notify_signal_id;
+	union {
+		const bool visible;
+		bool _visible;
+	};
+} NMDBusTrackObjPath;
+
+void nm_dbus_track_obj_path_init (NMDBusTrackObjPath *track,
+                                  GObject *target,
+                                  const GParamSpec *pspec);
+
+void nm_dbus_track_obj_path_deinit (NMDBusTrackObjPath *track);
+
+void nm_dbus_track_obj_path_notify (const NMDBusTrackObjPath *track);
+
+const char *nm_dbus_track_obj_path_get (const NMDBusTrackObjPath *track);
+
+void nm_dbus_track_obj_path_set (NMDBusTrackObjPath *track,
+                                 gpointer obj,
+                                 gboolean visible);
 
 #endif /* __NM_DBUS_UTILS_H__ */

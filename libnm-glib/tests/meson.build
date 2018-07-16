@@ -7,21 +7,25 @@ deps = [
 ]
 
 test_units = [
-  # FIXME: these tests currently fail
-  #'test-nm-client',
-  #'test-remote-settings-client'
+  'test-nm-client',
+  'test-remote-settings-client'
 ]
 
 foreach test_unit: test_units
   exe = executable(
     test_unit,
-    [test_unit + '.c'] + shared_test_utils,
+    [test_unit + '.c'] + shared_nm_test_utils_impl_c,
     dependencies: deps,
-    c_args: common_cflags + [
-      '-DNETWORKMANAGER_COMPILATION_TEST',
-      '-DTEST_NM_SERVICE="@0@"'.format(join_paths(meson.source_root(), 'tools', 'test-networkmanager-service.py')),
-    ],
+    c_args:
+      common_cflags + [
+        '-DNETWORKMANAGER_COMPILATION_TEST',
+      ] +
+      nm_build_cflags,
   )
 
-  test(test_unit, exe)
+  test(
+    'libnm-glib/' + test_unit,
+    test_script,
+    args: test_args + [exe.full_path()]
+  )
 endforeach

@@ -126,7 +126,7 @@ typedef struct {
 
 	gboolean (*complete_connection)            (NMModem *modem,
 	                                            NMConnection *connection,
-	                                            const GSList *existing_connections,
+	                                            NMConnection *const*existing_connections,
 	                                            GError **error);
 
 	NMActStageReturn (*act_stage1_prepare)     (NMModem *modem,
@@ -189,7 +189,7 @@ gboolean nm_modem_check_connection_compatible (NMModem *self, NMConnection *conn
 
 gboolean nm_modem_complete_connection (NMModem *self,
                                        NMConnection *connection,
-                                       const GSList *existing_connections,
+                                       NMConnection *const*existing_connections,
                                        GError **error);
 
 void nm_modem_get_route_parameters (NMModem *self,
@@ -221,7 +221,7 @@ NMActStageReturn nm_modem_stage3_ip4_config_start (NMModem *modem,
                                                    NMDeviceStateReason *out_failure_reason);
 
 NMActStageReturn nm_modem_stage3_ip6_config_start (NMModem *modem,
-                                                   NMActRequest *req,
+                                                   NMDevice *device,
                                                    NMDeviceStateReason *out_failure_reason);
 
 void nm_modem_ip4_pre_commit (NMModem *modem, NMDevice *device, NMIP4Config *config);
@@ -275,6 +275,6 @@ void nm_modem_emit_ip6_config_result (NMModem *self,
 
 const gchar *nm_modem_ip_type_to_string (NMModemIPType ip_type);
 
-guint32 nm_modem_get_configured_mtu (NMDevice *self, gboolean *out_is_user_config);
+guint32 nm_modem_get_configured_mtu (NMDevice *self, NMDeviceMtuSource *out_source);
 
 #endif /* __NETWORKMANAGER_MODEM_H__ */

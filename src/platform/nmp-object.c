@@ -325,7 +325,7 @@ _vlan_xgress_qos_mappings_cmp (guint n_map,
 
 static void
 _vlan_xgress_qos_mappings_cpy (guint *dst_n_map,
-                               const NMVlanQosMapping **dst_map,
+                               NMVlanQosMapping **dst_map,
                                guint src_n_map,
                                const NMVlanQosMapping *src_map)
 {
@@ -388,7 +388,7 @@ _nmp_object_fixup_link_udev_fields (NMPObject **obj_new, NMPObject *obj_orig, gb
 	/* The link contains internal fields that are combined by
 	 * properties from netlink and udev. Update those properties */
 
-	/* When a link is not in netlink, it's udev fields don't matter. */
+	/* When a link is not in netlink, its udev fields don't matter. */
 	if (obj->_link.netlink.is_in_netlink) {
 		driver = _link_get_driver (obj->_link.udev.device,
 		                           obj->link.kind,
@@ -532,7 +532,7 @@ _nmp_object_stackinit_from_type (NMPObject *obj, NMPObjectType obj_type)
 }
 
 const NMPObject *
-nmp_object_stackinit (NMPObject *obj, NMPObjectType obj_type, const NMPlatformObject *plobj)
+nmp_object_stackinit (NMPObject *obj, NMPObjectType obj_type, gconstpointer plobj)
 {
 	const NMPClass *klass = nmp_class_from_type (obj_type);
 
@@ -916,11 +916,11 @@ _vt_cmd_obj_copy_lnk_vlan (NMPObject *dst, const NMPObject *src)
 {
 	dst->lnk_vlan = src->lnk_vlan;
 	_vlan_xgress_qos_mappings_cpy (&dst->_lnk_vlan.n_ingress_qos_map,
-	                               &dst->_lnk_vlan.ingress_qos_map,
+	                               NM_UNCONST_PPTR (NMVlanQosMapping, &dst->_lnk_vlan.ingress_qos_map),
 	                               src->_lnk_vlan.n_ingress_qos_map,
 	                               src->_lnk_vlan.ingress_qos_map);
 	_vlan_xgress_qos_mappings_cpy (&dst->_lnk_vlan.n_egress_qos_map,
-	                               &dst->_lnk_vlan.egress_qos_map,
+	                               NM_UNCONST_PPTR (NMVlanQosMapping, &dst->_lnk_vlan.egress_qos_map),
 	                               src->_lnk_vlan.n_egress_qos_map,
 	                               src->_lnk_vlan.egress_qos_map);
 }
@@ -2387,7 +2387,6 @@ out:
 	return ops_type;
 }
 
-
 NMPCacheOpsType
 nmp_cache_update_link_udev (NMPCache *cache,
                             int ifindex,
@@ -2779,6 +2778,17 @@ const NMPClass _nmp_classes[NMP_OBJECT_TYPE_MAX] = {
 		.cmd_plobj_to_string                = (const char *(*) (const NMPlatformObject *obj, char *buf, gsize len)) nm_platform_lnk_sit_to_string,
 		.cmd_plobj_hash_update              = (void (*) (const NMPlatformObject *obj, NMHashState *h)) nm_platform_lnk_sit_hash_update,
 		.cmd_plobj_cmp                      = (int (*) (const NMPlatformObject *obj1, const NMPlatformObject *obj2)) nm_platform_lnk_sit_cmp,
+	},
+	[NMP_OBJECT_TYPE_LNK_TUN - 1] = {
+		.parent                             = DEDUP_MULTI_OBJ_CLASS_INIT(),
+		.obj_type                           = NMP_OBJECT_TYPE_LNK_TUN,
+		.sizeof_data                        = sizeof (NMPObjectLnkTun),
+		.sizeof_public                      = sizeof (NMPlatformLnkTun),
+		.obj_type_name                      = "tun",
+		.lnk_link_type                      = NM_LINK_TYPE_TUN,
+		.cmd_plobj_to_string                = (const char *(*) (const NMPlatformObject *obj, char *buf, gsize len)) nm_platform_lnk_tun_to_string,
+		.cmd_plobj_hash_update              = (void (*) (const NMPlatformObject *obj, NMHashState *h)) nm_platform_lnk_tun_hash_update,
+		.cmd_plobj_cmp                      = (int (*) (const NMPlatformObject *obj1, const NMPlatformObject *obj2)) nm_platform_lnk_tun_cmp,
 	},
 	[NMP_OBJECT_TYPE_LNK_VLAN - 1] = {
 		.parent                             = DEDUP_MULTI_OBJ_CLASS_INIT(),

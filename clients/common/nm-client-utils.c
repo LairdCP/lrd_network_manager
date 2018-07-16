@@ -26,6 +26,47 @@
 #include "nm-device-bridge.h"
 #include "nm-device-team.h"
 
+/*****************************************************************************/
+
+static int
+_nmc_objects_sort_by_path_cmp (gconstpointer pa, gconstpointer pb, gpointer user_data)
+{
+	NMObject *a = *((NMObject **) pa);
+	NMObject *b = *((NMObject **) pb);
+
+	NM_CMP_SELF (a, b);
+	NM_CMP_RETURN (nm_utils_dbus_path_cmp (nm_object_get_path (a),
+	                                       nm_object_get_path (b)));
+	return 0;
+}
+
+const NMObject **
+nmc_objects_sort_by_path (const NMObject *const* objs, gssize len)
+{
+	const NMObject **arr;
+	gsize i, l;
+
+	if (len < 0)
+		l = NM_PTRARRAY_LEN (objs);
+	else
+		l = len;
+
+	arr = g_new (const NMObject *, l + 1);
+	for (i = 0; i < l; i++)
+		arr[i] = objs[i];
+	arr[l] = NULL;
+
+	if (l > 1) {
+		g_qsort_with_data (arr,
+		                   l,
+		                   sizeof (gpointer),
+		                   _nmc_objects_sort_by_path_cmp,
+		                   NULL);
+	}
+	return arr;
+}
+
+/*****************************************************************************/
 /*
  * Convert string to unsigned integer.
  * If required, the resulting number is checked to be in the <min,max> range.
@@ -70,7 +111,7 @@ nmc_string_to_bool (const char *str, gboolean *val_bool, GError **error)
 
 	if (g_strcmp0 (str, "o") == 0) {
 		g_set_error (error, 1, 0,
-		             /* Translators: the first %s is the partial value entered by
+		             /* TRANSLATORS: the first %s is the partial value entered by
 		              * the user, the second %s a list of compatible values.
 		              */
 		             _("'%s' is ambiguous (%s)"), str, "on x off");
@@ -101,7 +142,7 @@ nmc_string_to_tristate (const char *str, NMCTriStateValue *val, GError **error)
 
 	if (g_strcmp0 (str, "o") == 0) {
 		g_set_error (error, 1, 0,
-		             /* Translators: the first %s is the partial value entered by
+		             /* TRANSLATORS: the first %s is the partial value entered by
 		              * the user, the second %s a list of compatible values.
 		              */
 		             _("'%s' is ambiguous (%s)"), str, "on x off");
@@ -134,10 +175,10 @@ nmc_string_is_valid (const char *input, const char **allowed, GError **error)
 {
 	const char **p;
 	size_t input_ln, p_len;
-	gboolean prev_match = FALSE, ambiguous = FALSE;
-	const char *ret = NULL;
+	const char *partial_match = NULL;
+	gboolean ambiguous = FALSE;
 
-	g_return_val_if_fail (error == NULL || *error == NULL, NULL);
+	g_return_val_if_fail (!error || !*error, NULL);
 
 	if (!input || !*input)
 		goto finish;
@@ -146,26 +187,34 @@ nmc_string_is_valid (const char *input, const char **allowed, GError **error)
 	for (p = allowed; p && *p; p++) {
 		p_len = strlen (*p);
 		if (g_ascii_strncasecmp (input, *p, input_ln) == 0) {
-			if (input_ln == p_len) {
-				ret = *p;
-				ambiguous = FALSE;
-				break;
-			}
-			if (!prev_match) {
-				ret = *p;
-				prev_match = TRUE;
-			} else
+			if (input_ln == p_len)
+				return *p;
+			if (!partial_match)
+				partial_match = *p;
+			else
 				ambiguous = TRUE;
 		}
 	}
+
 	if (ambiguous) {
-		g_set_error (error, 1, 1, _("'%s' is ambiguous (%s x %s)"),
-		             input, ret, *p);
+		GString *candidates = g_string_new ("");
+
+		for (p = allowed; *p; p++) {
+			if (g_ascii_strncasecmp (input, *p, input_ln) == 0) {
+				if (candidates->len > 0)
+					g_string_append (candidates, ", ");
+				g_string_append (candidates, *p);
+			}
+		}
+		g_set_error (error, 1, 1, _("'%s' is ambiguous: %s"),
+		             input, candidates->str);
+		g_string_free (candidates, TRUE);
 		return NULL;
 	}
 finish:
-	if (ret == NULL) {
+	if (!partial_match) {
 		char *valid_vals = g_strjoinv (", ", (char **) allowed);
+
 		if (!input || !*input)
 			g_set_error (error, 1, 0, _("missing name, try one of [%s]"), valid_vals);
 		else
@@ -173,7 +222,8 @@ finish:
 
 		g_free (valid_vals);
 	}
-	return ret;
+
+	return partial_match;
 }
 
 gboolean

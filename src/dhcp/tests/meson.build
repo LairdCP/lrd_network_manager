@@ -8,8 +8,12 @@ foreach test_unit: test_units
     test_unit,
     test_unit + '.c',
     dependencies: test_nm_dep,
-    c_args: '-DTESTDIR="@0@"'.format(meson.current_source_dir())
+    c_args: nm_build_cflags,
   )
 
-  test(test_unit, exe)
+  test(
+    'dhcp/' + test_unit,
+    test_script,
+    args: test_args + [exe.full_path()]
+  )
 endforeach

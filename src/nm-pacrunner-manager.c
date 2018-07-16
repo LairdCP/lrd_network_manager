@@ -27,7 +27,7 @@
 #include "nm-proxy-config.h"
 #include "nm-ip4-config.h"
 #include "nm-ip6-config.h"
-#include "nm-utils/c-list.h"
+#include "c-list/src/c-list.h"
 
 #define PACRUNNER_DBUS_SERVICE "org.pacrunner"
 #define PACRUNNER_DBUS_INTERFACE "org.pacrunner.Manager"
@@ -420,7 +420,6 @@ nm_pacrunner_manager_send (NMPacrunnerManager *self,
 		                       "Method",
 		                       g_variant_new_string ("direct"));
 	}
-
 
 	/* Extract stuff from configs */
 	add_proxy_config (&proxy_data, proxy_config);

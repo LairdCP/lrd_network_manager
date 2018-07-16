@@ -23,7 +23,7 @@
 #define __NETWORKMANAGER_MANAGER_H__
 
 #include "settings/nm-settings-connection.h"
-#include "nm-utils/c-list.h"
+#include "c-list/src/c-list.h"
 #include "nm-dbus-manager.h"
 
 #define NM_TYPE_MANAGER            (nm_manager_get_type ())
@@ -71,7 +71,6 @@
 #define NM_MANAGER_INTERNAL_DEVICE_ADDED     "internal-device-added"
 #define NM_MANAGER_INTERNAL_DEVICE_REMOVED   "internal-device-removed"
 
-
 GType nm_manager_get_type (void);
 
 /* nm_manager_setup() should only be used by main.c */
@@ -83,13 +82,14 @@ gboolean      nm_manager_start                         (NMManager *manager,
                                                         GError **error);
 void          nm_manager_stop                          (NMManager *manager);
 NMState       nm_manager_get_state                     (NMManager *manager);
+
 const CList * nm_manager_get_active_connections        (NMManager *manager);
 
 #define nm_manager_for_each_active_connection(manager, iter, tmp_list) \
 	for (tmp_list = nm_manager_get_active_connections (manager), \
 	     iter = c_list_entry (tmp_list->next, NMActiveConnection, active_connections_lst); \
 	     ({ \
-	         gboolean _has_next = (&iter->active_connections_lst != tmp_list); \
+	         const gboolean _has_next = (&iter->active_connections_lst != tmp_list); \
 	         \
 	         if (!_has_next) \
 	             iter = NULL; \
@@ -105,7 +105,19 @@ void          nm_manager_write_device_state (NMManager *manager);
 
 /* Device handling */
 
-const GSList *      nm_manager_get_devices             (NMManager *manager);
+const CList *       nm_manager_get_devices             (NMManager *manager);
+
+#define nm_manager_for_each_device(manager, iter, tmp_list) \
+	for (tmp_list = nm_manager_get_devices (manager), \
+	     iter = c_list_entry (tmp_list->next, NMDevice, devices_lst); \
+	     ({ \
+	         const gboolean _has_next = (&iter->devices_lst != tmp_list); \
+	         \
+	         if (!_has_next) \
+	             iter = NULL; \
+	         _has_next; \
+	    }); \
+	    iter = c_list_entry (iter->devices_lst.next, NMDevice, devices_lst))
 
 NMDevice *          nm_manager_get_device_by_ifindex   (NMManager *manager,
                                                         int ifindex);
@@ -134,6 +146,7 @@ NMActiveConnection *nm_manager_activate_connection     (NMManager *manager,
                                                         NMDevice *device,
                                                         NMAuthSubject *subject,
                                                         NMActivationType activation_type,
+                                                        NMActivationReason activation_reason,
                                                         GError **error);
 
 gboolean            nm_manager_deactivate_connection   (NMManager *manager,

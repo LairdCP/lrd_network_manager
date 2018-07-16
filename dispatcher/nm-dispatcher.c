@@ -144,7 +144,7 @@ struct Request {
 		           (_request)->request_id, \
 		           (_request)->action, \
 		           (_request)->iface ? " [" : "", \
-		           (_request)->iface ? (_request)->iface : "", \
+		           (_request)->iface ?: "", \
 		           (_request)->iface ? "]" : "", \
 		           (_script) ? ", \"" : "", \
 		           (_script) ? (_script)->script : "", \
@@ -297,7 +297,7 @@ complete_request (Request *request)
 		g_variant_builder_add (&results, "(sus)",
 		                       script->script,
 		                       script->result,
-		                       script->error ? script->error : "");
+		                       script->error ?: "");
 	}
 
 	ret = g_variant_new ("(a(sus))", &results);
@@ -537,9 +537,7 @@ script_dispatch (ScriptInfo *script)
 	script->dispatched = TRUE;
 
 	argv[0] = script->script;
-	argv[1] = request->iface
-	          ? request->iface
-	          : (!strcmp (request->action, NMD_ACTION_HOSTNAME) ? "none" : "");
+	argv[1] = request->iface ?: (!strcmp(request->action, NMD_ACTION_HOSTNAME) ? "none" : "");
 	argv[2] = request->action;
 	argv[3] = NULL;
 
@@ -862,7 +860,6 @@ log_handler (const gchar *log_domain,
 	syslog (syslog_priority, "%s", message);
 }
 
-
 static void
 logging_setup (void)
 {
@@ -918,7 +915,6 @@ main (int argc, char **argv)
 
 	g_unix_signal_add (SIGTERM, signal_handler, GINT_TO_POINTER (SIGTERM));
 	g_unix_signal_add (SIGINT, signal_handler, GINT_TO_POINTER (SIGINT));
-
 
 	if (debug) {
 		if (!g_getenv ("G_MESSAGES_DEBUG")) {

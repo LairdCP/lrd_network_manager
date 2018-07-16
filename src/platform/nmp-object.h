@@ -88,7 +88,7 @@ typedef enum { /*< skip >*/
 	/* Consider all the destination fields of a route, that is, the ID without the ifindex
 	 * and gateway (meaning: network/plen,metric).
 	 * The reason for this is that `ip route change` can replace an existing route
-	 * and modify it's ifindex/gateway. Effectively, that means it deletes an existing
+	 * and modify its ifindex/gateway. Effectively, that means it deletes an existing
 	 * route and adds a different one (as the ID of the route changes). However, it only
 	 * sends one RTM_NEWADDR notification without notifying about the deletion. We detect
 	 * that by having this index to contain overlapping routes which require special
@@ -197,6 +197,10 @@ typedef struct {
 } NMPObjectLnkSit;
 
 typedef struct {
+	NMPlatformLnkTun _public;
+} NMPObjectLnkTun;
+
+typedef struct {
 	NMPlatformLnkVlan _public;
 
 	guint n_ingress_qos_map;
@@ -264,6 +268,9 @@ struct _NMPObject {
 
 		NMPlatformLnkSit        lnk_sit;
 		NMPObjectLnkSit         _lnk_sit;
+
+		NMPlatformLnkTun        lnk_tun;
+		NMPObjectLnkTun         _lnk_tun;
 
 		NMPlatformLnkVlan       lnk_vlan;
 		NMPObjectLnkVlan        _lnk_vlan;
@@ -460,6 +467,8 @@ nmp_object_ref (const NMPObject *obj)
 static inline void
 nmp_object_unref (const NMPObject *obj)
 {
+	nm_assert (!obj || NMP_OBJECT_IS_VALID (obj));
+
 	nm_dedup_multi_obj_unref ((const NMDedupMultiObj *) obj);
 }
 
@@ -481,7 +490,7 @@ nmp_object_unref (const NMPObject *obj)
 NMPObject *nmp_object_new (NMPObjectType obj_type, const NMPlatformObject *plob);
 NMPObject *nmp_object_new_link (int ifindex);
 
-const NMPObject *nmp_object_stackinit (NMPObject *obj, NMPObjectType obj_type, const NMPlatformObject *plobj);
+const NMPObject *nmp_object_stackinit (NMPObject *obj, NMPObjectType obj_type, gconstpointer plobj);
 
 static inline NMPObject *
 nmp_object_stackinit_obj (NMPObject *obj, const NMPObject *src)

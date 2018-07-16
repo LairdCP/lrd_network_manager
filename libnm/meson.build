@@ -10,7 +10,6 @@ deps = [
 cflags = [
   '-DG_LOG_DOMAIN="@0@"'.format(libnm_name),
   '-DNETWORKMANAGER_COMPILATION=NM_NETWORKMANAGER_COMPILATION_LIBNM',
-  '-DNMRUNDIR="@0@"'.format(nm_pkgrundir)
 ]
 
 if have_fake_typelibs
@@ -30,6 +29,7 @@ libnm_headers = files(
   'NetworkManager.h',
   'nm-access-point.h',
   'nm-active-connection.h',
+  'nm-autoptr.h',
   'nm-checkpoint.h',
   'nm-client.h',
   'nm-device-adsl.h',
@@ -201,6 +201,7 @@ if enable_introspection
     export_packages: libnm_name,
     includes: 'Gio-2.0',
     extra_args: cflags,
+    header: 'NetworkManager.h',
     install: true
   )
 
@@ -234,13 +235,31 @@ if enable_introspection
 
   generate_setting_docs = join_paths(meson.current_source_dir(), 'generate-setting-docs.py')
 
+  gi_typelib_path = run_command('printenv', 'GI_TYPELIB_PATH').stdout()
+  if gi_typelib_path != ''
+    gi_typelib_path = ':' + gi_typelib_path
+  endif
+  gi_typelib_path = meson.current_build_dir() + gi_typelib_path
+
+  ld_library_path = run_command('printenv', 'LD_LIBRARY_PATH').stdout()
+  if ld_library_path != ''
+    ld_library_path = ':' + ld_library_path
+  endif
+  ld_library_path = meson.current_build_dir() + ld_library_path
+
+  generate_setting_docs_env = [
+    'env', '-i',
+    'GI_TYPELIB_PATH=' + gi_typelib_path,
+    'LD_LIBRARY_PATH=' + ld_library_path
+  ]
+
   name = 'nm-property-docs.xml'
   nm_property_docs = custom_target(
     name,
     input: libnm_gir[0],
     output: name,
-    command: [generate_setting_docs, '--lib-path', meson.current_build_dir(), '--gir', '@INPUT@', '--output', '@OUTPUT@'],
-    depends: libnm
+    command: [generate_setting_docs_env, generate_setting_docs, '--lib-path', meson.current_build_dir(), '--gir', '@INPUT@', '--output', '@OUTPUT@'],
+    depends: libnm_gir
   )
 
   name = 'nm-settings-docs.xml'
@@ -248,8 +267,8 @@ if enable_introspection
     name,
     input: libnm_gir[0],
     output: name,
-    command: [generate_setting_docs, '--lib-path', meson.current_build_dir(), '--gir', '@INPUT@', '--overrides', nm_settings_docs_overrides, '--output', '@OUTPUT@'],
-    depends: libnm
+    command: [generate_setting_docs_env, generate_setting_docs, '--lib-path', meson.current_build_dir(), '--gir', '@INPUT@', '--overrides', nm_settings_docs_overrides, '--output', '@OUTPUT@'],
+    depends: libnm_gir
   )
 endif
 

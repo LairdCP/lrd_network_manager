@@ -114,7 +114,7 @@ static gboolean
 complete_connection (NMDevice *device,
                      NMConnection *connection,
                      const char *specific_object,
-                     const GSList *existing_connections,
+                     NMConnection *const*existing_connections,
                      GError **error)
 {
 	NMSettingAdsl *s_adsl;
@@ -135,8 +135,6 @@ complete_connection (NMDevice *device,
 	                           _("ADSL connection"),
 	                           NULL,
 	                           FALSE); /* No IPv6 yet by default */
-
-
 	return TRUE;
 }
 
@@ -196,7 +194,7 @@ br2684_assign_vcc (NMDeviceAdsl *self, NMSettingAdsl *s_adsl)
 
 	_LOGD (LOGD_ADSL, "assigning address %d.%d.%d encapsulation %s",
 	       priv->atm_index, addr.sap_addr.vpi, addr.sap_addr.vci,
-	       encapsulation ? encapsulation : "(none)");
+	       encapsulation ?: "(none)");
 
 	err = connect (priv->brfd, (struct sockaddr*) &addr, sizeof (addr));
 	if (err != 0) {
@@ -527,7 +525,7 @@ adsl_cleanup (NMDeviceAdsl *self)
 	if (priv->ppp_manager) {
 		g_signal_handlers_disconnect_by_func (priv->ppp_manager, G_CALLBACK (ppp_state_changed), self);
 		g_signal_handlers_disconnect_by_func (priv->ppp_manager, G_CALLBACK (ppp_ip4_config), self);
-		nm_ppp_manager_stop_sync (priv->ppp_manager);
+		nm_ppp_manager_stop (priv->ppp_manager, NULL, NULL);
 		g_clear_object (&priv->ppp_manager);
 	}
 

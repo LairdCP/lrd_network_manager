@@ -1129,7 +1129,7 @@ _nm_ip_route_get_attributes_direct (NMIPRoute *route)
  *
  * Returns: (array length=out_length) (transfer container): a %NULL-terminated array
  *   of attribute names or %NULL if there are no attributes. The order of the returned
- *   names is undefined.
+ *   names depends on @sorted.
  **/
 const char **
 _nm_ip_route_get_attribute_names (const NMIPRoute *route, gboolean sorted, guint *out_length)
@@ -2963,24 +2963,34 @@ nm_setting_ip_config_class_init (NMSettingIPConfigClass *setting_class)
 	/**
 	 * NMSettingIPConfig:dns-priority:
 	 *
-	 * Intra-connection DNS priority.
+	 * DNS servers priority.
 	 *
-	 * The relative priority to be used when determining the order of DNS
-	 * servers in resolv.conf.  A lower value means that servers will be on top
-	 * of the file.  Zero selects the default value, which is 50 for VPNs and
-	 * 100 for other connections.  Note that the priority is to order DNS
-	 * settings for multiple active connections. It does not disambiguate
-	 * multiple DNS servers within the same connection profile. For that,
-	 * just specify the DNS servers in the desired order.
-	 * When multiple devices have configurations with the same priority, the
-	 * one with an active default route will be preferred.
-	 * Note that when using dns=dnsmasq the order is meaningless
-	 * since dnsmasq forwards queries to all known servers at the same time.
+	 * The relative priority for DNS servers specified by this setting.  A lower
+	 * value is better (higher priority).  Zero selects the default value, which
+	 * is 50 for VPNs and 100 for other connections.
 	 *
-	 * Negative values have the special effect of excluding other configurations
-	 * with a greater priority value; so in presence of at least a negative
-	 * priority, only DNS servers from connections with the lowest priority
-	 * value will be used.
+	 * Note that the priority is to order DNS settings for multiple active
+	 * connections.  It does not disambiguate multiple DNS servers within the
+	 * same connection profile.
+	 *
+	 * When using dns=default, servers with higher priority will be on top of
+	 * resolv.conf.  To prioritize a given server over another one within the
+	 * same connection, just specify them in the desired order.  When multiple
+	 * devices have configurations with the same priority, the one with an
+	 * active default route will be preferred.  Negative values have the special
+	 * effect of excluding other configurations with a greater priority value;
+	 * so in presence of at least a negative priority, only DNS servers from
+	 * connections with the lowest priority value will be used.
+	 *
+	 * When using a DNS resolver that supports split-DNS as dns=dnsmasq or
+	 * dns=systemd-resolved, each connection is used to query domains in its
+	 * search list.  Queries for domains not present in any search list are
+	 * routed through connections having the '~.' special wildcard domain, which
+	 * is added automatically to connections with the default route (or can be
+	 * added manually).  When multiple connections specify the same domain, the
+	 * one with the highest priority (lowest numerical value) wins.  If a
+	 * connection specifies a domain which is subdomain of another domain with a
+	 * negative DNS priority value, the subdomain is ignored.
 	 *
 	 * Since: 1.4
 	 **/
@@ -2993,11 +3003,9 @@ nm_setting_ip_config_class_init (NMSettingIPConfigClass *setting_class)
 	                       G_PARAM_STATIC_STRINGS));
 
 	/**
-	 * NMSettingIPConfig:addresses:
+	 * NMSettingIPConfig:addresses: (type GPtrArray(NMIPAddress))
 	 *
 	 * Array of IP addresses.
-	 *
-	 * Element-Type: NMIPAddress
 	 **/
 	g_object_class_install_property
 		(object_class, PROP_ADDRESSES,
@@ -3034,11 +3042,9 @@ nm_setting_ip_config_class_init (NMSettingIPConfigClass *setting_class)
 	                                     NULL);
 
 	/**
-	 * NMSettingIPConfig:routes:
+	 * NMSettingIPConfig:routes: (type GPtrArray(NMIPRoute))
 	 *
 	 * Array of IP routes.
-	 *
-	 * Element-Type: NMIPRoute
 	 **/
 	g_object_class_install_property
 		(object_class, PROP_ROUTES,
@@ -3205,8 +3211,10 @@ nm_setting_ip_config_class_init (NMSettingIPConfigClass *setting_class)
 	 * addresses on the network.  If an address conflict is detected, the
 	 * activation will fail.  A zero value means that no duplicate address
 	 * detection is performed, -1 means the default value (either configuration
-	 * ipvx.dad-timeout override or 3 seconds).  A value greater than zero is a
+	 * ipvx.dad-timeout override or zero).  A value greater than zero is a
 	 * timeout in milliseconds.
+	 *
+	 * The property is currently implemented only for IPv4.
 	 *
 	 * Since: 1.2
 	 **/

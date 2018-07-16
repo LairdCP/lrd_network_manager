@@ -490,13 +490,14 @@ handle_auth_or_fail (NMDeviceMacsec *self,
 
 	applied_connection = nm_act_request_get_applied_connection (req);
 	setting_name = nm_connection_need_secrets (applied_connection, NULL);
-	if (setting_name) {
-		macsec_secrets_get_secrets (self, setting_name,
-		                            NM_SECRET_AGENT_GET_SECRETS_FLAG_ALLOW_INTERACTION
-		                             | (new_secrets ? NM_SECRET_AGENT_GET_SECRETS_FLAG_REQUEST_NEW : 0));
-	} else
+	if (!setting_name) {
 		_LOGI (LOGD_DEVICE, "Cleared secrets, but setting didn't need any secrets.");
+		return NM_ACT_STAGE_RETURN_FAILURE;
+	}
 
+	macsec_secrets_get_secrets (self, setting_name,
+	                              NM_SECRET_AGENT_GET_SECRETS_FLAG_ALLOW_INTERACTION
+	                            | (new_secrets ? NM_SECRET_AGENT_GET_SECRETS_FLAG_REQUEST_NEW : 0));
 	return NM_ACT_STAGE_RETURN_POSTPONE;
 }
 
@@ -703,6 +704,7 @@ create_and_realize (NMDevice *device,
 	sci.s.port = htons (nm_setting_macsec_get_port (s_macsec));
 	lnk.sci = be64toh (sci.u);
 	lnk.validation = nm_setting_macsec_get_validation (s_macsec);
+	lnk.include_sci = nm_setting_macsec_get_send_sci (s_macsec);
 
 	parent_ifindex = nm_device_get_ifindex (parent);
 	g_warn_if_fail (parent_ifindex > 0);
@@ -729,7 +731,6 @@ link_changed (NMDevice *device,
 	NM_DEVICE_CLASS (nm_device_macsec_parent_class)->link_changed (device, pllink);
 	update_properties (device);
 }
-
 
 static void
 device_state_changed (NMDevice *device,

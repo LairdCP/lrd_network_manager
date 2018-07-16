@@ -515,7 +515,6 @@ nm_connection_compare (NMConnection *a,
 	return TRUE;
 }
 
-
 static gboolean
 diff_one_connection (NMConnection *a,
                      NMConnection *b,
@@ -792,13 +791,11 @@ _normalize_ethernet_link_neg (NMConnection *self)
 	NMSettingWired *s_wired = nm_connection_get_setting_wired (self);
 
 	if (s_wired) {
-		gboolean autoneg = nm_setting_wired_get_auto_negotiate (s_wired);
 		guint32 speed = nm_setting_wired_get_speed (s_wired);
 		const char *duplex = nm_setting_wired_get_duplex (s_wired);
 
-		if (   (autoneg && (speed || duplex))
-		    || (!autoneg && (   (speed && !duplex)
-		                     || (!speed && duplex)))) {
+		if (   (speed && !duplex)
+		    || (!speed && duplex)) {
 			speed = 0;
 			duplex = NULL;
 			g_object_set (s_wired,
@@ -1531,7 +1528,7 @@ nm_connection_update_secrets (NMConnection *connection,
 
 		g_signal_handlers_block_by_func (setting, (GCallback) setting_changed_cb, connection);
 		success_detail = _nm_setting_update_secrets (setting,
-		                                             setting_dict ? setting_dict : secrets,
+		                                             setting_dict ?: secrets,
 		                                             error);
 		g_signal_handlers_unblock_by_func (setting, (GCallback) setting_changed_cb, connection);
 

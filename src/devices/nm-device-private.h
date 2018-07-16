@@ -43,6 +43,8 @@ enum NMActStageReturn {
 
 #define NM_DEVICE_CAP_INTERNAL_MASK 0xc0000000
 
+void nm_device_arp_announce (NMDevice *self);
+
 NMSettings *nm_device_get_settings (NMDevice *self);
 
 gboolean nm_device_set_ip_ifindex (NMDevice *self, int ifindex);
@@ -118,7 +120,11 @@ gboolean nm_device_ipv6_sysctl_set (NMDevice *self, const char *property, const 
 gint64 nm_device_get_configured_mtu_from_connection_default (NMDevice *self,
                                                              const char *property_name);
 
-guint32 nm_device_get_configured_mtu_for_wired (NMDevice *self, gboolean *out_is_user_config);
+guint32 nm_device_get_configured_mtu_from_connection (NMDevice *device,
+                                                      GType setting_type,
+                                                      NMDeviceMtuSource *out_source);
+
+guint32 nm_device_get_configured_mtu_for_wired (NMDevice *self, NMDeviceMtuSource *out_source);
 
 void nm_device_commit_mtu (NMDevice *self);
 
@@ -132,7 +138,7 @@ void nm_device_commit_mtu (NMDevice *self);
 	}
 
 gboolean _nm_device_hash_check_invalid_keys (GHashTable *hash, const char *setting_name,
-                                             GError **error, const char **argv);
+                                             GError **error, const char **whitelist);
 #define nm_device_hash_check_invalid_keys(hash, setting_name, error, ...) \
 	_nm_device_hash_check_invalid_keys (hash, setting_name, error, ((const char *[]) { __VA_ARGS__, NULL }))
 

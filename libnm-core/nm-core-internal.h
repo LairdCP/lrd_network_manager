@@ -35,7 +35,6 @@
 #error Cannot use this header.
 #endif
 
-
 #include "nm-connection.h"
 #include "nm-core-enum-types.h"
 #include "nm-setting-8021x.h"
@@ -116,7 +115,6 @@
  * equals to numeric zero (NM_SETTING_COMPARE_FLAG_EXACT).
  */
 #define NM_SETTING_COMPARE_FLAG_NONE ((NMSettingCompareFlags) 0)
-
 
 #define NM_SETTING_SECRET_FLAGS_ALL \
 	(NM_SETTING_SECRET_FLAG_NONE | \
@@ -212,6 +210,7 @@ guint8 *_nm_utils_hwaddr_aton (const char *asc, gpointer buffer, gsize buffer_le
 const char *nm_utils_hwaddr_ntoa_buf (gconstpointer addr, gsize addr_len, gboolean upper_case, char *buf, gsize buf_len);
 
 char *_nm_utils_bin2str (gconstpointer addr, gsize length, gboolean upper_case);
+void _nm_utils_bin2str_full (gconstpointer addr, gsize length, const char delimiter, gboolean upper_case, char *out);
 
 GSList *    _nm_utils_hash_values_to_slist (GHashTable *hash);
 
@@ -509,4 +508,7 @@ _nm_connection_type_is_master (const char *type)
 
 /*****************************************************************************/
 
+gboolean _nm_utils_dhcp_duid_valid (const char *duid, GBytes **out_duid_bin);
+
+/*****************************************************************************/
 #endif

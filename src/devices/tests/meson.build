@@ -1,5 +1,5 @@
 test_units = [
-  'test-arping',
+  'test-acd',
   'test-lldp'
 ]
 
@@ -10,5 +10,9 @@ foreach test_unit: test_units
     dependencies: test_nm_dep
   )
 
-  test(test_unit, exe)
+  test(
+    'devices/' + test_unit,
+    test_script,
+    args: test_args + [exe.full_path()]
+  )
 endforeach

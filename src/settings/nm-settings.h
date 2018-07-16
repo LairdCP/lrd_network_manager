@@ -70,14 +70,6 @@ NMSettings *nm_settings_get (void);
 NMSettings *nm_settings_new (void);
 gboolean nm_settings_start (NMSettings *self, GError **error);
 
-typedef void (*NMSettingsForEachFunc) (NMSettings *settings,
-                                       NMSettingsConnection *connection,
-                                       gpointer user_data);
-
-void nm_settings_for_each_connection (NMSettings *settings,
-                                      NMSettingsForEachFunc for_each_func,
-                                      gpointer user_data);
-
 typedef void (*NMSettingsAddCallback) (NMSettings *settings,
                                        NMSettingsConnection *connection,
                                        GError *error,
@@ -88,6 +80,7 @@ typedef void (*NMSettingsAddCallback) (NMSettings *settings,
 void nm_settings_add_connection_dbus (NMSettings *self,
                                       NMConnection *connection,
                                       gboolean save_to_disk,
+                                      NMAuthSubject *subject,
                                       GDBusMethodInvocation *context,
                                       NMSettingsAddCallback callback,
                                       gpointer user_data);

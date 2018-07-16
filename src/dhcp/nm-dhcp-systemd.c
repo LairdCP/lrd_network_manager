@@ -29,6 +29,7 @@
 #include <net/if_arp.h>
 
 #include "nm-utils/nm-dedup-multi.h"
+#include "nm-utils/unaligned.h"
 
 #include "nm-utils.h"
 #include "nm-dhcp-utils.h"
@@ -450,36 +451,6 @@ get_leasefile_path (int addr_family, const char *iface, const char *uuid)
 	                        iface);
 }
 
-static GSList *
-nm_dhcp_systemd_get_lease_ip_configs (NMDedupMultiIndex *multi_idx,
-                                      int addr_family,
-                                      const char *iface,
-                                      int ifindex,
-                                      const char *uuid,
-                                      guint32 route_table,
-                                      guint32 route_metric)
-{
-	GSList *leases = NULL;
-	gs_free char *path = NULL;
-	sd_dhcp_lease *lease = NULL;
-	NMIP4Config *ip4_config;
-	int r;
-
-	if (addr_family != AF_INET)
-		return NULL;
-
-	path = get_leasefile_path (addr_family, iface, uuid);
-	r = dhcp_lease_load (&lease, path);
-	if (r == 0 && lease) {
-		ip4_config = lease_to_ip4_config (multi_idx, iface, ifindex, lease, NULL, route_table, route_metric, FALSE, NULL);
-		if (ip4_config)
-			leases = g_slist_append (leases, ip4_config);
-		sd_dhcp_lease_unref (lease);
-	}
-
-	return leases;
-}
-
 /*****************************************************************************/
 
 static void
@@ -542,7 +513,7 @@ bound4_handle (NMDhcpSystemd *self)
 
 		nm_dhcp_client_set_state (NM_DHCP_CLIENT (self),
 		                          NM_DHCP_STATE_BOUND,
-		                          G_OBJECT (ip4_config),
+		                          NM_IP_CONFIG_CAST (ip4_config),
 		                          options);
 	} else {
 		_LOGW ("%s", error->message);
@@ -659,12 +630,6 @@ ip4_start (NMDhcpClient *client, const char *dhcp_anycast_addr, const char *last
 		goto error;
 	}
 
-	r = sd_dhcp_client_set_request_broadcast (priv->client4, true);
-	if (r < 0) {
-		_LOGW ("failed to enable broadcast mode (%d)", r);
-		goto error;
-	}
-
 	dhcp_lease_load (&lease, priv->lease_file);
 
 	if (last_ip4_address)
@@ -701,7 +666,6 @@ ip4_start (NMDhcpClient *client, const char *dhcp_anycast_addr, const char *last
 			                 client_id_len - 1);
 		}
 	}
-
 
 	/* Add requested options */
 	for (i = 0; dhcp4_requests[i].name; i++) {
@@ -858,7 +822,7 @@ bound6_handle (NMDhcpSystemd *self)
 	if (ip6_config) {
 		nm_dhcp_client_set_state (NM_DHCP_CLIENT (self),
 		                          NM_DHCP_STATE_BOUND,
-		                          G_OBJECT (ip6_config),
+		                          NM_IP_CONFIG_CAST (ip6_config),
 		                          options);
 	} else {
 		_LOGW ("%s", error->message);
@@ -908,14 +872,13 @@ ip6_start (NMDhcpClient *client,
 	GBytes *hwaddr;
 	const char *hostname;
 	int r, i;
-	const guint16 *duid_arr;
+	const guint8 *duid_arr;
 	gsize duid_len;
 
 	g_assert (priv->client4 == NULL);
 	g_assert (priv->client6 == NULL);
 	g_return_val_if_fail (duid != NULL, FALSE);
 
-	G_STATIC_ASSERT_EXPR (sizeof (duid_arr[0]) == 2);
 	duid_arr = g_bytes_get_data (duid, &duid_len);
 	if (!duid_arr || duid_len < 2)
 		g_return_val_if_reached (FALSE);
@@ -937,14 +900,11 @@ ip6_start (NMDhcpClient *client,
 	_LOGT ("dhcp-client6: set %p", priv->client6);
 
 	if (nm_dhcp_client_get_info_only (client))
-	    sd_dhcp6_client_set_information_request (priv->client6, 1);
+		sd_dhcp6_client_set_information_request (priv->client6, 1);
 
-	/* NM stores the entire DUID which includes the uint16 "type", while systemd
-	 * wants the type passed separately from the following data.
-	 */
 	r = sd_dhcp6_client_set_duid (priv->client6,
-	                              ntohs (duid_arr[0]),
-	                              &duid_arr[1],
+	                              unaligned_read_be16 (&duid_arr[0]),
+	                              &duid_arr[2],
 	                              duid_len - 2);
 	if (r < 0) {
 		_LOGW ("failed to set DUID (%d)", r);
@@ -1091,5 +1051,4 @@ const NMDhcpClientFactory _nm_dhcp_client_factory_internal = {
 	.name = "internal",
 	.get_type = nm_dhcp_systemd_get_type,
 	.get_path = NULL,
-	.get_lease_ip_configs = nm_dhcp_systemd_get_lease_ip_configs,
 };

@@ -10,8 +10,8 @@ dnl  - add corresponding NM_VERSION_x_y_z macros in
 dnl    "shared/nm-version-macros.h.in"
 dnl  - update number in meson.build
 m4_define([nm_major_version], [1])
-m4_define([nm_minor_version], [11])
-m4_define([nm_micro_version], [2])
+m4_define([nm_minor_version], [12])
+m4_define([nm_micro_version], [0])
 m4_define([nm_version],
           [LRD_BUILD_NUMBER-nm_major_version.nm_minor_version.nm_micro_version])
 
@@ -76,6 +76,12 @@ AC_CHECK_DECLS([
 	explicit_bzero],
 	[], [], [[
 #include <string.h>
+]])
+
+AC_CHECK_DECLS([
+	reallocarray],
+	[], [], [[
+#include <malloc.h>
 ]])
 
 AC_CHECK_HEADERS(sys/auxv.h)
@@ -180,10 +186,9 @@ dnl
 AC_ARG_WITH(dist-version,
             AS_HELP_STRING([--with-dist-version=<NM-distribution-version>],
                            [Define the NM''s distribution version string]),
-            ac_distver=$withval, ac_distver="")
-if ! test x"$ac_distver" = x""; then
-	AC_DEFINE_UNQUOTED(NM_DIST_VERSION, "$ac_distver", [Define the distribution version string])
-fi
+            ac_distver=$withval, ac_distver=$NM_VERSION)
+AC_DEFINE_UNQUOTED(NM_DIST_VERSION, "$ac_distver", [Define the distribution version string])
+AC_SUBST(NM_DIST_VERSION, "$ac_distver")
 
 AC_ARG_ENABLE(wifi, AS_HELP_STRING([--enable-wifi], [enable Wi-Fi support]))
 if test "${enable_wifi}" != "no"; then
@@ -254,17 +259,15 @@ AC_SUBST(GLIB_LIBS)
 GOBJECT_INTROSPECTION_CHECK([0.9.6])
 
 AC_ARG_WITH(libnm-glib,
-            AS_HELP_STRING([--without-libnm-glib],
-                           [don"'"t build legacy libraries]))
+            AS_HELP_STRING([--with-libnm-glib],
+                           [build legacy libraries]))
 fake_typelibs=no
-if test "$with_libnm_glib" != "no"; then
+if test "$with_libnm_glib" == "yes"; then
 	PKG_CHECK_MODULES(DBUS, dbus-1 >= 1.1 dbus-glib-1 >= 0.94, :,
 	                  [AC_MSG_FAILURE([$DBUS_PKG_ERRORS
 
 Configure with --without-libnm-glib if you do not need the legacy libraries])
 	                  ])
-
-	with_libnm_glib=yes
 
 	if test "${found_introspection}" = "yes"; then
 		AC_PATH_PROG(GLIB_COMPILE_RESOURCES, glib-compile-resources)
@@ -272,8 +275,10 @@ Configure with --without-libnm-glib if you do not need the legacy libraries])
 			fake_typelibs=yes
 		fi
 	fi
+else
+	with_libnm_glib=no
 fi
-AM_CONDITIONAL(WITH_LEGACY_LIBRARIES, test "$with_libnm_glib" != "no")
+AM_CONDITIONAL(WITH_LEGACY_LIBRARIES, test "$with_libnm_glib" == "yes")
 if test "$fake_typelibs" = "yes"; then
 	AC_DEFINE(WITH_FAKE_TYPELIBS, 1, [Define for libnm to prevent GIR from loading libnm-glib])
 else
@@ -389,10 +394,8 @@ AC_ARG_WITH(config-logging-backend-default,
             nm_config_logging_backend_default="$withval",
             nm_config_logging_backend_default="")
 
-if test "$nm_config_logging_backend_default" != 'debug' \
-     -a "$nm_config_logging_backend_default" != 'syslog' \
-     -a "$nm_config_logging_backend_default" != 'journal' \
-     -a "$nm_config_logging_backend_default" != 'journal-syslog-style'; then
+if test "$nm_config_logging_backend_default" != 'syslog' \
+     -a "$nm_config_logging_backend_default" != 'journal'; then
 	# unknown backend. Reset to default. Silently accept the invalid value to
 	# be future proof.
 	nm_config_logging_backend_default=''
@@ -626,25 +629,19 @@ AM_CONDITIONAL(WITH_JSON_VALIDATION, test "${enable_json_validation}" != "no")
 
 # we usually compile with polkit support. --enable-polkit=yes|no only sets the
 # default configuration for main.auth-polkit. User can always enable/disable polkit
-# autorization via config. Only when specifying --enable-polkit=disabled, we do
-# not compile support. In this case, the user cannot enable polkit authorization via
-# configuration.
+# autorization via config.
 AC_ARG_ENABLE(polkit,
-              AS_HELP_STRING([--enable-polkit=yes|no|disabled],
-                             [set default value for auth-polkit configuration option. This value can be overwritten by NM configuration. 'disabled' compiles NM without any support]),
+              AS_HELP_STRING([--enable-polkit=yes|no],
+                             [set default value for auth-polkit configuration option. This value can be overwritten by NM configuration. 'disabled' is an alias for 'no']),
               [enable_polkit=${enableval}], [enable_polkit=yes])
 if (test "${enable_polkit}" != "no" -a "${enable_polkit}" != "disabled"); then
-	enable_polkit=yes
+	enable_polkit=true
 	AC_DEFINE(NM_CONFIG_DEFAULT_MAIN_AUTH_POLKIT, "true", [The default value of the auth-polkit configuration option])
 	AC_SUBST(NM_CONFIG_DEFAULT_MAIN_AUTH_POLKIT_TEXT, true)
 else
+	enable_polkit=false
 	AC_DEFINE(NM_CONFIG_DEFAULT_MAIN_AUTH_POLKIT, "false", [The default value of the auth-polkit configuration option])
 	AC_SUBST(NM_CONFIG_DEFAULT_MAIN_AUTH_POLKIT_TEXT, false)
-fi
-if (test "${enable_polkit}" != "disabled"); then
-	AC_DEFINE(WITH_POLKIT, 1, [whether to compile polkit support])
-else
-	AC_DEFINE(WITH_POLKIT, 0, [whether to compile polkit support])
 fi
 
 PKG_CHECK_MODULES(POLKIT, [polkit-agent-1 >= 0.97], [have_pk_agent=yes],[have_pk_agent=no])
@@ -672,12 +669,9 @@ AC_SUBST(NM_MODIFY_SYSTEM_POLICY)
 AC_ARG_WITH(crypto,
             AS_HELP_STRING([--with-crypto=nss|gnutls],
                            [Cryptography library to use for certificate and key operations]),
-            ac_crypto=$withval,
-            ac_crypto=nss)
-
-with_nss=no
-with_gnutls=no
-if test x"$ac_crypto" = xnss; then
+            with_crypto=$withval,
+            with_crypto=nss)
+if test "$with_crypto" = 'nss'; then
 	PKG_CHECK_MODULES(NSS, [nss])
 
 	# Work around a pkg-config bug (fdo #29801) where exists != usable
@@ -685,28 +679,16 @@ if test x"$ac_crypto" = xnss; then
 	if test x"$?" != "x0"; then
 		AC_MSG_ERROR([No usable NSS found])
 	fi
-
-	AC_DEFINE(HAVE_NSS, 1, [Define if you have NSS])
-	with_nss=yes
-elif test x"$ac_crypto" = xgnutls; then
+elif test "$with_crypto" = 'gnutls'; then
 	PKG_CHECK_MODULES(GNUTLS, [gnutls >= 2.12])
-	AC_DEFINE(HAVE_GNUTLS, 1, [Define if you have libgnutls])
-	with_gnutls=yes
 else
 	AC_MSG_ERROR([Please choose either 'nss' or 'gnutls' for certificate and crypto operations])
 fi
-AM_CONDITIONAL(WITH_NSS, test x"$with_nss" != xno)
-AM_CONDITIONAL(WITH_GNUTLS, test x"$with_gnutls" != xno)
-
-# Shouldn't ever trigger this, but just in case...
-if test x"$ac_nss" = xno -a x"$ac_gnutls" = xno; then
-	AC_MSG_ERROR([Could not find required development headers and libraries for '$ac_crypto'])
-fi
+AM_CONDITIONAL(WITH_NSS, test "$with_crypto" = 'nss')
+AM_CONDITIONAL(WITH_GNUTLS, test "$with_crypto" = 'gnutls')
 
 GLIB_MAKEFILE='$(top_srcdir)/Makefile.glib'
 AC_SUBST(GLIB_MAKEFILE)
-GLIB_GENMARSHAL=`$PKG_CONFIG --variable=glib_genmarshal glib-2.0`
-AC_SUBST(GLIB_GENMARSHAL)
 GLIB_MKENUMS=`$PKG_CONFIG --variable=glib_mkenums glib-2.0`
 AC_SUBST(GLIB_MKENUMS)
 
@@ -1057,7 +1039,6 @@ else
 	enable_concheck=no
 	AC_DEFINE(WITH_CONCHECK, 0, [Define if you want connectivity checking support])
 fi
-AM_CONDITIONAL(WITH_CONCHECK, test "${enable_concheck}" = "yes")
 
 PKG_CHECK_MODULES(LIBNDP, [libndp])
 
@@ -1234,7 +1215,7 @@ else
 		with_valgrind_suppressions='$(top_srcdir)/valgrind.suppressions'
 	fi
 fi
-AC_SUBST(NM_LOG_COMPILER, 'LOG_COMPILER = "$(top_srcdir)/tools/run-nm-test.sh" --called-from-make "$(LIBTOOL)" "$(with_valgrind)" "'"$with_valgrind_suppressions"'" --launch-dbus=auto')
+AC_SUBST(NM_LOG_COMPILER, 'LOG_COMPILER = "$(top_srcdir)/tools/run-nm-test.sh" --called-from-make "$(abs_top_builddir)" "$(LIBTOOL)" "$(with_valgrind)" "'"$with_valgrind_suppressions"'" --launch-dbus=auto')
 
 AM_PATH_PYTHON([], [], [PYTHON=python])
 AC_SUBST(PYTHON, [$PYTHON])
@@ -1341,14 +1322,10 @@ echo
 echo "Platform:"
 echo "  session tracking: $session_tracking"
 echo "  suspend/resume: $with_suspend_resume"
-if test "${enable_polkit}" = "yes"; then
-	if test "${enable_modify_system}" = "yes"; then
-		echo "  policykit: yes (permissive modify.system) (default: main.auth-polkit=${enable_polkit})"
-	else
-		echo "  policykit: yes (restrictive modify.system) (default: main.auth-polkit=${enable_polkit})"
-	fi
+if test "${enable_modify_system}" = "yes"; then
+	echo "  policykit: main.auth-polkit=${enable_polkit} (permissive modify.system)"
 else
-	echo  "  policykit: no"
+	echo "  policykit: main.auth-polkit=${enable_polkit} (restrictive modify.system)"
 fi
 echo "  polkit agent: ${enable_polkit_agent}"
 echo "  selinux: $have_selinux"
@@ -1404,6 +1381,7 @@ echo "  code coverage: $enable_code_coverage"
 echo "  LTO: $enable_lto"
 echo "  linker garbage collection: $enable_ld_gc"
 echo "  JSON validation for libnm: $enable_json_validation"
+echo "  crypto: $with_crypto"
 echo "  sanitizers: $sanitizers"
 echo "  Mozilla Public Suffix List: $with_libpsl"
 echo

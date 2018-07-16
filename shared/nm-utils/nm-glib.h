@@ -20,7 +20,6 @@
 #ifndef __NM_GLIB_H__
 #define __NM_GLIB_H__
 
-
 #include <gio/gio.h>
 #include <string.h>
 
@@ -86,7 +85,6 @@ g_steal_pointer (gpointer pp)
   (0 ? (*(pp)) : (g_steal_pointer) (pp))
 #endif
 
-
 static inline gboolean
 _nm_g_strv_contains (const gchar * const *strv,
                      const gchar         *str)
@@ -112,6 +110,14 @@ _nm_g_strv_contains (const gchar * const *strv,
 #if !GLIB_CHECK_VERSION (2, 56, 0)
 #define g_object_ref(Obj)      ((typeof(Obj)) g_object_ref (Obj))
 #define g_object_ref_sink(Obj) ((typeof(Obj)) g_object_ref_sink (Obj))
+#endif
+
+#ifndef g_autofree
+/* we still don't rely on recent glib to provide g_autofree. Hence, we continue
+ * to use our gs_* free macros that we took from libgsystem.
+ *
+ * To ease migration towards g_auto*, add a compat define for g_autofree. */
+#define g_autofree gs_free
 #endif
 
 #endif  /* __NM_GLIB_H__ */

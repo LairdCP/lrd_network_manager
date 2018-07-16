@@ -50,6 +50,10 @@ typedef struct {
 	CList data_lst;
 	CList ip_config_lst;
 	NMDnsIPConfigType ip_config_type;
+	struct {
+		const char **search;
+		char **reverse;
+	} domains;
 } NMDnsIPConfigData;
 
 typedef struct _NMDnsConfigData {
@@ -122,8 +126,6 @@ typedef enum {
 	NM_DNS_MANAGER_RESOLV_CONF_MAN_RESOLVCONF,
 	NM_DNS_MANAGER_RESOLV_CONF_MAN_NETCONFIG,
 } NMDnsManagerResolvConfManager;
-
-gboolean nm_dns_manager_get_resolv_conf_explicit (NMDnsManager *self);
 
 void nm_dns_manager_stop (NMDnsManager *self);
 

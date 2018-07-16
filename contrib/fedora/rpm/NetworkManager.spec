@@ -11,6 +11,8 @@
 
 %global wireless_tools_version 1:28-0pre9
 
+%global wpa_supplicant_version 1:1.1
+
 %global ppp_version %(sed -n 's/^#define\\s*VERSION\\s*"\\([^\\s]*\\)"$/\\1/p' %{_includedir}/pppd/patchlevel.h 2>/dev/null | grep . || echo bad)
 %global glib2_version %(pkg-config --modversion glib-2.0 2>/dev/null || echo bad)
 
@@ -26,6 +28,7 @@
 
 %global systemd_dir %{_prefix}/lib/systemd/system
 %global nmlibdir %{_prefix}/lib/%{name}
+%global nmplugindir %{_libdir}/%{name}/%{version}-%{release}
 
 %global _hardened_build 1
 
@@ -66,6 +69,16 @@
 %else
 %bcond_without libnm_glib
 %endif
+%if 0%{?fedora}
+%bcond_without connectivity_fedora
+%else
+%bcond_with connectivity_fedora
+%endif
+%if 0%{?fedora} > 28 || 0%{?rhel} > 7
+%bcond_without crypto_gnutls
+%else
+%bcond_with crypto_gnutls
+%endif
 
 ###############################################################################
 
@@ -103,7 +116,9 @@ Source3: 20-connectivity-fedora.conf
 #Patch1: 0001-some.patch
 
 Requires(post): systemd
+Requires(post): /usr/sbin/update-alternatives
 Requires(preun): systemd
+Requires(preun): /usr/sbin/update-alternatives
 Requires(postun): systemd
 
 Requires: dbus >= %{dbus_version}
@@ -133,7 +148,11 @@ BuildRequires: automake autoconf intltool libtool
 %if %{with ppp}
 BuildRequires: ppp-devel >= 2.4.5
 %endif
+%if %{with crypto_gnutls}
+BuildRequires: gnutls-devel >= 2.12
+%else
 BuildRequires: nss-devel >= 3.11.7
+%endif
 BuildRequires: dhclient
 BuildRequires: readline-devel
 BuildRequires: audit-libs-devel
@@ -161,8 +180,15 @@ BuildRequires: ModemManager-glib-devel >= 1.0
 BuildRequires: newt-devel
 %endif
 BuildRequires: /usr/bin/dbus-launch
+%if 0%{?fedora} > 27 || 0%{?rhel} > 7
+BuildRequires: python3
+BuildRequires: python3-gobject-base
+BuildRequires: python3-dbus
+%else
+BuildRequires: python2
 BuildRequires: pygobject3-base
 BuildRequires: dbus-python
+%endif
 BuildRequires: libselinux-devel
 BuildRequires: polkit-devel
 BuildRequires: jansson-devel
@@ -230,12 +256,16 @@ This package contains NetworkManager support for team devices.
 Summary: Wifi plugin for NetworkManager
 Group: System Environment/Base
 Requires: %{name}%{?_isa} = %{epoch}:%{version}-%{release}
-Requires: wpa_supplicant >= 1:1.1
-# the wifi plugin doesn't require iwd, even if it was build with
-# iwd support. Note that the plugin supports both supplicant and
-# iwd backend, that doesn't mean that the user requires to have them
-# both installed. Maybe both iwd and supplicant should Provide a "wireless-daemon"
-# meta package.
+
+%if %{with iwd} && (0%{?fedora} > 24 || 0%{?rhel} > 7)
+Requires: (wpa_supplicant >= %{wpa_supplicant_version} or iwd)
+%else
+# Just require wpa_supplicant on platforms that don't support boolean
+# dependencies even though the plugin supports both supplicant and
+# iwd backend.
+Requires: wpa_supplicant >= %{wpa_supplicant_version}
+%endif
+
 Obsoletes: NetworkManager < %{obsoletes_device_plugins}
 
 %description wifi
@@ -259,13 +289,13 @@ devices.
 
 %if %{with ovs}
 %package ovs
-Summary: OpenVSwitch device plugin for NetworkManager
+Summary: Open vSwitch device plugin for NetworkManager
 Group: System Environment/Base
 Requires: %{name}%{?_isa} = %{epoch}:%{version}-%{release}
 Requires: openvswitch
 
 %description ovs
-This package contains NetworkManager support for OpenVSwitch bridges.
+This package contains NetworkManager support for Open vSwitch bridges.
 %endif
 
 
@@ -338,6 +368,7 @@ applications using NetworkManager functionality from applications.  This
 is the new NetworkManager API. See also NetworkManager-glib-devel.
 
 
+%if %{with connectivity_fedora}
 %package config-connectivity-fedora
 Summary: NetworkManager config file for connectivity checking via Fedora servers
 Group: System Environment/Base
@@ -346,6 +377,7 @@ BuildArch: noarch
 %description config-connectivity-fedora
 This adds a NetworkManager configuration file to enable connectivity checking
 via Fedora infrastructure.
+%endif
 
 %package config-server
 Summary: NetworkManager config file for "server-like" defaults
@@ -405,7 +437,11 @@ intltoolize --automake --copy --force
 	--with-dhcpcd=no \
 	--with-dhcpcanon=no \
 	--with-config-dhcp-default=dhclient \
+%if %{with crypto_gnutls}
+	--with-crypto=gnutls \
+%else
 	--with-crypto=nss \
+%endif
 %if %{with sanitizer}
 	--with-address-sanitizer=exec \
 %if 0%{?fedora}
@@ -508,7 +544,10 @@ make install DESTDIR=%{buildroot}
 cp %{SOURCE1} %{buildroot}%{_sysconfdir}/%{name}/
 
 cp %{SOURCE2} %{buildroot}%{nmlibdir}/conf.d/
+
+%if %{with connectivity_fedora}
 cp %{SOURCE3} %{buildroot}%{nmlibdir}/conf.d/
+%endif
 
 cp examples/dispatcher/10-ifcfg-rh-routes.sh %{buildroot}%{_sysconfdir}/%{name}/dispatcher.d/
 ln -s ../no-wait.d/10-ifcfg-rh-routes.sh %{buildroot}%{_sysconfdir}/%{name}/dispatcher.d/pre-up.d/
@@ -518,7 +557,7 @@ ln -s ../10-ifcfg-rh-routes.sh %{buildroot}%{_sysconfdir}/%{name}/dispatcher.d/n
 
 rm -f %{buildroot}%{_libdir}/*.la
 rm -f %{buildroot}%{_libdir}/pppd/%{ppp_version}/*.la
-rm -f %{buildroot}%{_libdir}/NetworkManager/*.la
+rm -f %{buildroot}%{nmplugindir}/*.la
 
 # Ensure the documentation timestamps are constant to avoid multilib conflicts
 find %{buildroot}%{_datadir}/gtk-doc -exec touch --reference configure.ac '{}' \+
@@ -527,6 +566,8 @@ find %{buildroot}%{_datadir}/gtk-doc -exec touch --reference configure.ac '{}' \
 mkdir -p %{buildroot}%{_prefix}/src/debug/NetworkManager-%{real_version}
 cp valgrind.suppressions %{buildroot}%{_prefix}/src/debug/NetworkManager-%{real_version}
 %endif
+
+touch %{buildroot}%{_sbindir}/ifup %{buildroot}%{_sbindir}/ifdown
 
 
 %check
@@ -551,6 +592,15 @@ fi
 
 %systemd_post NetworkManager.service NetworkManager-wait-online.service NetworkManager-dispatcher.service
 
+%triggerin -- initscripts
+if [ -f %{_sbindir}/ifup -a ! -L %{_sbindir}/ifup ]; then
+    # initscripts package too old, won't let us set an alternative
+    /usr/sbin/update-alternatives --remove ifup %{_libexecdir}/nm-ifup >/dev/null 2>&1 || :
+else
+    /usr/sbin/update-alternatives --install %{_sbindir}/ifup ifup %{_libexecdir}/nm-ifup 50 \
+        --slave %{_sbindir}/ifdown ifdown %{_libexecdir}/nm-ifdown
+fi
+
 %preun
 if [ $1 -eq 0 ]; then
     # Package removal, not upgrade
@@ -558,6 +608,8 @@ if [ $1 -eq 0 ]; then
 
     # Don't kill networking entirely just on package remove
     #/bin/systemctl stop NetworkManager.service >/dev/null 2>&1 || :
+
+    /usr/sbin/update-alternatives --remove ifup %{_libexecdir}/nm-ifup >/dev/null 2>&1 || :
 fi
 %systemd_preun NetworkManager-wait-online.service NetworkManager-dispatcher.service
 
@@ -591,11 +643,16 @@ fi
 %dir %{_sysconfdir}/%{name}/dnsmasq-shared.d
 %config(noreplace) %{_sysconfdir}/%{name}/NetworkManager.conf
 %{_bindir}/nm-online
+%{_libexecdir}/nm-ifup
+%ghost %{_sbindir}/ifup
+%{_libexecdir}/nm-ifdown
+%ghost %{_sbindir}/ifdown
 %{_libexecdir}/nm-dhcp-helper
 %{_libexecdir}/nm-dispatcher
 %{_libexecdir}/nm-iface-helper
-%dir %{_libdir}/NetworkManager
-%{_libdir}/NetworkManager/libnm-settings-plugin*.so
+%dir %{_libdir}/%{name}
+%dir %{nmplugindir}
+%{nmplugindir}/libnm-settings-plugin*.so
 %if %{with nmtui}
 %exclude %{_mandir}/man1/nmtui*
 %endif
@@ -625,35 +682,35 @@ fi
 
 %if %{with adsl}
 %files adsl
-%{_libdir}/%{name}/libnm-device-plugin-adsl.so
+%{nmplugindir}/libnm-device-plugin-adsl.so
 %else
-%exclude %{_libdir}/%{name}/libnm-device-plugin-adsl.so
+%exclude %{nmplugindir}/libnm-device-plugin-adsl.so
 %endif
 
 %if %{with bluetooth}
 %files bluetooth
-%{_libdir}/%{name}/libnm-device-plugin-bluetooth.so
+%{nmplugindir}/libnm-device-plugin-bluetooth.so
 %endif
 
 %if %{with team}
 %files team
-%{_libdir}/%{name}/libnm-device-plugin-team.so
+%{nmplugindir}/libnm-device-plugin-team.so
 %endif
 
 %if %{with wifi}
 %files wifi
-%{_libdir}/%{name}/libnm-device-plugin-wifi.so
+%{nmplugindir}/libnm-device-plugin-wifi.so
 %endif
 
 %if %{with wwan}
 %files wwan
-%{_libdir}/%{name}/libnm-device-plugin-wwan.so
-%{_libdir}/%{name}/libnm-wwan.so
+%{nmplugindir}/libnm-device-plugin-wwan.so
+%{nmplugindir}/libnm-wwan.so
 %endif
 
 %if %{with ovs}
 %files ovs
-%{_libdir}/%{name}/libnm-device-plugin-ovs.so
+%{nmplugindir}/libnm-device-plugin-ovs.so
 %{systemd_dir}/NetworkManager.service.d/NetworkManager-ovs.conf
 %{_mandir}/man7/nm-openvswitch.7*
 %endif
@@ -661,7 +718,7 @@ fi
 %if %{with ppp}
 %files ppp
 %{_libdir}/pppd/%{ppp_version}/nm-pppd-plugin.so
-%{_libdir}/%{name}/libnm-ppp-plugin.so
+%{nmplugindir}/libnm-ppp-plugin.so
 %endif
 
 %if %{with libnm_glib}
@@ -723,10 +780,12 @@ fi
 %{_datadir}/vala/vapi/libnm.vapi
 %{_datadir}/dbus-1/interfaces/*.xml
 
+%if %{with connectivity_fedora}
 %files config-connectivity-fedora
 %dir %{nmlibdir}
 %dir %{nmlibdir}/conf.d
 %{nmlibdir}/conf.d/20-connectivity-fedora.conf
+%endif
 
 %files config-server
 %dir %{nmlibdir}

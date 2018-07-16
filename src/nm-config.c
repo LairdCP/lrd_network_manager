@@ -579,7 +579,7 @@ ignore_config_snippet (GKeyFile *keyfile, gboolean is_base_config)
 		const char *e;
 
 		e = g_getenv ("NM_CONFIG_ENABLE_TAG");
-		_nm_config_match_env = g_strdup (e ? e : "");
+		_nm_config_match_env = g_strdup (e ?: "");
 	}
 
 	/* second, interpret the value as match-spec. */
@@ -615,7 +615,7 @@ _sort_groups_cmp (const char **pa, const char **pb, gpointer dummy)
 	if (a_is_connection) {
 		/* both are [connection.\+] entries. Reverse their order.
 		 * One of the sections might be literally [connection]. That section
-		 * is special and it's order will be fixed later. It doesn't actually
+		 * is special and its order will be fixed later. It doesn't actually
 		 * matter here how it compares with [connection.\+] sections. */
 		return pa > pb ? -1 : 1;
 	}
@@ -633,7 +633,7 @@ _sort_groups_cmp (const char **pa, const char **pb, gpointer dummy)
 	if (a_is_device) {
 		/* both are [device.\+] entries. Reverse their order.
 		 * One of the sections might be literally [device]. That section
-		 * is special and it's order will be fixed later. It doesn't actually
+		 * is special and its order will be fixed later. It doesn't actually
 		 * matter here how it compares with [device.\+] sections. */
 		return pa > pb ? -1 : 1;
 	}
@@ -2407,7 +2407,7 @@ _set_config_data (NMConfig *self, NMConfigData *new_data, NMConfigChangeFlags re
 	else
 		_LOGI ("signal: %s", nm_config_change_flags_to_string (changes, NULL, 0));
 	g_signal_emit (self, signals[SIGNAL_CONFIG_CHANGED], 0,
-	               new_data ? new_data : old_data,
+	               new_data ?: old_data,
 	               changes, old_data);
 	if (new_data)
 		g_object_unref (old_data);

@@ -29,20 +29,21 @@ test_units = [
 
 test_cert_dir = join_paths(meson.current_source_dir(), 'certs')
 
-cflags = [
-  '-DNETWORKMANAGER_COMPILATION_TEST',
-  '-DNETWORKMANAGER_COMPILATION=NM_NETWORKMANAGER_COMPILATION_LIBNM_CORE',
-  '-DTEST_CERT_DIR="@0@"'.format(test_cert_dir),
-]
-
 foreach test_unit: test_units
   exe = executable(
     'libnm-core-' + test_unit,
     [test_unit + '.c'] + enum,
     dependencies: nm_core_dep,
-    c_args: cflags,
+    c_args: [
+        '-DNETWORKMANAGER_COMPILATION_TEST',
+        '-DNETWORKMANAGER_COMPILATION=NM_NETWORKMANAGER_COMPILATION_LIBNM_CORE',
+      ] +
+      nm_build_cflags,
     link_with: libnm_core
   )
-
-  test(test_unit, exe)
+  test(
+    'libnm-core/' + test_unit,
+    test_script,
+    args: test_args + [exe.full_path()]
+  )
 endforeach

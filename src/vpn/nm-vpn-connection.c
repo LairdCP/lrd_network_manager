@@ -850,16 +850,19 @@ NMVpnConnection *
 nm_vpn_connection_new (NMSettingsConnection *settings_connection,
                        NMDevice *parent_device,
                        const char *specific_object,
+                       NMActivationReason activation_reason,
                        NMAuthSubject *subject)
 {
 	g_return_val_if_fail (!settings_connection || NM_IS_SETTINGS_CONNECTION (settings_connection), NULL);
 	g_return_val_if_fail (NM_IS_DEVICE (parent_device), NULL);
+	g_return_val_if_fail (specific_object, NULL);
 
 	return (NMVpnConnection *) g_object_new (NM_TYPE_VPN_CONNECTION,
 	                                         NM_ACTIVE_CONNECTION_INT_SETTINGS_CONNECTION, settings_connection,
 	                                         NM_ACTIVE_CONNECTION_INT_DEVICE, parent_device,
 	                                         NM_ACTIVE_CONNECTION_SPECIFIC_OBJECT, specific_object,
 	                                         NM_ACTIVE_CONNECTION_INT_SUBJECT, subject,
+	                                         NM_ACTIVE_CONNECTION_INT_ACTIVATION_REASON, activation_reason,
 	                                         NM_ACTIVE_CONNECTION_VPN, TRUE,
 	                                         NULL);
 }
@@ -1019,7 +1022,7 @@ print_vpn_config (NMVpnConnection *self)
 		if (nm_ip4_config_get_num_domains (priv->ip4_config) > 0)
 			dns_domain = (char *) nm_ip4_config_get_domain (priv->ip4_config, 0);
 
-		_LOGI ("Data:   DNS Domain: '%s'", dns_domain ? dns_domain : "(none)");
+		_LOGI ("Data:   DNS Domain: '%s'", dns_domain ?: "(none)");
 	} else
 		_LOGI ("Data: No IPv4 configuration");
 
@@ -1053,7 +1056,7 @@ print_vpn_config (NMVpnConnection *self)
 		if (nm_ip6_config_get_num_domains (priv->ip6_config) > 0)
 			dns_domain = (char *) nm_ip6_config_get_domain (priv->ip6_config, 0);
 
-		_LOGI ("Data:   DNS Domain: '%s'", dns_domain ? dns_domain : "(none)");
+		_LOGI ("Data:   DNS Domain: '%s'", dns_domain ?: "(none)");
 	} else
 		_LOGI ("Data: No IPv6 configuration");
 
@@ -2140,7 +2143,6 @@ _name_owner_changed (GObject *object,
 	g_free (owner);
 }
 
-
 static gboolean
 _daemon_exec_timeout (gpointer data)
 {
@@ -2819,7 +2821,7 @@ get_property (GObject *object, guint prop_id,
 		g_value_set_uint (value, _state_to_nm_vpn_state (priv->vpn_state));
 		break;
 	case PROP_BANNER:
-		g_value_set_string (value, priv->banner ? priv->banner : "");
+		g_value_set_string (value, priv->banner ?: "");
 		break;
 	case PROP_IP4_CONFIG:
 		nm_dbus_utils_g_value_set_object_path (value, ip_config_valid (priv->vpn_state) ? priv->ip4_config : NULL);

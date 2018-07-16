@@ -22,9 +22,16 @@
 #ifndef __NM_C_LIST_H__
 #define __NM_C_LIST_H__
 
-#include "c-list.h"
+#include "c-list/src/c-list.h"
 
 /*****************************************************************************/
+
+#define nm_c_list_contains_entry(list, what, member) \
+	({ \
+		typeof (what) _what = (what); \
+		\
+		_what && c_list_contains (list, &_what->member); \
+	})
 
 typedef struct {
 	CList lst;

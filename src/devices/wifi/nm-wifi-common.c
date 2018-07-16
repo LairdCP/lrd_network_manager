@@ -25,6 +25,7 @@
 #include "devices/nm-device.h"
 #include "nm-wifi-ap.h"
 #include "nm-device-wifi.h"
+#include "nm-dbus-manager.h"
 
 #if WITH_IWD
 #include "nm-device-iwd.h"
@@ -32,7 +33,23 @@
 
 /*****************************************************************************/
 
-static GHashTable *
+void
+nm_device_wifi_emit_signal_access_point (NMDevice *device,
+                                         NMWifiAP *ap,
+                                         gboolean is_added /* or else is_removed */)
+{
+	nm_dbus_object_emit_signal (NM_DBUS_OBJECT (device),
+	                            &nm_interface_info_device_wireless,
+	                            is_added
+	                              ? &nm_signal_info_wireless_access_point_added
+	                              : &nm_signal_info_wireless_access_point_removed,
+	                            "(o)",
+	                            nm_dbus_object_get_path (NM_DBUS_OBJECT (ap)));
+}
+
+/*****************************************************************************/
+
+static const CList *
 _dispatch_get_aps (NMDevice *device)
 {
 #if WITH_IWD
@@ -52,6 +69,7 @@ _dispatch_request_scan (NMDevice *device,
 		_nm_device_iwd_request_scan (NM_DEVICE_IWD (device),
 		                             options,
 		                             invocation);
+		return;
 	}
 #endif
 	_nm_device_wifi_request_scan (NM_DEVICE_WIFI (device),
@@ -70,12 +88,12 @@ impl_device_wifi_get_access_points (NMDBusObject *obj,
 {
 	gs_free const char **list = NULL;
 	GVariant *v;
-	GHashTable *aps;
+	const CList *all_aps;
 
 	/* NOTE: this handler is called both for NMDevicwWifi and NMDeviceIwd. */
 
-	aps = _dispatch_get_aps (NM_DEVICE (obj));
-	list = nm_wifi_aps_get_sorted_paths (aps, FALSE);
+	all_aps = _dispatch_get_aps (NM_DEVICE (obj));
+	list = nm_wifi_aps_get_paths (all_aps, FALSE);
 	v = g_variant_new_objv (list, -1);
 	g_dbus_method_invocation_return_value (invocation,
 	                                       g_variant_new_tuple (&v, 1));
@@ -92,12 +110,12 @@ impl_device_wifi_get_all_access_points (NMDBusObject *obj,
 {
 	gs_free const char **list = NULL;
 	GVariant *v;
-	GHashTable *aps;
+	const CList *all_aps;
 
 	/* NOTE: this handler is called both for NMDevicwWifi and NMDeviceIwd. */
 
-	aps = _dispatch_get_aps (NM_DEVICE (obj));
-	list = nm_wifi_aps_get_sorted_paths (aps, TRUE);
+	all_aps = _dispatch_get_aps (NM_DEVICE (obj));
+	list = nm_wifi_aps_get_paths (all_aps, TRUE);
 	v = g_variant_new_objv (list, -1);
 	g_dbus_method_invocation_return_value (invocation,
 	                                       g_variant_new_tuple (&v, 1));
@@ -182,6 +200,7 @@ const NMDBusInterfaceInfoExtended nm_interface_info_device_wireless = {
 			NM_DEFINE_DBUS_PROPERTY_INFO_EXTENDED_READABLE_L ("AccessPoints",         "ao", NM_DEVICE_WIFI_ACCESS_POINTS),
 			NM_DEFINE_DBUS_PROPERTY_INFO_EXTENDED_READABLE_L ("ActiveAccessPoint",    "o",  NM_DEVICE_WIFI_ACTIVE_ACCESS_POINT),
 			NM_DEFINE_DBUS_PROPERTY_INFO_EXTENDED_READABLE_L ("WirelessCapabilities", "u",  NM_DEVICE_WIFI_CAPABILITIES),
+			NM_DEFINE_DBUS_PROPERTY_INFO_EXTENDED_READABLE   ("LastScan",             "x",  NM_DEVICE_WIFI_LAST_SCAN),
 		),
 	),
 	.legacy_property_changed = TRUE,

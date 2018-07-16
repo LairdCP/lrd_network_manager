@@ -23,6 +23,7 @@
 #include <sys/mount.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <linux/if_tun.h>
 
 #include "platform/nmp-object.h"
 #include "platform/nmp-netns.h"
@@ -697,6 +698,8 @@ test_software_detect (gconstpointer user_data)
 	const NMPObject *lnk;
 	guint i_step;
 	const gboolean ext = test_data->external_command;
+	NMPlatformLnkTun lnk_tun;
+	nm_auto_close int tun_fd = -1;
 
 	nmtstp_run_command_check ("ip link add %s type dummy", PARENT_NAME);
 	ifindex_parent = nmtstp_assert_wait_for_link (NM_PLATFORM_GET, PARENT_NAME, NM_LINK_TYPE_DUMMY, 100)->ifindex;
@@ -892,6 +895,38 @@ test_software_detect (gconstpointer user_data)
 		g_assert (nmtstp_link_vxlan_add (NULL, ext, DEVICE_NAME, &lnk_vxlan));
 		break;
 	}
+	case NM_LINK_TYPE_TUN: {
+		gboolean owner_valid = nmtst_get_rand_bool ();
+		gboolean group_valid = nmtst_get_rand_bool ();
+
+		switch (test_data->test_mode) {
+		case 0:
+			lnk_tun = (NMPlatformLnkTun) {
+				.type = nmtst_get_rand_bool () ? IFF_TUN : IFF_TAP,
+				.owner = owner_valid ? getuid () : 0,
+				.owner_valid = owner_valid,
+				.group = group_valid ? getgid () : 0,
+				.group_valid = group_valid,
+				.pi = nmtst_get_rand_bool (),
+				.vnet_hdr = nmtst_get_rand_bool (),
+				.multi_queue = nmtst_get_rand_bool (),
+
+				/* if we add the device via iproute2 (external), we can only
+				 * create persistent devices. */
+				.persist = (ext == 1) ? TRUE : nmtst_get_rand_bool (),
+			};
+			break;
+		default:
+			g_assert_not_reached ();
+			break;
+		}
+
+		g_assert (nmtstp_link_tun_add (NULL, ext, DEVICE_NAME, &lnk_tun,
+		                               (!lnk_tun.persist || nmtst_get_rand_bool ())
+		                                 ? &tun_fd
+		                                 : NULL));
+		break;
+	}
 	default:
 		g_assert_not_reached ();
 	}
@@ -922,7 +957,13 @@ test_software_detect (gconstpointer user_data)
 		lnk = nm_platform_link_get_lnk (NM_PLATFORM_GET, ifindex, test_data->link_type, &plink);
 		g_assert (plink);
 		g_assert_cmpint (plink->ifindex, ==, ifindex);
-		g_assert (lnk);
+
+		if (   !lnk
+		    && test_data->link_type == NM_LINK_TYPE_TUN) {
+			/* this is ok. Kernel apparently does not support tun properties via netlink. We
+			 * fetch them from sysfs below. */
+		} else
+			g_assert (lnk);
 
 		switch (test_data->link_type) {
 		case NM_LINK_TYPE_GRE: {
@@ -1009,6 +1050,35 @@ test_software_detect (gconstpointer user_data)
 			g_assert_cmpint (plnk->ttl, ==, 0);
 			g_assert_cmpint (plnk->tos, ==, 31);
 			g_assert_cmpint (plnk->path_mtu_discovery, ==, FALSE);
+			break;
+		}
+		case NM_LINK_TYPE_TUN: {
+			const NMPlatformLnkTun *plnk;
+			NMPlatformLnkTun lnk_tun2;
+
+			g_assert ((lnk ? &lnk->lnk_tun : NULL) == nm_platform_link_get_lnk_tun (NM_PLATFORM_GET, ifindex, NULL));
+
+			/* kernel might not expose tun options via netlink. Either way, try
+			 * to read them (either from platform cache, or fallback to sysfs).
+			 * See also: rh#1547213. */
+			if (!nm_platform_link_tun_get_properties (NM_PLATFORM_GET,
+			                                          ifindex,
+			                                          &lnk_tun2))
+				g_assert_not_reached ();
+
+			plnk = lnk ? &lnk->lnk_tun : &lnk_tun2;
+			if (lnk)
+				g_assert (memcmp (plnk, &lnk_tun2, sizeof (NMPlatformLnkTun)) == 0);
+
+			if (i_step == 0) {
+				/* Before we upped the device for the first time the kernel didn't notify
+				 * us of the owner set after the link creation:
+				 * https://bugzilla.redhat.com/show_bug.cgi?id=1566062
+				 */
+				break;
+			}
+
+			g_assert (nm_platform_lnk_tun_cmp (plnk, &lnk_tun) == 0);
 			break;
 		}
 		case NM_LINK_TYPE_VLAN: {
@@ -1451,7 +1521,6 @@ test_vlan_set_xgress (void)
 		                              6, 7);
 	}
 
-
 	{
 		const NMVlanQosMapping ingress_map[] = {
 			{ .from = 1, .to = 5 },
@@ -1764,13 +1833,11 @@ test_nl_bugs_veth (void)
 	}
 	g_assert_cmpint (pllink_veth0->parent, ==, ifindex_veth1);
 
-
 	/* The following tests whether we have a workaround for kernel bug
 	 * https://bugzilla.redhat.com/show_bug.cgi?id=1285827 in place. */
 	pllink_veth1 = nm_platform_link_get (NM_PLATFORM_GET, ifindex_veth1);
 	g_assert (pllink_veth1);
 	g_assert_cmpint (pllink_veth1->parent, ==, ifindex_veth0);
-
 
 	/* move one veth peer to another namespace and check that the
 	 * parent/IFLA_LINK of the remaining peer properly updates
@@ -2319,7 +2386,6 @@ test_netns_push (gpointer fixture, gconstpointer test_data)
 			g_assert_not_reached ();
 	}
 
-
 	for (i = nstack; i >= 1; ) {
 		i--;
 		nmp_netns_pop (nm_platform_netns_get (stack[i].pl->platform));
@@ -2581,6 +2647,7 @@ _nmtstp_setup_tests (void)
 		test_software_detect_add ("/link/software/detect/macvlan", NM_LINK_TYPE_MACVLAN, 0);
 		test_software_detect_add ("/link/software/detect/macvtap", NM_LINK_TYPE_MACVTAP, 0);
 		test_software_detect_add ("/link/software/detect/sit", NM_LINK_TYPE_SIT, 0);
+		test_software_detect_add ("/link/software/detect/tun", NM_LINK_TYPE_TUN, 0);
 		test_software_detect_add ("/link/software/detect/vlan", NM_LINK_TYPE_VLAN, 0);
 		test_software_detect_add ("/link/software/detect/vxlan/0", NM_LINK_TYPE_VXLAN, 0);
 		test_software_detect_add ("/link/software/detect/vxlan/1", NM_LINK_TYPE_VXLAN, 1);

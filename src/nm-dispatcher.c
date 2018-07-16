@@ -547,7 +547,7 @@ _dispatcher_call (NMDispatcherAction action,
 
 		_LOGD ("(%u) (%s) dispatching action '%s'%s",
 		       reqid,
-		       vpn_iface ? vpn_iface : nm_device_get_iface (device),
+		       vpn_iface ?: nm_device_get_iface(device),
 		       action_to_string (action),
 		       blocking
 		           ? " (blocking)"
@@ -579,7 +579,7 @@ _dispatcher_call (NMDispatcherAction action,
 		const char *connection_path;
 		const char *filename;
 
-		connection_path = nm_connection_get_path (NM_CONNECTION (settings_connection));
+		connection_path = nm_dbus_object_get_path (NM_DBUS_OBJECT (settings_connection));
 		if (connection_path) {
 			g_variant_builder_add (&connection_props, "{sv}",
 			                       NMD_CONNECTION_PROPS_PATH,
@@ -631,9 +631,7 @@ _dispatcher_call (NMDispatcherAction action,
 	if (!device_dhcp6_props)
 		device_dhcp6_props = g_variant_ref_sink (g_variant_new_array (G_VARIANT_TYPE ("{sv}"), NULL, 0));
 
-#if WITH_CONCHECK
 	connectivity_state_string = nm_connectivity_state_to_string (connectivity_state);
-#endif
 
 	/* Send the action to the dispatcher */
 	if (blocking) {
@@ -652,7 +650,7 @@ _dispatcher_call (NMDispatcherAction action,
 		                                               device_dhcp4_props,
 		                                               device_dhcp6_props,
 		                                               connectivity_state_string,
-		                                               vpn_iface ? vpn_iface : "",
+		                                               vpn_iface ?: "",
 		                                               &vpn_proxy_props,
 		                                               &vpn_ip4_props,
 		                                               &vpn_ip6_props,
@@ -690,7 +688,7 @@ _dispatcher_call (NMDispatcherAction action,
 		                                  device_dhcp4_props,
 		                                  device_dhcp6_props,
 		                                  connectivity_state_string,
-		                                  vpn_iface ? vpn_iface : "",
+		                                  vpn_iface ?: "",
 		                                  &vpn_proxy_props,
 		                                  &vpn_ip4_props,
 		                                  &vpn_ip6_props,

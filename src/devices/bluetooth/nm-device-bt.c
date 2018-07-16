@@ -215,7 +215,7 @@ static gboolean
 complete_connection (NMDevice *device,
                      NMConnection *connection,
                      const char *specific_object,
-                     const GSList *existing_connections,
+                     NMConnection *const*existing_connections,
                      GError **error)
 {
 	NMDeviceBtPrivate *priv = NM_DEVICE_BT_GET_PRIVATE ((NMDeviceBt *) device);
@@ -903,11 +903,8 @@ act_stage3_ip6_config_start (NMDevice *device,
 {
 	NMDeviceBtPrivate *priv = NM_DEVICE_BT_GET_PRIVATE ((NMDeviceBt *) device);
 
-	if (priv->bt_type == NM_BT_CAPABILITY_DUN) {
-		return nm_modem_stage3_ip6_config_start (priv->modem,
-		                                         nm_device_get_act_request (device),
-		                                         out_failure_reason);
-	}
+	if (priv->bt_type == NM_BT_CAPABILITY_DUN)
+		return nm_modem_stage3_ip6_config_start (priv->modem, device, out_failure_reason);
 
 	return NM_DEVICE_CLASS (nm_device_bt_parent_class)->act_stage3_ip6_config_start (device, out_config, out_failure_reason);
 }

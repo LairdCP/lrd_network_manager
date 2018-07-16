@@ -1,21 +1,6 @@
 /* SPDX-License-Identifier: LGPL-2.1+ */
 /***
-  This file is part of systemd.
-
-  Copyright (C) 2013 Intel Corporation. All rights reserved.
-
-  systemd is free software; you can redistribute it and/or modify it
-  under the terms of the GNU Lesser General Public License as published by
-  the Free Software Foundation; either version 2.1 of the License, or
-  (at your option) any later version.
-
-  systemd is distributed in the hope that it will be useful, but
-  WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-  Lesser General Public License for more details.
-
-  You should have received a copy of the GNU Lesser General Public License
-  along with systemd; If not, see <http://www.gnu.org/licenses/>.
+  Copyright © 2013 Intel Corporation. All rights reserved.
 ***/
 
 #include "nm-sd-adapt.h"
@@ -125,10 +110,7 @@ static int _bind_raw_socket(int ifindex, union sockaddr_union *link,
         if (r < 0)
                 return -errno;
 
-        r = s;
-        s = -1;
-
-        return r;
+        return TAKE_FD(s);
 }
 
 int dhcp_network_bind_raw_socket(int ifindex, union sockaddr_union *link,
@@ -213,10 +195,7 @@ int dhcp_network_bind_udp_socket(int ifindex, be32_t address, uint16_t port) {
         if (r < 0)
                 return -errno;
 
-        r = s;
-        s = -1;
-
-        return r;
+        return TAKE_FD(s);
 }
 
 int dhcp_network_send_raw_socket(int s, const union sockaddr_union *link,

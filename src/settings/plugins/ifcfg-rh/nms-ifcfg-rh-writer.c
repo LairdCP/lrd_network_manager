@@ -148,16 +148,7 @@ write_secrets (shvarFile *ifcfg,
 	/* we purge all existing secrets. */
 	svUnsetAll (keyfile, SV_KEY_TYPE_ANY);
 
-	/* sort the keys. */
-	secrets_keys = (const char **) g_hash_table_get_keys_as_array (secrets, &secrets_keys_n);
-	if (secrets_keys_n > 1) {
-		g_qsort_with_data (secrets_keys,
-		                   secrets_keys_n,
-		                   sizeof (const char *),
-		                   nm_strcmp_p_with_data,
-		                   NULL);
-	}
-
+	secrets_keys = nm_utils_strdict_get_keys (secrets, TRUE, &secrets_keys_n);
 	for (i = 0; i < secrets_keys_n; i++) {
 		const char *k = secrets_keys[i];
 		const char *v = g_hash_table_lookup (secrets, k);
@@ -786,7 +777,6 @@ write_wireless_security_setting (NMConnection *connection,
 	            "WPA_PSK_FLAGS",
 	            wpa ? nm_setting_wireless_security_get_psk_flags (s_wsec) : NM_SETTING_SECRET_FLAG_NONE);
 
-
 	if (nm_setting_wireless_security_get_pmf (s_wsec) == NM_SETTING_WIRELESS_SECURITY_PMF_DEFAULT)
 		svUnsetValue (ifcfg, "PMF");
 	else {
@@ -906,14 +896,16 @@ write_wireless_setting (NMConnection *connection,
 	}
 
 	mode = nm_setting_wireless_get_mode (s_wireless);
-	if (!mode || !strcmp (mode, "infrastructure")) {
+	if (!mode)
+		svUnsetValue(ifcfg, "MODE");
+	else if (nm_streq (mode, NM_SETTING_WIRELESS_MODE_INFRA))
 		svSetValueStr (ifcfg, "MODE", "Managed");
-	} else if (!strcmp (mode, "adhoc")) {
+	else if (nm_streq (mode, NM_SETTING_WIRELESS_MODE_ADHOC)) {
 		svSetValueStr (ifcfg, "MODE", "Ad-Hoc");
 		adhoc = TRUE;
-	} else if (!strcmp (mode, "ap")) {
+	} else if (nm_streq (mode, NM_SETTING_WIRELESS_MODE_AP))
 		svSetValueStr (ifcfg, "MODE", "Ap");
-	} else {
+	else {
 		g_set_error (error, NM_SETTINGS_ERROR, NM_SETTINGS_ERROR_FAILED,
 		             "Invalid mode '%s' in '%s' setting",
 		             mode, NM_SETTING_WIRELESS_SETTING_NAME);
@@ -1143,6 +1135,9 @@ write_wired_setting (NMConnection *connection, shvarFile *ifcfg, GError **error)
 	/* Stuff ETHTOOL_OPT with required options */
 	str = NULL;
 	auto_negotiate = nm_setting_wired_get_auto_negotiate (s_wired);
+	speed = nm_setting_wired_get_speed (s_wired);
+	duplex = nm_setting_wired_get_duplex (s_wired);
+
 	/* autoneg off + speed 0 + duplex NULL, means we want NM
 	 * to skip link configuration which is default. So write
 	 * down link config only if we have auto-negotiate true or
@@ -1151,18 +1146,14 @@ write_wired_setting (NMConnection *connection, shvarFile *ifcfg, GError **error)
 	if (auto_negotiate) {
 		str = g_string_sized_new (64);
 		g_string_printf (str, "autoneg on");
-	} else {
-		speed = nm_setting_wired_get_speed (s_wired);
-		duplex = nm_setting_wired_get_duplex (s_wired);
-		if (speed || duplex) {
-			str = g_string_sized_new (64);
-			g_string_printf (str, "autoneg off");
-			if (speed)
-				g_string_append_printf (str, " speed %u", speed);
-			if (duplex)
-				g_string_append_printf (str, " duplex %s", duplex);
-		}
+	} else if (speed || duplex) {
+		str = g_string_sized_new (64);
+		g_string_printf (str, "autoneg off");
 	}
+	if (speed)
+		g_string_append_printf (str, " speed %u", speed);
+	if (duplex)
+		g_string_append_printf (str, " duplex %s", duplex);
 
 	wol = nm_setting_wired_get_wake_on_lan (s_wired);
 	wol_password = nm_setting_wired_get_wake_on_lan_password (s_wired);
@@ -2171,7 +2162,6 @@ write_tc_setting (NMConnection *connection, shvarFile *ifcfg, GError **error)
 		n++;
 	}
 
-
 	num = nm_setting_tc_config_get_num_tfilters (s_tc);
 	for (n = 1, i = 0; i < num; i++) {
 		NMTCTfilter *tfilter;
@@ -2424,12 +2414,15 @@ write_ip4_setting (NMConnection *connection,
 	NM_SET_OUT (out_route_content, write_route_file (s_ip4));
 
 	timeout = nm_setting_ip_config_get_dad_timeout (s_ip4);
-	if (timeout < 0)
+	if (timeout < 0) {
+		svUnsetValue (ifcfg, "ACD_TIMEOUT");
 		svUnsetValue (ifcfg, "ARPING_WAIT");
-	else if (timeout == 0)
+	} else if (timeout == 0) {
+		svSetValueStr (ifcfg, "ACD_TIMEOUT", "0");
 		svSetValueStr (ifcfg, "ARPING_WAIT", "0");
-	else {
-		/* Round the value up to next integer */
+	} else {
+		svSetValueInt64 (ifcfg, "ACD_TIMEOUT", timeout);
+		/* Round the value up to next integer for initscripts */
 		svSetValueInt64 (ifcfg, "ARPING_WAIT", (timeout - 1) / 1000 + 1);
 	}
 
@@ -2574,6 +2567,7 @@ write_ip6_setting (NMConnection *connection,
 		svUnsetValue (ifcfg, "IPV6INIT");
 		svUnsetValue (ifcfg, "IPV6_AUTOCONF");
 		svUnsetValue (ifcfg, "DHCPV6C");
+		svUnsetValue (ifcfg, "DHCPv6_DUID");
 		svUnsetValue (ifcfg, "DHCPV6_HOSTNAME");
 		svUnsetValue (ifcfg, "DHCPV6_SEND_HOSTNAME");
 		svUnsetValue (ifcfg, "IPV6_DEFROUTE");
@@ -2613,6 +2607,9 @@ write_ip6_setting (NMConnection *connection,
 		svSetValueStr (ifcfg, "IPV6_AUTOCONF", "shared");
 		svUnsetValue (ifcfg, "DHCPV6C");
 	}
+
+	svSetValueStr (ifcfg, "DHCPV6_DUID",
+	               nm_setting_ip6_config_get_dhcp_duid (NM_SETTING_IP6_CONFIG (s_ip6)));
 
 	write_ip6_setting_dhcp_hostname (s_ip6, ifcfg);
 

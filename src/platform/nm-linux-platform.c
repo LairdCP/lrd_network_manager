@@ -124,6 +124,18 @@ enum {
 #define IFLA_IPTUN_MAX                  (__IFLA_IPTUN_MAX - 1)
 #endif
 
+#define IFLA_TUN_UNSPEC                 0
+#define IFLA_TUN_OWNER                  1
+#define IFLA_TUN_GROUP                  2
+#define IFLA_TUN_TYPE                   3
+#define IFLA_TUN_PI                     4
+#define IFLA_TUN_VNET_HDR               5
+#define IFLA_TUN_PERSIST                6
+#define IFLA_TUN_MULTI_QUEUE            7
+#define IFLA_TUN_NUM_QUEUES             8
+#define IFLA_TUN_NUM_DISABLED_QUEUES    9
+#define __IFLA_TUN_MAX                  10
+#define IFLA_TUN_MAX (__IFLA_TUN_MAX - 1)
 
 static const gboolean RTA_PREF_SUPPORTED_AT_COMPILETIME = (RTA_MAX >= 20 /* RTA_PREF */);
 
@@ -169,7 +181,6 @@ G_STATIC_ASSERT (RTA_MAX == (__RTA_MAX - 1));
 #define _NMLOG2(level, ...)               _LOG     (       level, _NMLOG2_DOMAIN, NULL,     __VA_ARGS__)
 #define _NMLOG2_err(errsv, level, ...)    _LOG_err (errsv, level, _NMLOG2_DOMAIN, NULL,     __VA_ARGS__)
 
-
 #define _LOG_print(__level, __domain, __errsv, self, ...) \
     G_STMT_START { \
         char __prefix[32]; \
@@ -213,7 +224,6 @@ G_STATIC_ASSERT (RTA_MAX == (__RTA_MAX - 1));
                         g_strerror (__errsv), __errsv); \
         } \
     } G_STMT_END
-
 
 #define LOG_FMT_IP_TUNNEL "adding %s '%s' parent %u local %s remote %s"
 
@@ -538,8 +548,7 @@ static const LinkDesc linktypes[] = {
 	{ NM_LINK_TYPE_OPENVSWITCH,   "openvswitch", "openvswitch", NULL },
 	{ NM_LINK_TYPE_PPP,           "ppp",         NULL,          "ppp" },
 	{ NM_LINK_TYPE_SIT,           "sit",         "sit",         NULL },
-	{ NM_LINK_TYPE_TAP,           "tap",         NULL,          NULL },
-	{ NM_LINK_TYPE_TUN,           "tun",         NULL,          NULL },
+	{ NM_LINK_TYPE_TUN,           "tun",         "tun",         NULL },
 	{ NM_LINK_TYPE_VETH,          "veth",        "veth",        NULL },
 	{ NM_LINK_TYPE_VLAN,          "vlan",        "vlan",        "vlan" },
 	{ NM_LINK_TYPE_VXLAN,         "vxlan",       "vxlan",       "vxlan" },
@@ -800,36 +809,25 @@ _linktype_get_type (NMPlatform *platform,
 		    && !NM_IN_SET (obj->link.type, NM_LINK_TYPE_UNKNOWN, NM_LINK_TYPE_NONE)
 		    && nm_streq (ifname, obj->link.name)
 		    && (   !kind
-		        || !g_strcmp0 (kind, obj->link.kind))) {
+		        || nm_streq0 (kind, obj->link.kind))) {
 			nm_assert (obj->link.kind == g_intern_string (obj->link.kind));
 			*out_kind = obj->link.kind;
 			return obj->link.type;
 		}
 	}
 
+	/* we intern kind to not require us to keep the pointer alive. Essentially
+	 * leaking it in a global cache. That should be safe enough, because the
+	 * kind comes only from kernel messages, which depend on the number of
+	 * available drivers. So, there is not the danger that we leak uncontrolled
+	 * many kinds. */
 	*out_kind = g_intern_string (kind);
 
 	if (kind) {
 		for (i = 0; i < G_N_ELEMENTS (linktypes); i++) {
-			if (g_strcmp0 (kind, linktypes[i].rtnl_type) == 0)
+			if (nm_streq0 (kind, linktypes[i].rtnl_type)) {
 				return linktypes[i].nm_type;
-		}
-
-		if (!strcmp (kind, "tun")) {
-			NMPlatformTunProperties props;
-
-			if (   platform
-			    && nm_platform_link_tun_get_properties (platform, ifindex, &props)) {
-				if (!g_strcmp0 (props.mode, "tap"))
-					return NM_LINK_TYPE_TAP;
-				if (!g_strcmp0 (props.mode, "tun"))
-					return NM_LINK_TYPE_TUN;
 			}
-
-			/* try guessing the type using the link flags instead... */
-			if (flags & IFF_POINTOPOINT)
-				return NM_LINK_TYPE_TUN;
-			return NM_LINK_TYPE_TAP;
 		}
 	}
 
@@ -1377,6 +1375,60 @@ _parse_lnk_sit (const char *kind, struct nlattr *info_data)
 
 /*****************************************************************************/
 
+static NMPObject *
+_parse_lnk_tun (const char *kind, struct nlattr *info_data)
+{
+	static const struct nla_policy policy[IFLA_TUN_MAX + 1] = {
+		[IFLA_TUN_OWNER]               = { .type = NLA_U32 },
+		[IFLA_TUN_GROUP]               = { .type = NLA_U32 },
+		[IFLA_TUN_TYPE]                = { .type = NLA_U8 },
+		[IFLA_TUN_PI]                  = { .type = NLA_U8 },
+		[IFLA_TUN_VNET_HDR]            = { .type = NLA_U8 },
+		[IFLA_TUN_PERSIST]             = { .type = NLA_U8 },
+		[IFLA_TUN_MULTI_QUEUE]         = { .type = NLA_U8 },
+		[IFLA_TUN_NUM_QUEUES]          = { .type = NLA_U32 },
+		[IFLA_TUN_NUM_DISABLED_QUEUES] = { .type = NLA_U32 },
+	};
+	struct nlattr *tb[IFLA_TUN_MAX + 1];
+	int err;
+	NMPObject *obj;
+	NMPlatformLnkTun *props;
+
+	if (!info_data || !nm_streq0 (kind, "tun"))
+		return NULL;
+
+	err = nla_parse_nested (tb, IFLA_TUN_MAX, info_data, policy);
+	if (err < 0)
+		return NULL;
+
+	if (!tb[IFLA_TUN_TYPE]) {
+		/* we require at least a type. */
+		return NULL;
+	}
+
+	obj = nmp_object_new (NMP_OBJECT_TYPE_LNK_TUN, NULL);
+	props = &obj->lnk_tun;
+
+	props->type = nla_get_u8 (tb[IFLA_TUN_TYPE]);
+
+	props->pi = !!nla_get_u8_cond (tb, IFLA_TUN_PI, FALSE);
+	props->vnet_hdr = !!nla_get_u8_cond (tb, IFLA_TUN_VNET_HDR, FALSE);
+	props->multi_queue = !!nla_get_u8_cond (tb, IFLA_TUN_MULTI_QUEUE, FALSE);
+	props->persist = !!nla_get_u8_cond (tb, IFLA_TUN_PERSIST, FALSE);
+
+	if (tb[IFLA_TUN_OWNER]) {
+		props->owner_valid = TRUE;
+		props->owner = nla_get_u32 (tb[IFLA_TUN_OWNER]);
+	}
+	if (tb[IFLA_TUN_GROUP]) {
+		props->group_valid = TRUE;
+		props->group = nla_get_u32 (tb[IFLA_TUN_GROUP]);
+	}
+	return obj;
+}
+
+/*****************************************************************************/
+
 static gboolean
 _vlan_qos_mapping_from_nla (struct nlattr *nlattr,
                             const NMVlanQosMapping **out_map,
@@ -1481,7 +1533,6 @@ _parse_lnk_vlan (const char *kind, struct nlattr *info_data)
 	                                 &obj->_lnk_vlan.egress_qos_map,
 	                                 &obj->_lnk_vlan.n_egress_qos_map))
 		return NULL;
-
 
 	obj_result = obj;
 	obj = NULL;
@@ -1807,6 +1858,9 @@ _new_from_nl_link (NMPlatform *platform, const NMPCache *cache, struct nlmsghdr 
 		break;
 	case NM_LINK_TYPE_SIT:
 		lnk_data = _parse_lnk_sit (nl_info_kind, nl_info_data);
+		break;
+	case NM_LINK_TYPE_TUN:
+		lnk_data = _parse_lnk_tun (nl_info_kind, nl_info_data);
 		break;
 	case NM_LINK_TYPE_VLAN:
 		lnk_data = _parse_lnk_vlan (nl_info_kind, nl_info_data);
@@ -3873,40 +3927,46 @@ cache_on_change (NMPlatform *platform,
 		    && (obj_new && obj_new->_link.netlink.is_in_netlink)
 		    && (!obj_old || !obj_old->_link.netlink.is_in_netlink))
 		{
-			if (!obj_new->_link.netlink.lnk) {
+			gboolean re_request_link = FALSE;
+			const NMPlatformLnkTun *lnk_tun;
+
+			if (   !obj_new->_link.netlink.lnk
+			    && NM_IN_SET (obj_new->link.type, NM_LINK_TYPE_GRE,
+			                                      NM_LINK_TYPE_IP6TNL,
+			                                      NM_LINK_TYPE_INFINIBAND,
+			                                      NM_LINK_TYPE_MACVLAN,
+			                                      NM_LINK_TYPE_MACVLAN,
+			                                      NM_LINK_TYPE_SIT,
+			                                      NM_LINK_TYPE_TUN,
+			                                      NM_LINK_TYPE_VLAN,
+			                                      NM_LINK_TYPE_VXLAN)) {
 				/* certain link-types also come with a IFLA_INFO_DATA/lnk_data. It may happen that
 				 * kernel didn't send this notification, thus when we first learn about a link
 				 * that lacks an lnk_data we re-request it again.
 				 *
 				 * For example https://bugzilla.redhat.com/show_bug.cgi?id=1284001 */
-				switch (obj_new->link.type) {
-				case NM_LINK_TYPE_GRE:
-				case NM_LINK_TYPE_IP6TNL:
-				case NM_LINK_TYPE_INFINIBAND:
-				case NM_LINK_TYPE_MACVLAN:
-				case NM_LINK_TYPE_MACVTAP:
-				case NM_LINK_TYPE_SIT:
-				case NM_LINK_TYPE_VLAN:
-				case NM_LINK_TYPE_VXLAN:
-					delayed_action_schedule (platform,
-					                         DELAYED_ACTION_TYPE_REFRESH_LINK,
-					                         GINT_TO_POINTER (obj_new->link.ifindex));
-					break;
-				default:
-					break;
-				}
-			}
-			if (   obj_new->link.type == NM_LINK_TYPE_VETH
-			    && obj_new->link.parent == 0) {
+				re_request_link = TRUE;
+			} else if (   obj_new->link.type == NM_LINK_TYPE_TUN
+			           && obj_new->_link.netlink.lnk
+			           && (lnk_tun = &(obj_new->_link.netlink.lnk)->lnk_tun)
+			           && !lnk_tun->persist
+			           && lnk_tun->pi
+			           && !lnk_tun->vnet_hdr
+			           && !lnk_tun->multi_queue
+			           && !lnk_tun->owner_valid
+			           && !lnk_tun->group_valid) {
+				/* kernel has/had a know issue that the first notification for TUN device would
+				 * be sent with invalid parameters. The message looks like that kind, so refetch
+				 * it. */
+				re_request_link = TRUE;
+			} else if (   obj_new->link.type == NM_LINK_TYPE_VETH
+			           && obj_new->link.parent == 0) {
 				/* the initial notification when adding a veth pair can lack the parent/IFLA_LINK
 				 * (https://bugzilla.redhat.com/show_bug.cgi?id=1285827).
 				 * Request it again. */
-				delayed_action_schedule (platform,
-				                         DELAYED_ACTION_TYPE_REFRESH_LINK,
-				                         GINT_TO_POINTER (obj_new->link.ifindex));
-			}
-			if (   obj_new->link.type == NM_LINK_TYPE_ETHERNET
-			    && obj_new->link.addr.len == 0) {
+				re_request_link = TRUE;
+			} else if (   obj_new->link.type == NM_LINK_TYPE_ETHERNET
+			           && obj_new->link.addr.len == 0) {
 				/* Due to a kernel bug, we sometimes receive spurious NEWLINK
 				 * messages after a wifi interface has disappeared. Since the
 				 * link is not present anymore we can't determine its type and
@@ -3914,6 +3974,9 @@ cache_on_change (NMPlatform *platform,
 				 * specified.  Request the link again to check if it really
 				 * exists.  https://bugzilla.redhat.com/show_bug.cgi?id=1302037
 				 */
+				re_request_link = TRUE;
+			}
+			if (re_request_link) {
 				delayed_action_schedule (platform,
 				                         DELAYED_ACTION_TYPE_REFRESH_LINK,
 				                         GINT_TO_POINTER (obj_new->link.ifindex));
@@ -5527,6 +5590,62 @@ nla_put_failure:
 }
 
 static gboolean
+link_tun_add (NMPlatform *platform,
+              const char *name,
+              const NMPlatformLnkTun *props,
+              const NMPlatformLink **out_link,
+              int *out_fd)
+{
+	const NMPObject *obj;
+	struct ifreq ifr = { };
+	nm_auto_close int fd = -1;
+
+	nm_assert (NM_IN_SET (props->type, IFF_TAP, IFF_TUN));
+	nm_assert (props->persist || out_fd);
+
+	fd = open ("/dev/net/tun", O_RDWR | O_CLOEXEC);
+	if (fd < 0)
+		return FALSE;
+
+	nm_utils_ifname_cpy (ifr.ifr_name, name);
+	ifr.ifr_flags =   ((short) props->type)
+	                | ((short) IFF_TUN_EXCL)
+	                | (!props->pi          ? (short) IFF_NO_PI          : (short) 0)
+	                | ( props->vnet_hdr    ? (short) IFF_VNET_HDR       : (short) 0)
+	                | ( props->multi_queue ? (short) NM_IFF_MULTI_QUEUE : (short) 0);
+	if (ioctl (fd, TUNSETIFF, &ifr))
+		return FALSE;
+
+	if (props->owner_valid) {
+		if (ioctl (fd, TUNSETOWNER, (uid_t) props->owner))
+			return FALSE;
+	}
+
+	if (props->group_valid) {
+		if (ioctl (fd, TUNSETGROUP, (gid_t) props->group))
+			return FALSE;
+	}
+
+	if (props->persist) {
+		if (ioctl (fd, TUNSETPERSIST, 1))
+			return FALSE;
+	}
+
+	do_request_link (platform, 0, name);
+	obj = nmp_cache_lookup_link_full (nm_platform_get_cache (platform),
+	                                  0, name, FALSE,
+	                                  NM_LINK_TYPE_TUN,
+	                                  NULL, NULL);
+
+	if (!obj)
+		return FALSE;
+
+	NM_SET_OUT (out_link, &obj->link);
+	NM_SET_OUT (out_fd, nm_steal_fd (&fd));
+	return TRUE;
+}
+
+static gboolean
 link_vxlan_add (NMPlatform *platform,
                 const char *name,
                 const NMPlatformLnkVxlan *props,
@@ -5766,64 +5885,6 @@ link_vlan_change (NMPlatform *platform,
 	return do_change_link (platform, CHANGE_LINK_TYPE_UNSPEC, ifindex, nlmsg, NULL) == NM_PLATFORM_ERROR_SUCCESS;
 }
 
-static int
-tun_add (NMPlatform *platform, const char *name, gboolean tap,
-         gint64 owner, gint64 group, gboolean pi, gboolean vnet_hdr,
-         gboolean multi_queue, const NMPlatformLink **out_link)
-{
-	const NMPObject *obj;
-	struct ifreq ifr = { };
-	int fd;
-
-	fd = open ("/dev/net/tun", O_RDWR | O_CLOEXEC);
-	if (fd < 0)
-		return FALSE;
-
-	nm_utils_ifname_cpy (ifr.ifr_name, name);
-	ifr.ifr_flags = tap ? IFF_TAP : IFF_TUN;
-
-	if (!pi)
-		ifr.ifr_flags |= IFF_NO_PI;
-	if (vnet_hdr)
-		ifr.ifr_flags |= IFF_VNET_HDR;
-	if (multi_queue)
-		ifr.ifr_flags |= NM_IFF_MULTI_QUEUE;
-
-	if (ioctl (fd, TUNSETIFF, &ifr)) {
-		nm_close (fd);
-		return FALSE;
-	}
-
-	if (owner >= 0 && owner < G_MAXINT32) {
-		if (ioctl (fd, TUNSETOWNER, (uid_t) owner)) {
-			nm_close (fd);
-			return FALSE;
-		}
-	}
-
-	if (group >= 0 && group < G_MAXINT32) {
-		if (ioctl (fd, TUNSETGROUP, (gid_t) group)) {
-			nm_close (fd);
-			return FALSE;
-		}
-	}
-
-	if (ioctl (fd, TUNSETPERSIST, 1)) {
-		nm_close (fd);
-		return FALSE;
-	}
-	do_request_link (platform, 0, name);
-	obj = nmp_cache_lookup_link_full (nm_platform_get_cache (platform),
-	                                  0, name, FALSE,
-	                                  tap ? NM_LINK_TYPE_TAP : NM_LINK_TYPE_TUN,
-	                                  NULL, NULL);
-	if (out_link)
-		*out_link = obj ? &obj->link : NULL;
-
-	nm_close (fd);
-	return !!obj;
-}
-
 static gboolean
 link_enslave (NMPlatform *platform, int master, int slave)
 {
@@ -6029,6 +6090,14 @@ wifi_indicate_addressing_running (NMPlatform *platform, int ifindex, gboolean ru
 {
 	WIFI_GET_WIFI_DATA_NETNS (wifi_data, platform, ifindex, );
 	wifi_utils_indicate_addressing_running (wifi_data, running);
+}
+
+static gboolean
+wifi_set_wake_on_wlan (NMPlatform *platform, int ifindex,
+                       NMSettingWirelessWakeOnWLan wowl)
+{
+	WIFI_GET_WIFI_DATA_NETNS (wifi_data, platform, ifindex, FALSE);
+	return wifi_utils_set_wake_on_wlan (wifi_data, wowl);
 }
 
 /*****************************************************************************/
@@ -6919,7 +6988,7 @@ handle_udev_event (NMUdevClient *udev_client,
 	seqnum = udev_device_get_seqnum (udevice);
 	_LOGD ("UDEV event: action '%s' subsys '%s' device '%s' (%s); seqnum=%" G_GUINT64_FORMAT,
 	        action, subsys, udev_device_get_sysname (udevice),
-	        ifindex ? ifindex : "unknown", seqnum);
+	        ifindex ?: "unknown", seqnum);
 
 	if (NM_IN_STRSET (action, "add", "move"))
 		udev_device_added (platform, udevice);
@@ -7156,8 +7225,6 @@ nm_linux_platform_class_init (NMLinuxPlatformClass *klass)
 	platform_class->link_vlan_change = link_vlan_change;
 	platform_class->link_vxlan_add = link_vxlan_add;
 
-	platform_class->tun_add = tun_add;
-
 	platform_class->infiniband_partition_add = infiniband_partition_add;
 	platform_class->infiniband_partition_delete = infiniband_partition_delete;
 
@@ -7171,6 +7238,7 @@ nm_linux_platform_class_init (NMLinuxPlatformClass *klass)
 	platform_class->wifi_set_powersave = wifi_set_powersave;
 	platform_class->wifi_find_frequency = wifi_find_frequency;
 	platform_class->wifi_indicate_addressing_running = wifi_indicate_addressing_running;
+	platform_class->wifi_set_wake_on_wlan = wifi_set_wake_on_wlan;
 
 	platform_class->mesh_get_channel = mesh_get_channel;
 	platform_class->mesh_set_channel = mesh_set_channel;
@@ -7182,6 +7250,7 @@ nm_linux_platform_class_init (NMLinuxPlatformClass *klass)
 	platform_class->link_macvlan_add = link_macvlan_add;
 	platform_class->link_ipip_add = link_ipip_add;
 	platform_class->link_sit_add = link_sit_add;
+	platform_class->link_tun_add = link_tun_add;
 
 	platform_class->object_delete = object_delete;
 	platform_class->ip4_address_add = ip4_address_add;

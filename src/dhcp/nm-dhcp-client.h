@@ -23,6 +23,7 @@
 #include "nm-setting-ip6-config.h"
 #include "nm-ip4-config.h"
 #include "nm-ip6-config.h"
+#include "nm-dhcp-utils.h"
 
 #define NM_DHCP_TIMEOUT_DEFAULT ((guint32) 45) /* default DHCP timeout, in seconds */
 #define NM_DHCP_TIMEOUT_INFINITY G_MAXINT32
@@ -47,7 +48,6 @@
 
 #define NM_DHCP_CLIENT_SIGNAL_STATE_CHANGED "state-changed"
 #define NM_DHCP_CLIENT_SIGNAL_PREFIX_DELEGATED "prefix-delegated"
-
 
 typedef enum {
 	NM_DHCP_STATE_UNKNOWN = 0,
@@ -150,6 +150,8 @@ gboolean nm_dhcp_client_start_ip4 (NMDhcpClient *self,
                                    const char *last_ip4_address);
 
 gboolean nm_dhcp_client_start_ip6 (NMDhcpClient *self,
+                                   GBytes *client_id,
+                                   gboolean enforce_duid,
                                    const char *dhcp_anycast_addr,
                                    const struct in6_addr *ll_addr,
                                    const char *hostname,
@@ -169,7 +171,7 @@ void nm_dhcp_client_watch_child (NMDhcpClient *self, pid_t pid);
 
 void nm_dhcp_client_set_state (NMDhcpClient *self,
                                NMDhcpState new_state,
-                               GObject *ip_config,   /* NMIP4Config or NMIP6Config */
+                               NMIPConfig *ip_config,
                                GHashTable *options); /* str:str hash */
 
 gboolean nm_dhcp_client_handle_event (gpointer unused,
@@ -194,13 +196,6 @@ typedef struct {
 	GType (*get_type)(void);
 	const char *name;
 	const char *(*get_path) (void);
-	GSList *(*get_lease_ip_configs) (struct _NMDedupMultiIndex *multi_idx,
-	                                 int addr_family,
-	                                 const char *iface,
-	                                 int ifindex,
-	                                 const char *uuid,
-	                                 guint32 route_table,
-	                                 guint32 route_metric);
 } NMDhcpClientFactory;
 
 extern const NMDhcpClientFactory _nm_dhcp_client_factory_dhcpcanon;

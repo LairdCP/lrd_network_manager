@@ -50,6 +50,7 @@
 #include "nm-device-factory.h"
 #include "nm-core-internal.h"
 #include "NetworkManagerUtils.h"
+#include "nm-utils/nm-udev-utils.h"
 
 #include "nm-device-logging.h"
 _LOG_DECLARE_SELF(NMDeviceEthernet);
@@ -667,13 +668,14 @@ handle_auth_or_fail (NMDeviceEthernet *self,
 
 	applied_connection = nm_act_request_get_applied_connection (req);
 	setting_name = nm_connection_need_secrets (applied_connection, NULL);
-	if (setting_name) {
-		wired_secrets_get_secrets (self, setting_name,
-		                           NM_SECRET_AGENT_GET_SECRETS_FLAG_ALLOW_INTERACTION
-		                             | (new_secrets ? NM_SECRET_AGENT_GET_SECRETS_FLAG_REQUEST_NEW : 0));
-	} else
+	if (!setting_name) {
 		_LOGI (LOGD_DEVICE, "Cleared secrets, but setting didn't need any secrets.");
+		return NM_ACT_STAGE_RETURN_FAILURE;
+	}
 
+	wired_secrets_get_secrets (self, setting_name,
+	                             NM_SECRET_AGENT_GET_SECRETS_FLAG_ALLOW_INTERACTION
+	                           | (new_secrets ? NM_SECRET_AGENT_GET_SECRETS_FLAG_REQUEST_NEW : 0));
 	return NM_ACT_STAGE_RETURN_POSTPONE;
 }
 
@@ -736,7 +738,7 @@ supplicant_interface_init (NMDeviceEthernet *self)
 		return FALSE;
 	}
 
-	/* Listen for it's state signals */
+	/* Listen for its state signals */
 	priv->supplicant.iface_state_id = g_signal_connect (priv->supplicant.iface,
 	                                                    NM_SUPPLICANT_INTERFACE_STATE,
 	                                                    G_CALLBACK (supplicant_iface_state_cb),
@@ -750,13 +752,6 @@ supplicant_interface_init (NMDeviceEthernet *self)
 
 	return TRUE;
 }
-
-NM_UTILS_LOOKUP_STR_DEFINE_STATIC (link_duplex_to_string, NMPlatformLinkDuplexType,
-	NM_UTILS_LOOKUP_DEFAULT_WARN (NULL),
-	NM_UTILS_LOOKUP_STR_ITEM (NM_PLATFORM_LINK_DUPLEX_UNKNOWN, "unknown"),
-	NM_UTILS_LOOKUP_STR_ITEM (NM_PLATFORM_LINK_DUPLEX_FULL,     "full"),
-	NM_UTILS_LOOKUP_STR_ITEM (NM_PLATFORM_LINK_DUPLEX_HALF,     "half"),
-);
 
 static NMPlatformLinkDuplexType
 link_duplex_to_platform (const char *duplex)
@@ -785,13 +780,11 @@ link_negotiation_set (NMDevice *device)
 	s_wired = (NMSettingWired *) nm_device_get_applied_setting (device, NM_TYPE_SETTING_WIRED);
 	if (s_wired) {
 		autoneg = nm_setting_wired_get_auto_negotiate (s_wired);
-		if (!autoneg) {
-			speed = nm_setting_wired_get_speed (s_wired);
-			duplex = link_duplex_to_platform (nm_setting_wired_get_duplex (s_wired));
-			if (!speed && !duplex) {
-				_LOGD (LOGD_DEVICE, "set-link: ignore link negotiation");
-				return;
-			}
+		speed = nm_setting_wired_get_speed (s_wired);
+		duplex = link_duplex_to_platform (nm_setting_wired_get_duplex (s_wired));
+		if (!autoneg && !speed && !duplex) {
+			_LOGD (LOGD_DEVICE, "set-link: ignore link negotiation");
+			return;
 		}
 	}
 
@@ -802,20 +795,23 @@ link_negotiation_set (NMDevice *device)
 	}
 
 	/* If link negotiation setting are already in place do nothing and return with success */
-	if (   (!!autoneg == !!link_autoneg)
-	    && (!speed || (speed == link_speed))
-	    && (!duplex || (duplex == link_duplex))) {
+	if (   !!autoneg == !!link_autoneg
+	    && speed == link_speed
+	    && duplex == link_duplex) {
 		_LOGD (LOGD_DEVICE, "set-link: link negotiation is already configured");
 		return;
 	}
 
-	if (autoneg)
-		_LOGD (LOGD_DEVICE, "set-link: configure autonegotiation");
+	if (autoneg && !speed && !duplex)
+		_LOGD (LOGD_DEVICE, "set-link: configure auto-negotiation");
 	else {
-		_LOGD (LOGD_DEVICE, "set-link: configure static negotiation (%u Mbit%s - %s duplex%s)",
+		_LOGD (LOGD_DEVICE, "set-link: configure %snegotiation (%u Mbit%s - %s duplex%s)",
+		       autoneg ? "auto-" : "static ",
 		       speed ?: link_speed,
 		       speed ? "" : "*",
-		       duplex ? link_duplex_to_string (duplex) : link_duplex_to_string (link_duplex),
+		       duplex
+		         ? nm_platform_link_duplex_type_to_string (duplex)
+		         : nm_platform_link_duplex_type_to_string (link_duplex),
 		       duplex ? "" : "*");
 	}
 
@@ -1115,7 +1111,6 @@ dcb_state (NMDevice *device, gboolean timeout)
 
 	g_return_if_fail (nm_device_get_state (device) == NM_DEVICE_STATE_CONFIG);
 
-
 	carrier = nm_platform_link_is_connected (nm_device_get_platform (device), nm_device_get_ifindex (device));
 	_LOGD (LOGD_DCB, "dcb_state() wait %d carrier %d timeout %d", priv->dcb_wait, carrier, timeout);
 
@@ -1322,13 +1317,13 @@ act_stage3_ip4_config_start (NMDevice *device,
 }
 
 static guint32
-get_configured_mtu (NMDevice *device, gboolean *out_is_user_config)
+get_configured_mtu (NMDevice *device, NMDeviceMtuSource *out_source)
 {
 	/* MTU only set for plain ethernet */
 	if (NM_DEVICE_ETHERNET_GET_PRIVATE ((NMDeviceEthernet *) device)->ppp_manager)
 		return 0;
 
-	return nm_device_get_configured_mtu_for_wired (device, out_is_user_config);
+	return nm_device_get_configured_mtu_for_wired (device, out_source);
 }
 
 static void
@@ -1342,7 +1337,7 @@ deactivate (NMDevice *device)
 	nm_clear_g_source (&priv->pppoe_wait_id);
 
 	if (priv->ppp_manager) {
-		nm_ppp_manager_stop_sync (priv->ppp_manager);
+		nm_ppp_manager_stop (priv->ppp_manager, NULL, NULL);
 		g_clear_object (&priv->ppp_manager);
 	}
 
@@ -1371,7 +1366,7 @@ static gboolean
 complete_connection (NMDevice *device,
                      NMConnection *connection,
                      const char *specific_object,
-                     const GSList *existing_connections,
+                     NMConnection *const*existing_connections,
                      GError **error)
 {
 	NMSettingWired *s_wired;
@@ -1435,7 +1430,9 @@ new_default_connection (NMDevice *self)
 	NMConnection *connection;
 	NMSettingsConnection *const*connections;
 	NMSetting *setting;
+	struct udev_device *dev;
 	const char *perm_hw_addr;
+	const char *uprop = "0";
 	gs_free char *defname = NULL;
 	gs_free char *uuid = NULL;
 	gs_free char *machine_id = NULL;
@@ -1479,6 +1476,26 @@ new_default_connection (NMDevice *self)
 	setting = nm_setting_wired_new ();
 	g_object_set (setting, NM_SETTING_WIRED_MAC_ADDRESS, perm_hw_addr, NULL);
 	nm_connection_add_setting (connection, setting);
+
+	/* Check if we should create a Link-Local only connection */
+	dev = nm_platform_link_get_udev_device (nm_device_get_platform (NM_DEVICE (self)), nm_device_get_ip_ifindex (self));
+	if (dev)
+		uprop = udev_device_get_property_value (dev, "NM_AUTO_DEFAULT_LINK_LOCAL_ONLY");
+
+	if (nm_udev_utils_property_as_boolean (uprop)) {
+		setting = nm_setting_ip4_config_new ();
+		g_object_set (setting,
+		              NM_SETTING_IP_CONFIG_METHOD, NM_SETTING_IP4_CONFIG_METHOD_LINK_LOCAL,
+		              NULL);
+		nm_connection_add_setting (connection, setting);
+
+		setting = nm_setting_ip6_config_new ();
+		g_object_set (setting,
+		              NM_SETTING_IP_CONFIG_METHOD,  NM_SETTING_IP6_CONFIG_METHOD_LINK_LOCAL,
+		              NM_SETTING_IP_CONFIG_MAY_FAIL, TRUE,
+		              NULL);
+		nm_connection_add_setting (connection, setting);
+	}
 
 	return connection;
 }

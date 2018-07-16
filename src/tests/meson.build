@@ -6,7 +6,6 @@ test_units = [
   'test-ip4-config',
   'test-ip6-config',
   'test-dcb',
-  'test-resolvconf-capture',
   'test-wired-defname',
   'test-utils'
 ]
@@ -18,7 +17,11 @@ foreach test_unit: test_units
     dependencies: test_nm_dep
   )
 
-  test(test_unit, exe)
+  test(
+    'src/' + test_unit,
+    test_script,
+    args: test_args + [exe.full_path()]
+  )
 endforeach
 
 test_unit = 'test-systemd'
@@ -30,11 +33,15 @@ cflags = [
 
 exe = executable(
   test_unit,
-  [test_unit + '.c'] + shared_siphash,
+  [test_unit + '.c'],
   include_directories: src_inc,
   dependencies: nm_core_dep,
   c_args: cflags,
   link_with: libsystemd_nm
 )
 
-test(test_unit, exe)
+test(
+  'src/' + test_unit,
+  test_script,
+  args: test_args + [exe.full_path()]
+)

@@ -13,6 +13,7 @@
 *-enum-types.[ch]
 *-glue.h
 *.loT
+*.pyc
 Makefile
 Makefile.in*
 compile
@@ -242,7 +243,7 @@ test-*.trs
 
 /src/NetworkManager
 /src/NetworkManager.ver
-/src/devices/tests/test-arping
+/src/devices/tests/test-acd
 /src/devices/tests/test-lldp
 /src/devices/wifi/tests/test-general
 /src/dhcp/nm-dhcp-helper
@@ -266,7 +267,6 @@ test-*.trs
 /src/tests/test-general-with-expect
 /src/tests/test-ip4-config
 /src/tests/test-ip6-config
-/src/tests/test-resolvconf-capture
 /src/tests/test-route-manager-fake
 /src/tests/test-route-manager-linux
 /src/tests/test-systemd
@@ -313,3 +313,5 @@ test-*.trs
 /libnm-core/tests/test-setting-bond
 /libnm-core/tests/test-setting-dcb
 /src/settings/plugins/ifnet
+/src/tests/test-resolvconf-capture
+/src/devices/tests/test-arping

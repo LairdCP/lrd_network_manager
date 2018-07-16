@@ -524,7 +524,6 @@ ip4_route_data_set (NMSetting  *setting,
 	return TRUE;
 }
 
-
 static void
 nm_setting_ip4_config_class_init (NMSettingIP4ConfigClass *ip4_class)
 {
@@ -726,7 +725,7 @@ nm_setting_ip4_config_class_init (NMSettingIP4ConfigClass *ip4_class)
 	 * type of links.
 	 *
 	 * The special value "stable" is supported to generate a type 0 client identifier based
-	 * on the stable-id (see connection.stable-id).
+	 * on the stable-id (see connection.stable-id) and a per-host key.
 	 *
 	 * If unset, a globally configured default is used. If still unset, the
 	 * client-id from the last lease is reused.
@@ -736,7 +735,7 @@ nm_setting_ip4_config_class_init (NMSettingIP4ConfigClass *ip4_class)
 	 * variable: DHCP_CLIENT_ID(+)
 	 * description: A string sent to the DHCP server to identify the local machine.
 	 *    A binary value can be specified using hex notation ('aa:bb:cc').
-	 * example: DHCP_CLIENT_ID=ax-srv-1; DHCP_CLIENT_ID=01:44:44:44:44:44:44"
+	 * example: DHCP_CLIENT_ID=ax-srv-1; DHCP_CLIENT_ID=01:44:44:44:44:44:44
 	 * ---end---
 	 */
 	g_object_class_install_property
@@ -748,11 +747,12 @@ nm_setting_ip4_config_class_init (NMSettingIP4ConfigClass *ip4_class)
 
 	/* ---ifcfg-rh---
 	 * property: dad-timeout
-	 * variable: ARPING_WAIT
-	 * default: missing variable means global default (config override or 3)
-	 * description: Timeout (in seconds) for performing DAD before configuring
-	 * IPv4 addresses. 0 turns off the DAD completely, -1 means default value.
-	 * example: ARPING_WAIT=2
+	 * variable: ACD_TIMEOUT, ARPING_WAIT
+	 * default: missing variable means global default (config override or zero)
+	 * description: Timeout (in milliseconds for ACD_TIMEOUT or in seconds
+	 *   for ARPING_WAIT) for address conflict detection before configuring
+	 *   IPv4 addresses. 0 turns off the ACD completely, -1 means default value.
+	 * example: ACD_TIMEOUT=2000 or ARPING_WAIT=2
 	 * ---end---
 	 */
 

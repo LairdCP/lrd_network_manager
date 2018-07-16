@@ -46,86 +46,6 @@
 		        _NM_UTILS_MACRO_REST(__VA_ARGS__)); \
 	} G_STMT_END
 
-/*****************************************************************************
- * Reimplementation of libnl3/genl functions:
- *****************************************************************************/
-
-static int
-probe_response (struct nl_msg *msg, void *arg)
-{
-	static const struct nla_policy ctrl_policy[CTRL_ATTR_MAX+1] = {
-		[CTRL_ATTR_FAMILY_ID]    = { .type = NLA_U16 },
-		[CTRL_ATTR_FAMILY_NAME]  = { .type = NLA_STRING,
-		                            .maxlen = GENL_NAMSIZ },
-		[CTRL_ATTR_VERSION]      = { .type = NLA_U32 },
-		[CTRL_ATTR_HDRSIZE]      = { .type = NLA_U32 },
-		[CTRL_ATTR_MAXATTR]      = { .type = NLA_U32 },
-		[CTRL_ATTR_OPS]          = { .type = NLA_NESTED },
-		[CTRL_ATTR_MCAST_GROUPS] = { .type = NLA_NESTED },
-	};
-	struct nlattr *tb[CTRL_ATTR_MAX+1];
-	struct nlmsghdr *nlh = nlmsg_hdr (msg);
-	gint32 *response_data = arg;
-
-	if (genlmsg_parse (nlh, 0, tb, CTRL_ATTR_MAX, ctrl_policy))
-		return NL_SKIP;
-
-	if (tb[CTRL_ATTR_FAMILY_ID])
-		*response_data = nla_get_u16 (tb[CTRL_ATTR_FAMILY_ID]);
-
-	return NL_STOP;
-}
-
-static int
-genl_ctrl_resolve (struct nl_sock *sk, const char *name)
-{
-	nm_auto_nlmsg struct nl_msg *msg = NULL;
-	int result = -ENOMEM;
-	gint32 response_data = -1;
-	const struct nl_cb cb = {
-		.valid_cb = probe_response,
-		.valid_arg = &response_data,
-	};
-
-	msg = nlmsg_alloc ();
-
-	if (!genlmsg_put (msg, NL_AUTO_PORT, NL_AUTO_SEQ, GENL_ID_CTRL,
-	                  0, 0, CTRL_CMD_GETFAMILY, 1))
-		goto out;
-
-	if (nla_put_string (msg, CTRL_ATTR_FAMILY_NAME, name) < 0)
-		goto out;
-
-	result = nl_send_auto (sk, msg);
-	if (result < 0)
-		goto out;
-
-	result = nl_recvmsgs (sk, &cb);
-	if (result < 0)
-		goto out;
-
-	/* If search was successful, request may be ACKed after data */
-	result = nl_wait_for_ack (sk, NULL);
-	if (result < 0)
-		goto out;
-
-	if (response_data > 0)
-		result = response_data;
-	else
-		result = -ENOENT;
-
-out:
-	if (result >= 0)
-		_LOGD (LOGD_WIFI, "genl_ctrl_resolve: resolved \"%s\" as 0x%x", name, result);
-	else
-		_LOGE (LOGD_WIFI, "genl_ctrl_resolve: failed resolve \"%s\"", name);
-	return result;
-}
-
-/*****************************************************************************
- * </libn-genl-3>
- *****************************************************************************/
-
 typedef struct {
 	WifiData parent;
 	struct nl_sock *nl_sock;
@@ -330,8 +250,7 @@ wifi_nl80211_set_mode (WifiData *data, const NM80211Mode mode)
 	err = nl80211_send_and_recv (nl80211, msg, NULL, NULL);
 	return err >= 0;
 
- nla_put_failure:
-	nlmsg_free (msg);
+nla_put_failure:
 	return FALSE;
 }
 
@@ -349,7 +268,47 @@ wifi_nl80211_set_powersave (WifiData *data, guint32 powersave)
 	return err >= 0;
 
 nla_put_failure:
-	nlmsg_free (msg);
+	return FALSE;
+}
+
+static gboolean
+wifi_nl80211_set_wake_on_wlan (WifiData *data, NMSettingWirelessWakeOnWLan wowl)
+{
+	WifiDataNl80211 *nl80211 = (WifiDataNl80211 *) data;
+	nm_auto_nlmsg struct nl_msg *msg = NULL;
+	struct nlattr *triggers;
+	int err;
+
+	if (wowl == NM_SETTING_WIRELESS_WAKE_ON_WLAN_IGNORE)
+		return TRUE;
+
+	msg = nl80211_alloc_msg(nl80211, NL80211_CMD_SET_WOWLAN, 0);
+	if (!msg)
+		return FALSE;
+
+	triggers = nla_nest_start(msg, NL80211_ATTR_WOWLAN_TRIGGERS);
+
+	if (NM_FLAGS_HAS (wowl, NM_SETTING_WIRELESS_WAKE_ON_WLAN_ANY))
+		NLA_PUT_FLAG (msg, NL80211_WOWLAN_TRIG_ANY);
+	if (NM_FLAGS_HAS (wowl, NM_SETTING_WIRELESS_WAKE_ON_WLAN_DISCONNECT))
+		NLA_PUT_FLAG (msg, NL80211_WOWLAN_TRIG_DISCONNECT);
+	if (NM_FLAGS_HAS (wowl, NM_SETTING_WIRELESS_WAKE_ON_WLAN_MAGIC))
+		NLA_PUT_FLAG (msg, NL80211_WOWLAN_TRIG_MAGIC_PKT);
+	if (NM_FLAGS_HAS (wowl, NM_SETTING_WIRELESS_WAKE_ON_WLAN_GTK_REKEY_FAILURE))
+		NLA_PUT_FLAG (msg, NL80211_WOWLAN_TRIG_GTK_REKEY_FAILURE);
+	if (NM_FLAGS_HAS (wowl, NM_SETTING_WIRELESS_WAKE_ON_WLAN_EAP_IDENTITY_REQUEST))
+		NLA_PUT_FLAG (msg, NL80211_WOWLAN_TRIG_EAP_IDENT_REQUEST);
+	if (NM_FLAGS_HAS (wowl, NM_SETTING_WIRELESS_WAKE_ON_WLAN_4WAY_HANDSHAKE))
+		NLA_PUT_FLAG (msg, NL80211_WOWLAN_TRIG_4WAY_HANDSHAKE);
+	if (NM_FLAGS_HAS (wowl, NM_SETTING_WIRELESS_WAKE_ON_WLAN_RFKILL_RELEASE))
+		NLA_PUT_FLAG (msg, NL80211_WOWLAN_TRIG_RFKILL_RELEASE);
+
+	nla_nest_end(msg, triggers);
+
+	err = nl80211_send_and_recv (nl80211, msg, NULL, NULL);
+	return err ? FALSE : TRUE;
+
+nla_put_failure:
 	return FALSE;
 }
 
@@ -622,8 +581,7 @@ nl80211_get_ap_info (WifiDataNl80211 *nl80211,
 
 	return;
 
- nla_put_failure:
-	nlmsg_free (msg);
+nla_put_failure:
 	return;
 }
 
@@ -677,7 +635,6 @@ wifi_nl80211_indicate_addressing_running (WifiData *data, gboolean running)
 	return err >= 0;
 
 nla_put_failure:
-	nlmsg_free (msg);
 	return FALSE;
 }
 
@@ -930,6 +887,7 @@ wifi_nl80211_init (int ifindex)
 		.get_mode = wifi_nl80211_get_mode,
 		.set_mode = wifi_nl80211_set_mode,
 		.set_powersave = wifi_nl80211_set_powersave,
+		.set_wake_on_wlan = wifi_nl80211_set_wake_on_wlan,
 		.get_freq = wifi_nl80211_get_freq,
 		.find_freq = wifi_nl80211_find_freq,
 		.get_bssid = wifi_nl80211_get_bssid,
@@ -960,8 +918,10 @@ wifi_nl80211_init (int ifindex)
 		goto error;
 
 	nl80211->id = genl_ctrl_resolve (nl80211->nl_sock, "nl80211");
-	if (nl80211->id < 0)
+	if (nl80211->id < 0) {
+		_LOGD (LOGD_WIFI, "genl_ctrl_resolve: failed to resolve \"nl80211\"");
 		goto error;
+	}
 
 	nl80211->phy = -1;
 

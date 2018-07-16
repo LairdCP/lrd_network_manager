@@ -55,7 +55,7 @@ static gboolean
 complete_connection (NMDevice *device,
                      NMConnection *connection,
                      const char *specific_object,
-                     const GSList *existing_connections,
+                     NMConnection *const*existing_connections,
                      GError **error)
 {
 	NMSettingDummy *s_dummy;
@@ -186,7 +186,6 @@ nm_device_dummy_class_init (NMDeviceDummyClass *klass)
 	device_class->act_stage1_prepare = act_stage1_prepare;
 	device_class->get_configured_mtu = nm_device_get_configured_mtu_for_wired;
 }
-
 
 /*****************************************************************************/
 

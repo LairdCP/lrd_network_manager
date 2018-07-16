@@ -37,6 +37,7 @@
 #define NM_DEVICE_WIFI_ACTIVE_ACCESS_POINT "active-access-point"
 #define NM_DEVICE_WIFI_CAPABILITIES        "wireless-capabilities"
 #define NM_DEVICE_WIFI_SCANNING            "scanning"
+#define NM_DEVICE_WIFI_LAST_SCAN           "last-scan"
 
 #define NM_DEVICE_WIFI_SCANNING_PROHIBITED    "scanning-prohibited"
 
@@ -47,7 +48,7 @@ GType nm_device_wifi_get_type (void);
 
 NMDevice * nm_device_wifi_new (const char *iface, NMDeviceWifiCapabilities capabilities);
 
-GHashTable *_nm_device_wifi_get_aps (NMDeviceWifi *self);
+const CList *_nm_device_wifi_get_aps (NMDeviceWifi *self);
 
 void _nm_device_wifi_request_scan (NMDeviceWifi *self,
                                    GVariant *options,

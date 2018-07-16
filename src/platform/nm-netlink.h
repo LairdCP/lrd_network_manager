@@ -59,7 +59,7 @@ nl_errno (int err)
 	 * _NLE_BASE.
 	 *
 	 * However, often we encode errors as negative values. This function
-	 * normalizes the error and returns it's positive value. */
+	 * normalizes the error and returns its positive value. */
 	return err >= 0
 	       ? err
 	       : ((err == G_MININT) ? NLE_BUG : -errno);
@@ -176,6 +176,15 @@ nla_get_u8 (const struct nlattr *nla)
 	return *(const uint8_t *) nla_data (nla);
 }
 
+static inline uint8_t
+nla_get_u8_cond (/*const*/ struct nlattr *const*tb, int attr, uint8_t default_val)
+{
+	nm_assert (tb);
+	nm_assert (attr >= 0);
+
+	return tb[attr] ? nla_get_u8 (tb[attr]) : default_val;
+}
+
 static inline uint16_t
 nla_get_u16 (const struct nlattr *nla)
 {
@@ -234,6 +243,9 @@ nla_put_string (struct nl_msg *msg, int attrtype, const char *str)
 
 #define NLA_PUT_STRING(msg, attrtype, value) \
 	NLA_PUT(msg, attrtype, (int) strlen(value) + 1, value)
+
+#define NLA_PUT_FLAG(msg, attrtype) \
+	NLA_PUT(msg, attrtype, 0, NULL)
 
 struct nlattr *nla_find (const struct nlattr *head, int len, int attrtype);
 
@@ -400,21 +412,6 @@ struct nlmsghdr *nlmsg_put (struct nl_msg *n, uint32_t pid, uint32_t seq,
 
 /*****************************************************************************/
 
-void *genlmsg_put (struct nl_msg *msg, uint32_t port, uint32_t seq, int family,
-                   int hdrlen, int flags, uint8_t cmd, uint8_t version);
-void *genlmsg_data (const struct genlmsghdr *gnlh);
-void *genlmsg_user_hdr (const struct genlmsghdr *gnlh);
-struct genlmsghdr *genlmsg_hdr (struct nlmsghdr *nlh);
-void *genlmsg_user_data (const struct genlmsghdr *gnlh, const int hdrlen);
-struct nlattr *genlmsg_attrdata (const struct genlmsghdr *gnlh, int hdrlen);
-int genlmsg_len (const struct genlmsghdr *gnlh);
-int genlmsg_attrlen (const struct genlmsghdr *gnlh, int hdrlen);
-int genlmsg_valid_hdr (struct nlmsghdr *nlh, int hdrlen);
-int genlmsg_parse (struct nlmsghdr *nlh, int hdrlen, struct nlattr *tb[],
-                   int maxtype, const struct nla_policy *policy);
-
-/*****************************************************************************/
-
 #define NL_AUTO_PORT 0
 #define NL_AUTO_SEQ  0
 
@@ -494,6 +491,23 @@ int nl_wait_for_ack (struct nl_sock *sk,
                      const struct nl_cb *cb);
 
 int nl_socket_set_ext_ack (struct nl_sock *sk, gboolean enable);
+
+/*****************************************************************************/
+
+void *genlmsg_put (struct nl_msg *msg, uint32_t port, uint32_t seq, int family,
+                   int hdrlen, int flags, uint8_t cmd, uint8_t version);
+void *genlmsg_data (const struct genlmsghdr *gnlh);
+void *genlmsg_user_hdr (const struct genlmsghdr *gnlh);
+struct genlmsghdr *genlmsg_hdr (struct nlmsghdr *nlh);
+void *genlmsg_user_data (const struct genlmsghdr *gnlh, const int hdrlen);
+struct nlattr *genlmsg_attrdata (const struct genlmsghdr *gnlh, int hdrlen);
+int genlmsg_len (const struct genlmsghdr *gnlh);
+int genlmsg_attrlen (const struct genlmsghdr *gnlh, int hdrlen);
+int genlmsg_valid_hdr (struct nlmsghdr *nlh, int hdrlen);
+int genlmsg_parse (struct nlmsghdr *nlh, int hdrlen, struct nlattr *tb[],
+                   int maxtype, const struct nla_policy *policy);
+
+int genl_ctrl_resolve (struct nl_sock *sk, const char *name);
 
 /*****************************************************************************/
 

@@ -34,7 +34,6 @@
 #include <stdlib.h>
 
 #include "nm-dbus-manager.h"
-#include "NetworkManagerUtils.h"
 
 enum {
 	PROP_0,
@@ -93,16 +92,14 @@ nm_auth_subject_to_string (NMAuthSubject *self, char *buf, gsize buf_len)
 		            (unsigned long long) priv->unix_process.start_time);
 		break;
 	case NM_AUTH_SUBJECT_TYPE_INTERNAL:
-		g_strlcat (buf, "internal", buf_len);
+		g_strlcpy (buf, "internal", buf_len);
 		break;
 	default:
-		g_strlcat (buf, "invalid", buf_len);
+		g_strlcpy (buf, "invalid", buf_len);
 		break;
 	}
 	return buf;
 }
-
-#if WITH_POLKIT
 
 /* returns a floating variant */
 GVariant *
@@ -124,8 +121,6 @@ nm_auth_subject_unix_process_to_polkit_gvariant (NMAuthSubject *self)
 	ret = g_variant_new ("(s@a{sv})", "unix-process", dict);
 	return ret;
 }
-
-#endif
 
 NMAuthSubjectType
 nm_auth_subject_get_subject_type (NMAuthSubject *subject)
@@ -191,15 +186,15 @@ _new_unix_process (GDBusMethodInvocation *context,
 		                                           &dbus_sender,
 		                                           &uid,
 		                                           &pid);
-	} else if (message) {
+	} else {
+		nm_assert (message);
 		success = nm_dbus_manager_get_caller_info_from_message (nm_dbus_manager_get (),
 		                                                        connection,
 		                                                        message,
 		                                                        &dbus_sender,
 		                                                        &uid,
 		                                                        &pid);
-	} else
-		g_assert_not_reached ();
+	}
 
 	if (!success)
 		return NULL;

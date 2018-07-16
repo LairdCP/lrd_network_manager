@@ -113,7 +113,7 @@ static gboolean
 complete_connection (NMDevice *device,
                      NMConnection *connection,
                      const char *specific_object,
-                     const GSList *existing_connections,
+                     NMConnection *const*existing_connections,
                      GError **error)
 {
 	NMSettingOlpcMesh *s_mesh;
@@ -176,7 +176,6 @@ act_stage1_prepare (NMDevice *device, NMDeviceStateReason *out_failure_reason)
 		_LOGI (LOGD_OLPC, "companion %s disconnected",
 		       nm_device_get_iface (priv->companion));
 	}
-
 
 	/* wait with continuing configuration untill the companion device is done scanning */
 	g_object_get (priv->companion, NM_DEVICE_WIFI_SCANNING, &scanning, NULL);
@@ -387,7 +386,8 @@ static void
 find_companion (NMDeviceOlpcMesh *self)
 {
 	NMDeviceOlpcMeshPrivate *priv = NM_DEVICE_OLPC_MESH_GET_PRIVATE (self);
-	const GSList *list;
+	const CList *tmp_lst;
+	NMDevice *candidate;
 
 	if (priv->companion)
 		return;
@@ -395,8 +395,8 @@ find_companion (NMDeviceOlpcMesh *self)
 	nm_device_add_pending_action (NM_DEVICE (self), NM_PENDING_ACTION_WAITING_FOR_COMPANION, TRUE);
 
 	/* Try to find the companion if it's already known to the NMManager */
-	for (list = nm_manager_get_devices (priv->manager); list ; list = g_slist_next (list)) {
-		if (check_companion (self, NM_DEVICE (list->data))) {
+	nm_manager_for_each_device (priv->manager, candidate, tmp_lst) {
+		if (check_companion (self, candidate)) {
 			nm_device_queue_recheck_available (NM_DEVICE (self),
 			                                   NM_DEVICE_STATE_REASON_NONE,
 			                                   NM_DEVICE_STATE_REASON_NONE);

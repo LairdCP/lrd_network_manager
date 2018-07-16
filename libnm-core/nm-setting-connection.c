@@ -288,7 +288,6 @@ nm_setting_connection_get_connection_type (NMSettingConnection *setting)
 	return NM_SETTING_CONNECTION_GET_PRIVATE (setting)->type;
 }
 
-
 /**
  * nm_setting_connection_get_num_permissions:
  * @setting: the #NMSettingConnection
@@ -1077,7 +1076,7 @@ verify (NMSetting *setting, NMConnection *connection, GError **error)
 	}
 
 	if (   priv->mdns < NM_SETTING_CONNECTION_MDNS_DEFAULT
-	    || priv->mdns > NM_SETTING_CONNECTION_MDNS_RESOLVE) {
+	    || priv->mdns > NM_SETTING_CONNECTION_MDNS_YES) {
 		g_set_error (error,
 		             NM_CONNECTION_ERROR,
 		             NM_CONNECTION_ERROR_INVALID_PROPERTY,
@@ -1536,34 +1535,40 @@ nm_setting_connection_class_init (NMSettingConnectionClass *setting_class)
 	/**
 	 * NMSettingConnection:stable-id:
 	 *
-	 * Token to generate stable IDs for the connection.
+	 * This represents the identity of the connection used for various purposes.
+	 * It allows to configure multiple profiles to share the identity. Also,
+	 * the stable-id can contain placeholders that are substituted dynamically and
+	 * deterministically depending on the context.
 	 *
 	 * The stable-id is used for generating IPv6 stable private addresses
 	 * with ipv6.addr-gen-mode=stable-privacy. It is also used to seed the
 	 * generated cloned MAC address for ethernet.cloned-mac-address=stable
 	 * and wifi.cloned-mac-address=stable. It is also used as DHCP client
-	 * identifier with ipv4.dhcp-client-id=stable.
+	 * identifier with ipv4.dhcp-client-id=stable and to derive the DHCP
+	 * DUID with ipv6.dhcp-duid=stable-[llt,ll,uuid].
 	 *
-	 * Note that also the interface name of the activating connection and a
-	 * per-host secret key is included into the address generation so that the
-	 * same stable-id on different hosts/devices yields different addresses.
-	 *
-	 * If the value is unset, an ID unique for the connection is used.
-	 * Specifying a stable-id allows multiple connections to generate the
-	 * same addresses. Another use is to generate IDs at runtime via
-	 * dynamic substitutions.
+	 * Note that depending on the context where it is used, other parameters are
+	 * also seeded into the generation algorithm. For example, a per-host key
+	 * is commonly also included, so that different systems end up generating
+	 * different IDs. Or with ipv6.addr-gen-mode=stable-privacy, also the device's
+	 * name is included, so that different interfaces yield different addresses.
 	 *
 	 * The '$' character is treated special to perform dynamic substitutions
-	 * at runtime. Currently supported are "${CONNECTION}", "${BOOT}", "${RANDOM}".
-	 * These effectively create unique IDs per-connection, per-boot, or every time.
+	 * at runtime. Currently supported are "${CONNECTION}", "${DEVICE}",
+	 * "${BOOT}", "${RANDOM}".
+	 * These effectively create unique IDs per-connection, per-device, per-boot,
+	 * or every time. Note that "${DEVICE}" corresponds the the interface name of the
+	 * device.
 	 * Any unrecognized patterns following '$' are treated verbatim, however
 	 * are reserved for future use. You are thus advised to avoid '$' or
 	 * escape it as "$$".
-	 * For example, set it to "${CONNECTION}/${BOOT}" to create a unique id for
-	 * this connection that changes with every reboot.
+	 * For example, set it to "${CONNECTION}-${BOOT}-${DEVICE}" to create a unique id for
+	 * this connection that changes with every reboot and differs depending on the
+	 * interface where the profile activates.
 	 *
-	 * Note that two connections only use the same effective id if
-	 * their stable-id is also identical before performing dynamic substitutions.
+	 * If the value is unset, a global connection default is consulted. If the
+	 * value is still unset, the default is similar to "${CONNECTION}" and uses
+	 * a unique, fixed ID for the connection.
 	 *
 	 * Since: 1.4
 	 **/
@@ -1682,6 +1687,10 @@ nm_setting_connection_class_init (NMSettingConnectionClass *setting_class)
 	 * NetworkManager when the resources for the connection are available.
 	 * %TRUE to automatically activate the connection, %FALSE to require manual
 	 * intervention to activate the connection.
+	 *
+	 * Note that autoconnect is not implemented for VPN profiles. See
+	 * #NMSettingConnection:secondaries as an alternative to automatically
+	 * connect VPN profiles.
 	 **/
 	/* ---ifcfg-rh---
 	 * property: autoconnect
@@ -1726,7 +1735,6 @@ nm_setting_connection_class_init (NMSettingConnectionClass *setting_class)
 	                       G_PARAM_CONSTRUCT |
 	                       NM_SETTING_PARAM_FUZZY_IGNORE |
 	                       G_PARAM_STATIC_STRINGS));
-
 
 	/**
 	 * NMSettingConnection:autoconnect-retries:
@@ -1874,7 +1882,9 @@ nm_setting_connection_class_init (NMSettingConnectionClass *setting_class)
 	 *
 	 * Whether or not slaves of this connection should be automatically brought up
 	 * when NetworkManager activates this connection. This only has a real effect
-	 * for master connections.
+	 * for master connections. The properties #NMSettingConnection:autoconnect,
+	 * #NMSettingConnection:autoconnect-priority and #NMSettingConnection:autoconnect-retries
+	 * are unrelated to this setting.
 	 * The permitted values are: 0: leave slave connections untouched,
 	 * 1: activate all the slave connections with this connection, -1: default.
 	 * If -1 (default) is set, global connection.autoconnect-slaves is read to

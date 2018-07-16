@@ -76,6 +76,7 @@ typedef struct {
 	char *frequency_list;
 	guint32 frequency_dfs;
 	guint32 max_scan_interval;
+	guint32 wowl;
 } NMSettingWirelessPrivate;
 
 enum {
@@ -110,6 +111,7 @@ enum {
 	PROP_FREQUENCY_LIST,
 	PROP_FREQUENCY_DFS,
 	PROP_MAX_SCAN_INTERVAL,
+	PROP_WAKE_ON_WLAN,
 
 	LAST_PROP
 };
@@ -1094,6 +1096,26 @@ verify (NMSetting *setting, NMConnection *connection, GError **error)
 		return FALSE;
 	}
 
+	if (NM_FLAGS_ANY (priv->wowl, NM_SETTING_WIRELESS_WAKE_ON_WLAN_EXCLUSIVE_FLAGS)) {
+		if (!nm_utils_is_power_of_two (priv->wowl)) {
+			g_set_error_literal (error,
+			                     NM_CONNECTION_ERROR,
+			                     NM_CONNECTION_ERROR_INVALID_PROPERTY,
+			                     _("Wake-on-WLAN mode 'default' and 'ignore' are exclusive flags"));
+			g_prefix_error (error, "%s.%s: ", NM_SETTING_WIRELESS_SETTING_NAME,
+			                NM_SETTING_WIRELESS_WAKE_ON_WLAN);
+			return FALSE;
+		}
+	} else if (NM_FLAGS_ANY (priv->wowl, ~NM_SETTING_WIRELESS_WAKE_ON_WLAN_ALL)) {
+		g_set_error_literal (error,
+		                     NM_CONNECTION_ERROR,
+		                     NM_CONNECTION_ERROR_INVALID_PROPERTY,
+		                     _("Wake-on-WLAN trying to set unknown flag"));
+		g_prefix_error (error, "%s.%s: ", NM_SETTING_WIRELESS_SETTING_NAME,
+		                NM_SETTING_WIRELESS_WAKE_ON_WLAN);
+		return FALSE;
+	}
+
 	/* from here on, check for NM_SETTING_VERIFY_NORMALIZABLE conditions. */
 
 	if (priv->cloned_mac_address) {
@@ -1169,6 +1191,24 @@ nm_setting_wireless_get_security (NMSetting    *setting,
 		return g_variant_new_string (NM_SETTING_WIRELESS_SECURITY_SETTING_NAME);
 	else
 		return NULL;
+}
+
+/**
+ * nm_setting_wireless_get_wake_on_wlan:
+ * @setting: the #NMSettingWireless
+ *
+ * Returns the Wake-on-WLAN options enabled for the connection
+ *
+ * Returns: the Wake-on-WLAN options
+ *
+ * Since: 1.12
+ */
+NMSettingWirelessWakeOnWLan
+nm_setting_wireless_get_wake_on_wlan (NMSettingWireless *setting)
+{
+	g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), NM_SETTING_WIRELESS_WAKE_ON_WLAN_NONE);
+
+	return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->wowl;
 }
 
 static void
@@ -1334,6 +1374,9 @@ set_property (GObject *object, guint prop_id,
 	case PROP_MAX_SCAN_INTERVAL:
 		priv->max_scan_interval = g_value_get_uint (value);
 		break;
+	case PROP_WAKE_ON_WLAN:
+		priv->wowl = g_value_get_uint (value);
+		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
 		break;
@@ -1431,6 +1474,9 @@ get_property (GObject *object, guint prop_id,
 		break;
 	case PROP_MAX_SCAN_INTERVAL:
 		g_value_set_uint (value, nm_setting_wireless_get_max_scan_interval (setting));
+		break;
+	case PROP_WAKE_ON_WLAN:
+		g_value_set_uint (value, nm_setting_wireless_get_wake_on_wlan (setting));
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -1857,6 +1903,9 @@ nm_setting_wireless_class_init (NMSettingWirelessClass *setting_wireless_class)
 	 * probe-scanning the SSID for more reliable network discovery.  However,
 	 * these workarounds expose inherent insecurities with hidden SSID networks,
 	 * and thus hidden SSID networks should be used with caution.
+	 *
+	 * Note that marking the network as hidden may be a privacy issue for you, as
+	 * the explicit probe-scans may be distinctly recognizable on the air.
 	 **/
 	/* ---ifcfg-rh---
 	 * property: hidden
@@ -2143,4 +2192,30 @@ nm_setting_wireless_class_init (NMSettingWirelessClass *setting_wireless_class)
 	_nm_setting_class_add_dbus_only_property (setting_class, "security",
 	                                          G_VARIANT_TYPE_STRING,
 	                                          nm_setting_wireless_get_security, NULL);
+
+	/**
+	 * NMSettingWireless:wake-on-wlan:
+	 *
+	 * The #NMSettingWirelessWakeOnWLan options to enable. Not all devices support all options.
+	 * May be any combination of %NM_SETTING_WIRELESS_WAKE_ON_WLAN_ANY,
+	 * %NM_SETTING_WIRELESS_WAKE_ON_WLAN_DISCONNECT,
+	 * %NM_SETTING_WIRELESS_WAKE_ON_WLAN_MAGIC,
+	 * %NM_SETTING_WIRELESS_WAKE_ON_WLAN_GTK_REKEY_FAILURE,
+	 * %NM_SETTING_WIRELESS_WAKE_ON_WLAN_EAP_IDENTITY_REQUEST,
+	 * %NM_SETTING_WIRELESS_WAKE_ON_WLAN_4WAY_HANDSHAKE,
+	 * %NM_SETTING_WIRELESS_WAKE_ON_WLAN_RFKILL_RELEASE,
+	 * %NM_SETTING_WIRELESS_WAKE_ON_WLAN_TCP or the special values
+	 * %NM_SETTING_WIRELESS_WAKE_ON_WLAN_DEFAULT (to use global settings) and
+	 * %NM_SETTING_WIRELESS_WAKE_ON_WLAN_IGNORE (to disable management of Wake-on-LAN in
+	 * NetworkManager).
+	 *
+	 * Since: 1.12
+	 **/
+	g_object_class_install_property
+		(object_class, PROP_WAKE_ON_WLAN,
+		 g_param_spec_uint (NM_SETTING_WIRELESS_WAKE_ON_WLAN, "", "",
+		                    0, G_MAXUINT32, NM_SETTING_WIRELESS_WAKE_ON_WLAN_DEFAULT,
+		                    G_PARAM_CONSTRUCT |
+		                    G_PARAM_READWRITE |
+		                    G_PARAM_STATIC_STRINGS));
 }

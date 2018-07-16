@@ -139,7 +139,7 @@ typedef struct {
 	GHashTable *   bss_proxies;
 	char *         current_bss;
 
-	gint32         last_scan; /* timestamp as returned by nm_utils_get_monotonic_timestamp_s() */
+	gint64         last_scan; /* timestamp as returned by nm_utils_get_monotonic_timestamp_ms() */
 
 	struct {
 		LairdScanGlobals pushed;
@@ -223,7 +223,7 @@ bss_proxy_properties_changed_cb (GDBusProxy *proxy,
 	NMSupplicantInterfacePrivate *priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
 
 	if (priv->scanning)
-		priv->last_scan = nm_utils_get_monotonic_timestamp_s ();
+		priv->last_scan = nm_utils_get_monotonic_timestamp_ms ();
 
 	g_signal_emit (self, signals[BSS_UPDATED], 0,
 	               g_dbus_proxy_get_object_path (proxy),
@@ -358,7 +358,7 @@ set_state (NMSupplicantInterface *self, NMSupplicantInterfaceState new_state)
 
 	if (   priv->state == NM_SUPPLICANT_INTERFACE_STATE_SCANNING
 	    || old_state == NM_SUPPLICANT_INTERFACE_STATE_SCANNING)
-		priv->last_scan = nm_utils_get_monotonic_timestamp_s ();
+		priv->last_scan = nm_utils_get_monotonic_timestamp_ms ();
 
 	/* Disconnect reason is no longer relevant when not in the DISCONNECTED state */
 	if (priv->state != NM_SUPPLICANT_INTERFACE_STATE_DISCONNECTED)
@@ -420,7 +420,7 @@ set_scanning (NMSupplicantInterface *self, gboolean new_scanning)
 
 		/* Cache time of last scan completion */
 		if (priv->scanning == FALSE)
-			priv->last_scan = nm_utils_get_monotonic_timestamp_s ();
+			priv->last_scan = nm_utils_get_monotonic_timestamp_ms ();
 
 		_notify (self, PROP_SCANNING);
 	}
@@ -452,8 +452,8 @@ nm_supplicant_interface_get_current_bss (NMSupplicantInterface *self)
 	return priv->state >= NM_SUPPLICANT_INTERFACE_STATE_READY ? priv->current_bss : NULL;
 }
 
-gint32
-nm_supplicant_interface_get_last_scan_time (NMSupplicantInterface *self)
+gint64
+nm_supplicant_interface_get_last_scan (NMSupplicantInterface *self)
 {
 	return NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self)->last_scan;
 }
@@ -1016,7 +1016,7 @@ wpas_iface_scan_done (GDBusProxy *proxy,
 	NMSupplicantInterfacePrivate *priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
 
 	/* Cache last scan completed time */
-	priv->last_scan = nm_utils_get_monotonic_timestamp_s ();
+	priv->last_scan = nm_utils_get_monotonic_timestamp_ms ();
 	priv->scan_done_success |= success;
 	scan_done_emit_signal (self);
 }
@@ -1031,7 +1031,7 @@ wpas_iface_bss_added (GDBusProxy *proxy,
 	NMSupplicantInterfacePrivate *priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
 
 	if (priv->scanning)
-		priv->last_scan = nm_utils_get_monotonic_timestamp_s ();
+		priv->last_scan = nm_utils_get_monotonic_timestamp_ms ();
 
 	bss_add_new (self, path);
 }
@@ -1103,9 +1103,8 @@ props_changed_cb (GDBusProxy *proxy,
 	}
 
 	if (g_variant_lookup (changed_properties, "CurrentBSS", "&o", &s)) {
-		if (strcmp (s, "/") == 0)
-			s = NULL;
-		if (g_strcmp0 (s, priv->current_bss) != 0) {
+		s = nm_utils_dbus_normalize_object_path (s);
+		if (!nm_streq0 (s, priv->current_bss)) {
 			g_free (priv->current_bss);
 			priv->current_bss = g_strdup (s);
 			_notify (self, PROP_CURRENT_BSS);
@@ -2267,7 +2266,7 @@ dispose (GObject *object)
 	nm_clear_g_cancellable (&priv->other_cancellable);
 
 	g_clear_object (&priv->wpas_proxy);
-	g_clear_pointer (&priv->bss_proxies, (GDestroyNotify) g_hash_table_destroy);
+	g_clear_pointer (&priv->bss_proxies, g_hash_table_destroy);
 
 	g_clear_pointer (&priv->net_path, g_free);
 	g_clear_pointer (&priv->dev, g_free);

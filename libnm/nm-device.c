@@ -735,11 +735,9 @@ nm_device_class_init (NMDeviceClass *device_class)
 		                      G_PARAM_STATIC_STRINGS));
 
 	/**
-	 * NMDevice:available-connections:
+	 * NMDevice:available-connections: (type GPtrArray(NMRemoteConnection))
 	 *
 	 * The available connections of the device
-	 *
-	 * Element-type: NMRemoteConnection
 	 **/
 	g_object_class_install_property
 		(object_class, PROP_AVAILABLE_CONNECTIONS,
@@ -1310,11 +1308,11 @@ get_type_name (NMDevice *device)
 	case NM_DEVICE_TYPE_OLPC_MESH:
 		return _("OLPC Mesh");
 	case NM_DEVICE_TYPE_OVS_INTERFACE:
-		return _("OpenVSwitch Interface");
+		return _("Open vSwitch Interface");
 	case NM_DEVICE_TYPE_OVS_PORT:
-		return _("OpenVSwitch Port");
+		return _("Open vSwitch Port");
 	case NM_DEVICE_TYPE_OVS_BRIDGE:
-		return _("OpenVSwitch Bridge");
+		return _("Open vSwitch Bridge");
 	case NM_DEVICE_TYPE_WIMAX:
 		return _("WiMAX");
 	case NM_DEVICE_TYPE_MODEM:
@@ -1718,7 +1716,7 @@ nm_device_disambiguate_names (NMDevice **devices,
 
 			g_free (names[i]);
 			name = get_device_type_name_with_iface (devices[i]);
-			/* Translators: the first %s is a bus name (eg, "USB") or
+			/* TRANSLATORS: the first %s is a bus name (eg, "USB") or
 			 * product name, the second is a device type (eg,
 			 * "Ethernet"). You can change this to something like
 			 * "%2$s (%1$s)" if there's no grammatical way to combine
@@ -1821,7 +1819,7 @@ nm_device_get_physical_port_id (NMDevice *device)
  *
  * Gets the  MTU of the #NMDevice.
  *
- * Returns: the MTU of the device.
+ * Returns: the MTU of the device in bytes.
  **/
 guint32
 nm_device_get_mtu (NMDevice *device)
@@ -1941,7 +1939,6 @@ nm_device_reapply (NMDevice *device,
 		dict = nm_connection_to_dbus (connection, NM_CONNECTION_SERIALIZE_ALL);
 	if (!dict)
 		dict = g_variant_new_array (G_VARIANT_TYPE ("{sa{sv}}"), NULL, 0);
-
 
 	ret = nmdbus_device_call_reapply_sync (NM_DEVICE_GET_PRIVATE (device)->proxy,
 	                                       dict, version_id, flags, cancellable, error);

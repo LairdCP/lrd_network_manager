@@ -334,7 +334,7 @@ nm_dhcp_client_stop_pid (pid_t pid, const char *iface)
 
 	g_return_if_fail (pid > 1);
 
-	nm_utils_kill_child_sync (pid, SIGTERM, LOGD_DHCP, name ? name : "dhcp-client", NULL,
+	nm_utils_kill_child_sync (pid, SIGTERM, LOGD_DHCP, name ?: "dhcp-client", NULL,
 	                          1000 / 2, 1000 / 20);
 	g_free (name);
 }
@@ -359,25 +359,24 @@ stop (NMDhcpClient *self, gboolean release, GBytes *duid)
 void
 nm_dhcp_client_set_state (NMDhcpClient *self,
                           NMDhcpState new_state,
-                          GObject *ip_config,
+                          NMIPConfig *ip_config,
                           GHashTable *options)
 {
 	NMDhcpClientPrivate *priv = NM_DHCP_CLIENT_GET_PRIVATE (self);
 	gs_free char *event_id = NULL;
 
+	if (new_state == NM_DHCP_STATE_BOUND) {
+		g_return_if_fail (NM_IS_IP_CONFIG (ip_config, priv->addr_family));
+		g_return_if_fail (options);
+	} else {
+		g_return_if_fail (!ip_config);
+		g_return_if_fail (!options);
+	}
+
 	if (new_state >= NM_DHCP_STATE_BOUND)
 		timeout_cleanup (self);
 	if (new_state >= NM_DHCP_STATE_TIMEOUT)
 		watch_cleanup (self);
-
-	if (new_state == NM_DHCP_STATE_BOUND) {
-		g_assert (   (priv->addr_family == AF_INET  && NM_IS_IP4_CONFIG (ip_config))
-		          || (priv->addr_family == AF_INET6 && NM_IS_IP6_CONFIG (ip_config)));
-		g_assert (options);
-	} else {
-		g_assert (ip_config == NULL);
-		g_assert (options == NULL);
-	}
 
 	/* The client may send same-state transitions for RENEW/REBIND events and
 	 * the lease may have changed, so handle same-state transitions for the
@@ -514,69 +513,15 @@ nm_dhcp_client_start_ip4 (NMDhcpClient *self,
 }
 
 static GBytes *
-generate_duid_from_machine_id (void)
-{
-	const int DUID_SIZE = 18;
-	guint8 *duid_buffer;
-	GChecksum *sum;
-	guint8 buffer[32]; /* SHA256 digest size */
-	gsize sumlen = sizeof (buffer);
-	const guint16 duid_type = g_htons (4);
-	uuid_t uuid;
-	gs_free char *machine_id_s = NULL;
-	gs_free char *str = NULL;
-	GBytes *duid;
-
-	machine_id_s = nm_utils_machine_id_read ();
-	if (nm_utils_machine_id_parse (machine_id_s, uuid)) {
-		/* Hash the machine ID so it's not leaked to the network */
-		sum = g_checksum_new (G_CHECKSUM_SHA256);
-		g_checksum_update (sum, (const guchar *) &uuid, sizeof (uuid));
-		g_checksum_get_digest (sum, buffer, &sumlen);
-		g_checksum_free (sum);
-	} else {
-		nm_log_warn (LOGD_DHCP, "dhcp: failed to read " SYSCONFDIR "/machine-id "
-		             "or " LOCALSTATEDIR "/lib/dbus/machine-id to generate "
-		             "DHCPv6 DUID; creating non-persistent random DUID.");
-
-		nm_utils_random_bytes (buffer, sizeof (buffer));
-	}
-
-	/* Generate a DHCP Unique Identifier for DHCPv6 using the
-	 * DUID-UUID method (see RFC 6355 section 4).  Format is:
-	 *
-	 * u16: type (DUID-UUID = 4)
-	 * u8[16]: UUID bytes
-	 */
-	duid_buffer = g_malloc (DUID_SIZE);
-
-	G_STATIC_ASSERT_EXPR (sizeof (duid_type) == 2);
-	memcpy (&duid_buffer[0], &duid_type, 2);
-
-	/* Since SHA256 is 256 bits, but UUID is 128 bits, we just take the first
-	 * 128 bits of the SHA256 as the DUID-UUID.
-	 */
-	memcpy (&duid_buffer[2], buffer, 16);
-
-	duid = g_bytes_new_take (duid_buffer, DUID_SIZE);
-	nm_log_dbg (LOGD_DHCP, "dhcp: generated DUID %s",
-	            (str = nm_dhcp_utils_duid_to_string (duid)));
-	return duid;
-}
-
-static GBytes *
 get_duid (NMDhcpClient *self)
 {
-	static GBytes *duid = NULL;
-
-	if (G_UNLIKELY (!duid))
-		duid = generate_duid_from_machine_id ();
-
-	return g_bytes_ref (duid);
+	return NULL;
 }
 
 gboolean
 nm_dhcp_client_start_ip6 (NMDhcpClient *self,
+                          GBytes *client_id,
+                          gboolean enforce_duid,
                           const char *dhcp_anycast_addr,
                           const struct in6_addr *ll_addr,
                           const char *hostname,
@@ -593,11 +538,14 @@ nm_dhcp_client_start_ip6 (NMDhcpClient *self,
 	g_return_val_if_fail (priv->addr_family == AF_INET6, FALSE);
 	g_return_val_if_fail (priv->uuid != NULL, FALSE);
 
-	/* If we don't have one yet, read the default DUID for this DHCPv6 client
-	 * from the client-specific persistent configuration.
-	 */
-	if (!priv->duid)
+	nm_assert (!priv->duid);
+	nm_assert (client_id);
+
+	if (!enforce_duid)
 		priv->duid = NM_DHCP_CLIENT_GET_CLASS (self)->get_duid (self);
+
+	if (!priv->duid)
+		priv->duid = g_bytes_ref (client_id);
 
 	_LOGD ("DUID is '%s'", (str = nm_dhcp_utils_duid_to_string (priv->duid)));
 
@@ -660,8 +608,10 @@ nm_dhcp_client_stop_existing (const char *pid_file, const char *binary_name)
 
 out:
 	if (remove (pid_file) == -1) {
-		nm_log_dbg (LOGD_DHCP, "dhcp: could not remove pid file \"%s\": %d (%s)",
-		            pid_file, errno, g_strerror (errno));
+		int errsv = errno;
+
+		nm_log_dbg (LOGD_DHCP, "dhcp: could not remove pid file \"%s\": %s (%d)",
+		            pid_file, g_strerror (errsv), errsv);
 	}
 }
 
@@ -736,14 +686,6 @@ maybe_add_option (NMDhcpClient *self,
                   GVariant *value)
 {
 	char *str_value = NULL;
-	const char **p;
-	static const char *ignored_keys[] = {
-		"interface",
-		"pid",
-		"reason",
-		"dhcp_message_type",
-		NULL
-	};
 
 	g_return_if_fail (g_variant_is_of_type (value, G_VARIANT_TYPE_BYTESTRING));
 
@@ -751,10 +693,11 @@ maybe_add_option (NMDhcpClient *self,
 		return;
 
 	/* Filter out stuff that's not actually new DHCP options */
-	for (p = ignored_keys; *p; p++) {
-		if (!strcmp (*p, key))
-			return;
-	}
+	if (NM_IN_STRSET (key, "interface",
+	                       "pid",
+	                       "reason",
+	                       "dhcp_message_type"))
+		return;
 
 	if (g_str_has_prefix (key, NEW_TAG))
 		key += NM_STRLEN (NEW_TAG);
@@ -777,8 +720,8 @@ nm_dhcp_client_handle_event (gpointer unused,
 	NMDhcpClientPrivate *priv;
 	guint32 old_state;
 	guint32 new_state;
-	GHashTable *str_options = NULL;
-	GObject *ip_config = NULL;
+	gs_unref_hashtable GHashTable *str_options = NULL;
+	gs_unref_object NMIPConfig *ip_config = NULL;
 	NMPlatformIP6Address prefix = { 0, };
 
 	g_return_val_if_fail (NM_IS_DHCP_CLIENT (self), FALSE);
@@ -822,24 +765,24 @@ nm_dhcp_client_handle_event (gpointer unused,
 		}
 
 		/* Create the IP config */
-		g_warn_if_fail (g_hash_table_size (str_options));
-		if (g_hash_table_size (str_options)) {
+		if (g_hash_table_size (str_options) > 0) {
 			if (priv->addr_family == AF_INET) {
-				ip_config = (GObject *) nm_dhcp_utils_ip4_config_from_options (nm_dhcp_client_get_multi_idx (self),
-				                                                               priv->ifindex,
-				                                                               priv->iface,
-				                                                               str_options,
-				                                                               priv->route_table,
-				                                                               priv->route_metric);
+				ip_config = NM_IP_CONFIG_CAST (nm_dhcp_utils_ip4_config_from_options (nm_dhcp_client_get_multi_idx (self),
+				                                                                      priv->ifindex,
+				                                                                      priv->iface,
+				                                                                      str_options,
+				                                                                      priv->route_table,
+				                                                                      priv->route_metric));
 			} else {
 				prefix = nm_dhcp_utils_ip6_prefix_from_options (str_options);
-				ip_config = (GObject *) nm_dhcp_utils_ip6_config_from_options (nm_dhcp_client_get_multi_idx (self),
-				                                                               priv->ifindex,
-				                                                               priv->iface,
-				                                                               str_options,
-				                                                               priv->info_only);
+				ip_config = NM_IP_CONFIG_CAST (nm_dhcp_utils_ip6_config_from_options (nm_dhcp_client_get_multi_idx (self),
+				                                                                      priv->ifindex,
+				                                                                      priv->iface,
+				                                                                      str_options,
+				                                                                      priv->info_only));
 			}
-		}
+		} else
+			g_warn_if_reached ();
 	}
 
 	if (!IN6_IS_ADDR_UNSPECIFIED (&prefix.address)) {
@@ -851,7 +794,8 @@ nm_dhcp_client_handle_event (gpointer unused,
 		               &prefix);
 	} else {
 		/* Fail if no valid IP config was received */
-		if (new_state == NM_DHCP_STATE_BOUND && ip_config == NULL) {
+		if (   new_state == NM_DHCP_STATE_BOUND
+		    && !ip_config) {
 			_LOGW ("client bound but IP config not received");
 			new_state = NM_DHCP_STATE_FAIL;
 			g_clear_pointer (&str_options, g_hash_table_unref);
@@ -859,10 +803,6 @@ nm_dhcp_client_handle_event (gpointer unused,
 
 		nm_dhcp_client_set_state (self, new_state, ip_config, str_options);
 	}
-
-	if (str_options)
-		g_hash_table_destroy (str_options);
-	g_clear_object (&ip_config);
 
 	return TRUE;
 }

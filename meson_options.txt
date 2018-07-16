@@ -21,7 +21,7 @@ option('modify_system', type: 'boolean', value: false, description: 'Allow users
 option('polkit_agent', type: 'boolean', value: false, description: 'enable polkit agent for clients')
 option('selinux', type: 'boolean', value: true, description: 'Build with SELinux')
 option('systemd_journal', type: 'boolean', value: true, description: 'Use systemd journal for logging')
-option('config_logging_backend_default', type: 'combo', choices: ['default', 'debug', 'syslog', 'journal', 'journal-syslog-style'], value: 'default', description: 'Default value for logging.backend')
+option('config_logging_backend_default', type: 'combo', choices: ['default', 'syslog', 'journal'], value: 'default', description: 'Default value for logging.backend')
 option('hostname_persist', type: 'combo', choices: ['default', 'suse', 'gentoo', 'slackware'], value: 'default', description: 'Hostname persist method')
 option('libaudit', type: 'combo', choices: ['yes', 'yes-disabled-by-default', 'no'], value: 'yes', description: 'Build with audit daemon support. yes-disabled-by-default enables support, but disables it unless explicitly configured via NetworkManager.conf')
 
@@ -37,7 +37,7 @@ option('ofono', type: 'boolean', value: false, description: 'Enable oFono suppor
 option('concheck', type: 'boolean', value: true, description: 'enable connectivity checking support')
 option('teamdctl', type: 'boolean', value: false, description: 'enable Teamd control support')
 option('ovs', type: 'boolean', value: true, description: 'enable OpenVSwitch support')
-option('libnm_glib', type: 'boolean', value: true, description: 'don\'t build legacy libraries')
+option('libnm_glib', type: 'boolean', value: false, description: 'build legacy libraries')
 option('nmcli', type: 'boolean', value: true, description: 'Build nmcli')
 option('nmtui', type: 'boolean', value: true, description: 'Build nmtui')
 option('bluez5_dun', type: 'boolean', value: false, description: 'enable Bluez5 DUN support')

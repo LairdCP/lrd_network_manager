@@ -37,6 +37,10 @@
 
 #include "nm-test-utils-core.h"
 
+#define TEST_CERT_DIR                         NM_BUILD_SRCDIR"/src/supplicant/tests/certs"
+
+/*****************************************************************************/
+
 static gboolean
 validate_opt (const char *detail,
               GVariant *config,
@@ -138,14 +142,12 @@ build_supplicant_config (NMConnection *connection,
 	g_assert_no_error (error);
 	g_assert (success);
 
-
 	success = nm_supplicant_config_add_bgscan (config, connection, &error);
 	g_assert_no_error (error);
 	g_assert (success);
 
 	return nm_supplicant_config_to_variant (config);
 }
-
 
 static NMConnection *
 new_basic_connection (const char *id,

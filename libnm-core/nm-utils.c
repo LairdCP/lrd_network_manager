@@ -136,7 +136,6 @@ static const struct IsoLangToEncodings isoLangEntries2[] =
 	LANG_ENCODINGS (NULL, NULL)
 };
 
-
 static GHashTable * langToEncodings5 = NULL;
 static GHashTable * langToEncodings2 = NULL;
 
@@ -250,7 +249,7 @@ _nm_utils_init (void)
 		g_error ("libnm-util symbols detected; Mixing libnm with libnm-util/libnm-glib is not supported");
 	g_module_close (self);
 
-	bindtextdomain (GETTEXT_PACKAGE, LOCALEDIR);
+	bindtextdomain (GETTEXT_PACKAGE, NMLOCALEDIR);
 	bind_textdomain_codeset (GETTEXT_PACKAGE, "UTF-8");
 
 	_nm_dbus_errors_init ();
@@ -464,7 +463,7 @@ _nm_utils_string_slist_validate (GSList *list, const char **valid_values)
  * @hash: a #GHashTable
  *
  * Utility function to iterate over a hash table and return
- * it's values as a #GSList.
+ * its values as a #GSList.
  *
  * Returns: (element-type gpointer) (transfer container): a newly allocated #GSList
  * containing the values of the hash table. The caller must free the
@@ -2237,7 +2236,6 @@ nm_utils_tc_qdisc_to_str (NMTCQdisc *qdisc, GError **error)
 	return g_string_free (string, FALSE);
 }
 
-
 static gboolean
 _tc_read_common_opts (const char *str,
                       guint32 *handle,
@@ -3038,7 +3036,6 @@ _nm_utils_check_file (const char *filename,
 	return TRUE;
 }
 
-
 gboolean
 _nm_utils_check_module_file (const char *name,
                              int check_owner,
@@ -3662,7 +3659,7 @@ _nm_utils_hwaddr_aton (const char *asc, gpointer buffer, gsize buffer_length, gs
 /**
  * nm_utils_hwaddr_aton:
  * @asc: the ASCII representation of a hardware address
- * @buffer: buffer to store the result into
+ * @buffer: (type guint8) (array length=length): buffer to store the result into
  * @length: the expected length in bytes of the result and
  * the size of the buffer in bytes.
  *
@@ -3688,8 +3685,8 @@ nm_utils_hwaddr_aton (const char *asc, gpointer buffer, gsize length)
 	return buffer;
 }
 
-static void
-_bin2str (gconstpointer addr, gsize length, const char delimiter, gboolean upper_case, char *out)
+void
+_nm_utils_bin2str_full (gconstpointer addr, gsize length, const char delimiter, gboolean upper_case, char *out)
 {
 	const guint8 *in = addr;
 	const char *LOOKUP = upper_case ? "0123456789ABCDEF" : "0123456789abcdef";
@@ -3739,7 +3736,7 @@ nm_utils_bin2hexstr (gconstpointer src, gsize len, int final_len)
 	g_return_val_if_fail (final_len < 0 || (gsize) final_len < buflen, NULL);
 
 	result = g_malloc (buflen);
-	_bin2str (src, len, '\0', FALSE, result);
+	_nm_utils_bin2str_full (src, len, '\0', FALSE, result);
 
 	/* Cut converted key off at the correct length for this cipher type */
 	if (final_len >= 0 && (gsize) final_len < buflen)
@@ -3766,7 +3763,7 @@ nm_utils_hwaddr_ntoa (gconstpointer addr, gsize length)
 	g_return_val_if_fail (length > 0, g_strdup (""));
 
 	result = g_malloc (length * 3);
-	_bin2str (addr, length, ':', TRUE, result);
+	_nm_utils_bin2str_full (addr, length, ':', TRUE, result);
 	return result;
 }
 
@@ -3779,7 +3776,7 @@ nm_utils_hwaddr_ntoa_buf (gconstpointer addr, gsize addr_len, gboolean upper_cas
 	if (buf_len < addr_len * 3)
 		g_return_val_if_reached (NULL);
 
-	_bin2str (addr, addr_len, ':', upper_case, buf);
+	_nm_utils_bin2str_full (addr, addr_len, ':', upper_case, buf);
 	return buf;
 }
 
@@ -3802,7 +3799,7 @@ _nm_utils_bin2str (gconstpointer addr, gsize length, gboolean upper_case)
 	g_return_val_if_fail (length > 0, g_strdup (""));
 
 	result = g_malloc (length * 3);
-	_bin2str (addr, length, ':', upper_case, result);
+	_nm_utils_bin2str_full (addr, length, ':', upper_case, result);
 	return result;
 }
 
@@ -3830,9 +3827,11 @@ nm_utils_hwaddr_valid (const char *asc, gssize length)
 		if (!hwaddr_aton (asc, buf, length, &l))
 			return FALSE;
 		return length == l;
-	} else if (length == -1) {
+	} else if (length == -1)
 		return !!hwaddr_aton (asc, buf, sizeof (buf), &l);
-	} else
+	else if (length == 0)
+		return FALSE;
+	else
 		g_return_val_if_reached (FALSE);
 }
 
@@ -3894,9 +3893,9 @@ _nm_utils_hwaddr_canonical_or_invalid (const char *mac, gssize length)
 
 /**
  * nm_utils_hwaddr_matches:
- * @hwaddr1: pointer to a binary or ASCII hardware address, or %NULL
+ * @hwaddr1: (nullable): pointer to a binary or ASCII hardware address, or %NULL
  * @hwaddr1_len: size of @hwaddr1, or -1 if @hwaddr1 is ASCII
- * @hwaddr2: pointer to a binary or ASCII hardware address, or %NULL
+ * @hwaddr2: (nullable): pointer to a binary or ASCII hardware address, or %NULL
  * @hwaddr2_len: size of @hwaddr2, or -1 if @hwaddr2 is ASCII
  *
  * Generalized hardware address comparison function. Tests if @hwaddr1 and
@@ -4321,7 +4320,7 @@ nm_utils_inet_ntop (int addr_family, gconstpointer addr, char *dst)
 
 	s = inet_ntop (addr_family,
 	               addr,
-	               dst ? dst : _nm_utils_inet_ntop_buffer,
+	               dst ?: _nm_utils_inet_ntop_buffer,
 	               addr_family == AF_INET6 ? INET6_ADDRSTRLEN : INET_ADDRSTRLEN);
 	nm_assert (s);
 	return s;
@@ -4335,7 +4334,7 @@ nm_utils_inet_ntop (int addr_family, gconstpointer addr, char *dst)
  *  characters. If set to %NULL, it will return a pointer to an internal, static
  *  buffer (shared with nm_utils_inet6_ntop()).  Beware, that the internal
  *  buffer will be overwritten with ever new call of nm_utils_inet4_ntop() or
- *  nm_utils_inet6_ntop() that does not provied it's own @dst buffer. Also,
+ *  nm_utils_inet6_ntop() that does not provide its own @dst buffer. Also,
  *  using the internal buffer is not thread safe. When in doubt, pass your own
  *  @dst buffer to avoid these issues.
  *
@@ -4347,7 +4346,7 @@ nm_utils_inet_ntop (int addr_family, gconstpointer addr, char *dst)
 const char *
 nm_utils_inet4_ntop (in_addr_t inaddr, char *dst)
 {
-	return inet_ntop (AF_INET, &inaddr, dst ? dst : _nm_utils_inet_ntop_buffer,
+	return inet_ntop (AF_INET, &inaddr, dst ?: _nm_utils_inet_ntop_buffer,
 	                  INET_ADDRSTRLEN);
 }
 
@@ -4359,7 +4358,7 @@ nm_utils_inet4_ntop (in_addr_t inaddr, char *dst)
  *  characters. If set to %NULL, it will return a pointer to an internal, static
  *  buffer (shared with nm_utils_inet4_ntop()).  Beware, that the internal
  *  buffer will be overwritten with ever new call of nm_utils_inet4_ntop() or
- *  nm_utils_inet6_ntop() that does not provied it's own @dst buffer. Also,
+ *  nm_utils_inet6_ntop() that does not provide its own @dst buffer. Also,
  *  using the internal buffer is not thread safe. When in doubt, pass your own
  *  @dst buffer to avoid these issues.
  *
@@ -4373,7 +4372,7 @@ const char *
 nm_utils_inet6_ntop (const struct in6_addr *in6addr, char *dst)
 {
 	g_return_val_if_fail (in6addr, NULL);
-	return inet_ntop (AF_INET6, in6addr, dst ? dst : _nm_utils_inet_ntop_buffer,
+	return inet_ntop (AF_INET6, in6addr, dst ?: _nm_utils_inet_ntop_buffer,
 	                  INET6_ADDRSTRLEN);
 }
 
@@ -4433,6 +4432,47 @@ _nm_utils_inet6_is_token (const struct in6_addr *in6addr)
 	    || in6addr->s6_addr[14]
 	    || in6addr->s6_addr[15])
 		return TRUE;
+
+	return FALSE;
+}
+
+/**
+ * _nm_utils_dhcp_duid_valid:
+ * @duid: the candidate DUID
+ *
+ * Checks if @duid string contains either a special duid value ("ll",
+ * "llt", "lease" or the "stable" variants) or a valid hex DUID.
+ *
+ * Return value: %TRUE or %FALSE
+ */
+gboolean
+_nm_utils_dhcp_duid_valid (const char *duid, GBytes **out_duid_bin)
+{
+	guint8 duid_arr[128 + 2];
+	gsize duid_len;
+
+	NM_SET_OUT (out_duid_bin, NULL);
+
+	if (!duid)
+		return FALSE;
+
+	if (NM_IN_STRSET (duid, "lease",
+	                        "llt",
+	                        "ll",
+	                        "stable-llt",
+	                        "stable-ll",
+	                        "stable-uuid")) {
+		return TRUE;
+	}
+
+	if (_str2bin (duid, FALSE, ":", duid_arr, sizeof (duid_arr), &duid_len)) {
+		/* MAX DUID length is 128 octects + the type code (2 octects). */
+		if (   duid_len > 2
+		    && duid_len <= (128 + 2)) {
+			NM_SET_OUT (out_duid_bin, g_bytes_new (duid_arr, duid_len));
+			return TRUE;
+		}
+	}
 
 	return FALSE;
 }
@@ -4805,7 +4845,7 @@ gssize _nm_utils_dns_option_find_idx (GPtrArray *array, const char *option)
 char *
 nm_utils_enum_to_str (GType type, int value)
 {
-	return _nm_utils_enum_to_str_full (type, value, ", ");
+	return _nm_utils_enum_to_str_full (type, value, ", ", NULL);
 }
 
 /**
@@ -5017,7 +5057,6 @@ _json_team_add_defaults (json_t *json,
 		runner = NM_SETTING_TEAM_RUNNER_DEFAULT;
 		json_object_set_new (json_element, "name", json_string (runner));
 	}
-
 
 	if (nm_streq (runner, NM_SETTING_TEAM_RUNNER_ACTIVEBACKUP)) {
 		_json_add_object (json, "notify_peers", "count", NULL,
@@ -5305,7 +5344,6 @@ fail:
 	return NULL;
 }
 
-
 /**
  * nm_utils_is_json_object:
  * @str: the JSON string to test
@@ -5420,7 +5458,6 @@ out:
 
 	return ret;
 }
-
 
 GValue *
 _nm_utils_team_config_get (const char *conf,
@@ -5952,7 +5989,8 @@ attribute_unescape (const char *start, const char *end)
  *
  * Parse attributes from a string.
  *
- * Returns: (transfer full): a #GHashTable mapping attribute names to #GVariant values.
+ * Returns: (transfer full) (element-type utf8 GVariant): a #GHashTable mapping
+ * attribute names to #GVariant values.
  *
  * Since: 1.8
  */
@@ -6111,7 +6149,7 @@ next:
 
 /*
  * nm_utils_format_variant_attributes:
- * @attributes:  a #GHashTable mapping attribute names to #GVariant values
+ * @attributes: (element-type utf8 GVariant): a #GHashTable mapping attribute names to #GVariant values
  * @attr_separator: the attribute separator character
  * @key_value_separator: character separating key and values
  *
@@ -6181,6 +6219,40 @@ nm_utils_format_variant_attributes (GHashTable *attributes,
 	}
 
 	return g_string_free (str, FALSE);
+}
+
+/*****************************************************************************/
+
+/*
+ * nm_utils_get_timestamp_msec():
+ *
+ * Gets current time in milliseconds of CLOCK_BOOTTIME.
+ *
+ * Returns: time in milliseconds
+ *
+ * Since: 1.12
+ */
+gint64
+nm_utils_get_timestamp_msec (void)
+{
+	struct timespec ts;
+
+	if (clock_gettime (CLOCK_BOOTTIME, &ts) != -1)
+		goto success;
+
+	if (errno == EINVAL) {
+		/* The fallback to CLOCK_MONOTONIC is taken only if we're running on a
+		 * criminally old kernel, prior to 2.6.39 (released on 18 May, 2011).
+		 * That happens during buildcheck on old builders, we don't expect to
+		 * be actually runs on kernels that old. */
+		if (clock_gettime (CLOCK_MONOTONIC, &ts) != -1)
+			goto success;
+	}
+
+	g_return_val_if_reached (-1);
+
+success:
+	return (((gint64) ts.tv_sec) * 1000) + (ts.tv_nsec / 1000000);
 }
 
 /*****************************************************************************/

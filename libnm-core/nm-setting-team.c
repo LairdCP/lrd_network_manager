@@ -1304,7 +1304,6 @@ finalize (GObject *object)
 	G_OBJECT_CLASS (nm_setting_team_parent_class)->finalize (object);
 }
 
-
 #define JSON_TO_VAL(typ, id)   _nm_utils_json_extract_##typ (priv->config, _prop_to_keys[id], FALSE)
 
 static void
@@ -1656,7 +1655,7 @@ nm_setting_team_class_init (NMSettingTeamClass *setting_class)
 	 *
 	 * Corresponds to the teamd runner.name.
 	 * Permitted values are: "roundrobin", "broadcast", "activebackup",
-	 * "loadbalance", "lacp".
+	 * "loadbalance", "lacp", "random".
 	 * When setting the runner, all the properties specific to the runner
 	 * will be reset to the default value; all the properties specific to
 	 * other runners will be set to an empty value (or if not possible to
@@ -1799,7 +1798,7 @@ nm_setting_team_class_init (NMSettingTeamClass *setting_class)
 		                      G_PARAM_STATIC_STRINGS));
 
 	/**
-	 * NMSettingTeam:link-watchers:
+	 * NMSettingTeam:link-watchers: (type GPtrArray(NMTeamLinkWatcher))
 	 *
 	 * Link watchers configuration for the connection: each link watcher is
 	 * defined by a dictionary, whose keys depend upon the selected link
@@ -1810,7 +1809,6 @@ nm_setting_team_class_init (NMSettingTeamClass *setting_class)
 	 * arp_ping: all the ones in nsna_ping and 'source-host', 'validate-active',
 	 * 'validate-incative', 'send-always'. See teamd.conf man for more details.
 	 *
-	 * Element-Type: NMTeamLinkWatcher
 	 * Since: 1.12
 	 **/
 	g_object_class_install_property

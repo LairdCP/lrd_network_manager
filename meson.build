@@ -4,7 +4,7 @@ project(
 #  - add corresponding NM_VERSION_x_y_z macros in
 #    "shared/nm-version-macros.h.in"
 #  - update number in configure.ac
-  version: '1.11.2',
+  version: '1.12.0',
   license: 'GPL2+',
   default_options: [
     'buildtype=debugoptimized',
@@ -25,6 +25,12 @@ nm_id_prefix = 'NM'
 
 nm_gir_version = '1.0'
 
+# Distribution version string
+dist_version = get_option('dist_version')
+if dist_version == ''
+  dist_version = nm_version
+endif
+
 nm_prefix = get_option('prefix')
 nm_bindir = join_paths(nm_prefix, get_option('bindir'))
 nm_datadir = join_paths(nm_prefix, get_option('datadir'))
@@ -42,9 +48,16 @@ nm_pkgsbindir = join_paths(nm_sbindir, nm_name)
 nm_pkgconfdir = join_paths(nm_sysconfdir, nm_name)
 nm_pkgdatadir = join_paths(nm_datadir, nm_name)
 nm_pkgincludedir = join_paths(nm_includedir, nm_name)
-nm_pkglibdir = join_paths(nm_libdir, nm_name)
+nm_pkglibdir = join_paths(nm_prefix, 'lib', nm_name)
 nm_pkgrundir = join_paths(nm_runstatedir, nm_name)
 nm_pkgstatedir = join_paths(nm_localstatedir, nm_name)
+nm_vpndir = join_paths(nm_libdir, nm_name)
+nm_plugindir = join_paths(nm_libdir, nm_name, dist_version)
+
+nm_build_cflags = [
+  '-DNM_BUILD_SRCDIR="@0@"'.format(meson.source_root()),
+  '-DNM_BUILD_BUILDDIR="@0@"'.format(meson.build_root()),
+]
 
 libnm_name = 'libnm'
 
@@ -97,22 +110,23 @@ endforeach
 # headers
 config_h.set10('HAVE_SYS_AUXV_H', cc.has_header('sys/auxv.h'))
 
-use_sys_random = cc.has_function('getrandom', prefix: '#include<sys/random.h>')
+use_sys_random = cc.has_function('getrandom', prefix: '#include <sys/random.h>')
 config_h.set10('USE_SYS_RANDOM_H', use_sys_random)
-config_h.set10('HAVE_GETRANDOM', use_sys_random or cc.has_function('getrandom', prefix: '#include<linux/random.h>'))
+config_h.set10('HAVE_GETRANDOM', use_sys_random or cc.has_function('getrandom', prefix: '#include <linux/random.h>'))
 
 # functions
 # FIXME secure_getenv check is not useful?
 config_h.set('HAVE_SECURE_GETENV', cc.has_function('secure_getenv'))
 config_h.set('HAVE___SECURE_GETENV', cc.has_function('__secure_getenv'))
-config_h.set10('HAVE_DECL_EXPLICIT_BZERO', cc.has_function('explicit_bzero', prefix: '#include<string.h>'))
+config_h.set10('HAVE_DECL_REALLOCARRAY', cc.has_function('reallocarray', prefix: '#include <malloc.h>'))
+config_h.set10('HAVE_DECL_EXPLICIT_BZERO', cc.has_function('explicit_bzero', prefix: '#include <string.h>'))
 
 # types
-config_h.set('SIZEOF_DEV_T', cc.sizeof('dev_t', prefix: '#include<sys/types.h>'))
-config_h.set('SIZEOF_TIME_T', cc.sizeof('time_t', prefix: '#include<sys/types.h>'))
-config_h.set('SIZEOF_PID_T', cc.sizeof('pid_t', prefix: '#include<sys/types.h>'))
+config_h.set('SIZEOF_DEV_T', cc.sizeof('dev_t', prefix: '#include <sys/types.h>'))
+config_h.set('SIZEOF_TIME_T', cc.sizeof('time_t', prefix: '#include <sys/types.h>'))
+config_h.set('SIZEOF_PID_T', cc.sizeof('pid_t', prefix: '#include <sys/types.h>'))
 
-if not cc.has_type('pid_t', prefix: '#include<sys/types.h>')
+if not cc.has_type('pid_t', prefix: '#include <sys/types.h>')
   config_h.set('pid_t', 'int')
 endif
 
@@ -208,8 +222,6 @@ have_systemd_200 = systemd_dep.found() and systemd_dep.version().version_compare
 
 gio_unix_dep = dependency('gio-unix-2.0', version: '>= 2.40')
 
-log_driver = join_paths(meson.source_root(), 'build-aux', (gio_unix_dep.version().version_compare('>= 2.37.6') ? 'tap-driver.sh' : 'test-driver'))
-
 glib_dep = declare_dependency(
   dependencies: [
     gio_unix_dep,
@@ -259,11 +271,7 @@ if config_plugins_default == ''
 endif
 config_h.set_quoted('NM_CONFIG_DEFAULT_MAIN_PLUGINS', config_plugins_default)
 
-# Distribution version string
-dist_version = get_option('dist_version')
-if dist_version != ''
-  config_h.set('NM_DIST_VERSION', dist_version)
-endif
+config_h.set_quoted('NM_DIST_VERSION', dist_version)
 
 enable_wifi = get_option('wifi')
 config_h.set10('WITH_WIFI', enable_wifi)
@@ -449,7 +457,6 @@ endif
 
 config_default_main_auth_polkit = (polkit == 'yes').to_string()
 config_h.set_quoted('NM_CONFIG_DEFAULT_MAIN_AUTH_POLKIT', config_default_main_auth_polkit)
-config_h.set10('WITH_POLKIT', enable_polkit)
 
 enable_modify_system = get_option('modify_system')
 
@@ -723,6 +730,7 @@ endif
 tests = get_option('tests')
 enable_tests = (tests != 'no')
 require_root_tests = (tests == 'root')
+test_script = find_program(join_paths(meson.source_root(), 'tools', 'run-nm-test.sh'))
 
 # valgrind
 locations = get_option('valgrind')
@@ -739,8 +747,14 @@ if enable_valgrind
   endif
 endif
 
-# FIXME
-#AC_SUBST(NM_LOG_COMPILER, 'LOG_COMPILER = "$(top_srcdir)/tools/run-nm-test.sh" --called-from-make "$(LIBTOOL)" "$(with_valgrind)" "'"$with_valgrind_suppressions"'" --launch-dbus=auto')
+test_args = [
+  '--called-from-make',
+  meson.build_root(),
+  '',
+  enable_valgrind ? valgrind.path() : '',
+  enable_valgrind ? valgrind_suppressions_path : '',
+  '--launch-dbus=auto'
+]
 
 py3 = import('python3')
 python = py3.find_python()
@@ -879,6 +893,8 @@ output += '  nmlibdir: ' + nm_pkglibdir + '\n'
 output += '  nmdatadir: ' + nm_pkgdatadir + '\n'
 output += '  nmstatedir: ' + nm_pkgstatedir + '\n'
 output += '  nmrundir: ' + nm_pkgrundir + '\n'
+output += '  nmvpndir: ' + nm_vpndir + '\n'
+output += '  nmplugindir: ' + nm_plugindir + '\n'
 output += '\nPlatform:\n'
 output += '  session tracking: ' + ','.join(session_trackers) + '\n'
 output += '  suspend/resume: ' + suspend_resume + '\n'
