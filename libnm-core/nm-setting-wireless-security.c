@@ -88,6 +88,9 @@ typedef struct {
 	/* WPS */
 	NMSettingWirelessSecurityWpsMethod wps_method;
 
+	/* FILS */
+	NMSettingWirelessSecurityFils fils;
+
 	char *proactive_key_caching;
 } NMSettingWirelessSecurityPrivate;
 
@@ -112,6 +115,7 @@ enum {
 	PROP_LEAP_PASSWORD,
 	PROP_LEAP_PASSWORD_FLAGS,
 	PROP_WPS_METHOD,
+	PROP_FILS,
 	PROP_PROACTIVE_KEY_CACHING,
 
 	LAST_PROP
@@ -817,6 +821,22 @@ nm_setting_wireless_security_get_wps_method (NMSettingWirelessSecurity *setting)
 	return NM_SETTING_WIRELESS_SECURITY_GET_PRIVATE (setting)->wps_method;
 }
 
+/*
+ * nm_setting_wireless_security_get_fils:
+ * @setting: the #NMSettingWirelessSecurity
+ *
+ * Returns: the #NMSettingWirelessSecurity:fils property of the setting
+ *
+ * Since: 1.12
+ **/
+NMSettingWirelessSecurityFils
+nm_setting_wireless_security_get_fils (NMSettingWirelessSecurity *setting)
+{
+	g_return_val_if_fail (NM_IS_SETTING_WIRELESS_SECURITY (setting), 0);
+
+	return NM_SETTING_WIRELESS_SECURITY_GET_PRIVATE (setting)->fils;
+}
+
 /**
  * nm_setting_wireless_security_get_proactive_key_caching:
  * @setting: the #NMSettingWirelessSecurity
@@ -1346,6 +1366,9 @@ set_property (GObject *object, guint prop_id,
 	case PROP_WPS_METHOD:
 		priv->wps_method = g_value_get_uint (value);
 		break;
+	case PROP_FILS:
+		priv->fils = g_value_get_int (value);
+		break;
 	case PROP_PROACTIVE_KEY_CACHING:
 		g_free (priv->proactive_key_caching);
 		str = g_value_get_string (value);
@@ -1421,6 +1444,9 @@ get_property (GObject *object, guint prop_id,
 		break;
 	case PROP_WPS_METHOD:
 		g_value_set_uint (value, priv->wps_method);
+		break;
+	case PROP_FILS:
+		g_value_set_int (value, nm_setting_wireless_security_get_fils (setting));
 		break;
 	case PROP_PROACTIVE_KEY_CACHING:
 		g_value_set_string (value, priv->proactive_key_caching);
@@ -1893,6 +1919,38 @@ nm_setting_wireless_security_class_init (NMSettingWirelessSecurityClass *setting
 		                    G_PARAM_CONSTRUCT |
 		                    NM_SETTING_PARAM_FUZZY_IGNORE |
 		                    G_PARAM_STATIC_STRINGS));
+
+	/**
+	 * NMSettingWirelessSecurity:fils:
+	 *
+	 * Indicates whether Fast Initial Link Setup (802.11ai) must be enabled for
+	 * the connection.  One of %NM_SETTING_WIRELESS_SECURITY_FILS_DEFAULT (use
+	 * global default value), %NM_SETTING_WIRELESS_SECURITY_FILS_DISABLE
+	 * (disable FILS), %NM_SETTING_WIRELESS_SECURITY_FILS_OPTIONAL (enable FILS
+	 * if the supplicant and the access point support it) or
+	 * %NM_SETTING_WIRELESS_SECURITY_FILS_REQUIRED (enable FILS and fail if not
+	 * supported).  When set to %NM_SETTING_WIRELESS_SECURITY_FILS_DEFAULT and
+	 * no global default is set, FILS will be optionally enabled.
+	 *
+	 * Since: 1.12
+	 **/
+	/* ---ifcfg-rh---
+	 * property: fils
+	 * variable: FILS(+)
+	 * values: default, disable, optional, required
+	 * description: Enables or disables FILS (802.11ai)
+	 * example: FILS=required
+	 * ---end---
+	 */
+	g_object_class_install_property
+		(object_class, PROP_FILS,
+		 g_param_spec_int (NM_SETTING_WIRELESS_SECURITY_FILS, "", "",
+		                   G_MININT32, G_MAXINT32, 0,
+		                   G_PARAM_READWRITE |
+		                   G_PARAM_CONSTRUCT |
+		                   NM_SETTING_PARAM_FUZZY_IGNORE |
+		                   G_PARAM_STATIC_STRINGS));
+
 
 	/**
 	 * NMSettingWirelessSecurity:proactive-key-caching:

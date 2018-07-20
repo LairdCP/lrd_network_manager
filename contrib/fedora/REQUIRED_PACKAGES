@@ -23,6 +23,7 @@ yum install \
     dhclient \
     gettext-devel \
     git \
+    gnutls-devel \
     gobject-introspection-devel \
     gtk-doc \
     intltool \
@@ -30,7 +31,6 @@ yum install \
     jansson-devel \
     libcurl-devel \
     libndp-devel \
-    libnl3-devel \
     libpsl-devel \
     libselinux-devel \
     libtool \

@@ -122,7 +122,6 @@ enum {
 
 static GSList *active_plugins = NULL;
 
-
 GQuark
 nm_vpn_plugin_error_quark (void)
 {
@@ -133,7 +132,6 @@ nm_vpn_plugin_error_quark (void)
 
 	return quark;
 }
-
 
 static void
 nm_vpn_plugin_set_connection (NMVPNPlugin *plugin,
@@ -687,9 +685,17 @@ impl_vpn_plugin_set_failure (NMVPNPlugin *plugin,
 /*****************************************************************************/
 
 static void
+_emit_quit (gpointer data, gpointer user_data)
+{
+	NMVPNPlugin *plugin = data;
+
+	nm_vpn_plugin_emit_quit (plugin);
+}
+
+static void
 sigterm_handler (int signum)
 {
-	g_slist_foreach (active_plugins, (GFunc) nm_vpn_plugin_emit_quit, NULL);
+	g_slist_foreach (active_plugins, _emit_quit, NULL);
 }
 
 static void

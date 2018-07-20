@@ -36,7 +36,6 @@ struct Opt {
 	const char **    str_allowed;
 };
 
-
 static gboolean validate_type_int     (const struct Opt * opt,
                                        const char * value,
                                        const guint32 len);
@@ -67,13 +66,13 @@ static const struct validate_entry validate_table[] = {
 	{ TYPE_KEYWORD, validate_type_keyword },
 };
 
-
 const char * pairwise_allowed[] = { "CCMP", "TKIP", "NONE", NULL };
 const char * group_allowed[] =    { "CCMP", "TKIP", "WEP104", "WEP40", NULL };
 const char * proto_allowed[] =    { "WPA", "RSN", NULL };
 const char * key_mgmt_allowed[] = { "WPA-PSK", "WPA-PSK-SHA256",
                                     "WPA-EAP", "WPA-EAP-SHA256",
                                     "CCKM",
+                                    "FILS-SHA256", "FILS-SHA384",
                                     "IEEE8021X", "WPA-NONE",
                                     "NONE", NULL };
 const char * auth_alg_allowed[] = { "OPEN", "SHARED", "LEAP", NULL };
@@ -164,7 +163,6 @@ static const struct Opt opt_table[] = {
 	{ "pac_file_password",  TYPE_BYTES,   0, 1024, FALSE,  NULL },
 };
 
-
 static gboolean
 validate_type_int (const struct Opt * opt,
                    const char * value,
@@ -199,7 +197,7 @@ validate_type_bytes (const struct Opt * opt,
 	g_return_val_if_fail (opt != NULL, FALSE);
 	g_return_val_if_fail (value != NULL, FALSE);
 
-	check_len = opt->int_high ? opt->int_high : 255;
+	check_len = opt->int_high ?: 255;
 	if (len > check_len)
 		return FALSE;
 
@@ -216,7 +214,7 @@ validate_type_utf8 (const struct Opt *opt,
 	g_return_val_if_fail (opt != NULL, FALSE);
 	g_return_val_if_fail (value != NULL, FALSE);
 
-	check_len = opt->int_high ? opt->int_high : 255;
+	check_len = opt->int_high ?: 255;
 	/* Note that we deliberately don't validate the UTF-8, because
 	   some "UTF-8" fields, such as 8021x.password, do not actually
 	   have to be valid UTF-8 */
@@ -231,10 +229,10 @@ validate_type_keyword (const struct Opt * opt,
                        const char * value,
                        const guint32 len)
 {
-	char **		allowed;
-	gchar **	candidates = NULL;
-	char **		candidate;
-	gboolean	found = FALSE;
+	char **allowed;
+	gchar **candidates = NULL;
+	char **candidate;
+	gboolean found = FALSE;
 
 	g_return_val_if_fail (opt != NULL, FALSE);
 	g_return_val_if_fail (value != NULL, FALSE);

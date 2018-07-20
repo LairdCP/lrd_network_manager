@@ -48,6 +48,8 @@ typedef struct {
 	guint32    ccx;
 	gboolean   fast_required;
 	gboolean   dispose_has_run;
+	gboolean   support_pmf;
+	gboolean   support_fils;
 
 	guint32    scan_delay;
 	guint32    scan_dwell;
@@ -75,9 +77,18 @@ G_DEFINE_TYPE (NMSupplicantConfig, nm_supplicant_config, G_TYPE_OBJECT)
 /*****************************************************************************/
 
 NMSupplicantConfig *
-nm_supplicant_config_new (void)
+nm_supplicant_config_new (gboolean support_pmf, gboolean support_fils)
 {
-	return g_object_new (NM_TYPE_SUPPLICANT_CONFIG, NULL);
+	NMSupplicantConfigPrivate *priv;
+	NMSupplicantConfig *self;
+
+	self = g_object_new (NM_TYPE_SUPPLICANT_CONFIG, NULL);
+	priv = NM_SUPPLICANT_CONFIG_GET_PRIVATE (self);
+
+	priv->support_pmf = support_pmf;
+	priv->support_fils = support_fils;
+
+	return self;
 }
 
 static void
@@ -143,7 +154,7 @@ nm_supplicant_config_add_option_with_type (NMSupplicantConfig *self,
 			memset (&buf[0], 0, sizeof (buf));
 			memcpy (&buf[0], value, len > 254 ? 254 : len);
 			g_set_error (error, NM_SUPPLICANT_ERROR, NM_SUPPLICANT_ERROR_CONFIG,
-			             "key '%s' and/or value '%s' invalid", key, hidden ? hidden : buf);
+			             "key '%s' and/or value '%s' invalid", key, hidden ?: buf);
 			return FALSE;
 		}
 	}
@@ -167,7 +178,7 @@ nm_supplicant_config_add_option_with_type (NMSupplicantConfig *self,
 		char buf[255];
 		memset (&buf[0], 0, sizeof (buf));
 		memcpy (&buf[0], opt->value, opt->len > 254 ? 254 : opt->len);
-		nm_log_info (LOGD_SUPPLICANT, "Config: added '%s' value '%s'", key, hidden ? hidden : &buf[0]);
+		nm_log_info (LOGD_SUPPLICANT, "Config: added '%s' value '%s'", key, hidden ?: &buf[0]);
 	}
 
 	g_hash_table_insert (priv->config, g_strdup (key), opt);
@@ -273,7 +284,6 @@ nm_supplicant_config_finalize (GObject *object)
 
 	G_OBJECT_CLASS (nm_supplicant_config_parent_class)->finalize (object);
 }
-
 
 static void
 nm_supplicant_config_class_init (NMSupplicantConfigClass *klass)
@@ -444,7 +454,6 @@ nm_supplicant_config_add_setting_macsec (NMSupplicantConfig * self,
                                          NMSettingMacsec * setting,
                                          GError **error)
 {
-	NMSupplicantConfigPrivate *priv;
 	gs_unref_bytes GBytes *bytes = NULL;
 	const char *value;
 	char buf[32];
@@ -453,8 +462,6 @@ nm_supplicant_config_add_setting_macsec (NMSupplicantConfig * self,
 	g_return_val_if_fail (NM_IS_SUPPLICANT_CONFIG (self), FALSE);
 	g_return_val_if_fail (setting != NULL, FALSE);
 	g_return_val_if_fail (!error || !*error, FALSE);
-
-	priv = NM_SUPPLICANT_CONFIG_GET_PRIVATE (self);
 
 	if (!nm_supplicant_config_add_option (self, "macsec_policy", "1", -1, NULL, error))
 		return FALSE;
@@ -888,9 +895,10 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
                                                     const char *con_uuid,
                                                     guint32 mtu,
                                                     NMSettingWirelessSecurityPmf pmf,
+                                                    NMSettingWirelessSecurityFils fils,
                                                     GError **error)
 {
-	NMSupplicantConfigPrivate *priv;
+	NMSupplicantConfigPrivate *priv = NM_SUPPLICANT_CONFIG_GET_PRIVATE (self);
 	const char *key_mgmt, *key_mgmt_conf, *auth_alg;
 	const char *psk;
 
@@ -899,20 +907,37 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
 	g_return_val_if_fail (con_uuid != NULL, FALSE);
 	g_return_val_if_fail (!error || !*error, FALSE);
 
-	priv = NM_SUPPLICANT_CONFIG_GET_PRIVATE (self);
+	/* Check if we actually support FILS */
+	if (!priv->support_fils) {
+		if (fils == NM_SETTING_WIRELESS_SECURITY_FILS_REQUIRED) {
+			g_set_error_literal (error, NM_SUPPLICANT_ERROR, NM_SUPPLICANT_ERROR_CONFIG,
+			                     "Supplicant does not support FILS");
+			return FALSE;
+		} else if (fils == NM_SETTING_WIRELESS_SECURITY_FILS_OPTIONAL)
+			fils = NM_SETTING_WIRELESS_SECURITY_FILS_DISABLE;
+	}
 
 	key_mgmt = key_mgmt_conf = nm_setting_wireless_security_get_key_mgmt (setting);
-	if (pmf == NM_SETTING_WIRELESS_SECURITY_PMF_OPTIONAL) {
-		if (nm_streq (key_mgmt_conf, "wpa-psk"))
+	if (nm_streq (key_mgmt, "wpa-psk")) {
+		if (priv->support_pmf)
 			key_mgmt_conf = "wpa-psk wpa-psk-sha256";
-		else if (nm_streq (key_mgmt_conf, "wpa-eap"))
-			key_mgmt_conf = "wpa-eap wpa-eap-sha256";
-	} else if (pmf == NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED) {
-		if (nm_streq (key_mgmt_conf, "wpa-psk"))
-			key_mgmt_conf = "wpa-psk-sha256";
-		else if (nm_streq (key_mgmt_conf, "wpa-eap"))
-			key_mgmt_conf = "wpa-eap-sha256";
+	} else if (nm_streq (key_mgmt, "wpa-eap")) {
+		switch (fils) {
+		case NM_SETTING_WIRELESS_SECURITY_FILS_OPTIONAL:
+			key_mgmt_conf = priv->support_pmf
+				? "wpa-eap wpa-eap-sha256 fils-sha256 fils-sha384"
+				: "wpa-eap fils-sha256 fils-sha384";
+			break;
+		case NM_SETTING_WIRELESS_SECURITY_FILS_REQUIRED:
+			key_mgmt_conf = "fils-sha256 fils-sha384";
+			break;
+		default:
+			if (priv->support_pmf)
+				key_mgmt_conf = "wpa-eap wpa-eap-sha256";
+			break;
+		}
 	}
+
 	if (!add_string_val (self, key_mgmt_conf, "key_mgmt", TRUE, NULL, error))
 		return FALSE;
 
@@ -956,6 +981,20 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
 			             (guint) psk_len);
 			return FALSE;
 		}
+	}
+
+	/* Don't try to enable PMF on non-WPA networks */
+	if (!NM_IN_STRSET (key_mgmt, "wpa-eap", "wpa-psk"))
+		pmf = NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE;
+
+	/* Check if we actually support PMF */
+	if (!priv->support_pmf) {
+		if (pmf == NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED) {
+			g_set_error_literal (error, NM_SUPPLICANT_ERROR, NM_SUPPLICANT_ERROR_CONFIG,
+			                     "Supplicant does not support PMF");
+			return FALSE;
+		} else if (pmf == NM_SETTING_WIRELESS_SECURITY_PMF_OPTIONAL)
+			pmf = NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE;
 	}
 
 	/* Only WPA-specific things when using WPA */
@@ -1096,7 +1135,7 @@ add_pkcs11_uri_with_pin (NMSupplicantConfig *self,
 
 	tmp = g_strdup_printf ("%s%s%s", split[0],
 	                       (pin_qattr ? "?" : ""),
-	                       (pin_qattr ? pin_qattr : ""));
+	                       (pin_qattr ?: ""));
 
 	tmp_log = g_strdup_printf ("%s%s%s", split[0],
 	                           (pin_qattr ? "?" : ""),
@@ -1308,7 +1347,7 @@ nm_supplicant_config_add_setting_8021x (NMSupplicantConfig *self,
 
 	/* CA path */
 	path = nm_setting_802_1x_get_ca_path (setting);
-	path = ca_path_override ? ca_path_override : path;
+	path = ca_path_override ?: path;
 	if (path) {
 		if (!add_string_val (self, path, "ca_path", FALSE, NULL, error))
 			return FALSE;
@@ -1316,7 +1355,7 @@ nm_supplicant_config_add_setting_8021x (NMSupplicantConfig *self,
 
 	/* Phase2 CA path */
 	path = nm_setting_802_1x_get_phase2_ca_path (setting);
-	path = ca_path_override ? ca_path_override : path;
+	path = ca_path_override ?: path;
 	if (path) {
 		if (!add_string_val (self, path, "ca_path2", FALSE, NULL, error))
 			return FALSE;

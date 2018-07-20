@@ -27,6 +27,8 @@
 	N_("A string listing the allowed frequencies.")
 #define DESCRIBE_DOC_NM_SETTING_WIRELESS_FREQUENCY_DFS \
 	N_("Used to enable/disable DFS/Radar channels.")
+#define DESCRIBE_DOC_NM_SETTING_WIRELESS_MAX_SCAN_INTERVAL \
+	N_("Maximum scan interval while disconnected.")
 
 #define DESCRIBE_DOC_NM_SETTING_WIRELESS_SECURITY_PROACTIVE_KEY_CACHING \
 	N_("Selects PMK caching method (OPMK/OKC versus SPMK/SKC).")

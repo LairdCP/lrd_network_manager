@@ -97,7 +97,7 @@ nm_dedup_multi_obj_ref (const NMDedupMultiObj *obj)
 	return obj;
 }
 
-const NMDedupMultiObj *nm_dedup_multi_obj_unref       (const NMDedupMultiObj *obj);
+void                   nm_dedup_multi_obj_unref       (const NMDedupMultiObj *obj);
 const NMDedupMultiObj *nm_dedup_multi_obj_clone       (const NMDedupMultiObj *obj);
 gboolean               nm_dedup_multi_obj_needs_clone (const NMDedupMultiObj *obj);
 
@@ -115,7 +115,7 @@ void nm_dedup_multi_index_obj_release (NMDedupMultiIndex *self,
 /* the NMDedupMultiIdxType is an access handle under which you can store and
  * retrieve NMDedupMultiObj instances in NMDedupMultiIndex.
  *
- * The NMDedupMultiIdxTypeClass determines it's behavior, but you can have
+ * The NMDedupMultiIdxTypeClass determines its behavior, but you can have
  * multiple instances (of the same class).
  *
  * For example, NMIP4Config can have idx-type to put there all IPv4 Routes.
