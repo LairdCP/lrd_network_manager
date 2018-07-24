@@ -42,7 +42,6 @@
 #define NM_VPN_CONNECTION_BANNER "banner"
 
 /* Signals */
-/* not exported: includes old reason code */
 #define NM_VPN_CONNECTION_INTERNAL_STATE_CHANGED       "internal-state-changed"
 #define NM_VPN_CONNECTION_INTERNAL_RETRY_AFTER_FAILURE "internal-retry-after-failure"
 
@@ -53,6 +52,7 @@ GType nm_vpn_connection_get_type (void);
 NMVpnConnection * nm_vpn_connection_new (NMSettingsConnection *settings_connection,
                                          NMDevice *parent_device,
                                          const char *specific_object,
+                                         NMActivationReason activation_reason,
                                          NMAuthSubject *subject);
 
 void                 nm_vpn_connection_activate        (NMVpnConnection *self,

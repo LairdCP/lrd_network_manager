@@ -136,7 +136,6 @@ if [[ $NO_DIST != 1 ]]; then
         --enable-ifcfg-rh \
         --enable-ifupdown \
         --enable-ibft \
-        --enable-ifnet \
         --with-config-logging-backend-default=syslog \
         --with-libaudit=yes-disabled-by-default \
         --enable-polkit=yes \

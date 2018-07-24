@@ -6,13 +6,14 @@
 *.gcno
 *.gcda
 *.la
-*.gir
+*-*.gir
 *.typelib
 **.stamp
 .dirstamp
 *-enum-types.[ch]
 *-glue.h
 *.loT
+*.pyc
 Makefile
 Makefile.in*
 compile
@@ -33,6 +34,8 @@ valgrind-*.log
 test-*.log
 test-*.trs
 /.zanata-cache/
+
+/build/
 
 /NetworkManager-*.tar.*
 
@@ -58,7 +61,7 @@ test-*.trs
 /dispatcher/tests/test-dispatcher-envp
 
 /clients/cli/nmcli
-/clients/common/settings-docs.c
+/clients/common/settings-docs.h
 /clients/tui/newt/libnmt-newt.a
 /clients/tui/nmtui
 /clients/nm-online
@@ -175,6 +178,7 @@ test-*.trs
 /libnm-util/tests/test-setting-8021x
 /libnm-util/tests/test-setting-dcb
 
+/libnm/fake-typelib/typelibs.c
 /libnm/nm-settings-ifcfg-rh-docs.xml
 /libnm/nm-property-docs.xml
 /libnm/nm-settings-docs.xml
@@ -239,7 +243,7 @@ test-*.trs
 
 /src/NetworkManager
 /src/NetworkManager.ver
-/src/devices/tests/test-arping
+/src/devices/tests/test-acd
 /src/devices/tests/test-lldp
 /src/devices/wifi/tests/test-general
 /src/dhcp/nm-dhcp-helper
@@ -253,7 +257,6 @@ test-*.trs
 /src/settings/plugins/ibft/tests/test-ibft
 /src/settings/plugins/ifcfg-rh/nmdbus-ifcfg-rh.[ch]
 /src/settings/plugins/ifcfg-rh/tests/test-ifcfg-rh
-/src/settings/plugins/ifnet/tests/test-ifnet
 /src/settings/plugins/ifupdown/tests/test-ifupdown
 /src/settings/plugins/keyfile/tests/test-keyfile
 /src/settings/plugins/ifcfg-rh/tests/network-scripts/tmp/
@@ -264,7 +267,6 @@ test-*.trs
 /src/tests/test-general-with-expect
 /src/tests/test-ip4-config
 /src/tests/test-ip6-config
-/src/tests/test-resolvconf-capture
 /src/tests/test-route-manager-fake
 /src/tests/test-route-manager-linux
 /src/tests/test-systemd
@@ -297,7 +299,6 @@ test-*.trs
 /src/dnsmasq-manager/tests/test-dnsmasq-utils
 /src/rdisc/
 /src/settings/plugins/ifcfg-rh/tests/test-ifcfg-rh-utils
-/src/settings/plugins/ifnet/tests/check_ifnet
 /src/supplicant-manager/tests/test-supplicant-config
 /introspection/nmdbus-*.c
 /introspection/nmdbus-*.h
@@ -307,6 +308,10 @@ test-*.trs
 /libnm/nm-setting-docs.xml
 /libnm/nm-setting-docs-overrides.xml
 /clients/cli/settings-docs.c
+/clients/common/settings-docs.c
 /libnm-core/tests/test-setting-8021x
 /libnm-core/tests/test-setting-bond
 /libnm-core/tests/test-setting-dcb
+/src/settings/plugins/ifnet
+/src/tests/test-resolvconf-capture
+/src/devices/tests/test-arping

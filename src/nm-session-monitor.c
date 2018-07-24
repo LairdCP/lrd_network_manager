@@ -137,8 +137,11 @@ st_sd_init (NMSessionMonitor *monitor)
 static void
 st_sd_finalize (NMSessionMonitor *monitor)
 {
-	g_clear_pointer (&monitor->sd.monitor, sd_login_monitor_unref);
-	g_source_remove (monitor->sd.watch);
+	if (monitor->sd.monitor) {
+		sd_login_monitor_unref (monitor->sd.monitor);
+		monitor->sd.monitor = NULL;
+	}
+	nm_clear_g_source (&monitor->sd.watch);
 }
 #endif /* SESSION_TRACKING_SYSTEMD */
 
@@ -258,7 +261,7 @@ ck_init (NMSessionMonitor *monitor)
 
 	if (g_file_query_exists (file, NULL)) {
 		if ((monitor->ck.monitor = g_file_monitor_file (file, G_FILE_MONITOR_NONE, NULL, &error))) {
-			monitor->ck.cache = g_hash_table_new_full (g_direct_hash, g_direct_equal, NULL, g_free);
+			monitor->ck.cache = g_hash_table_new_full (nm_direct_hash, NULL, NULL, g_free);
 			g_signal_connect (monitor->ck.monitor,
 			                  "changed",
 			                  G_CALLBACK (ck_changed),

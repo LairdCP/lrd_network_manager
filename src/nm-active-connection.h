@@ -21,10 +21,9 @@
 #ifndef __NETWORKMANAGER_ACTIVE_CONNECTION_H__
 #define __NETWORKMANAGER_ACTIVE_CONNECTION_H__
 
-#include "nm-exported-object.h"
+#include "c-list/src/c-list.h"
 #include "nm-connection.h"
-
-#include "nm-utils/c-list.h"
+#include "nm-dbus-object.h"
 
 #define NM_TYPE_ACTIVE_CONNECTION            (nm_active_connection_get_type ())
 #define NM_ACTIVE_CONNECTION(obj)            (G_TYPE_CHECK_INSTANCE_CAST ((obj), NM_TYPE_ACTIVE_CONNECTION, NMActiveConnection))
@@ -54,11 +53,12 @@
 /* Internal non-exported properties */
 #define NM_ACTIVE_CONNECTION_INT_SETTINGS_CONNECTION "int-settings-connection"
 #define NM_ACTIVE_CONNECTION_INT_APPLIED_CONNECTION  "int-applied-connection"
-#define NM_ACTIVE_CONNECTION_INT_DEVICE         "int-device"
-#define NM_ACTIVE_CONNECTION_INT_SUBJECT        "int-subject"
-#define NM_ACTIVE_CONNECTION_INT_MASTER         "int-master"
-#define NM_ACTIVE_CONNECTION_INT_MASTER_READY   "int-master-ready"
-#define NM_ACTIVE_CONNECTION_INT_ACTIVATION_TYPE "int-activation-type"
+#define NM_ACTIVE_CONNECTION_INT_DEVICE              "int-device"
+#define NM_ACTIVE_CONNECTION_INT_SUBJECT             "int-subject"
+#define NM_ACTIVE_CONNECTION_INT_MASTER              "int-master"
+#define NM_ACTIVE_CONNECTION_INT_MASTER_READY        "int-master-ready"
+#define NM_ACTIVE_CONNECTION_INT_ACTIVATION_TYPE     "int-activation-type"
+#define NM_ACTIVE_CONNECTION_INT_ACTIVATION_REASON   "int-activation-reason"
 
 /* Signals */
 #define NM_ACTIVE_CONNECTION_STATE_CHANGED           "state-changed"
@@ -71,7 +71,7 @@
 struct _NMActiveConnectionPrivate;
 
 struct _NMActiveConnection {
-	NMExportedObject parent;
+	NMDBusObject parent;
 	struct _NMActiveConnectionPrivate *_priv;
 
 	/* active connection can be tracked in a list by NMManager. This is
@@ -80,7 +80,7 @@ struct _NMActiveConnection {
 };
 
 typedef struct {
-	NMExportedObjectClass parent;
+	NMDBusObjectClass parent;
 
 	/* re-emits device state changes as a convenience for subclasses for
 	 * device states >= DISCONNECTED.
@@ -109,14 +109,12 @@ GType         nm_active_connection_get_type (void);
 typedef void (*NMActiveConnectionAuthResultFunc) (NMActiveConnection *self,
                                                   gboolean success,
                                                   const char *error_desc,
-                                                  gpointer user_data1,
-                                                  gpointer user_data2);
+                                                  gpointer user_data);
 
 void          nm_active_connection_authorize (NMActiveConnection *self,
                                               NMConnection *initial_connection,
                                               NMActiveConnectionAuthResultFunc result_func,
-                                              gpointer user_data1,
-                                              gpointer user_data2);
+                                              gpointer user_data);
 
 NMSettingsConnection *nm_active_connection_get_settings_connection (NMActiveConnection *self);
 NMConnection *nm_active_connection_get_applied_connection (NMActiveConnection *self);
@@ -184,6 +182,8 @@ void          nm_active_connection_set_parent (NMActiveConnection *self,
                                                NMActiveConnection *parent);
 
 NMActivationType nm_active_connection_get_activation_type (NMActiveConnection *self);
+
+NMActivationReason nm_active_connection_get_activation_reason (NMActiveConnection *self);
 
 void          nm_active_connection_clear_secrets (NMActiveConnection *self);
 
