@@ -407,6 +407,8 @@ security_from_vardict (GVariant *security)
 	    && array) {
 		if (g_strv_contains (array, "wpa-psk"))
 			flags |= NM_802_11_AP_SEC_KEY_MGMT_PSK;
+		if (g_strv_contains (array, "cckm"))
+			flags |= NM_802_11_AP_SEC_KEY_MGMT_CCKM;
 		if (g_strv_contains (array, "wpa-eap") ||
 		    g_strv_contains (array, "wpa-fils-sha256") ||
 		    g_strv_contains (array, "wpa-fils-sha384"))
@@ -1206,7 +1208,7 @@ nm_wifi_ap_new_fake_from_connection (NMConnection *connection)
 	const char *mode, *band, *key_mgmt;
 	guint32 channel;
 	NM80211ApSecurityFlags flags;
-	gboolean psk = FALSE, eap = FALSE;
+	gboolean psk = FALSE, eap = FALSE, cckm = FALSE;
 
 	g_return_val_if_fail (connection != NULL, NULL);
 
@@ -1267,13 +1269,20 @@ nm_wifi_ap_new_fake_from_connection (NMConnection *connection)
 
 	psk = !strcmp (key_mgmt, "wpa-psk");
 	eap = !strcmp (key_mgmt, "wpa-eap");
-	if (psk || eap) {
+	cckm = !strcmp (key_mgmt, "cckm");
+	if (psk || eap || cckm) {
 		if (has_proto (s_wireless_sec, PROTO_WPA)) {
-			flags = priv->wpa_flags | (eap ? NM_802_11_AP_SEC_KEY_MGMT_802_1X : NM_802_11_AP_SEC_KEY_MGMT_PSK);
+			if (cckm)
+				flags = priv->wpa_flags | NM_802_11_AP_SEC_KEY_MGMT_CCKM;
+			else
+				flags = priv->wpa_flags | (eap ? NM_802_11_AP_SEC_KEY_MGMT_802_1X : NM_802_11_AP_SEC_KEY_MGMT_PSK);
 			nm_wifi_ap_set_wpa_flags (ap, flags);
 		}
 		if (has_proto (s_wireless_sec, PROTO_RSN)) {
-			flags = priv->rsn_flags | (eap ? NM_802_11_AP_SEC_KEY_MGMT_802_1X : NM_802_11_AP_SEC_KEY_MGMT_PSK);
+			if (cckm)
+				flags = priv->rsn_flags | NM_802_11_AP_SEC_KEY_MGMT_CCKM;
+			else
+				flags = priv->rsn_flags | (eap ? NM_802_11_AP_SEC_KEY_MGMT_802_1X : NM_802_11_AP_SEC_KEY_MGMT_PSK);
 			nm_wifi_ap_set_rsn_flags (ap, flags);
 		}
 
