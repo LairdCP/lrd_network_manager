@@ -29,6 +29,6 @@ ENV{ID_NET_DRIVER}=="veth", ENV{NM_UNMANAGED}="1"
 # USB gadget device. Unmanage by default, since whatever created it
 # might want to set it up itself (e.g. activate an ipv4.method=shared
 # connection).
-ENV{DEVTYPE}=="gadget", ENV{NM_UNMANAGED}="1"
+#ENV{DEVTYPE}=="gadget", ENV{NM_UNMANAGED}="1"
 
 LABEL="nm_unmanaged_end"
