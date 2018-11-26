@@ -5294,8 +5294,8 @@ do_sleep_wake (NMManager *self, gboolean sleeping_changed)
 				/* Belatedly take down Wake-on-LAN devices; ideally we wouldn't have to do this
 				 * but for now it's the only way to make sure we re-check their connectivity.
 				 */
-				if (device_is_wake_on_lan (priv->platform, device))
-					nm_device_set_unmanaged_by_flags (device, NM_UNMANAGED_SLEEPING, TRUE, NM_DEVICE_STATE_REASON_SLEEPING);
+				//if (device_is_wake_on_lan (priv->platform, device))
+				//	nm_device_set_unmanaged_by_flags (device, NM_UNMANAGED_SLEEPING, TRUE, NM_DEVICE_STATE_REASON_SLEEPING);
 
 				/* Check if the device is unmanaged but the state transition is still pending.
 				 * If so, change state now so that later we re-manage the device forcing a
