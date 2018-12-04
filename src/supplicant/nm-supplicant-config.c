@@ -1166,7 +1166,7 @@ nm_supplicant_config_add_setting_8021x (NMSupplicantConfig *self,
 	guint32 frag, hdrs;
 	gs_free char *frag_str = NULL;
 	NMSetting8021xAuthFlags phase1_auth_flags;
-	char *tls_disable = NULL;
+	char const *tls_disable = NULL;
 
 	g_return_val_if_fail (NM_IS_SUPPLICANT_CONFIG (self), FALSE);
 	g_return_val_if_fail (setting != NULL, FALSE);

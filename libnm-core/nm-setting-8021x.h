@@ -372,6 +372,15 @@ gint                   nm_setting_802_1x_get_auth_timeout                (NMSett
 const char *           nm_setting_802_1x_get_tls_disable_time_checks	 (NMSetting8021x *setting);
 const char *           nm_setting_802_1x_get_pac_file_password           (NMSetting8021x *setting);
 
+gboolean               nm_setting_802_1x_remove_phase2_auth_by_value     (NMSetting8021x *setting,
+                                                                          const char *phase2_auth);
+gboolean               nm_setting_802_1x_remove_phase2_autheap_by_value  (NMSetting8021x *setting,
+                                                                          const char *phase2_autheap);
+void                   nm_setting_802_1x_remove_phase2_auth              (NMSetting8021x *setting,
+                                                                          guint32 i);
+void                   nm_setting_802_1x_remove_phase2_autheap           (NMSetting8021x *setting,
+                                                                          guint32 i);
+
 G_END_DECLS
 
 #endif /* __NM_SETTING_8021X_H__ */
