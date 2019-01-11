@@ -841,6 +841,9 @@ global:
 	nm_wimax_nsp_get_signal_quality;
 	nm_wimax_nsp_get_type;
 	nm_wimax_nsp_network_type_get_type;
+	nm_setting_wireless_get_auth_timeout;
+	nm_setting_wireless_get_frequency_list;
+	nm_setting_wireless_get_bgscan;
 local:
 	*;
 };
@@ -1390,4 +1393,5 @@ global:
 	nm_settings_connection_flags_get_type;
 	nm_utils_get_timestamp_msec;
 	nm_vpn_service_plugin_shutdown;
+	nm_setting_wireless_security_get_proactive_key_caching;
 } libnm_1_10_0;
