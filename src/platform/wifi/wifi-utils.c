@@ -121,6 +121,14 @@ wifi_utils_set_wake_on_wlan (WifiData *data, NMSettingWirelessWakeOnWLan wowl)
 	       data->klass->set_wake_on_wlan (data, wowl) : FALSE;
 }
 
+wifi_utils_get_can_apscan (WifiData *data)
+{
+	g_return_val_if_fail (data != NULL, FALSE);
+
+	return data->klass->get_can_apscan ?
+	       data->klass->get_can_apscan (data) : FALSE;
+}
+
 guint32
 wifi_utils_get_freq (WifiData *data)
 {

@@ -870,6 +870,8 @@ typedef struct {
 	void        (*wifi_indicate_addressing_running) (NMPlatform *, int ifindex, gboolean running);
 	gboolean    (*wifi_set_wake_on_wlan) (NMPlatform *, int ifindex, NMSettingWirelessWakeOnWLan wowl);
 
+	gboolean    (*wifi_get_can_apscan)   (NMPlatform *, int ifindex);
+
 	guint32     (*mesh_get_channel)      (NMPlatform *, int ifindex);
 	gboolean    (*mesh_set_channel)      (NMPlatform *, int ifindex, guint32 channel);
 	gboolean    (*mesh_set_ssid)         (NMPlatform *, int ifindex, const guint8 *ssid, gsize len);
@@ -1248,6 +1250,8 @@ void        nm_platform_wifi_set_powersave    (NMPlatform *self, int ifindex, gu
 guint32     nm_platform_wifi_find_frequency   (NMPlatform *self, int ifindex, const guint32 *freqs);
 void        nm_platform_wifi_indicate_addressing_running (NMPlatform *self, int ifindex, gboolean running);
 gboolean    nm_platform_wifi_set_wake_on_wlan (NMPlatform *self, int ifindex, NMSettingWirelessWakeOnWLan wowl);
+
+gboolean    nm_platform_wifi_get_can_apscan (NMPlatform *self, int ifindex);
 
 guint32     nm_platform_mesh_get_channel      (NMPlatform *self, int ifindex);
 gboolean    nm_platform_mesh_set_channel      (NMPlatform *self, int ifindex, guint32 channel);

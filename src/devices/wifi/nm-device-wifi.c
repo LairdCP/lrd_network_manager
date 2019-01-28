@@ -532,6 +532,12 @@ deactivate (NMDevice *device)
 	/* Ensure we're in infrastructure mode after deactivation; some devices
 	 * (usually older ones) don't scan well in adhoc mode.
 	 */
+	/* BZ14067: 60: stop NM from changing AP interface to managed */
+	if (nm_platform_wifi_get_mode (nm_device_get_platform (device), ifindex) == NM_802_11_MODE_AP &&
+		nm_platform_wifi_get_can_apscan (nm_device_get_platform (device), ifindex))
+	{
+		; /* leave in AP mode if can_apscan */
+	} else
 	if (nm_platform_wifi_get_mode (nm_device_get_platform (device), ifindex) != NM_802_11_MODE_INFRA) {
 		nm_device_take_down (NM_DEVICE (self), TRUE);
 		nm_platform_wifi_set_mode (nm_device_get_platform (device), ifindex, NM_802_11_MODE_INFRA);

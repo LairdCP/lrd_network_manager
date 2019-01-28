@@ -6100,6 +6100,13 @@ wifi_set_wake_on_wlan (NMPlatform *platform, int ifindex,
 	return wifi_utils_set_wake_on_wlan (wifi_data, wowl);
 }
 
+static gboolean
+wifi_get_can_apscan (NMPlatform *platform, int ifindex)
+{
+	WIFI_GET_WIFI_DATA_NETNS (wifi_data, platform, ifindex, FALSE);
+	return wifi_utils_get_can_apscan (wifi_data);
+}
+
 /*****************************************************************************/
 
 static gboolean
@@ -7239,6 +7246,7 @@ nm_linux_platform_class_init (NMLinuxPlatformClass *klass)
 	platform_class->wifi_find_frequency = wifi_find_frequency;
 	platform_class->wifi_indicate_addressing_running = wifi_indicate_addressing_running;
 	platform_class->wifi_set_wake_on_wlan = wifi_set_wake_on_wlan;
+	platform_class->wifi_get_can_apscan = wifi_get_can_apscan;
 
 	platform_class->mesh_get_channel = mesh_get_channel;
 	platform_class->mesh_set_channel = mesh_set_channel;

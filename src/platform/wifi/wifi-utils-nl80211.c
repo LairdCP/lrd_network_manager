@@ -54,6 +54,7 @@ typedef struct {
 	int num_freqs;
 	int phy;
 	bool can_wowlan:1;
+	bool can_apscan:1;
 } WifiDataNl80211;
 
 static int
@@ -676,6 +677,15 @@ wifi_nl80211_get_wowlan (WifiData *data)
 	return info.enabled;
 }
 
+static gboolean
+wifi_nl80211_get_can_apscan (WifiData *data)
+{
+	WifiDataNl80211 *nl80211 = (WifiDataNl80211 *) data;
+	if (!nl80211->can_apscan)
+		return FALSE;
+	return TRUE;
+}
+
 struct nl80211_device_info {
 	int phy;
 	guint32 *freqs;
@@ -686,6 +696,7 @@ struct nl80211_device_info {
 	gboolean supported;
 	gboolean success;
 	gboolean can_wowlan;
+	gboolean can_apscan;
 };
 
 #define WLAN_CIPHER_SUITE_USE_GROUP 0x000FAC00
@@ -874,6 +885,13 @@ static int nl80211_wiphy_info_handler (struct nl_msg *msg, void *arg)
 	if (tb[NL80211_ATTR_WOWLAN_TRIGGERS_SUPPORTED])
 		info->can_wowlan = TRUE;
 
+	if (tb[NL80211_ATTR_FEATURE_FLAGS]) {
+		unsigned int features = nla_get_u32(tb[NL80211_ATTR_FEATURE_FLAGS]);
+		if (features & NL80211_FEATURE_AP_SCAN) {
+			info->can_apscan = TRUE;
+		}
+	}
+
 	info->success = TRUE;
 
 	return NL_SKIP;
@@ -896,6 +914,7 @@ wifi_nl80211_init (int ifindex)
 		.get_wowlan = wifi_nl80211_get_wowlan,
 		.indicate_addressing_running = wifi_nl80211_indicate_addressing_running,
 		.deinit = wifi_nl80211_deinit,
+		.get_can_apscan = wifi_nl80211_get_can_apscan,
 	};
 	WifiDataNl80211 *nl80211;
 	nm_auto_nlmsg struct nl_msg *msg = NULL;
@@ -975,6 +994,7 @@ wifi_nl80211_init (int ifindex)
 	nl80211->num_freqs = device_info.num_freqs;
 	nl80211->parent.caps = device_info.caps;
 	nl80211->can_wowlan = device_info.can_wowlan;
+	nl80211->can_apscan = device_info.can_apscan;
 
 	_LOGI (LOGD_PLATFORM | LOGD_WIFI,
 	       "(%s): using nl80211 for WiFi device control",
