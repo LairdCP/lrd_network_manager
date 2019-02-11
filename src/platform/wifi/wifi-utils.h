@@ -69,6 +69,8 @@ gboolean wifi_utils_set_powersave (WifiData *data, guint32 powersave);
 
 gboolean wifi_utils_set_wake_on_wlan (WifiData *data, NMSettingWirelessWakeOnWLan wowl);
 
+gboolean wifi_utils_get_can_apscan (WifiData *data);
+
 /* OLPC Mesh-only functions */
 guint32 wifi_utils_get_mesh_channel (WifiData *data);
 

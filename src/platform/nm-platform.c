@@ -2898,6 +2898,18 @@ nm_platform_wifi_set_wake_on_wlan (NMPlatform *self, int ifindex, NMSettingWirel
 	return klass->wifi_set_wake_on_wlan (self, ifindex, wowl);
 }
 
+gboolean
+nm_platform_wifi_get_can_apscan (NMPlatform *self, int ifindex)
+{
+	_CHECK_SELF (self, klass, FALSE);
+
+	g_return_val_if_fail (ifindex > 0, FALSE);
+
+	g_return_val_if_fail (klass->wifi_get_can_apscan != NULL, FALSE);
+
+	return klass->wifi_get_can_apscan (self, ifindex);
+}
+
 guint32
 nm_platform_mesh_get_channel (NMPlatform *self, int ifindex)
 {

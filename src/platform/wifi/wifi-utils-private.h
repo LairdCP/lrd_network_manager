@@ -57,6 +57,9 @@ typedef struct {
 
 	gboolean (*get_wowlan) (WifiData *data);
 
+	/* Get can_apscan from an interface */
+	gboolean (*get_can_apscan) (WifiData *data);
+
 	/* OLPC Mesh-only functions */
 
 	guint32 (*get_mesh_channel) (WifiData *data);
