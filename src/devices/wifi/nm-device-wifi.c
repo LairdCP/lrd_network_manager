@@ -1348,6 +1348,7 @@ typedef struct {
 
 
 // determine scan settings to use when disconnected, from connection profiles
+// note, only non-ap configurations will make it to this routine
 static void
 build_laird_scan(NMSettingWireless *s_wifi, gpointer user_data)
 {
@@ -1409,6 +1410,8 @@ build_laird_scan_init(NMDeviceWifi *self, BuildLSS *blss)
 	blss->lss.frequency_dfs = 1;
 	// ifname to use to filter connections
 	blss->ifname = nm_device_get_iface ((NMDevice *) self);
+	// default: use bcast ssid if there are no configurations for the interface
+	blss->require_bcast_ssid = 1;
 }
 
 static void
@@ -1428,6 +1431,13 @@ laird_filter_func (NMSettings *settings,
 	ifname2 = nm_connection_get_interface_name (NM_CONNECTION (connection));
 	if (scan->ifname && ifname2 && (strcmp(scan->ifname, ifname2) != 0))
 		return FALSE;
+
+	if (scan->profile_count == 0) {
+		// matching interface name found, disable bcast ssid
+		// later, re-enable bcast ssid, if a non-AP, non-hidden config found
+		scan->require_bcast_ssid = 0;
+	}
+
 	return TRUE;
 }
 
@@ -1444,11 +1454,13 @@ hidden_filter_func (NMSettings *settings,
 	s_wifi = nm_connection_get_setting_wireless (NM_CONNECTION (connection));
 	if (!s_wifi)
 		return FALSE;
+	if (user_data) { //
+		if (laird_filter_func(settings, connection, user_data) == FALSE) //
+			return FALSE; //
+	} //
 	if (nm_streq0 (nm_setting_wireless_get_mode (s_wifi), NM_SETTING_WIRELESS_MODE_AP))
 		return FALSE;
 	if (user_data) {
-		if (laird_filter_func(settings, connection, user_data) == FALSE)
-			return FALSE;
 		build_laird_scan(s_wifi, user_data);
 	}
 	return nm_setting_wireless_get_hidden (s_wifi);
