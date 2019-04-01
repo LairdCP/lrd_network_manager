@@ -654,6 +654,17 @@ nm_supplicant_config_add_setting_wireless (NMSupplicantConfig * self,
 		}
 	}
 
+	if (priv->laird_support == NM_SUPPLICANT_FEATURE_YES) {
+		guint32 dms;
+		dms = nm_setting_wireless_get_dms (setting);
+		if (dms) {
+			char buf[32];
+			snprintf (buf, sizeof (buf), "%d", dms);
+			if (!nm_supplicant_config_add_option (self, "dms", buf, -1, NULL, error))
+				return FALSE;
+		}
+	}
+
 	return TRUE;
 }
 

@@ -844,6 +844,7 @@ global:
 	nm_setting_wireless_get_auth_timeout;
 	nm_setting_wireless_get_frequency_list;
 	nm_setting_wireless_get_bgscan;
+	nm_setting_wireless_get_dms;
 local:
 	*;
 };
