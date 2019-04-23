@@ -77,6 +77,7 @@ typedef struct {
 	guint32 frequency_dfs;
 	guint32 max_scan_interval;
 	guint32 wowl;
+	guint32 dms;
 } NMSettingWirelessPrivate;
 
 enum {
@@ -112,6 +113,7 @@ enum {
 	PROP_FREQUENCY_DFS,
 	PROP_MAX_SCAN_INTERVAL,
 	PROP_WAKE_ON_WLAN,
+	PROP_DMS,
 
 	LAST_PROP
 };
@@ -874,6 +876,20 @@ nm_setting_wireless_get_max_scan_interval (NMSettingWireless *setting)
 }
 
 /**
+ * nm_setting_wireless_get_dms:
+ * @setting: the #NMSettingWireless
+ *
+ * Returns: the #NMSettingWireless:dms property of the setting
+ **/
+guint32
+nm_setting_wireless_get_dms (NMSettingWireless *setting)
+{
+	g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), 0);
+
+	return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->dms;
+}
+
+/**
  * nm_setting_wireless_add_seen_bssid:
  * @setting: the #NMSettingWireless
  * @bssid: the new BSSID to add to the list
@@ -1383,6 +1399,9 @@ set_property (GObject *object, guint prop_id,
 	case PROP_WAKE_ON_WLAN:
 		priv->wowl = g_value_get_uint (value);
 		break;
+	case PROP_DMS:
+		priv->dms = g_value_get_uint (value);
+		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
 		break;
@@ -1483,6 +1502,9 @@ get_property (GObject *object, guint prop_id,
 		break;
 	case PROP_WAKE_ON_WLAN:
 		g_value_set_uint (value, nm_setting_wireless_get_wake_on_wlan (setting));
+		break;
+	case PROP_DMS:
+		g_value_set_uint (value, nm_setting_wireless_get_dms (setting));
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -2176,6 +2198,22 @@ nm_setting_wireless_class_init (NMSettingWirelessClass *setting_wireless_class)
 		(object_class, PROP_MAX_SCAN_INTERVAL,
 		 g_param_spec_uint (NM_SETTING_WIRELESS_MAX_SCAN_INTERVAL, "", "",
 		                    0, 60, 0,
+		                    G_PARAM_READWRITE |
+		                    G_PARAM_CONSTRUCT |
+		                    NM_SETTING_PARAM_FUZZY_IGNORE |
+		                    G_PARAM_STATIC_STRINGS));
+
+	/**
+	 * NMSettingWireless:dms:
+	 *
+	 * Directed multicast service.
+	 *
+	 * Since: 1.12.0
+	 **/
+	g_object_class_install_property
+		(object_class, PROP_DMS,
+		 g_param_spec_uint (NM_SETTING_WIRELESS_DMS, "", "",
+		                    0, G_MAXUINT32, 0,
 		                    G_PARAM_READWRITE |
 		                    G_PARAM_CONSTRUCT |
 		                    NM_SETTING_PARAM_FUZZY_IGNORE |

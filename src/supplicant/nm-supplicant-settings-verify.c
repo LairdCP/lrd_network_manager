@@ -161,6 +161,7 @@ static const struct Opt opt_table[] = {
 	{ "bgscan",             TYPE_BYTES,   0, 0, FALSE,  NULL },
 	{ "laird_auth_timeout", TYPE_INT,     0, 60, FALSE, NULL },
 	{ "pac_file_password",  TYPE_BYTES,   0, 1024, FALSE,  NULL },
+	{ "dms",                TYPE_INT,     0, 6, FALSE, NULL },
 };
 
 static gboolean

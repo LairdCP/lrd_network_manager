@@ -32,3 +32,5 @@
 
 #define DESCRIBE_DOC_NM_SETTING_WIRELESS_SECURITY_PROACTIVE_KEY_CACHING \
 	N_("Selects PMK caching method (OPMK/OKC versus SPMK/SKC).")
+#define DESCRIBE_DOC_NM_SETTING_WIRELESS_DMS \
+	N_("Directed multicast service.")
