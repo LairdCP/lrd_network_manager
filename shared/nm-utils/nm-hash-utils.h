@@ -25,6 +25,39 @@
 #include "c-siphash/src/c-siphash.h"
 #include "nm-macros-internal.h"
 
+/*****************************************************************************/
+
+void nm_hash_siphash42_init (CSipHash *h, guint static_seed);
+
+/* Siphash24 of binary buffer @arr and @len, using the randomized seed from
+ * other NMHash functions.
+ *
+ * Note, that this is guaranteed to use siphash42 under the hood (contrary to
+ * all other NMHash API, which leave this undefined). That matters at the point,
+ * where the caller needs to be sure that a reasonably strong hasing algorithm
+ * is used.  (Yes, NMHash is all about siphash24, but otherwise that is not promised
+ * anywhere).
+ *
+ * Another difference is, that this returns guint64 (not guint like other NMHash functions).
+ *
+ * Another difference is, that this may also return zero (not like nm_hash_complete()).
+ *
+ * Then, why not use c_siphash_hash() directly? Because this also uses the randomized,
+ * per-run hash-seed like nm_hash_init(). So, you get siphash24 with a random
+ * seed (which is cached for the current run of the program).
+ */
+static inline guint64
+nm_hash_siphash42 (guint static_seed, const void *ptr, gsize n)
+{
+	CSipHash h;
+
+	nm_hash_siphash42_init (&h, static_seed);
+	c_siphash_append (&h, ptr, n);
+	return c_siphash_finalize (&h);
+}
+
+/*****************************************************************************/
+
 struct _NMHashState {
 	CSipHash _state;
 };
@@ -33,16 +66,33 @@ typedef struct _NMHashState NMHashState;
 
 guint nm_hash_static (guint static_seed);
 
-void nm_hash_init (NMHashState *state, guint static_seed);
+static inline void
+nm_hash_init (NMHashState *state, guint static_seed)
+{
+	nm_assert (state);
+
+	nm_hash_siphash42_init (&state->_state, static_seed);
+}
+
+static inline guint64
+nm_hash_complete_u64 (NMHashState *state)
+{
+	nm_assert (state);
+
+	/* this returns the native u64 hash value. Note that this differs
+	 * from nm_hash_complete() in two ways:
+	 *
+	 * - the type, guint64 vs. guint.
+	 * - nm_hash_complete() never returns zero. */
+	return c_siphash_finalize (&state->_state);
+}
 
 static inline guint
 nm_hash_complete (NMHashState *state)
 {
 	guint64 h;
 
-	nm_assert (state);
-
-	h = c_siphash_finalize (&state->_state);
+	h = nm_hash_complete_u64 (state);
 
 	/* we don't ever want to return a zero hash.
 	 *
@@ -57,6 +107,11 @@ nm_hash_update (NMHashState *state, const void *ptr, gsize n)
 	nm_assert (ptr);
 	nm_assert (n > 0);
 
+	/* Note: the data passed in here might be sensitive data (secrets),
+	 * that we should nm_explicty_zero() afterwards. However, since
+	 * we are using siphash24 with a random key, that is not really
+	 * necessary. Something to keep in mind, if we ever move away from
+	 * this hash implementation. */
 	c_siphash_append (&state->_state, ptr, n);
 }
 
@@ -66,6 +121,9 @@ nm_hash_update (NMHashState *state, const void *ptr, gsize n)
 		\
 		nm_hash_update ((state), &_val, sizeof (_val)); \
 	} G_STMT_END
+
+#define nm_hash_update_valp(state, val) \
+	nm_hash_update ((state), (val), sizeof (*(val))) \
 
 static inline void
 nm_hash_update_bool (NMHashState *state, bool val)
@@ -168,7 +226,7 @@ nm_hash_update_mem (NMHashState *state, const void *ptr, gsize n)
 	 * instead. */
 	nm_hash_update (state, &n, sizeof (n));
 	if (n > 0)
-		c_siphash_append (&state->_state, ptr, n);
+		nm_hash_update (state, ptr, n);
 }
 
 static inline void
@@ -208,6 +266,15 @@ guint nm_direct_hash (gconstpointer str);
 
 guint nm_hash_str (const char *str);
 guint nm_str_hash (gconstpointer str);
+
+#define nm_hash_val(static_seed, val) \
+	({ \
+		NMHashState _h; \
+		\
+		nm_hash_init (&_h, (static_seed)); \
+		nm_hash_update_val (&_h, (val)); \
+		nm_hash_complete (&_h); \
+	})
 
 /*****************************************************************************/
 

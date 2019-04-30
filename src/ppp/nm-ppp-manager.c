@@ -26,11 +26,9 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <signal.h>
-#include <string.h>
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <stdlib.h>
-#include <errno.h>
 #include <sys/socket.h>
 #include <sys/ioctl.h>
 #include <asm/types.h>
@@ -137,8 +135,11 @@ G_DEFINE_TYPE (NMPPPManager, nm_ppp_manager, NM_TYPE_DBUS_OBJECT)
 static void _ppp_cleanup  (NMPPPManager *self);
 
 static NMPPPManagerStopHandle *_ppp_manager_stop (NMPPPManager *self,
+                                                  GCancellable *cancellable,
                                                   NMPPPManagerStopCallback callback,
                                                   gpointer user_data);
+
+static void _ppp_manager_stop_cancel (NMPPPManagerStopHandle *handle);
 
 /*****************************************************************************/
 
@@ -179,6 +180,7 @@ monitor_cb (gpointer user_data)
 	NMPPPManager *self = NM_PPP_MANAGER (user_data);
 	NMPPPManagerPrivate *priv = NM_PPP_MANAGER_GET_PRIVATE (self);
 	const char *ifname;
+	int errsv;
 
 	ifname = nm_platform_link_get_name (NM_PLATFORM_GET, priv->ifindex);
 
@@ -190,8 +192,9 @@ monitor_cb (gpointer user_data)
 
 		nm_utils_ifname_cpy (req.ifr_name, ifname);
 		if (ioctl (priv->monitor_fd, SIOCGPPPSTATS, &req) < 0) {
-			if (errno != ENODEV)
-				_LOGW ("could not read ppp stats: %s", strerror (errno));
+			errsv = errno;
+			if (errsv != ENODEV)
+				_LOGW ("could not read ppp stats: %s", nm_strerror_native (errsv));
 		} else {
 			g_signal_emit (self, signals[STATS], 0,
 			               (guint) stats.p.ppp_ibytes,
@@ -206,19 +209,23 @@ static void
 monitor_stats (NMPPPManager *self)
 {
 	NMPPPManagerPrivate *priv = NM_PPP_MANAGER_GET_PRIVATE (self);
+	int errsv;
 
 	/* already monitoring */
 	if (priv->monitor_fd >= 0)
 		return;
 
 	priv->monitor_fd = socket (AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
-	if (priv->monitor_fd >= 0) {
-		g_warn_if_fail (priv->monitor_id == 0);
-		if (priv->monitor_id)
-			g_source_remove (priv->monitor_id);
-		priv->monitor_id = g_timeout_add_seconds (5, monitor_cb, self);
-	} else
-		_LOGW ("could not monitor PPP stats: %s", strerror (errno));
+	if (priv->monitor_fd < 0) {
+		errsv = errno;
+		_LOGW ("could not monitor PPP stats: %s", nm_strerror_native (errsv));
+		return;
+	}
+
+	g_warn_if_fail (priv->monitor_id == 0);
+	if (priv->monitor_id)
+		g_source_remove (priv->monitor_id);
+	priv->monitor_id = g_timeout_add_seconds (5, monitor_cb, self);
 }
 
 /*****************************************************************************/
@@ -360,7 +367,7 @@ impl_ppp_manager_need_secrets (NMDBusObject *obj,
 	const char *username = NULL;
 	const char *password = NULL;
 	guint32 tries;
-	GPtrArray *hints = NULL;
+	gs_unref_ptrarray GPtrArray *hints = NULL;
 	GError *error = NULL;
 	NMSecretAgentGetSecretsFlags flags = NM_SECRET_AGENT_GET_SECRETS_FLAG_ALLOW_INTERACTION;
 
@@ -390,18 +397,18 @@ impl_ppp_manager_need_secrets (NMDBusObject *obj,
 	if (tries > 1)
 		flags |= NM_SECRET_AGENT_GET_SECRETS_FLAG_REQUEST_NEW;
 
+	if (hints)
+		g_ptr_array_add (hints, NULL);
+
 	priv->secrets_id = nm_act_request_get_secrets (priv->act_req,
 	                                               FALSE,
 	                                               priv->secrets_setting_name,
 	                                               flags,
-	                                               hints ? g_ptr_array_index (hints, 0) : NULL,
+	                                               hints ? (const char *const*) hints->pdata : NULL,
 	                                               ppp_secrets_cb,
 	                                               self);
 	g_object_set_qdata (G_OBJECT (applied_connection), ppp_manager_secret_tries_quark (), GUINT_TO_POINTER (++tries));
 	priv->pending_secrets_context = invocation;
-
-	if (hints)
-		g_ptr_array_free (hints, TRUE);
 }
 
 static void
@@ -438,11 +445,12 @@ impl_ppp_manager_set_ifindex (NMDBusObject *obj,
 
 	g_variant_get (parameters, "(i)", &ifindex);
 
-	_LOGD ("set-ifindex %d", (int) ifindex);
-
 	if (priv->ifindex >= 0) {
-		_LOGW ("can't change the ifindex from %d to %d", priv->ifindex, (int) ifindex);
-		return;
+		if (priv->ifindex == ifindex)
+			_LOGD ("set-ifindex: ignore repeated calls setting ifindex to %d", (int) ifindex);
+		else
+			_LOGW ("set-ifindex: can't change the ifindex from %d to %d", priv->ifindex, (int) ifindex);
+		goto out;
 	}
 
 	if (ifindex > 0) {
@@ -454,15 +462,22 @@ impl_ppp_manager_set_ifindex (NMDBusObject *obj,
 	}
 
 	if (!plink) {
-		_LOGW ("unknown interface with ifindex %d", ifindex);
+		_LOGW ("set-ifindex: unknown interface with ifindex %d", ifindex);
 		ifindex = 0;
+	} else {
+		obj_keep_alive = nmp_object_ref (NMP_OBJECT_UP_CAST (plink));
+		_LOGD ("set-ifindex: %d, name \"%s\"", (int) ifindex, plink->name);
 	}
 
 	priv->ifindex = ifindex;
 
-	obj_keep_alive = nmp_object_ref (NMP_OBJECT_UP_CAST (plink));
+	g_signal_emit (self,
+	               signals[IFINDEX_SET],
+	               0,
+	               ifindex,
+	               plink ? plink->name : NULL);
 
-	g_signal_emit (self, signals[IFINDEX_SET], 0, ifindex, plink->name);
+out:
 	g_dbus_method_invocation_return_value (invocation, NULL);
 }
 
@@ -664,61 +679,6 @@ out:
 
 /*****************************************************************************/
 
-typedef struct {
-	GPtrArray *array;
-	GStringChunk *chunk;
-} NMCmdLine;
-
-static NMCmdLine *
-nm_cmd_line_new (void)
-{
-	NMCmdLine *cmd;
-
-	cmd = g_slice_new (NMCmdLine);
-	cmd->array = g_ptr_array_new ();
-	cmd->chunk = g_string_chunk_new (1024);
-
-	return cmd;
-}
-
-static void
-nm_cmd_line_destroy (NMCmdLine *cmd)
-{
-	g_ptr_array_free (cmd->array, TRUE);
-	g_string_chunk_free (cmd->chunk);
-	g_slice_free (NMCmdLine, cmd);
-}
-
-static char *
-nm_cmd_line_to_str (NMCmdLine *cmd)
-{
-	char *str;
-
-	g_ptr_array_add (cmd->array, NULL);
-	str = g_strjoinv (" ", (gchar **) cmd->array->pdata);
-	g_ptr_array_remove_index (cmd->array, cmd->array->len - 1);
-
-	return str;
-}
-
-static void
-nm_cmd_line_add_string (NMCmdLine *cmd, const char *str)
-{
-	g_ptr_array_add (cmd->array, g_string_chunk_insert (cmd->chunk, str));
-}
-
-static void
-nm_cmd_line_add_int (NMCmdLine *cmd, int i)
-{
-	char *str;
-
-	str = g_strdup_printf ("%d", i);
-	nm_cmd_line_add_string (cmd, str);
-	g_free (str);
-}
-
-/*****************************************************************************/
-
 NM_UTILS_LOOKUP_STR_DEFINE_STATIC (pppd_exit_code_to_str, int,
 	NM_UTILS_LOOKUP_DEFAULT ("Unknown error"),
 	NM_UTILS_LOOKUP_STR_ITEM ( 1, "Fatal pppd error");
@@ -783,14 +743,14 @@ pppd_timed_out (gpointer data)
 	NMPPPManager *self = NM_PPP_MANAGER (data);
 
 	_LOGW ("pppd timed out or didn't initialize our dbus module");
-	_ppp_manager_stop (self, NULL, NULL);
+	_ppp_manager_stop (self, NULL, NULL, NULL);
 
 	g_signal_emit (self, signals[STATE_CHANGED], 0, (guint) NM_PPP_STATUS_DEAD);
 
 	return FALSE;
 }
 
-static NMCmdLine *
+static GPtrArray *
 create_pppd_cmd_line (NMPPPManager *self,
                       NMSettingPpp *setting,
                       NMSettingPppoe *pppoe,
@@ -803,13 +763,16 @@ create_pppd_cmd_line (NMPPPManager *self,
 {
 	NMPPPManagerPrivate *priv = NM_PPP_MANAGER_GET_PRIVATE (self);
 	const char *pppd_binary = NULL;
-	NMCmdLine *cmd;
+	gs_unref_ptrarray GPtrArray *cmd = NULL;
 	gboolean ppp_debug;
-	static int unit;
 
 	g_return_val_if_fail (setting != NULL, NULL);
 
-	pppd_binary = nm_utils_find_helper ("pppd", NULL, err);
+#ifndef PPPD_PATH
+#define PPPD_PATH NULL
+#endif
+
+	pppd_binary = nm_utils_find_helper ("pppd", PPPD_PATH, err);
 	if (!pppd_binary)
 		return NULL;
 
@@ -821,165 +784,162 @@ create_pppd_cmd_line (NMPPPManager *self,
 		return NULL;
 	}
 
-	/* Create pppd command line */
-	cmd = nm_cmd_line_new ();
-	nm_cmd_line_add_string (cmd, pppd_binary);
+	cmd = g_ptr_array_new_with_free_func (g_free);
 
-	nm_cmd_line_add_string (cmd, "nodetach");
-	nm_cmd_line_add_string (cmd, "lock");
+	nm_strv_ptrarray_add_string_dup (cmd, pppd_binary);
+
+	nm_strv_ptrarray_add_string_dup (cmd, "nodetach");
+	nm_strv_ptrarray_add_string_dup (cmd, "lock");
 
 	/* NM handles setting the default route */
-	nm_cmd_line_add_string (cmd, "nodefaultroute");
+	nm_strv_ptrarray_add_string_dup (cmd, "nodefaultroute");
 
 	if (!ip4_enabled)
-		nm_cmd_line_add_string (cmd, "noip");
+		nm_strv_ptrarray_add_string_dup (cmd, "noip");
 
 	if (ip6_enabled) {
 		/* Allow IPv6 to be configured by IPV6CP */
-		nm_cmd_line_add_string (cmd, "ipv6");
-		nm_cmd_line_add_string (cmd, ",");
+		nm_strv_ptrarray_add_string_dup (cmd, "ipv6");
+		nm_strv_ptrarray_add_string_dup (cmd, ",");
 	} else
-		nm_cmd_line_add_string (cmd, "noipv6");
+		nm_strv_ptrarray_add_string_dup (cmd, "noipv6");
 
 	ppp_debug = !!getenv ("NM_PPP_DEBUG");
 	if (nm_logging_enabled (LOGL_DEBUG, LOGD_PPP))
 		ppp_debug = TRUE;
 
 	if (ppp_debug)
-		nm_cmd_line_add_string (cmd, "debug");
+		nm_strv_ptrarray_add_string_dup (cmd, "debug");
 
 	if (ppp_name) {
-		nm_cmd_line_add_string (cmd, "user");
-		nm_cmd_line_add_string (cmd, ppp_name);
+		nm_strv_ptrarray_add_string_dup (cmd, "user");
+		nm_strv_ptrarray_add_string_dup (cmd, ppp_name);
 	}
 
 	if (pppoe) {
-		char *dev_str;
 		const char *pppoe_service;
 
-		nm_cmd_line_add_string (cmd, "plugin");
-		nm_cmd_line_add_string (cmd, "rp-pppoe.so");
+		nm_strv_ptrarray_add_string_dup (cmd, "plugin");
+		nm_strv_ptrarray_add_string_dup (cmd, "rp-pppoe.so");
 
-		dev_str = g_strdup_printf ("nic-%s", priv->parent_iface);
-		nm_cmd_line_add_string (cmd, dev_str);
-		g_free (dev_str);
+		nm_strv_ptrarray_add_string_concat (cmd, "nic-", priv->parent_iface);
 
 		pppoe_service = nm_setting_pppoe_get_service (pppoe);
 		if (pppoe_service) {
-			nm_cmd_line_add_string (cmd, "rp_pppoe_service");
-			nm_cmd_line_add_string (cmd, pppoe_service);
+			nm_strv_ptrarray_add_string_dup (cmd, "rp_pppoe_service");
+			nm_strv_ptrarray_add_string_dup (cmd, pppoe_service);
 		}
 	} else if (adsl) {
-		const gchar *protocol = nm_setting_adsl_get_protocol (adsl);
+		const char *protocol = nm_setting_adsl_get_protocol (adsl);
 
 		if (!strcmp (protocol, NM_SETTING_ADSL_PROTOCOL_PPPOA)) {
 			guint32 vpi = nm_setting_adsl_get_vpi (adsl);
 			guint32 vci = nm_setting_adsl_get_vci (adsl);
 			const char *encaps = nm_setting_adsl_get_encapsulation (adsl);
-			gchar *vpivci;
 
-			nm_cmd_line_add_string (cmd, "plugin");
-			nm_cmd_line_add_string (cmd, "pppoatm.so");
+			nm_strv_ptrarray_add_string_dup (cmd, "plugin");
+			nm_strv_ptrarray_add_string_dup (cmd, "pppoatm.so");
 
-			vpivci = g_strdup_printf("%d.%d", vpi, vci);
-			nm_cmd_line_add_string (cmd, vpivci);
-			g_free (vpivci);
+			nm_strv_ptrarray_add_string_printf (cmd, "%d.%d", vpi, vci);
 
 			if (g_strcmp0 (encaps, NM_SETTING_ADSL_ENCAPSULATION_LLC) == 0)
-				nm_cmd_line_add_string (cmd, "llc-encaps");
+				nm_strv_ptrarray_add_string_dup (cmd, "llc-encaps");
 			else /*if (g_strcmp0 (encaps, NM_SETTING_ADSL_ENCAPSULATION_VCMUX) == 0)*/
-				nm_cmd_line_add_string (cmd, "vc-encaps");
+				nm_strv_ptrarray_add_string_dup (cmd, "vc-encaps");
 
 		} else if (!strcmp (protocol, NM_SETTING_ADSL_PROTOCOL_PPPOE)) {
-			nm_cmd_line_add_string (cmd, "plugin");
-			nm_cmd_line_add_string (cmd, "rp-pppoe.so");
-			nm_cmd_line_add_string (cmd, priv->parent_iface);
+			nm_strv_ptrarray_add_string_dup (cmd, "plugin");
+			nm_strv_ptrarray_add_string_dup (cmd, "rp-pppoe.so");
+			nm_strv_ptrarray_add_string_dup (cmd, priv->parent_iface);
 		}
 
-		nm_cmd_line_add_string (cmd, "noipdefault");
+		nm_strv_ptrarray_add_string_dup (cmd, "noipdefault");
 	} else {
-		nm_cmd_line_add_string (cmd, priv->parent_iface);
+		nm_strv_ptrarray_add_string_dup (cmd, priv->parent_iface);
 		/* Don't send some random address as the local address */
-		nm_cmd_line_add_string (cmd, "noipdefault");
+		nm_strv_ptrarray_add_string_dup (cmd, "noipdefault");
 	}
 
 	if (nm_setting_ppp_get_baud (setting))
-		nm_cmd_line_add_int (cmd, nm_setting_ppp_get_baud (setting));
+		nm_strv_ptrarray_add_int (cmd, nm_setting_ppp_get_baud (setting));
 	else if (baud_override)
-		nm_cmd_line_add_int (cmd, (int) baud_override);
+		nm_strv_ptrarray_add_int (cmd, baud_override);
 
 	/* noauth by default, because we certainly don't have any information
 	 * with which to verify anything the peer gives us if we ask it to
 	 * authenticate itself, which is what 'auth' really means.
 	 */
-	nm_cmd_line_add_string (cmd, "noauth");
+	nm_strv_ptrarray_add_string_dup (cmd, "noauth");
 
 	if (nm_setting_ppp_get_refuse_eap (setting))
-		nm_cmd_line_add_string (cmd, "refuse-eap");
+		nm_strv_ptrarray_add_string_dup (cmd, "refuse-eap");
 	if (nm_setting_ppp_get_refuse_pap (setting))
-		nm_cmd_line_add_string (cmd, "refuse-pap");
+		nm_strv_ptrarray_add_string_dup (cmd, "refuse-pap");
 	if (nm_setting_ppp_get_refuse_chap (setting))
-		nm_cmd_line_add_string (cmd, "refuse-chap");
+		nm_strv_ptrarray_add_string_dup (cmd, "refuse-chap");
 	if (nm_setting_ppp_get_refuse_mschap (setting))
-		nm_cmd_line_add_string (cmd, "refuse-mschap");
+		nm_strv_ptrarray_add_string_dup (cmd, "refuse-mschap");
 	if (nm_setting_ppp_get_refuse_mschapv2 (setting))
-		nm_cmd_line_add_string (cmd, "refuse-mschap-v2");
+		nm_strv_ptrarray_add_string_dup (cmd, "refuse-mschap-v2");
 	if (nm_setting_ppp_get_nobsdcomp (setting))
-		nm_cmd_line_add_string (cmd, "nobsdcomp");
+		nm_strv_ptrarray_add_string_dup (cmd, "nobsdcomp");
 	if (nm_setting_ppp_get_no_vj_comp (setting))
-		nm_cmd_line_add_string (cmd, "novj");
+		nm_strv_ptrarray_add_string_dup (cmd, "novj");
 	if (nm_setting_ppp_get_nodeflate (setting))
-		nm_cmd_line_add_string (cmd, "nodeflate");
+		nm_strv_ptrarray_add_string_dup (cmd, "nodeflate");
 	if (nm_setting_ppp_get_require_mppe (setting))
-		nm_cmd_line_add_string (cmd, "require-mppe");
+		nm_strv_ptrarray_add_string_dup (cmd, "require-mppe");
 	if (nm_setting_ppp_get_require_mppe_128 (setting))
-		nm_cmd_line_add_string (cmd, "require-mppe-128");
+		nm_strv_ptrarray_add_string_dup (cmd, "require-mppe-128");
 	if (nm_setting_ppp_get_mppe_stateful (setting))
-		nm_cmd_line_add_string (cmd, "mppe-stateful");
+		nm_strv_ptrarray_add_string_dup (cmd, "mppe-stateful");
 	if (nm_setting_ppp_get_crtscts (setting))
-		nm_cmd_line_add_string (cmd, "crtscts");
+		nm_strv_ptrarray_add_string_dup (cmd, "crtscts");
 
 	/* Always ask for DNS, we don't have to use them if the connection
 	 * overrides the returned servers.
 	 */
-	nm_cmd_line_add_string (cmd, "usepeerdns");
+	nm_strv_ptrarray_add_string_dup (cmd, "usepeerdns");
 
 	if (nm_setting_ppp_get_mru (setting)) {
-		nm_cmd_line_add_string (cmd, "mru");
-		nm_cmd_line_add_int (cmd, nm_setting_ppp_get_mru (setting));
+		nm_strv_ptrarray_add_string_dup (cmd, "mru");
+		nm_strv_ptrarray_add_int (cmd, nm_setting_ppp_get_mru (setting));
 	}
 
 	if (nm_setting_ppp_get_mtu (setting)) {
-		nm_cmd_line_add_string (cmd, "mtu");
-		nm_cmd_line_add_int (cmd, nm_setting_ppp_get_mtu (setting));
+		nm_strv_ptrarray_add_string_dup (cmd, "mtu");
+		nm_strv_ptrarray_add_int (cmd, nm_setting_ppp_get_mtu (setting));
 	}
 
-	nm_cmd_line_add_string (cmd, "lcp-echo-failure");
-	nm_cmd_line_add_int (cmd, nm_setting_ppp_get_lcp_echo_failure (setting));
+	nm_strv_ptrarray_add_string_dup (cmd, "lcp-echo-failure");
+	nm_strv_ptrarray_add_int (cmd, nm_setting_ppp_get_lcp_echo_failure (setting));
 
-	nm_cmd_line_add_string (cmd, "lcp-echo-interval");
-	nm_cmd_line_add_int (cmd, nm_setting_ppp_get_lcp_echo_interval (setting));
+	nm_strv_ptrarray_add_string_dup (cmd, "lcp-echo-interval");
+	nm_strv_ptrarray_add_int (cmd, nm_setting_ppp_get_lcp_echo_interval (setting));
 
 	/* Avoid pppd to exit if no traffic going through */
-	nm_cmd_line_add_string (cmd, "idle");
-	nm_cmd_line_add_int (cmd, 0);
+	nm_strv_ptrarray_add_string_dup (cmd, "idle");
+	nm_strv_ptrarray_add_string_dup (cmd, "0");
 
-	nm_cmd_line_add_string (cmd, "ipparam");
-	nm_cmd_line_add_string (cmd, nm_dbus_object_get_path (NM_DBUS_OBJECT (self)));
+	nm_strv_ptrarray_add_string_dup (cmd, "ipparam");
+	nm_strv_ptrarray_add_string_dup (cmd, nm_dbus_object_get_path (NM_DBUS_OBJECT (self)));
 
-	nm_cmd_line_add_string (cmd, "plugin");
-	nm_cmd_line_add_string (cmd, NM_PPPD_PLUGIN);
+	nm_strv_ptrarray_add_string_dup (cmd, "plugin");
+	nm_strv_ptrarray_add_string_dup (cmd, NM_PPPD_PLUGIN);
 
 	if (pppoe && nm_setting_pppoe_get_parent (pppoe)) {
+		static int unit;
+
 		/* The PPP interface is going to be renamed, so pass a
 		 * different unit each time so that activations don't
 		 * race with each others. */
-		nm_cmd_line_add_string (cmd, "unit");
-		nm_cmd_line_add_int (cmd, unit);
+		nm_strv_ptrarray_add_string_dup (cmd, "unit");
+		nm_strv_ptrarray_add_int (cmd, unit);
 		unit = unit < G_MAXINT ? unit + 1 : 0;
 	}
 
-	return cmd;
+	g_ptr_array_add (cmd, NULL);
+	return g_steal_pointer (&cmd);
 }
 
 static void
@@ -1023,8 +983,8 @@ _ppp_manager_start (NMPPPManager *self,
 	gs_unref_object NMSettingPpp *s_ppp_free = NULL;
 	NMSettingPppoe *pppoe_setting;
 	NMSettingAdsl *adsl_setting;
-	NMCmdLine *ppp_cmd;
-	char *cmd_str;
+	gs_unref_ptrarray GPtrArray *ppp_cmd = NULL;
+	gs_free char *cmd_str = NULL;
 	struct stat st;
 	const char *ip6_method, *ip4_method;
 	gboolean ip6_enabled = FALSE;
@@ -1074,10 +1034,10 @@ _ppp_manager_start (NMPPPManager *self,
 	adsl_setting = (NMSettingAdsl *) nm_connection_get_setting (connection, NM_TYPE_SETTING_ADSL);
 
 	/* Figure out what address methods should be enabled */
-	ip4_method = nm_utils_get_ip_config_method (connection, NM_TYPE_SETTING_IP4_CONFIG);
-	ip4_enabled = g_strcmp0 (ip4_method, NM_SETTING_IP4_CONFIG_METHOD_AUTO) == 0;
-	ip6_method = nm_utils_get_ip_config_method (connection, NM_TYPE_SETTING_IP6_CONFIG);
-	ip6_enabled = g_strcmp0 (ip6_method, NM_SETTING_IP6_CONFIG_METHOD_AUTO) == 0;
+	ip4_method = nm_utils_get_ip_config_method (connection, AF_INET);
+	ip4_enabled = nm_streq (ip4_method, NM_SETTING_IP4_CONFIG_METHOD_AUTO);
+	ip6_method = nm_utils_get_ip_config_method (connection, AF_INET6);
+	ip6_enabled = nm_streq (ip6_method, NM_SETTING_IP6_CONFIG_METHOD_AUTO);
 
 	ppp_cmd = create_pppd_cmd_line (self,
 	                                s_ppp,
@@ -1089,23 +1049,25 @@ _ppp_manager_start (NMPPPManager *self,
 	                                ip6_enabled,
 	                                err);
 	if (!ppp_cmd)
-		goto out;
-
-	g_ptr_array_add (ppp_cmd->array, NULL);
+		goto fail;
 
 	_LOGI ("starting PPP connection");
 
-	cmd_str = nm_cmd_line_to_str (ppp_cmd);
-	_LOGD ("command line: %s", cmd_str);
-	g_free (cmd_str);
+	_LOGD ("command line: %s",
+	       (cmd_str = g_strjoinv (" ", (char **) ppp_cmd->pdata)));
 
 	priv->pid = 0;
-	if (!g_spawn_async (NULL, (char **) ppp_cmd->array->pdata, NULL,
+	if (!g_spawn_async (NULL,
+	                    (char **) ppp_cmd->pdata,
+	                    NULL,
 	                    G_SPAWN_DO_NOT_REAP_CHILD,
-	                    nm_utils_setpgid, NULL,
-	                    &priv->pid, err)) {
-		goto out;
-	}
+	                    nm_utils_setpgid,
+	                    NULL,
+	                    &priv->pid,
+	                    err))
+		goto fail;
+
+	nm_assert (priv->pid > 0);
 
 	_LOGI ("pppd started with pid %lld", (long long) priv->pid);
 
@@ -1113,14 +1075,10 @@ _ppp_manager_start (NMPPPManager *self,
 	priv->ppp_timeout_handler = g_timeout_add_seconds (timeout_secs, pppd_timed_out, self);
 	priv->act_req = g_object_ref (req);
 
-out:
-	if (ppp_cmd)
-		nm_cmd_line_destroy (ppp_cmd);
-
-	if (priv->pid <= 0)
-		nm_dbus_object_unexport (NM_DBUS_OBJECT (self));
-
-	return priv->pid > 0;
+	return TRUE;
+fail:
+	nm_dbus_object_unexport (NM_DBUS_OBJECT (self));
+	return FALSE;
 }
 
 static void
@@ -1158,6 +1116,10 @@ struct _NMPPPManagerStopHandle {
 	 * pppd process terminated. */
 	GObject *shutdown_waitobj;
 
+	GCancellable *cancellable;
+
+	gulong cancellable_id;
+
 	guint idle_id;
 };
 
@@ -1166,6 +1128,13 @@ _stop_handle_complete (NMPPPManagerStopHandle *handle, gboolean was_cancelled)
 {
 	gs_unref_object NMPPPManager *self = NULL;
 	NMPPPManagerStopCallback callback;
+
+	if (handle->cancellable_id) {
+		g_cancellable_disconnect (handle->cancellable,
+		                          nm_steal_int (&handle->cancellable_id));
+	}
+
+	g_clear_object (&handle->cancellable);
 
 	self = g_steal_pointer (&handle->self);
 	if (!self)
@@ -1207,8 +1176,20 @@ _stop_idle_cb (gpointer user_data)
 	return G_SOURCE_REMOVE;
 }
 
+static void
+_stop_cancelled_cb (GCancellable *cancellable,
+                    gpointer user_data)
+{
+	NMPPPManagerStopHandle *handle = user_data;
+
+	nm_clear_g_signal_handler (handle->cancellable,
+	                           &handle->cancellable_id);
+	_ppp_manager_stop_cancel (handle);
+}
+
 static NMPPPManagerStopHandle *
 _ppp_manager_stop (NMPPPManager *self,
+                   GCancellable *cancellable,
                    NMPPPManagerStopCallback callback,
                    gpointer user_data)
 {
@@ -1234,6 +1215,13 @@ _ppp_manager_stop (NMPPPManager *self,
 	handle->self = g_object_ref (self);
 	handle->callback = callback;
 	handle->user_data = user_data;
+	if (cancellable) {
+		handle->cancellable = g_object_ref (cancellable);
+		handle->cancellable_id = g_cancellable_connect (cancellable,
+		                                                G_CALLBACK (_stop_cancelled_cb),
+		                                                handle,
+		                                                NULL);
+	}
 
 	if (!priv->pid) {
 		/* No PID. There is nothing to kill, however, invoke the callback in
@@ -1259,6 +1247,8 @@ _ppp_manager_stop (NMPPPManager *self,
 
 	return handle;
 }
+
+/*****************************************************************************/
 
 static void
 _ppp_manager_stop_cancel (NMPPPManagerStopHandle *handle)
@@ -1348,7 +1338,7 @@ dispose (GObject *object)
 	 * still stop. */
 	g_warn_if_fail (!priv->pid);
 	g_warn_if_fail (!nm_dbus_object_is_exported (NM_DBUS_OBJECT (self)));
-	_ppp_manager_stop (self, NULL, NULL);
+	_ppp_manager_stop (self, NULL, NULL, NULL);
 
 	g_clear_object (&priv->act_req);
 

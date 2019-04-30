@@ -15,13 +15,14 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
- * Copyright 2011 Red Hat, Inc.
+ * Copyright 2011 - 2018 Red Hat, Inc.
  */
 
 #include "nm-default.h"
 
 #include "nm-device-infiniband.h"
 
+#include <linux/if.h>
 #include <linux/if_infiniband.h>
 
 #include "NetworkManagerUtils.h"
@@ -80,13 +81,14 @@ act_stage1_prepare (NMDevice *device, NMDeviceStateReason *out_failure_reason)
 	NMSettingInfiniband *s_infiniband;
 	char ifname_verified[IFNAMSIZ];
 	const char *transport_mode;
-	gboolean ok, no_firmware = FALSE;
+	gboolean ok;
 
 	ret = NM_DEVICE_CLASS (nm_device_infiniband_parent_class)->act_stage1_prepare (device, out_failure_reason);
 	if (ret != NM_ACT_STAGE_RETURN_SUCCESS)
 		return ret;
 
-	s_infiniband = (NMSettingInfiniband *) nm_device_get_applied_setting (device, NM_TYPE_SETTING_INFINIBAND);
+	s_infiniband = nm_device_get_applied_setting (device, NM_TYPE_SETTING_INFINIBAND);
+
 	g_return_val_if_fail (s_infiniband, NM_ACT_STAGE_RETURN_FAILURE);
 
 	transport_mode = nm_setting_infiniband_get_transport_mode (s_infiniband);
@@ -104,7 +106,7 @@ act_stage1_prepare (NMDevice *device, NMDeviceStateReason *out_failure_reason)
 	/* With some drivers the interface must be down to set transport mode */
 	nm_device_take_down (device, TRUE);
 	ok = nm_platform_sysctl_set (nm_device_get_platform (device), NMP_SYSCTL_PATHID_NETDIR (dirfd, ifname_verified, "mode"), transport_mode);
-	nm_device_bring_up (device, TRUE, &no_firmware);
+	nm_device_bring_up (device, TRUE, NULL);
 
 	if (!ok) {
 		NM_SET_OUT (out_failure_reason, NM_DEVICE_STATE_REASON_CONFIG_FAILED);
@@ -123,30 +125,28 @@ get_configured_mtu (NMDevice *device, NMDeviceMtuSource *out_source)
 }
 
 static gboolean
-check_connection_compatible (NMDevice *device, NMConnection *connection)
+check_connection_compatible (NMDevice *device, NMConnection *connection, GError **error)
 {
 	NMSettingInfiniband *s_infiniband;
 
-	if (!NM_DEVICE_CLASS (nm_device_infiniband_parent_class)->check_connection_compatible (device, connection))
-		return FALSE;
-
-	if (!nm_connection_is_type (connection, NM_SETTING_INFINIBAND_SETTING_NAME))
-		return FALSE;
-
-	s_infiniband = nm_connection_get_setting_infiniband (connection);
-	if (!s_infiniband)
+	if (!NM_DEVICE_CLASS (nm_device_infiniband_parent_class)->check_connection_compatible (device, connection, error))
 		return FALSE;
 
 	if (nm_device_is_real (device)) {
 		const char *mac;
 		const char *hw_addr;
 
+		s_infiniband = nm_connection_get_setting_infiniband (connection);
+
 		mac = nm_setting_infiniband_get_mac_address (s_infiniband);
 		if (mac) {
 			hw_addr = nm_device_get_permanent_hw_address (device);
 			if (   !hw_addr
-			    || !nm_utils_hwaddr_matches (mac, -1, hw_addr, -1))
+			    || !nm_utils_hwaddr_matches (mac, -1, hw_addr, -1)) {
+				nm_utils_error_set_literal (error, NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+				                            "MAC address mismatches");
 				return FALSE;
+			}
 		}
 	}
 
@@ -235,7 +235,7 @@ create_and_realize (NMDevice *device,
 {
 	NMDeviceInfinibandPrivate *priv = NM_DEVICE_INFINIBAND_GET_PRIVATE ((NMDeviceInfiniband *) device);
 	NMSettingInfiniband *s_infiniband;
-	NMPlatformError plerr;
+	int r;
 
 	s_infiniband = nm_connection_get_setting_infiniband (connection);
 	g_assert (s_infiniband);
@@ -269,13 +269,13 @@ create_and_realize (NMDevice *device,
 		return FALSE;
 	}
 
-	plerr = nm_platform_link_infiniband_add (nm_device_get_platform (device), priv->parent_ifindex, priv->p_key, out_plink);
-	if (plerr != NM_PLATFORM_ERROR_SUCCESS) {
+	r = nm_platform_link_infiniband_add (nm_device_get_platform (device), priv->parent_ifindex, priv->p_key, out_plink);
+	if (r < 0) {
 		g_set_error (error, NM_DEVICE_ERROR, NM_DEVICE_ERROR_CREATION_FAILED,
 		             "Failed to create InfiniBand P_Key interface '%s' for '%s': %s",
 		             nm_device_get_iface (device),
 		             nm_connection_get_id (connection),
-		             nm_platform_error_to_string_a (plerr));
+		             nm_strerror (r));
 		return FALSE;
 	}
 
@@ -287,7 +287,7 @@ static gboolean
 unrealize (NMDevice *device, GError **error)
 {
 	NMDeviceInfinibandPrivate *priv;
-	NMPlatformError plerr;
+	int r;
 
 	g_return_val_if_fail (NM_IS_DEVICE_INFINIBAND (device), FALSE);
 
@@ -299,12 +299,12 @@ unrealize (NMDevice *device, GError **error)
 		return FALSE;
 	}
 
-	plerr = nm_platform_link_infiniband_delete (nm_device_get_platform (device), priv->parent_ifindex, priv->p_key);
-	if (plerr != NM_PLATFORM_ERROR_SUCCESS) {
+	r = nm_platform_link_infiniband_delete (nm_device_get_platform (device), priv->parent_ifindex, priv->p_key);
+	if (r < 0) {
 		g_set_error (error, NM_DEVICE_ERROR, NM_DEVICE_ERROR_CREATION_FAILED,
 		             "Failed to remove InfiniBand P_Key interface '%s': %s",
 		             nm_device_get_iface (device),
-		             nm_platform_error_to_string_a (plerr));
+		             nm_strerror (r));
 		return FALSE;
 	}
 
@@ -367,24 +367,26 @@ nm_device_infiniband_class_init (NMDeviceInfinibandClass *klass)
 {
 	GObjectClass *object_class = G_OBJECT_CLASS (klass);
 	NMDBusObjectClass *dbus_object_class = NM_DBUS_OBJECT_CLASS (klass);
-	NMDeviceClass *parent_class = NM_DEVICE_CLASS (klass);
-
-	NM_DEVICE_CLASS_DECLARE_TYPES (klass, NM_SETTING_INFINIBAND_SETTING_NAME, NM_LINK_TYPE_INFINIBAND)
+	NMDeviceClass *device_class = NM_DEVICE_CLASS (klass);
 
 	object_class->get_property = get_property;
 	object_class->set_property = set_property;
 
 	dbus_object_class->interface_infos = NM_DBUS_INTERFACE_INFOS (&interface_info_device_infiniband);
 
-	parent_class->create_and_realize = create_and_realize;
-	parent_class->unrealize = unrealize;
-	parent_class->get_generic_capabilities = get_generic_capabilities;
-	parent_class->check_connection_compatible = check_connection_compatible;
-	parent_class->complete_connection = complete_connection;
-	parent_class->update_connection = update_connection;
+	device_class->connection_type_supported = NM_SETTING_INFINIBAND_SETTING_NAME;
+	device_class->connection_type_check_compatible = NM_SETTING_INFINIBAND_SETTING_NAME;
+	device_class->link_types = NM_DEVICE_DEFINE_LINK_TYPES (NM_LINK_TYPE_INFINIBAND);
 
-	parent_class->act_stage1_prepare = act_stage1_prepare;
-	parent_class->get_configured_mtu = get_configured_mtu;
+	device_class->create_and_realize = create_and_realize;
+	device_class->unrealize = unrealize;
+	device_class->get_generic_capabilities = get_generic_capabilities;
+	device_class->check_connection_compatible = check_connection_compatible;
+	device_class->complete_connection = complete_connection;
+	device_class->update_connection = update_connection;
+
+	device_class->act_stage1_prepare = act_stage1_prepare;
+	device_class->get_configured_mtu = get_configured_mtu;
 
 	obj_properties[PROP_IS_PARTITION] =
 	     g_param_spec_boolean (NM_DEVICE_INFINIBAND_IS_PARTITION, "", "",

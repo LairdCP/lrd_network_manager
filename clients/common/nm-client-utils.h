@@ -24,11 +24,12 @@
 #include "nm-active-connection.h"
 #include "nm-device.h"
 
-typedef enum {
-	NMC_TRI_STATE_NO,
-	NMC_TRI_STATE_YES,
-	NMC_TRI_STATE_UNKNOWN,
-} NMCTriStateValue;
+
+#define nm_auto_unref_ip_address nm_auto (_nm_ip_address_unref)
+NM_AUTO_DEFINE_FCN0 (NMIPAddress *, _nm_ip_address_unref, nm_ip_address_unref)
+
+#define nm_auto_unref_wgpeer nm_auto (_nm_auto_unref_wgpeer)
+NM_AUTO_DEFINE_FCN0 (NMWireGuardPeer *, _nm_auto_unref_wgpeer, nm_wireguard_peer_unref)
 
 const NMObject **nmc_objects_sort_by_path (const NMObject *const*objs, gssize len);
 
@@ -40,7 +41,7 @@ gboolean nmc_string_to_uint (const char *str,
                              unsigned long int max,
                              unsigned long int *value);
 gboolean nmc_string_to_bool (const char *str, gboolean *val_bool, GError **error);
-gboolean nmc_string_to_tristate (const char *str, NMCTriStateValue *val, GError **error);
+gboolean nmc_string_to_ternary (const char *str, NMTernary *val, GError **error);
 
 gboolean matches (const char *cmd, const char *pattern);
 

@@ -24,12 +24,10 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
-#include <string.h>
 #include <sys/types.h>
 #include <signal.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
-#include <errno.h>
 #include <arpa/inet.h>
 #include <glib-unix.h>
 
@@ -54,7 +52,7 @@ typedef struct {
 
 	Request *current_request;
 	GQueue *requests_waiting;
-	gint num_requests_pending;
+	int num_requests_pending;
 } Handler;
 
 typedef struct {
@@ -131,8 +129,8 @@ struct Request {
 
 	GPtrArray *scripts;  /* list of ScriptInfo */
 	guint idx;
-	gint num_scripts_done;
-	gint num_scripts_nowait;
+	int num_scripts_done;
+	int num_scripts_nowait;
 };
 
 /*****************************************************************************/
@@ -387,7 +385,7 @@ complete_script (ScriptInfo *script)
 }
 
 static void
-script_watch_cb (GPid pid, gint status, gpointer user_data)
+script_watch_cb (GPid pid, int status, gpointer user_data)
 {
 	ScriptInfo *script = user_data;
 	guint err;
@@ -461,7 +459,7 @@ again:
 	return FALSE;
 }
 
-static inline gboolean
+static gboolean
 check_permissions (struct stat *s, const char **out_error_msg)
 {
 	g_return_val_if_fail (s != NULL, FALSE);
@@ -528,7 +526,7 @@ static gboolean
 script_dispatch (ScriptInfo *script)
 {
 	GError *error = NULL;
-	gchar *argv[4];
+	char *argv[4];
 	Request *request = script->request;
 
 	if (script->dispatched)
@@ -828,9 +826,9 @@ on_name_lost (GDBusConnection *connection,
 }
 
 static void
-log_handler (const gchar *log_domain,
+log_handler (const char *log_domain,
              GLogLevelFlags log_level,
-             const gchar *message,
+             const char *message,
              gpointer ignored)
 {
 	int syslog_priority;

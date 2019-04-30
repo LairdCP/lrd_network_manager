@@ -23,8 +23,9 @@
 
 #include "nm-supplicant-config.h"
 
-#include <string.h>
 #include <stdlib.h>
+
+#include "nm-core-internal.h"
 
 #include "nm-supplicant-settings-verify.h"
 #include "nm-setting.h"
@@ -99,23 +100,17 @@ config_option_free (ConfigOption *opt)
 }
 
 static void
-blob_free (GByteArray *array)
-{
-	g_byte_array_free (array, TRUE);
-}
-
-static void
 nm_supplicant_config_init (NMSupplicantConfig * self)
 {
 	NMSupplicantConfigPrivate *priv = NM_SUPPLICANT_CONFIG_GET_PRIVATE (self);
 
 	priv->config = g_hash_table_new_full (nm_str_hash, g_str_equal,
-	                                      (GDestroyNotify) g_free,
+	                                      g_free,
 	                                      (GDestroyNotify) config_option_free);
 
 	priv->blobs = g_hash_table_new_full (nm_str_hash, g_str_equal,
-	                                     (GDestroyNotify) g_free,
-	                                     (GDestroyNotify) blob_free);
+	                                     g_free,
+	                                     (GDestroyNotify) g_bytes_unref);
 
 	priv->ap_scan = 1;
 	priv->dispose_has_run = FALSE;
@@ -208,7 +203,6 @@ nm_supplicant_config_add_blob (NMSupplicantConfig *self,
 	ConfigOption *old_opt;
 	ConfigOption *opt;
 	OptType type;
-	GByteArray *blob;
 	const guint8 *data;
 	gsize data_len;
 
@@ -236,9 +230,6 @@ nm_supplicant_config_add_blob (NMSupplicantConfig *self,
 		return FALSE;
 	}
 
-	blob = g_byte_array_sized_new (data_len);
-	g_byte_array_append (blob, data, data_len);
-
 	opt = g_slice_new0 (ConfigOption);
 	opt->value = g_strdup_printf ("blob://%s", blobid);
 	opt->len = strlen (opt->value);
@@ -247,7 +238,9 @@ nm_supplicant_config_add_blob (NMSupplicantConfig *self,
 	nm_log_info (LOGD_SUPPLICANT, "Config: added '%s' value '%s'", key, opt->value);
 
 	g_hash_table_insert (priv->config, g_strdup (key), opt);
-	g_hash_table_insert (priv->blobs, g_strdup (blobid), blob);
+	g_hash_table_insert (priv->blobs,
+	                     g_strdup (blobid),
+	                     g_bytes_ref (value));
 
 	return TRUE;
 }
@@ -454,7 +447,6 @@ nm_supplicant_config_add_setting_macsec (NMSupplicantConfig * self,
                                          NMSettingMacsec * setting,
                                          GError **error)
 {
-	gs_unref_bytes GBytes *bytes = NULL;
 	const char *value;
 	char buf[32];
 	int port;
@@ -478,43 +470,50 @@ nm_supplicant_config_add_setting_macsec (NMSupplicantConfig * self,
 	}
 
 	if (nm_setting_macsec_get_mode (setting) == NM_SETTING_MACSEC_MODE_PSK) {
+		guint8 buffer_cak[NM_SETTING_MACSEC_MKA_CAK_LENGTH/2];
+		guint8 buffer_ckn[NM_SETTING_MACSEC_MKA_CKN_LENGTH/2];
+
 		if (!nm_supplicant_config_add_option (self, "key_mgmt", "NONE", -1, NULL, error))
 			return FALSE;
 
-		/* CAK */
 		value = nm_setting_macsec_get_mka_cak (setting);
-		if (!value) {
+		if (   !value
+		    || !nm_utils_hexstr2bin_buf (value,
+		                                 FALSE,
+		                                 FALSE,
+		                                 NULL,
+		                                 buffer_cak)) {
 			g_set_error_literal (error,
 			                     NM_SUPPLICANT_ERROR,
 			                     NM_SUPPLICANT_ERROR_CONFIG,
-			                     "missing MKA CAK");
+			                     value ? "invalid MKA CAK" : "missing MKA CAK");
 			return FALSE;
 		}
-
-		bytes = nm_utils_hexstr2bin (value);
 		if (!nm_supplicant_config_add_option (self,
 		                                      "mka_cak",
-		                                      g_bytes_get_data (bytes, NULL),
-		                                      g_bytes_get_size (bytes),
+		                                      (char *) buffer_cak,
+		                                      sizeof (buffer_cak),
 		                                      "<hidden>",
 		                                      error))
 			return FALSE;
 
-		/* CKN */
 		value = nm_setting_macsec_get_mka_ckn (setting);
-		if (!value) {
+		if (   !value
+		    || !nm_utils_hexstr2bin_buf (value,
+		                                 FALSE,
+		                                 FALSE,
+		                                 NULL,
+		                                 buffer_ckn)) {
 			g_set_error_literal (error,
 			                     NM_SUPPLICANT_ERROR,
 			                     NM_SUPPLICANT_ERROR_CONFIG,
-			                     "missing MKA CKN");
+			                     value ? "invalid MKA CKN" : "missing MKA CKN");
 			return FALSE;
 		}
-
-		bytes = nm_utils_hexstr2bin (value);
 		if (!nm_supplicant_config_add_option (self,
 		                                      "mka_ckn",
-		                                      g_bytes_get_data (bytes, NULL),
-		                                      g_bytes_get_size (bytes),
+		                                      (char *) buffer_ckn,
+		                                      sizeof (buffer_ckn),
 		                                      NULL,
 		                                      error))
 			return FALSE;
@@ -577,6 +576,12 @@ nm_supplicant_config_add_setting_wireless (NMSupplicantConfig * self,
 
 	if (is_ap) {
 		if (!nm_supplicant_config_add_option (self, "mode", "2", -1, NULL, error))
+			return FALSE;
+
+		if (   nm_setting_wireless_get_hidden (setting)
+		    && !nm_supplicant_config_add_option (self,
+		                                         "ignore_broadcast_ssid", "1",
+		                                         -1, NULL, error))
 			return FALSE;
 	}
 
@@ -677,7 +682,7 @@ nm_supplicant_config_add_bgscan (NMSupplicantConfig *self,
 	                  NM_SETTING_WIRELESS_MODE_ADHOC))
 		return TRUE;
 
-	/* Don't scan when the connection is locked to a specifc AP, since
+	/* Don't scan when the connection is locked to a specific AP, since
 	 * intra-ESS roaming (which requires periodic scanning) isn't being
 	 * used due to the specific AP lock. (bgo #513820)
 	 */
@@ -803,31 +808,28 @@ add_string_val (NMSupplicantConfig *self,
 
 static void
 wep128_passphrase_hash (const char *input,
-                        size_t input_len,
-                        guint8 *out_digest,
-                        size_t *out_digest_len)
+                        gsize input_len,
+                        guint8 *digest /* 13 bytes */)
 {
-	GChecksum *sum;
+	nm_auto_free_checksum GChecksum *sum = NULL;
+	guint8 md5[NM_UTILS_CHECKSUM_LENGTH_MD5];
 	guint8 data[64];
 	int i;
 
-	g_return_if_fail (out_digest != NULL);
-	g_return_if_fail (out_digest_len != NULL);
-	g_return_if_fail (*out_digest_len >= 16);
+	nm_assert (input);
+	nm_assert (input_len);
+	nm_assert (digest);
 
 	/* Get at least 64 bytes by repeating the passphrase into the buffer */
 	for (i = 0; i < sizeof (data); i++)
 		data[i] = input[i % input_len];
 
 	sum = g_checksum_new (G_CHECKSUM_MD5);
-	g_assert (sum);
 	g_checksum_update (sum, data, sizeof (data));
-	g_checksum_get_digest (sum, out_digest, out_digest_len);
-	g_checksum_free (sum);
+	nm_utils_checksum_get_digest (sum, md5);
 
-	g_assert (*out_digest_len == 16);
 	/* WEP104 keys are 13 bytes in length (26 hex characters) */
-	*out_digest_len = 13;
+	memcpy (digest, md5, 13);
 }
 
 static gboolean
@@ -837,9 +839,10 @@ add_wep_key (NMSupplicantConfig *self,
              NMWepKeyType wep_type,
              GError **error)
 {
-	size_t key_len = key ? strlen (key) : 0;
+	gsize key_len;
 
-	if (!key || !key_len)
+	if (   !key
+	    || (key_len = strlen (key)) == 0)
 		return TRUE;
 
 	if (wep_type == NM_WEP_KEY_TYPE_UNKNOWN) {
@@ -852,10 +855,16 @@ add_wep_key (NMSupplicantConfig *self,
 	if (   (wep_type == NM_WEP_KEY_TYPE_UNKNOWN)
 	    || (wep_type == NM_WEP_KEY_TYPE_KEY)) {
 		if ((key_len == 10) || (key_len == 26)) {
-			gs_unref_bytes GBytes *bytes = NULL;
+			guint8 buffer[26/2];
 
-			bytes = nm_utils_hexstr2bin (key);
-			if (!bytes) {
+			if (!nm_utils_hexstr2bin_full (key,
+			                               FALSE,
+			                               FALSE,
+			                               NULL,
+			                               key_len / 2,
+			                               buffer,
+			                               sizeof (buffer),
+			                               NULL)) {
 				g_set_error (error, NM_SUPPLICANT_ERROR, NM_SUPPLICANT_ERROR_CONFIG,
 				             "cannot add wep-key %s to suplicant config because key is not hex",
 				             name);
@@ -863,8 +872,8 @@ add_wep_key (NMSupplicantConfig *self,
 			}
 			if (!nm_supplicant_config_add_option (self,
 			                                      name,
-			                                      g_bytes_get_data (bytes, NULL),
-			                                      g_bytes_get_size (bytes),
+			                                      (char *) buffer,
+			                                      key_len / 2,
 			                                      "<hidden>",
 			                                      error))
 				return FALSE;
@@ -878,11 +887,10 @@ add_wep_key (NMSupplicantConfig *self,
 			return FALSE;
 		}
 	} else if (wep_type == NM_WEP_KEY_TYPE_PASSPHRASE) {
-		guint8 digest[16];
-		size_t digest_len = sizeof (digest);
+		guint8 digest[13];
 
-		wep128_passphrase_hash (key, key_len, digest, &digest_len);
-		if (!nm_supplicant_config_add_option (self, name, (const char *) digest, digest_len, "<hidden>", error))
+		wep128_passphrase_hash (key, key_len, digest);
+		if (!nm_supplicant_config_add_option (self, name, (const char *) digest, sizeof (digest), "<hidden>", error))
 			return FALSE;
 	}
 
@@ -902,6 +910,7 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
 	NMSupplicantConfigPrivate *priv = NM_SUPPLICANT_CONFIG_GET_PRIVATE (self);
 	const char *key_mgmt, *key_mgmt_conf, *auth_alg;
 	const char *psk;
+	gboolean set_pmf;
 
 	g_return_val_if_fail (NM_IS_SUPPLICANT_CONFIG (self), FALSE);
 	g_return_val_if_fail (setting != NULL, FALSE);
@@ -950,31 +959,40 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
 	if (psk) {
 		size_t psk_len = strlen (psk);
 
-		if (psk_len == 64) {
-			gs_unref_bytes GBytes *bytes = NULL;
 
-			/* Hex PSK */
-			bytes = nm_utils_hexstr2bin (psk);
-			if (!bytes) {
-				g_set_error (error, NM_SUPPLICANT_ERROR, NM_SUPPLICANT_ERROR_CONFIG,
-				             "Cannot add psk to supplicant config due to invalid hex");
-				return FALSE;
-			}
-
-			if (!nm_supplicant_config_add_option (self,
-			                                      "psk",
-			                                      g_bytes_get_data (bytes, NULL),
-			                                      g_bytes_get_size (bytes),
-			                                      "<hidden>",
-			                                      error))
-				return FALSE;
-		} else if (psk_len >= 8 && psk_len <= 63) {
+		if (psk_len >= 8 && psk_len <= 63) {
 			/* Use TYPE_STRING here so that it gets pushed to the
 			 * supplicant as a string, and therefore gets quoted,
 			 * and therefore the supplicant will interpret it as a
 			 * passphrase and not a hex key.
 			 */
 			if (!nm_supplicant_config_add_option_with_type (self, "psk", psk, -1, TYPE_STRING, "<hidden>", error))
+				return FALSE;
+		} else if (nm_streq (key_mgmt, "sae")) {
+			/* If the SAE password doesn't comply with WPA-PSK limitation,
+			 * we need to call it "sae_password" instead of "psk".
+			 */
+			if (!nm_supplicant_config_add_option_with_type (self, "sae_password", psk, -1, TYPE_STRING, "<hidden>", error))
+				return FALSE;
+		} else if (psk_len == 64) {
+			guint8 buffer[32];
+
+			/* Hex PSK */
+			if (!nm_utils_hexstr2bin_buf (psk,
+			                              FALSE,
+			                              FALSE,
+			                              NULL,
+			                              buffer)) {
+				g_set_error (error, NM_SUPPLICANT_ERROR, NM_SUPPLICANT_ERROR_CONFIG,
+				             "Cannot add psk to supplicant config due to invalid hex");
+				return FALSE;
+			}
+			if (!nm_supplicant_config_add_option (self,
+			                                      "psk",
+			                                      (char *) buffer,
+			                                      sizeof (buffer),
+			                                      "<hidden>",
+			                                      error))
 				return FALSE;
 		} else {
 			g_set_error (error, NM_SUPPLICANT_ERROR, NM_SUPPLICANT_ERROR_CONFIG,
@@ -989,20 +1007,22 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
 		pmf = NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE;
 
 	/* Check if we actually support PMF */
+	set_pmf = TRUE;
 	if (!priv->support_pmf) {
 		if (pmf == NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED) {
 			g_set_error_literal (error, NM_SUPPLICANT_ERROR, NM_SUPPLICANT_ERROR_CONFIG,
 			                     "Supplicant does not support PMF");
 			return FALSE;
-		} else if (pmf == NM_SETTING_WIRELESS_SECURITY_PMF_OPTIONAL)
-			pmf = NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE;
+		}
+		set_pmf = FALSE;
 	}
 
 	/* Only WPA-specific things when using WPA */
 	if (   !strcmp (key_mgmt, "wpa-none")
 	    || !strcmp (key_mgmt, "wpa-psk")
 	    || !strcmp (key_mgmt, "wpa-eap")
-	    || !strcmp (key_mgmt, "cckm")){
+	    || !strcmp (key_mgmt, "cckm")
+	    || !strcmp (key_mgmt, "sae")) {
 		if (!ADD_STRING_LIST_VAL (self, setting, wireless_security, proto, protos, "proto", ' ', TRUE, FALSE, error))
 			return FALSE;
 		if (!ADD_STRING_LIST_VAL (self, setting, wireless_security, pairwise, pairwise, "pairwise", ' ', TRUE, NULL, error))
@@ -1010,13 +1030,14 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
 		if (!ADD_STRING_LIST_VAL (self, setting, wireless_security, group, groups, "group", ' ', TRUE, NULL, error))
 			return FALSE;
 
-		if (   !nm_streq (key_mgmt, "wpa-none")
+		if (   set_pmf
+		    && !nm_streq (key_mgmt, "wpa-none")
 		    && NM_IN_SET (pmf,
-		                  NM_SETTING_WIRELESS_SECURITY_PMF_OPTIONAL,
+		                  NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE,
 		                  NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED)) {
 			if (!nm_supplicant_config_add_option (self,
 			                                      "ieee80211w",
-			                                      pmf == NM_SETTING_WIRELESS_SECURITY_PMF_OPTIONAL ? "1" : "2",
+			                                      pmf == NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE ? "0" : "2",
 			                                      -1,
 			                                      NULL,
 			                                      error))
@@ -1089,7 +1110,7 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
 			 */
 			const char* proactive_key_caching = nm_setting_wireless_security_get_proactive_key_caching (setting);
 			if (!add_string_val (self, proactive_key_caching, "proactive_key_caching", TRUE, FALSE, error)) {
-				if (!nm_supplicant_config_add_option (self, "proactive_key_caching", "1", -1, FALSE, error))
+				if (!nm_supplicant_config_add_option (self, "proactive_key_caching", "1", -1, NULL, error))
 					return FALSE;
 			}
 		}
@@ -1106,7 +1127,7 @@ add_pkcs11_uri_with_pin (NMSupplicantConfig *self,
                          const NMSettingSecretFlags pin_flags,
                          GError **error)
 {
-	gs_strfreev gchar **split = NULL;
+	gs_strfreev char **split = NULL;
 	gs_free char *tmp = NULL;
 	gs_free char *tmp_log = NULL;
 	gs_free char *pin_qattr = NULL;
@@ -1166,6 +1187,7 @@ nm_supplicant_config_add_setting_8021x (NMSupplicantConfig *self,
 	guint32 frag, hdrs;
 	gs_free char *frag_str = NULL;
 	NMSetting8021xAuthFlags phase1_auth_flags;
+	nm_auto_free_gstring GString *eap_str = NULL;
 	char const *tls_disable = NULL;
 
 	g_return_val_if_fail (NM_IS_SUPPLICANT_CONFIG (self), FALSE);
@@ -1203,19 +1225,37 @@ nm_supplicant_config_add_setting_8021x (NMSupplicantConfig *self,
 		priv->ap_scan = 0;
 	}
 
-	if (!ADD_STRING_LIST_VAL (self, setting, 802_1x, eap_method, eap_methods, "eap", ' ', TRUE, NULL, error))
-		return FALSE;
-
-	/* Check EAP method for special handling: PEAP + GTC, FAST */
+	/* Build the "eap" option string while we check for EAP methods needing
+	 * special handling: PEAP + GTC, FAST, external */
+	eap_str = g_string_new (NULL);
 	num_eap = nm_setting_802_1x_get_num_eap_methods (setting);
 	for (i = 0; i < num_eap; i++) {
 		const char *method = nm_setting_802_1x_get_eap_method (setting, i);
 
-		if (method && (strcasecmp (method, "fast") == 0)) {
+		if (nm_streq (method, "fast")) {
 			fast = TRUE;
 			priv->fast_required = TRUE;
 		}
+
+		if (nm_streq (method, "external")) {
+			if (num_eap == 1) {
+				g_set_error (error, NM_SUPPLICANT_ERROR, NM_SUPPLICANT_ERROR_CONFIG,
+				             "Connection settings managed externally to NM, connection"
+				             " cannot be used with wpa_supplicant");
+				return FALSE;
+			}
+			continue;
+		}
+
+		if (eap_str->len)
+			g_string_append_c (eap_str, ' ');
+		g_string_append (eap_str, method);
 	}
+
+	g_string_ascii_up (eap_str);
+	if (   eap_str->len
+	    && !nm_supplicant_config_add_option (self, "eap", eap_str->str, -1, NULL, error))
+		return FALSE;
 
 	/* Adjust the fragment size according to MTU, but do not set it higher than 1280-14
 	 * for better compatibility */
@@ -1613,3 +1653,4 @@ nm_supplicant_config_add_no_security (NMSupplicantConfig *self, GError **error)
 {
 	return nm_supplicant_config_add_option (self, "key_mgmt", "NONE", -1, NULL, error);
 }
+

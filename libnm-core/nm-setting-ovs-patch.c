@@ -34,11 +34,11 @@
  * necessary for Open vSwitch interfaces of type "patch".
  **/
 
-enum {
-	PROP_0,
+/*****************************************************************************/
+
+NM_GOBJECT_PROPERTIES_DEFINE_BASE (
 	PROP_PEER,
-	LAST_PROP
-};
+);
 
 /**
  * NMSettingOvsPatch:
@@ -55,9 +55,7 @@ struct _NMSettingOvsPatchClass {
 	NMSettingClass parent;
 };
 
-G_DEFINE_TYPE_WITH_CODE (NMSettingOvsPatch, nm_setting_ovs_patch, NM_TYPE_SETTING,
-                         _nm_register_setting (OVS_PATCH, NM_SETTING_PRIORITY_HW_BASE))
-NM_SETTING_REGISTER_TYPE (NM_TYPE_SETTING_OVS_PATCH)
+G_DEFINE_TYPE (NMSettingOvsPatch, nm_setting_ovs_patch, NM_TYPE_SETTING)
 
 /*****************************************************************************/
 
@@ -182,15 +180,16 @@ finalize (GObject *object)
 }
 
 static void
-nm_setting_ovs_patch_class_init (NMSettingOvsPatchClass *setting_class)
+nm_setting_ovs_patch_class_init (NMSettingOvsPatchClass *klass)
 {
-	GObjectClass *object_class = G_OBJECT_CLASS (setting_class);
-	NMSettingClass *parent_class = NM_SETTING_CLASS (setting_class);
+	GObjectClass *object_class = G_OBJECT_CLASS (klass);
+	NMSettingClass *setting_class = NM_SETTING_CLASS (klass);
 
 	object_class->set_property = set_property;
 	object_class->get_property = get_property;
-	object_class->finalize = finalize;
-	parent_class->verify = verify;
+	object_class->finalize     = finalize;
+
+	setting_class->verify = verify;
 
 	/**
 	 * NMSettingOvsPatch:peer:
@@ -200,12 +199,15 @@ nm_setting_ovs_patch_class_init (NMSettingOvsPatchClass *setting_class)
 	 *
 	 * Since: 1.10
 	 **/
-	g_object_class_install_property
-	        (object_class, PROP_PEER,
-	         g_param_spec_string (NM_SETTING_OVS_PATCH_PEER, "", "",
-	                              NULL,
-	                              G_PARAM_READWRITE |
-	                              G_PARAM_CONSTRUCT |
-	                              NM_SETTING_PARAM_INFERRABLE |
-	                              G_PARAM_STATIC_STRINGS));
+	obj_properties[PROP_PEER] =
+	    g_param_spec_string (NM_SETTING_OVS_PATCH_PEER, "", "",
+	                         NULL,
+	                         G_PARAM_READWRITE |
+	                         G_PARAM_CONSTRUCT |
+	                         NM_SETTING_PARAM_INFERRABLE |
+	                         G_PARAM_STATIC_STRINGS);
+
+	g_object_class_install_properties (object_class, _PROPERTY_ENUMS_LAST, obj_properties);
+
+	_nm_setting_class_commit (setting_class, NM_META_SETTING_TYPE_OVS_PATCH);
 }

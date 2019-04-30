@@ -21,13 +21,11 @@
 
 #include "nm-default.h"
 
-#include <string.h>
+#include "nm-device-wimax.h"
 
 #include "nm-setting-connection.h"
 #include "nm-setting-wimax.h"
 #include "nm-utils.h"
-
-#include "nm-device-wimax.h"
 #include "nm-wimax-nsp.h"
 #include "nm-object-private.h"
 #include "nm-core-internal.h"
@@ -45,9 +43,9 @@ typedef struct {
 	GPtrArray *nsps;
 
 	guint center_freq;
-	gint rssi;
-	gint cinr;
-	gint tx_power;
+	int rssi;
+	int cinr;
+	int tx_power;
 	char *bsid;
 } NMDeviceWimaxPrivate;
 
@@ -235,7 +233,7 @@ nm_device_wimax_get_center_frequency (NMDeviceWimax *self)
  *
  * Deprecated: 1.2: WiMAX is no longer supported.
  **/
-gint
+int
 nm_device_wimax_get_rssi (NMDeviceWimax *self)
 {
 	g_return_val_if_fail (NM_IS_DEVICE_WIMAX (self), 0);
@@ -255,7 +253,7 @@ nm_device_wimax_get_rssi (NMDeviceWimax *self)
  *
  * Deprecated: 1.2: WiMAX is no longer supported.
  **/
-gint
+int
 nm_device_wimax_get_cinr (NMDeviceWimax *self)
 {
 	g_return_val_if_fail (NM_IS_DEVICE_WIMAX (self), 0);
@@ -275,7 +273,7 @@ nm_device_wimax_get_cinr (NMDeviceWimax *self)
  *
  * Deprecated: 1.2: WiMAX is no longer supported.
  **/
-gint
+int
 nm_device_wimax_get_tx_power (NMDeviceWimax *self)
 {
 	g_return_val_if_fail (NM_IS_DEVICE_WIMAX (self), 0);

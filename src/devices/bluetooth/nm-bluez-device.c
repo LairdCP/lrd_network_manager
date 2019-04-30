@@ -23,8 +23,6 @@
 
 #include "nm-bluez-device.h"
 
-#include <string.h>
-
 #include "nm-core-internal.h"
 #include "nm-bt-error.h"
 #include "nm-bluez-common.h"
@@ -94,7 +92,7 @@ typedef struct {
 	NMSettings *settings;
 	GSList *connections;
 
-	NMConnection *pan_connection;
+	NMSettingsConnection *pan_connection;
 	gboolean pan_connection_no_autocreate;
 } NMBluezDevicePrivate;
 
@@ -114,8 +112,9 @@ G_DEFINE_TYPE (NMBluezDevice, nm_bluez_device, G_TYPE_OBJECT)
 /*****************************************************************************/
 
 static void cp_connection_added (NMSettings *settings,
-                                 NMConnection *connection, NMBluezDevice *self);
-static gboolean connection_compatible (NMBluezDevice *self, NMConnection *connection);
+                                 NMSettingsConnection *sett_conn,
+                                 NMBluezDevice *self);
+static gboolean connection_compatible (NMBluezDevice *self, NMSettingsConnection *sett_conn);
 
 /*****************************************************************************/
 
@@ -181,10 +180,10 @@ nm_bluez_device_get_connected (NMBluezDevice *self)
 static void
 pan_connection_check_create (NMBluezDevice *self)
 {
-	NMConnection *connection;
-	NMConnection *added;
+	gs_unref_object NMConnection *connection = NULL;
+	NMSettingsConnection *added;
 	NMSetting *setting;
-	char *id;
+	gs_free char *id = NULL;
 	char uuid[37];
 	GError *error = NULL;
 	NMBluezDevicePrivate *priv = NM_BLUEZ_DEVICE_GET_PRIVATE (self);
@@ -226,35 +225,25 @@ pan_connection_check_create (NMBluezDevice *self)
 	              NULL);
 	nm_connection_add_setting (connection, setting);
 
-	/* Setting: IPv4 */
-	setting = nm_setting_ip4_config_new ();
-	g_object_set (G_OBJECT (setting),
-	              NM_SETTING_IP_CONFIG_METHOD, NM_SETTING_IP4_CONFIG_METHOD_AUTO,
-	              NM_SETTING_IP_CONFIG_MAY_FAIL, FALSE,
-	              NULL);
-	nm_connection_add_setting (connection, setting);
-
-	/* Setting: IPv6 */
-	setting = nm_setting_ip6_config_new ();
-	g_object_set (G_OBJECT (setting),
-	              NM_SETTING_IP_CONFIG_METHOD, NM_SETTING_IP6_CONFIG_METHOD_AUTO,
-	              NM_SETTING_IP_CONFIG_MAY_FAIL, TRUE,
-	              NULL);
-	nm_connection_add_setting (connection, setting);
+	if (!nm_connection_normalize (connection, NULL, NULL, &error)) {
+		nm_log_err (LOGD_BT, "bluez[%s] couldn't generate a connection for NAP device: %s",
+		            priv->path, error->message);
+		g_error_free (error);
+		g_return_if_reached ();
+	}
 
 	/* Adding a new connection raises a signal which eventually calls check_emit_usable (again)
 	 * which then already finds the suitable connection in priv->connections. This is confusing,
 	 * so block the signal. check_emit_usable will succeed after this function call returns. */
 	g_signal_handlers_block_by_func (priv->settings, cp_connection_added, self);
-	added = NM_CONNECTION (nm_settings_add_connection (priv->settings, connection, FALSE, &error));
+	added = nm_settings_add_connection (priv->settings, connection, FALSE, &error);
 	g_signal_handlers_unblock_by_func (priv->settings, cp_connection_added, self);
 
 	if (added) {
-		g_assert (!g_slist_find (priv->connections, added));
-		g_assert (connection_compatible (self, added));
-		g_assert (nm_connection_compare (added, connection, NM_SETTING_COMPARE_FLAG_EXACT));
+		nm_assert (!g_slist_find (priv->connections, added));
+		nm_assert (connection_compatible (self, added));
 
-		nm_settings_connection_set_flags (NM_SETTINGS_CONNECTION (added), NM_SETTINGS_CONNECTION_INT_FLAGS_NM_GENERATED, TRUE);
+		nm_settings_connection_set_flags (added, NM_SETTINGS_CONNECTION_INT_FLAGS_NM_GENERATED, TRUE);
 
 		priv->connections = g_slist_prepend (priv->connections, g_object_ref (added));
 		priv->pan_connection = added;
@@ -263,11 +252,7 @@ pan_connection_check_create (NMBluezDevice *self)
 		nm_log_warn (LOGD_BT, "bluez[%s] couldn't add new Bluetooth connection for NAP device: '%s' (%s): %s",
 		             priv->path, id, uuid, error->message);
 		g_clear_error (&error);
-
 	}
-	g_object_unref (connection);
-
-	g_free (id);
 }
 
 static gboolean
@@ -321,9 +306,10 @@ check_emit_usable_schedule (NMBluezDevice *self)
 /*****************************************************************************/
 
 static gboolean
-connection_compatible (NMBluezDevice *self, NMConnection *connection)
+connection_compatible (NMBluezDevice *self, NMSettingsConnection *sett_conn)
 {
 	NMBluezDevicePrivate *priv = NM_BLUEZ_DEVICE_GET_PRIVATE (self);
+	NMConnection *connection = nm_settings_connection_get_connection (sett_conn);
 	NMSettingBluetooth *s_bt;
 	const char *bt_type;
 	const char *bdaddr;
@@ -361,22 +347,24 @@ connection_compatible (NMBluezDevice *self, NMConnection *connection)
 }
 
 static gboolean
-_internal_track_connection (NMBluezDevice *self, NMConnection *connection, gboolean tracked)
+_internal_track_connection (NMBluezDevice *self,
+                            NMSettingsConnection *sett_conn,
+                            gboolean tracked)
 {
 	NMBluezDevicePrivate *priv = NM_BLUEZ_DEVICE_GET_PRIVATE (self);
 	gboolean was_tracked;
 
-	was_tracked = !!g_slist_find (priv->connections, connection);
+	was_tracked = !!g_slist_find (priv->connections, sett_conn);
 	if (was_tracked == !!tracked)
 		return FALSE;
 
 	if (tracked)
-		priv->connections = g_slist_prepend (priv->connections, g_object_ref (connection));
+		priv->connections = g_slist_prepend (priv->connections, g_object_ref (sett_conn));
 	else {
-		priv->connections = g_slist_remove (priv->connections, connection);
-		if (priv->pan_connection == connection)
+		priv->connections = g_slist_remove (priv->connections, sett_conn);
+		if (priv->pan_connection == sett_conn)
 			priv->pan_connection = NULL;
-		g_object_unref (connection);
+		g_object_unref (sett_conn);
 	}
 
 	return TRUE;
@@ -384,32 +372,32 @@ _internal_track_connection (NMBluezDevice *self, NMConnection *connection, gbool
 
 static void
 cp_connection_added (NMSettings *settings,
-                     NMConnection *connection,
+                     NMSettingsConnection *sett_conn,
                      NMBluezDevice *self)
 {
-	if (connection_compatible (self, connection)) {
-		if (_internal_track_connection (self, connection, TRUE))
+	if (connection_compatible (self, sett_conn)) {
+		if (_internal_track_connection (self, sett_conn, TRUE))
 			check_emit_usable (self);
 	}
 }
 
 static void
 cp_connection_removed (NMSettings *settings,
-                       NMConnection *connection,
+                       NMSettingsConnection *sett_conn,
                        NMBluezDevice *self)
 {
-	if (_internal_track_connection (self, connection, FALSE))
+	if (_internal_track_connection (self, sett_conn, FALSE))
 		check_emit_usable (self);
 }
 
 static void
 cp_connection_updated (NMSettings *settings,
-                       NMConnection *connection,
+                       NMSettingsConnection *sett_conn,
                        gboolean by_user,
                        NMBluezDevice *self)
 {
-	if (_internal_track_connection (self, connection,
-	                                connection_compatible (self, connection)))
+	if (_internal_track_connection (self, sett_conn,
+	                                connection_compatible (self, sett_conn)))
 		check_emit_usable_schedule (self);
 }
 
@@ -423,10 +411,8 @@ load_connections (NMBluezDevice *self)
 
 	connections = nm_settings_get_connections (priv->settings, NULL);
 	for (i = 0; connections[i]; i++) {
-		NMConnection *connection = (NMConnection *) connections[i];
-
-		if (connection_compatible (self, connection))
-			changed |= _internal_track_connection (self, connection, TRUE);
+		if (connection_compatible (self, connections[i]))
+			changed |= _internal_track_connection (self, connections[i], TRUE);
 	}
 	if (changed)
 		check_emit_usable (self);
@@ -463,6 +449,9 @@ nm_bluez_device_disconnect (NMBluezDevice *self)
 
 	g_return_if_fail (priv->dbus_connection);
 
+	/* FIXME: if we are in the process of connecting and cancel the
+	 * connection attempt, we must complete the pending connect request.
+	 * However, we must also ensure that we don't leave a connected device. */
 	if (priv->connection_bt_type == NM_BT_CAPABILITY_DUN) {
 		if (priv->bluez_version == 4) {
 			/* Can't pass a NULL interface name through dbus to bluez, so just
@@ -508,76 +497,109 @@ out:
 }
 
 static void
-bluez_connect_cb (GDBusConnection *dbus_connection,
+_connect_complete (NMBluezDevice *self,
+                   const char *device,
+                   NMBluezDeviceConnectCallback callback,
+                   gpointer callback_user_data,
+                   GError *error)
+{
+	NMBluezDevicePrivate *priv = NM_BLUEZ_DEVICE_GET_PRIVATE (self);
+
+	nm_assert ((device || error) && !(device && error));
+
+	if (   device
+	    && priv->bluez_version == 5) {
+		priv->connected = TRUE;
+		_notify (self, PROP_CONNECTED);
+	}
+
+	if (callback)
+		callback (self, device, error, callback_user_data);
+}
+
+static void
+_connect_cb (GObject *source_object,
                   GAsyncResult *res,
                   gpointer user_data)
 {
-	GSimpleAsyncResult *result = G_SIMPLE_ASYNC_RESULT (user_data);
-	GObject *result_object = g_async_result_get_source_object (G_ASYNC_RESULT (result));
-	NMBluezDevice *self = NM_BLUEZ_DEVICE (result_object);
-	NMBluezDevicePrivate *priv = NM_BLUEZ_DEVICE_GET_PRIVATE (self);
-	GError *error = NULL;
-	char *device;
-	GVariant *variant;
+	gs_unref_object NMBluezDevice *self = NULL;
+	NMBluezDevicePrivate *priv;
+	NMBluezDeviceConnectCallback callback;
+	gpointer callback_user_data;
+	gs_free_error GError *error = NULL;
+	char *device = NULL;
+	gs_unref_variant GVariant *variant = NULL;
 
-	variant = g_dbus_connection_call_finish (dbus_connection, res, &error);
+	nm_utils_user_data_unpack (user_data, &self, &callback, &callback_user_data);
 
-	if (!variant) {
-		g_simple_async_result_take_error (result, error);
-	} else {
+	priv = NM_BLUEZ_DEVICE_GET_PRIVATE (self);
+
+	variant = _nm_dbus_connection_call_finish (G_DBUS_CONNECTION (source_object), res, G_VARIANT_TYPE ("(s)"), &error);
+	if (variant) {
 		g_variant_get (variant, "(s)", &device);
-
-		g_simple_async_result_set_op_res_gpointer (result,
-		                                           g_strdup (device),
-		                                           g_free);
 		priv->b4_iface = device;
-		g_variant_unref (variant);
 	}
 
-	g_simple_async_result_complete (result);
-	g_object_unref (result);
-	g_object_unref (result_object);
+	_connect_complete (self, device, callback, callback_user_data, error);
 }
 
 #if WITH_BLUEZ5_DUN
 static void
-bluez5_dun_connect_cb (NMBluez5DunContext *context,
-                   const char *device,
-                   GError *error,
-                   gpointer user_data)
+_connect_cb_bluez5_dun (NMBluez5DunContext *context,
+                        const char *device,
+                        GError *error,
+                        gpointer user_data)
 {
-	GSimpleAsyncResult *result = G_SIMPLE_ASYNC_RESULT (user_data);
+	gs_unref_object NMBluezDevice *self = NULL;
+	gs_unref_object GCancellable *cancellable = NULL;
+	NMBluezDeviceConnectCallback callback;
+	gpointer callback_user_data;
+	gs_free_error GError *cancelled_error = NULL;
 
-	if (error) {
-		g_simple_async_result_take_error (result, error);
-	} else {
-		g_simple_async_result_set_op_res_gpointer (result,
-		                                           g_strdup (device),
-		                                           g_free);
-	}
+	nm_utils_user_data_unpack (user_data, &self, &cancellable, &callback, &callback_user_data);
 
-	g_simple_async_result_complete (result);
-	g_object_unref (result);
+	/* FIXME(shutdown): the async operation nm_bluez5_dun_connect() should be cancellable.
+	 * Fake it here. */
+	if (g_cancellable_set_error_if_cancelled (cancellable, &cancelled_error))
+		error = cancelled_error;
+
+	_connect_complete (self, device, callback, callback_user_data, error);
 }
-#endif
+#else /* WITH_BLUEZ5_DUN */
+static void
+_connect_cb_bluez5_dun_idle_no_b5 (gpointer user_data,
+                                   GCancellable *cancellable)
+{
+	gs_unref_object NMBluezDevice *self = NULL;
+	NMBluezDeviceConnectCallback callback;
+	gpointer callback_user_data;
+	gs_free_error GError *error = NULL;
+
+	nm_utils_user_data_unpack (user_data, &self, &callback, &callback_user_data);
+
+	if (!g_cancellable_set_error_if_cancelled (cancellable, &error)) {
+		g_set_error (&error,
+		             NM_BT_ERROR,
+		             NM_BT_ERROR_DUN_CONNECT_FAILED,
+		             "NetworkManager built without support for Bluez 5");
+	}
+	callback (self, NULL, error, callback_user_data);
+}
+#endif /* WITH_BLUEZ5_DUN */
 
 void
 nm_bluez_device_connect_async (NMBluezDevice *self,
                                NMBluetoothCapabilities connection_bt_type,
-                               GAsyncReadyCallback callback,
-                               gpointer user_data)
+                               GCancellable *cancellable,
+                               NMBluezDeviceConnectCallback callback,
+                               gpointer callback_user_data)
 {
-	GSimpleAsyncResult *simple;
 	NMBluezDevicePrivate *priv = NM_BLUEZ_DEVICE_GET_PRIVATE (self);
 	const char *dbus_iface = NULL;
 	const char *connect_type = NULL;
 
 	g_return_if_fail (priv->capabilities & connection_bt_type & (NM_BT_CAPABILITY_DUN | NM_BT_CAPABILITY_NAP));
 
-	simple = g_simple_async_result_new (G_OBJECT (self),
-	                                    callback,
-	                                    user_data,
-	                                    nm_bluez_device_connect_async);
 	priv->connection_bt_type = connection_bt_type;
 
 	if (connection_bt_type == NM_BT_CAPABILITY_NAP) {
@@ -594,19 +616,29 @@ nm_bluez_device_connect_async (NMBluezDevice *self,
 #if WITH_BLUEZ5_DUN
 			if (priv->b5_dun_context == NULL)
 				priv->b5_dun_context = nm_bluez5_dun_new (priv->adapter_address, priv->address);
-			nm_bluez5_dun_connect (priv->b5_dun_context, bluez5_dun_connect_cb, simple);
+			nm_bluez5_dun_connect (priv->b5_dun_context,
+			                       _connect_cb_bluez5_dun,
+			                       nm_utils_user_data_pack (g_object_ref (self),
+			                                                nm_g_object_ref (cancellable),
+			                                                callback,
+			                                                callback_user_data));
 #else
-			g_simple_async_result_set_error (simple,
-							 NM_BT_ERROR,
-							 NM_BT_ERROR_DUN_CONNECT_FAILED,
-							 "NetworkManager built without support for Bluez 5");
-			g_simple_async_result_complete (simple);
+			if (callback) {
+				nm_utils_invoke_on_idle (_connect_cb_bluez5_dun_idle_no_b5,
+				                         nm_utils_user_data_pack (g_object_ref (self),
+				                                                  callback,
+				                                                  callback_user_data),
+				                         cancellable);
+			}
 #endif
 			return;
 		}
 	} else
-		g_assert_not_reached ();
+		g_return_if_reached ();
 
+	/* FIXME: we need to remember that a connect is in progress.
+	 * So, if the request gets cancelled, that we disconnect the
+	 * connection that was established in the meantime. */
 	g_dbus_connection_call (priv->dbus_connection,
 	                        NM_BLUEZ_SERVICE,
 	                        priv->path,
@@ -616,37 +648,11 @@ nm_bluez_device_connect_async (NMBluezDevice *self,
 	                        NULL,
 	                        G_DBUS_CALL_FLAGS_NONE,
 	                        20000,
-	                        NULL,
-	                        (GAsyncReadyCallback) bluez_connect_cb,
-	                        simple);
-}
-
-const char *
-nm_bluez_device_connect_finish (NMBluezDevice *self,
-                                GAsyncResult *result,
-                                GError **error)
-{
-	NMBluezDevicePrivate *priv = NM_BLUEZ_DEVICE_GET_PRIVATE (self);
-	GSimpleAsyncResult *simple;
-	const char *device;
-
-	g_return_val_if_fail (g_simple_async_result_is_valid (result,
-	                                                      G_OBJECT (self),
-	                                                      nm_bluez_device_connect_async),
-	                      NULL);
-
-	simple = (GSimpleAsyncResult *) result;
-
-	if (g_simple_async_result_propagate_error (simple, error))
-		return NULL;
-
-	device = (const char *) g_simple_async_result_get_op_res_gpointer (simple);
-	if (device && priv->bluez_version == 5) {
-		priv->connected = TRUE;
-		_notify (self, PROP_CONNECTED);
-	}
-
-	return device;
+	                        cancellable,
+	                        _connect_cb,
+	                        nm_utils_user_data_pack (g_object_ref (self),
+	                                                 callback,
+	                                                 callback_user_data));
 }
 
 /*****************************************************************************/
@@ -1178,14 +1184,14 @@ dispose (GObject *object)
 {
 	NMBluezDevice *self = NM_BLUEZ_DEVICE (object);
 	NMBluezDevicePrivate *priv = NM_BLUEZ_DEVICE_GET_PRIVATE (self);
-	NMConnection *to_delete = NULL;
+	NMSettingsConnection *to_delete = NULL;
 
 	nm_clear_g_source (&priv->check_emit_usable_id);
 
 	if (priv->pan_connection) {
 		/* Check whether we want to remove the created connection. If so, we take a reference
 		 * and delete it at the end of dispose(). */
-		if (NM_FLAGS_HAS (nm_settings_connection_get_flags (NM_SETTINGS_CONNECTION (priv->pan_connection)),
+		if (NM_FLAGS_HAS (nm_settings_connection_get_flags (priv->pan_connection),
 		                  NM_SETTINGS_CONNECTION_INT_FLAGS_NM_GENERATED))
 			to_delete = g_object_ref (priv->pan_connection);
 
@@ -1219,8 +1225,8 @@ dispose (GObject *object)
 
 	if (to_delete) {
 		nm_log_dbg (LOGD_BT, "bluez[%s] removing Bluetooth connection for NAP device: '%s' (%s)", priv->path,
-		            nm_connection_get_id (to_delete), nm_connection_get_uuid (to_delete));
-		nm_settings_connection_delete (NM_SETTINGS_CONNECTION (to_delete), NULL);
+		            nm_settings_connection_get_id (to_delete), nm_settings_connection_get_uuid (to_delete));
+		nm_settings_connection_delete (to_delete, NULL);
 		g_object_unref (to_delete);
 	}
 

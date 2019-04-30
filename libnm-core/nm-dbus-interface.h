@@ -14,7 +14,7 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
- * Copyright 2004 - 2017 Red Hat, Inc.
+ * Copyright 2004 - 2018 Red Hat, Inc.
  */
 
 /* Definitions related to NetworkManager's D-Bus interfaces.
@@ -38,45 +38,52 @@
  */
 #define NM_DBUS_SERVICE                        "org.freedesktop.NetworkManager"
 
-#define NM_DBUS_PATH                           "/org/freedesktop/NetworkManager"
 #define NM_DBUS_INTERFACE                      "org.freedesktop.NetworkManager"
-#define NM_DBUS_INTERFACE_DEVICE               NM_DBUS_INTERFACE ".Device"
-#define NM_DBUS_INTERFACE_DEVICE_WIRED         NM_DBUS_INTERFACE_DEVICE ".Wired"
-#define NM_DBUS_INTERFACE_DEVICE_ADSL          NM_DBUS_INTERFACE_DEVICE ".Adsl"
-#define NM_DBUS_INTERFACE_DEVICE_WIRELESS      NM_DBUS_INTERFACE_DEVICE ".Wireless"
-#define NM_DBUS_INTERFACE_DEVICE_BLUETOOTH     NM_DBUS_INTERFACE_DEVICE ".Bluetooth"
-#define NM_DBUS_INTERFACE_DEVICE_OLPC_MESH     NM_DBUS_INTERFACE_DEVICE ".OlpcMesh"
-#define NM_DBUS_INTERFACE_DEVICE_OVS_INTERFACE NM_DBUS_INTERFACE_DEVICE ".OvsInterface"
-#define NM_DBUS_INTERFACE_DEVICE_OVS_PORT      NM_DBUS_INTERFACE_DEVICE ".OvsPort"
-#define NM_DBUS_INTERFACE_DEVICE_OVS_BRIDGE    NM_DBUS_INTERFACE_DEVICE ".OvsBridge"
-#define NM_DBUS_PATH_ACCESS_POINT              NM_DBUS_PATH "/AccessPoint"
 #define NM_DBUS_INTERFACE_ACCESS_POINT         NM_DBUS_INTERFACE ".AccessPoint"
-#define NM_DBUS_INTERFACE_DEVICE_MODEM         NM_DBUS_INTERFACE_DEVICE ".Modem"
-#define NM_DBUS_INTERFACE_DEVICE_WIMAX         NM_DBUS_INTERFACE_DEVICE ".WiMax"
-#define NM_DBUS_INTERFACE_WIMAX_NSP            NM_DBUS_INTERFACE ".WiMax.Nsp"
-#define NM_DBUS_PATH_WIMAX_NSP                 NM_DBUS_PATH "/Nsp"
 #define NM_DBUS_INTERFACE_ACTIVE_CONNECTION    NM_DBUS_INTERFACE ".Connection.Active"
-#define NM_DBUS_INTERFACE_IP4_CONFIG           NM_DBUS_INTERFACE ".IP4Config"
-#define NM_DBUS_INTERFACE_DHCP4_CONFIG         NM_DBUS_INTERFACE ".DHCP4Config"
-#define NM_DBUS_INTERFACE_IP6_CONFIG           NM_DBUS_INTERFACE ".IP6Config"
-#define NM_DBUS_INTERFACE_DHCP6_CONFIG         NM_DBUS_INTERFACE ".DHCP6Config"
-#define NM_DBUS_INTERFACE_DEVICE_INFINIBAND    NM_DBUS_INTERFACE_DEVICE ".Infiniband"
+#define NM_DBUS_INTERFACE_CHECKPOINT           NM_DBUS_INTERFACE ".Checkpoint"
+#define NM_DBUS_INTERFACE_DEVICE               NM_DBUS_INTERFACE ".Device"
+#define NM_DBUS_INTERFACE_DEVICE_6LOWPAN       NM_DBUS_INTERFACE_DEVICE ".Lowpan"
+#define NM_DBUS_INTERFACE_DEVICE_ADSL          NM_DBUS_INTERFACE_DEVICE ".Adsl"
+#define NM_DBUS_INTERFACE_DEVICE_BLUETOOTH     NM_DBUS_INTERFACE_DEVICE ".Bluetooth"
 #define NM_DBUS_INTERFACE_DEVICE_BOND          NM_DBUS_INTERFACE_DEVICE ".Bond"
-#define NM_DBUS_INTERFACE_DEVICE_DUMMY         NM_DBUS_INTERFACE_DEVICE ".Dummy"
-#define NM_DBUS_INTERFACE_DEVICE_TEAM          NM_DBUS_INTERFACE_DEVICE ".Team"
-#define NM_DBUS_INTERFACE_DEVICE_VLAN          NM_DBUS_INTERFACE_DEVICE ".Vlan"
 #define NM_DBUS_INTERFACE_DEVICE_BRIDGE        NM_DBUS_INTERFACE_DEVICE ".Bridge"
+#define NM_DBUS_INTERFACE_DEVICE_DUMMY         NM_DBUS_INTERFACE_DEVICE ".Dummy"
 #define NM_DBUS_INTERFACE_DEVICE_GENERIC       NM_DBUS_INTERFACE_DEVICE ".Generic"
-#define NM_DBUS_INTERFACE_DEVICE_VETH          NM_DBUS_INTERFACE_DEVICE ".Veth"
-#define NM_DBUS_INTERFACE_DEVICE_TUN           NM_DBUS_INTERFACE_DEVICE ".Tun"
+#define NM_DBUS_INTERFACE_DEVICE_GRE           NM_DBUS_INTERFACE_DEVICE ".Gre"
+#define NM_DBUS_INTERFACE_DEVICE_INFINIBAND    NM_DBUS_INTERFACE_DEVICE ".Infiniband"
+#define NM_DBUS_INTERFACE_DEVICE_IP_TUNNEL     NM_DBUS_INTERFACE_DEVICE ".IPTunnel"
 #define NM_DBUS_INTERFACE_DEVICE_MACSEC        NM_DBUS_INTERFACE_DEVICE ".Macsec"
 #define NM_DBUS_INTERFACE_DEVICE_MACVLAN       NM_DBUS_INTERFACE_DEVICE ".Macvlan"
+#define NM_DBUS_INTERFACE_DEVICE_MODEM         NM_DBUS_INTERFACE_DEVICE ".Modem"
+#define NM_DBUS_INTERFACE_DEVICE_OLPC_MESH     NM_DBUS_INTERFACE_DEVICE ".OlpcMesh"
+#define NM_DBUS_INTERFACE_DEVICE_OVS_BRIDGE    NM_DBUS_INTERFACE_DEVICE ".OvsBridge"
+#define NM_DBUS_INTERFACE_DEVICE_OVS_INTERFACE NM_DBUS_INTERFACE_DEVICE ".OvsInterface"
+#define NM_DBUS_INTERFACE_DEVICE_OVS_PORT      NM_DBUS_INTERFACE_DEVICE ".OvsPort"
 #define NM_DBUS_INTERFACE_DEVICE_PPP           NM_DBUS_INTERFACE_DEVICE ".Ppp"
-#define NM_DBUS_INTERFACE_DEVICE_VXLAN         NM_DBUS_INTERFACE_DEVICE ".Vxlan"
-#define NM_DBUS_INTERFACE_DEVICE_GRE           NM_DBUS_INTERFACE_DEVICE ".Gre"
-#define NM_DBUS_INTERFACE_DEVICE_IP_TUNNEL     NM_DBUS_INTERFACE_DEVICE ".IPTunnel"
 #define NM_DBUS_INTERFACE_DEVICE_STATISTICS    NM_DBUS_INTERFACE_DEVICE ".Statistics"
-#define NM_DBUS_INTERFACE_CHECKPOINT           NM_DBUS_INTERFACE ".Checkpoint"
+#define NM_DBUS_INTERFACE_DEVICE_TEAM          NM_DBUS_INTERFACE_DEVICE ".Team"
+#define NM_DBUS_INTERFACE_DEVICE_TUN           NM_DBUS_INTERFACE_DEVICE ".Tun"
+#define NM_DBUS_INTERFACE_DEVICE_VETH          NM_DBUS_INTERFACE_DEVICE ".Veth"
+#define NM_DBUS_INTERFACE_DEVICE_VLAN          NM_DBUS_INTERFACE_DEVICE ".Vlan"
+#define NM_DBUS_INTERFACE_DEVICE_VXLAN         NM_DBUS_INTERFACE_DEVICE ".Vxlan"
+#define NM_DBUS_INTERFACE_DEVICE_WIFI_P2P      NM_DBUS_INTERFACE_DEVICE ".WifiP2P"
+#define NM_DBUS_INTERFACE_DEVICE_WIMAX         NM_DBUS_INTERFACE_DEVICE ".WiMax"
+#define NM_DBUS_INTERFACE_DEVICE_WIRED         NM_DBUS_INTERFACE_DEVICE ".Wired"
+#define NM_DBUS_INTERFACE_DEVICE_WIREGUARD     NM_DBUS_INTERFACE_DEVICE ".WireGuard"
+#define NM_DBUS_INTERFACE_DEVICE_WIRELESS      NM_DBUS_INTERFACE_DEVICE ".Wireless"
+#define NM_DBUS_INTERFACE_DEVICE_WPAN          NM_DBUS_INTERFACE_DEVICE ".Wpan"
+#define NM_DBUS_INTERFACE_DHCP4_CONFIG         NM_DBUS_INTERFACE ".DHCP4Config"
+#define NM_DBUS_INTERFACE_DHCP6_CONFIG         NM_DBUS_INTERFACE ".DHCP6Config"
+#define NM_DBUS_INTERFACE_IP4_CONFIG           NM_DBUS_INTERFACE ".IP4Config"
+#define NM_DBUS_INTERFACE_IP6_CONFIG           NM_DBUS_INTERFACE ".IP6Config"
+#define NM_DBUS_INTERFACE_WIFI_P2P_PEER        NM_DBUS_INTERFACE ".WifiP2PPeer"
+#define NM_DBUS_INTERFACE_WIMAX_NSP            NM_DBUS_INTERFACE ".WiMax.Nsp"
+
+#define NM_DBUS_PATH                           "/org/freedesktop/NetworkManager"
+#define NM_DBUS_PATH_ACCESS_POINT              NM_DBUS_PATH "/AccessPoint"
+#define NM_DBUS_PATH_WIFI_P2P_PEER             NM_DBUS_PATH "/WifiP2PPeer"
+#define NM_DBUS_PATH_WIMAX_NSP                 NM_DBUS_PATH "/Nsp"
 
 #define NM_DBUS_INTERFACE_SETTINGS        "org.freedesktop.NetworkManager.Settings"
 #define NM_DBUS_PATH_SETTINGS             "/org/freedesktop/NetworkManager/Settings"
@@ -165,7 +172,7 @@ typedef enum {
  * @NM_CONNECTIVITY_PORTAL: The Internet connection is hijacked by a captive
  *   portal gateway. The graphical shell may open a sandboxed web browser window
  *   (because the captive portals typically attempt a man-in-the-middle attacks
- *   agains the https connections) for the purpose of authenticating to a gateway
+ *   against the https connections) for the purpose of authenticating to a gateway
  *   and retrigger the connectivity check with CheckConnectivity() when the
  *   browser window is dismissed.
  * @NM_CONNECTIVITY_LIMITED: The host is connected to a network, does not appear
@@ -187,7 +194,7 @@ typedef enum {
  * @NM_DEVICE_TYPE_UNKNOWN: unknown device
  * @NM_DEVICE_TYPE_GENERIC: generic support for unrecognized device types
  * @NM_DEVICE_TYPE_ETHERNET: a wired ethernet device
- * @NM_DEVICE_TYPE_WIFI: an 802.11 WiFi device
+ * @NM_DEVICE_TYPE_WIFI: an 802.11 Wi-Fi device
  * @NM_DEVICE_TYPE_UNUSED1: not used
  * @NM_DEVICE_TYPE_UNUSED2: not used
  * @NM_DEVICE_TYPE_BT: a Bluetooth device supporting PAN or DUN access protocols
@@ -212,6 +219,10 @@ typedef enum {
  * @NM_DEVICE_TYPE_OVS_INTERFACE: a Open vSwitch interface
  * @NM_DEVICE_TYPE_OVS_PORT: a Open vSwitch port
  * @NM_DEVICE_TYPE_OVS_BRIDGE: a Open vSwitch bridge
+ * @NM_DEVICE_TYPE_WPAN: a IEEE 802.15.4 (WPAN) MAC Layer Device
+ * @NM_DEVICE_TYPE_6LOWPAN: 6LoWPAN interface
+ * @NM_DEVICE_TYPE_WIREGUARD: a WireGuard interface
+ * @NM_DEVICE_TYPE_WIFI_P2P: an 802.11 Wi-Fi P2P device (Since: 1.16)
  *
  * #NMDeviceType values indicate the type of hardware represented by a
  * device object.
@@ -244,6 +255,10 @@ typedef enum {
 	NM_DEVICE_TYPE_OVS_INTERFACE = 24,
 	NM_DEVICE_TYPE_OVS_PORT      = 25,
 	NM_DEVICE_TYPE_OVS_BRIDGE    = 26,
+	NM_DEVICE_TYPE_WPAN          = 27,
+	NM_DEVICE_TYPE_6LOWPAN       = 28,
+	NM_DEVICE_TYPE_WIREGUARD     = 29,
+	NM_DEVICE_TYPE_WIFI_P2P      = 30,
 } NMDeviceType;
 
 /**
@@ -335,6 +350,8 @@ typedef enum { /*< underscore_name=nm_802_11_ap_flags, flags >*/
  * supported
  * @NM_802_11_AP_SEC_KEY_MGMT_802_1X: 802.1x authentication and key management
  * is supported
+ * @NM_802_11_AP_SEC_KEY_MGMT_SAE: WPA/RSN Simultaneous Authentication of Equals is
+ * supported
  * @NM_802_11_AP_SEC_KEY_MGMT_CCKM: CCKM authentication and key management
  * is supported
  *
@@ -354,7 +371,8 @@ typedef enum { /*< underscore_name=nm_802_11_ap_security_flags, flags >*/
 	NM_802_11_AP_SEC_GROUP_CCMP      = 0x00000080,
 	NM_802_11_AP_SEC_KEY_MGMT_PSK    = 0x00000100,
 	NM_802_11_AP_SEC_KEY_MGMT_802_1X = 0x00000200,
-	NM_802_11_AP_SEC_KEY_MGMT_CCKM   = 0x00000400,
+	NM_802_11_AP_SEC_KEY_MGMT_SAE    = 0x00000400,
+	NM_802_11_AP_SEC_KEY_MGMT_CCKM   = 0x00000800,
 } NM80211ApSecurityFlags;
 
 /**
@@ -450,7 +468,7 @@ typedef enum {
  *   setting physical link properties, and anything else required to connect
  *   to the requested network.
  * @NM_DEVICE_STATE_CONFIG: the device is connecting to the requested network.
- *   This may include operations like associating with the WiFi AP, dialing
+ *   This may include operations like associating with the Wi-Fi AP, dialing
  *   the modem, connecting to the remote Bluetooth device, etc.
  * @NM_DEVICE_STATE_NEED_AUTH: the device requires more information to continue
  *   connecting to the requested network.  This includes secrets like WiFi
@@ -543,7 +561,7 @@ typedef enum {
  * @NM_DEVICE_STATE_REASON_DEPENDENCY_FAILED: A dependency of the connection failed
  * @NM_DEVICE_STATE_REASON_BR2684_FAILED: Problem with the RFC 2684 Ethernet over ADSL bridge
  * @NM_DEVICE_STATE_REASON_MODEM_MANAGER_UNAVAILABLE: ModemManager not running
- * @NM_DEVICE_STATE_REASON_SSID_NOT_FOUND: The WiFi network could not be found
+ * @NM_DEVICE_STATE_REASON_SSID_NOT_FOUND: The Wi-Fi network could not be found
  * @NM_DEVICE_STATE_REASON_SECONDARY_CONNECTION_FAILED: A secondary connection of the base connection failed
  * @NM_DEVICE_STATE_REASON_DCB_FCOE_FAILED: DCB or FCoE setup failed
  * @NM_DEVICE_STATE_REASON_TEAMD_CONTROL_FAILED: teamd control failed
@@ -556,6 +574,8 @@ typedef enum {
  * @NM_DEVICE_STATE_REASON_OVSDB_FAILED: problem communicating with Open vSwitch database
  * @NM_DEVICE_STATE_REASON_IP_ADDRESS_DUPLICATE: a duplicate IP address was detected
  * @NM_DEVICE_STATE_REASON_IP_METHOD_UNSUPPORTED: The selected IP method is not supported
+ * @NM_DEVICE_STATE_REASON_SRIOV_CONFIGURATION_FAILED: configuration of SR-IOV parameters failed
+ * @NM_DEVICE_STATE_REASON_PEER_NOT_FOUND: The Wi-Fi P2P peer could not be found
  *
  * Device state change reason codes
  */
@@ -626,6 +646,8 @@ typedef enum {
 	NM_DEVICE_STATE_REASON_OVSDB_FAILED                   = 63,
 	NM_DEVICE_STATE_REASON_IP_ADDRESS_DUPLICATE           = 64,
 	NM_DEVICE_STATE_REASON_IP_METHOD_UNSUPPORTED          = 65,
+	NM_DEVICE_STATE_REASON_SRIOV_CONFIGURATION_FAILED     = 66,
+	NM_DEVICE_STATE_REASON_PEER_NOT_FOUND                 = 67,
 } NMDeviceStateReason;
 
 /**
@@ -646,6 +668,30 @@ typedef enum {
 	NM_METERED_GUESS_YES  = 3,
 	NM_METERED_GUESS_NO   = 4,
 } NMMetered;
+
+/**
+ * NMConnectionMultiConnect:
+ * @NM_CONNECTION_MULTI_CONNECT_DEFAULT: indicates that the per-connection
+ *   setting is unspecified. In this case, it will fallback to the default
+ *   value, which is @NM_CONNECTION_MULTI_CONNECT_SINGLE.
+ * @NM_CONNECTION_MULTI_CONNECT_SINGLE: the connection profile can only
+ *   be active once at each moment. Activating a profile that is already active,
+ *   will first deactivate it.
+ * @NM_CONNECTION_MULTI_CONNECT_MANUAL_MULTIPLE: the profile can
+ *   be manually activated multiple times on different devices. However,
+ *   regarding autoconnect, the profile will autoconnect only if it is
+ *   currently not connected otherwise.
+ * @NM_CONNECTION_MULTI_CONNECT_MULTIPLE: the profile can autoactivate
+ *   and be manually activated multiple times together.
+ *
+ * Since: 1.14
+ */
+typedef enum {
+	NM_CONNECTION_MULTI_CONNECT_DEFAULT           = 0,
+	NM_CONNECTION_MULTI_CONNECT_SINGLE            = 1,
+	NM_CONNECTION_MULTI_CONNECT_MANUAL_MULTIPLE   = 2,
+	NM_CONNECTION_MULTI_CONNECT_MULTIPLE          = 3,
+} NMConnectionMultiConnect;
 
 /**
  * NMActiveConnectionState:
@@ -806,16 +852,18 @@ typedef enum /*< flags >*/ {
 
 /**
  * NMIPTunnelMode:
- * @NM_IP_TUNNEL_MODE_UNKNOWN: Unknown/unset tunnel mode
- * @NM_IP_TUNNEL_MODE_IPIP:    IP in IP tunnel
- * @NM_IP_TUNNEL_MODE_GRE:     GRE tunnel
- * @NM_IP_TUNNEL_MODE_SIT:     SIT tunnel
- * @NM_IP_TUNNEL_MODE_ISATAP:  ISATAP tunnel
- * @NM_IP_TUNNEL_MODE_VTI:     VTI tunnel
- * @NM_IP_TUNNEL_MODE_IP6IP6:  IPv6 in IPv6 tunnel
- * @NM_IP_TUNNEL_MODE_IPIP6:   IPv4 in IPv6 tunnel
- * @NM_IP_TUNNEL_MODE_IP6GRE:  IPv6 GRE tunnel
- * @NM_IP_TUNNEL_MODE_VTI6:    IPv6 VTI tunnel
+ * @NM_IP_TUNNEL_MODE_UNKNOWN:   Unknown/unset tunnel mode
+ * @NM_IP_TUNNEL_MODE_IPIP:      IP in IP tunnel
+ * @NM_IP_TUNNEL_MODE_GRE:       GRE tunnel
+ * @NM_IP_TUNNEL_MODE_SIT:       SIT tunnel
+ * @NM_IP_TUNNEL_MODE_ISATAP:    ISATAP tunnel
+ * @NM_IP_TUNNEL_MODE_VTI:       VTI tunnel
+ * @NM_IP_TUNNEL_MODE_IP6IP6:    IPv6 in IPv6 tunnel
+ * @NM_IP_TUNNEL_MODE_IPIP6:     IPv4 in IPv6 tunnel
+ * @NM_IP_TUNNEL_MODE_IP6GRE:    IPv6 GRE tunnel
+ * @NM_IP_TUNNEL_MODE_VTI6:      IPv6 VTI tunnel
+ * @NM_IP_TUNNEL_MODE_GRETAP:    GRETAP tunnel
+ * @NM_IP_TUNNEL_MODE_IP6GRETAP: IPv6 GRETAP tunnel
  *
  * The tunneling mode.
  *
@@ -832,6 +880,8 @@ typedef enum {
 	NM_IP_TUNNEL_MODE_IPIP6       = 7,
 	NM_IP_TUNNEL_MODE_IP6GRE      = 8,
 	NM_IP_TUNNEL_MODE_VTI6        = 9,
+	NM_IP_TUNNEL_MODE_GRETAP      = 10,
+	NM_IP_TUNNEL_MODE_IP6GRETAP   = 11,
 } NMIPTunnelMode;
 
 /**
@@ -924,20 +974,25 @@ typedef enum { /*< flags >*/
  * @NM_ACTIVATION_STATE_FLAG_IP6_READY: IPv6 setting is completed.
  * @NM_ACTIVATION_STATE_FLAG_MASTER_HAS_SLAVES: The master has any slave devices attached.
  *   This only makes sense if the device is a master.
+ * @NM_ACTIVATION_STATE_FLAG_LIFETIME_BOUND_TO_PROFILE_VISIBILITY: the lifetime
+ *   of the activation is bound to the visilibity of the connection profile,
+ *   which in turn depends on "connection.permissions" and whether a session
+ *   for the user exists. Since: 1.16
  *
  * Flags describing the current activation state.
  *
  * Since: 1.10
  **/
 typedef enum { /*< flags >*/
-	NM_ACTIVATION_STATE_FLAG_NONE                       = 0,
+	NM_ACTIVATION_STATE_FLAG_NONE                                 = 0,
 
-	NM_ACTIVATION_STATE_FLAG_IS_MASTER                  = (1LL <<  0),
-	NM_ACTIVATION_STATE_FLAG_IS_SLAVE                   = (1LL <<  1),
-	NM_ACTIVATION_STATE_FLAG_LAYER2_READY               = (1LL <<  2),
-	NM_ACTIVATION_STATE_FLAG_IP4_READY                  = (1LL <<  3),
-	NM_ACTIVATION_STATE_FLAG_IP6_READY                  = (1LL <<  4),
-	NM_ACTIVATION_STATE_FLAG_MASTER_HAS_SLAVES          = (1LL <<  5),
+	NM_ACTIVATION_STATE_FLAG_IS_MASTER                            = 0x1,
+	NM_ACTIVATION_STATE_FLAG_IS_SLAVE                             = 0x2,
+	NM_ACTIVATION_STATE_FLAG_LAYER2_READY                         = 0x4,
+	NM_ACTIVATION_STATE_FLAG_IP4_READY                            = 0x8,
+	NM_ACTIVATION_STATE_FLAG_IP6_READY                            = 0x10,
+	NM_ACTIVATION_STATE_FLAG_MASTER_HAS_SLAVES                    = 0x20,
+	NM_ACTIVATION_STATE_FLAG_LIFETIME_BOUND_TO_PROFILE_VISIBILITY = 0x40,
 } NMActivationStateFlags;
 
 /**
@@ -968,7 +1023,7 @@ typedef enum { /*< flags >*/
  *   again (because it's about to be deleted), but a manual activation will
  *   clear the volatile flag.
  * @NM_SETTINGS_UPDATE2_FLAG_BLOCK_AUTOCONNECT: usually, when the connection
- *   has autoconnect enabled and is modified, it becomes elegible to autoconnect
+ *   has autoconnect enabled and is modified, it becomes eligible to autoconnect
  *   right away. Setting this flag, disables autoconnect until the connection
  *   is manually activated.
  *
@@ -976,12 +1031,28 @@ typedef enum { /*< flags >*/
  */
 typedef enum { /*< flags >*/
 	NM_SETTINGS_UPDATE2_FLAG_NONE                       = 0,
-	NM_SETTINGS_UPDATE2_FLAG_TO_DISK                    = (1LL <<  0),
-	NM_SETTINGS_UPDATE2_FLAG_IN_MEMORY                  = (1LL <<  1),
-	NM_SETTINGS_UPDATE2_FLAG_IN_MEMORY_DETACHED         = (1LL <<  2),
-	NM_SETTINGS_UPDATE2_FLAG_IN_MEMORY_ONLY             = (1LL <<  3),
-	NM_SETTINGS_UPDATE2_FLAG_VOLATILE                   = (1LL <<  4),
-	NM_SETTINGS_UPDATE2_FLAG_BLOCK_AUTOCONNECT          = (1LL <<  5),
+	NM_SETTINGS_UPDATE2_FLAG_TO_DISK                    = 0x1,
+	NM_SETTINGS_UPDATE2_FLAG_IN_MEMORY                  = 0x2,
+	NM_SETTINGS_UPDATE2_FLAG_IN_MEMORY_DETACHED         = 0x4,
+	NM_SETTINGS_UPDATE2_FLAG_IN_MEMORY_ONLY             = 0x8,
+	NM_SETTINGS_UPDATE2_FLAG_VOLATILE                   = 0x10,
+	NM_SETTINGS_UPDATE2_FLAG_BLOCK_AUTOCONNECT          = 0x20,
 } NMSettingsUpdate2Flags;
+
+/**
+ * NMTernary:
+ * @NM_TERNARY_DEFAULT: use the globally-configured default value.
+ * @NM_TERNARY_FALSE: the option is disabled.
+ * @NM_TERNARY_TRUE: the option is enabled.
+ *
+ * An boolean value that can be overridden by a default.
+ *
+ * Since: 1.14
+ **/
+typedef enum {
+	NM_TERNARY_DEFAULT = -1,
+	NM_TERNARY_FALSE = 0,
+	NM_TERNARY_TRUE = 1,
+} NMTernary;
 
 #endif /* __NM_DBUS_INTERFACE_H__ */

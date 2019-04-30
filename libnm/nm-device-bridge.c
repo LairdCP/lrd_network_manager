@@ -20,12 +20,10 @@
 
 #include "nm-default.h"
 
-#include <string.h>
+#include "nm-setting-bridge.h"
 
 #include "nm-setting-connection.h"
-#include "nm-setting-bridge.h"
 #include "nm-utils.h"
-
 #include "nm-device-bridge.h"
 #include "nm-object-private.h"
 #include "nm-core-internal.h"
@@ -86,7 +84,7 @@ nm_device_bridge_get_carrier (NMDeviceBridge *device)
  * nm_device_bridge_get_slaves:
  * @device: a #NMDeviceBridge
  *
- * Gets the devices currently slaved to @device.
+ * Gets the devices currently enslaved to @device.
  *
  * Returns: (element-type NMDevice): the #GPtrArray containing
  * #NMDevices that are slaves of @device. This is the internal
@@ -255,7 +253,7 @@ nm_device_bridge_class_init (NMDeviceBridgeClass *bridge_class)
 	/**
 	 * NMDeviceBridge:slaves: (type GPtrArray(NMDevice))
 	 *
-	 * The devices slaved to the bridge device.
+	 * The devices enslaved to the bridge device.
 	 **/
 	g_object_class_install_property
 		(object_class, PROP_SLAVES,

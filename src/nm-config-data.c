@@ -23,8 +23,6 @@
 
 #include "nm-config-data.h"
 
-#include <string.h>
-
 #include "nm-config.h"
 #include "devices/nm-device.h"
 #include "nm-core-internal.h"
@@ -110,6 +108,8 @@ typedef struct {
 	char *rc_manager;
 
 	NMGlobalDnsConfig *global_dns;
+
+	bool systemd_resolved:1;
 } NMConfigDataPrivate;
 
 struct _NMConfigData {
@@ -183,11 +183,11 @@ nm_config_data_has_value (const NMConfigData *self, const char *group, const cha
 	return !!value;
 }
 
-gint
-nm_config_data_get_value_boolean (const NMConfigData *self, const char *group, const char *key, gint default_value)
+int
+nm_config_data_get_value_boolean (const NMConfigData *self, const char *group, const char *key, int default_value)
 {
 	char *str;
-	gint value = default_value;
+	int value = default_value;
 
 	g_return_val_if_fail (NM_IS_CONFIG_DATA (self), default_value);
 	g_return_val_if_fail (group && *group, default_value);
@@ -216,7 +216,6 @@ nm_config_data_get_value_int64 (const NMConfigData *self, const char *group, con
 	str = nm_config_keyfile_get_value (NM_CONFIG_DATA_GET_PRIVATE (self)->keyfile, group, key, NM_CONFIG_GET_VALUE_NONE);
 	val = _nm_utils_ascii_str_to_int64 (str, base, min, max, fallback);
 	if (str) {
-		/* preserve errno from the parsing. */
 		errsv = errno;
 		g_free (str);
 		errno = errsv;
@@ -320,6 +319,14 @@ nm_config_data_get_rc_manager (const NMConfigData *self)
 	g_return_val_if_fail (self, NULL);
 
 	return NM_CONFIG_DATA_GET_PRIVATE (self)->rc_manager;
+}
+
+gboolean
+nm_config_data_get_systemd_resolved (const NMConfigData *self)
+{
+	g_return_val_if_fail (self, FALSE);
+
+	return NM_CONFIG_DATA_GET_PRIVATE (self)->systemd_resolved;
 }
 
 gboolean
@@ -655,12 +662,12 @@ nm_config_data_log (const NMConfigData *self,
 			const char *group = default_values[g].group;
 			gssize idx;
 
-			idx = _nm_utils_array_find_binary_search ((gconstpointer *) groups_full->pdata,
-			                                          sizeof (char *),
-			                                          groups_full->len,
-			                                          &group,
-			                                          (GCompareDataFunc) _nm_config_data_log_sort,
-			                                          NULL);
+			idx = nm_utils_array_find_binary_search ((gconstpointer *) groups_full->pdata,
+			                                         sizeof (char *),
+			                                         groups_full->len,
+			                                         &group,
+			                                         (GCompareDataFunc) _nm_config_data_log_sort,
+			                                         NULL);
 			if (idx < 0)
 				g_ptr_array_insert (groups_full, (~idx), (gpointer) group);
 		}
@@ -913,7 +920,10 @@ load_global_dns (GKeyFile *keyfile, gboolean internal)
 	dns_config->domains = g_hash_table_new_full (nm_str_hash, g_str_equal,
 	                                             g_free, (GDestroyNotify) global_dns_domain_free);
 
-	strv = g_key_file_get_string_list (keyfile, group, "searches", NULL, NULL);
+	strv = g_key_file_get_string_list (keyfile,
+	                                   group,
+	                                   NM_CONFIG_KEYFILE_KEY_GLOBAL_DNS_SEARCHES,
+	                                   NULL, NULL);
 	if (strv) {
 		_nm_utils_strv_cleanup (strv, TRUE, TRUE, TRUE);
 		if (!strv[0])
@@ -922,7 +932,10 @@ load_global_dns (GKeyFile *keyfile, gboolean internal)
 			dns_config->searches = strv;
 	}
 
-	strv = g_key_file_get_string_list (keyfile, group, "options", NULL, NULL);
+	strv = g_key_file_get_string_list (keyfile,
+	                                   group,
+	                                   NM_CONFIG_KEYFILE_KEY_GLOBAL_DNS_OPTIONS,
+	                                   NULL, NULL);
 	if (strv) {
 		_nm_utils_strv_cleanup (strv, TRUE, TRUE, TRUE);
 		for (i = 0, j = 0; strv[i]; i++) {
@@ -949,7 +962,10 @@ load_global_dns (GKeyFile *keyfile, gboolean internal)
 		    || !groups[g][domain_prefix_len])
 			continue;
 
-		strv = g_key_file_get_string_list (keyfile, groups[g], "servers", NULL, NULL);
+		strv = g_key_file_get_string_list (keyfile,
+		                                   groups[g],
+		                                   NM_CONFIG_KEYFILE_KEY_GLOBAL_DNS_DOMAIN_SERVERS,
+		                                   NULL, NULL);
 		if (strv) {
 			_nm_utils_strv_cleanup (strv, TRUE, TRUE, TRUE);
 			for (i = 0, j = 0; strv[i]; i++) {
@@ -970,7 +986,10 @@ load_global_dns (GKeyFile *keyfile, gboolean internal)
 		if (!servers)
 			continue;
 
-		strv = g_key_file_get_string_list (keyfile, groups[g], "options", NULL, NULL);
+		strv = g_key_file_get_string_list (keyfile,
+		                                   groups[g],
+		                                   NM_CONFIG_KEYFILE_KEY_GLOBAL_DNS_DOMAIN_OPTIONS,
+		                                   NULL, NULL);
 		if (strv) {
 			options = _nm_utils_strv_cleanup (strv, TRUE, TRUE, TRUE);
 			if (!options[0])
@@ -1241,8 +1260,12 @@ _match_section_infos_lookup (const MatchSectionInfo *match_section_infos,
                              const char *match_device_type,
                              char **out_value)
 {
+	const char *match_dhcp_plugin;
+
 	if (!match_section_infos)
 		return NULL;
+
+	match_dhcp_plugin = nm_dhcp_manager_get_config (nm_dhcp_manager_get ());
 
 	for (; match_section_infos->group_name; match_section_infos++) {
 		char *value = NULL;
@@ -1263,7 +1286,7 @@ _match_section_infos_lookup (const MatchSectionInfo *match_section_infos,
 			if (device)
 				match = nm_device_spec_match_list (device, match_section_infos->match_device.spec);
 			else if (pllink)
-				match = nm_match_spec_device_by_pllink (pllink, match_device_type, match_section_infos->match_device.spec, FALSE);
+				match = nm_match_spec_device_by_pllink (pllink, match_device_type, match_dhcp_plugin, match_section_infos->match_device.spec, FALSE);
 			else
 				match = FALSE;
 		} else
@@ -1335,8 +1358,8 @@ gboolean
 nm_config_data_get_device_config_boolean (const NMConfigData *self,
                                           const char *property,
                                           NMDevice *device,
-                                          gint val_no_match,
-                                          gint val_invalid)
+                                          int val_no_match,
+                                          int val_invalid)
 {
 	gs_free char *value = NULL;
 	gboolean has_match;
@@ -1361,6 +1384,19 @@ nm_config_data_get_connection_default (const NMConfigData *self,
 
 	priv = NM_CONFIG_DATA_GET_PRIVATE (self);
 
+#if NM_MORE_ASSERTS > 10
+	{
+		const char **ptr;
+
+		for (ptr = __start_connection_defaults; ptr < __stop_connection_defaults; ptr++) {
+			if (nm_streq (property, *ptr))
+				break;
+		}
+
+		nm_assert (ptr < __stop_connection_defaults);
+	}
+#endif
+
 	_match_section_infos_lookup (&priv->connection_infos[0],
 	                             priv->keyfile,
 	                             property,
@@ -1371,6 +1407,20 @@ nm_config_data_get_connection_default (const NMConfigData *self,
 	return value;
 }
 
+gint64
+nm_config_data_get_connection_default_int64 (const NMConfigData *self,
+                                             const char *property,
+                                             NMDevice *device,
+                                             gint64 min,
+                                             gint64 max,
+                                             gint64 fallback)
+{
+	gs_free char *value = NULL;
+
+	value = nm_config_data_get_connection_default (self, property, device);
+	return _nm_utils_ascii_str_to_int64 (value, 10, min, max, fallback);
+}
+
 static void
 _get_connection_info_init (MatchSectionInfo *connection_info, GKeyFile *keyfile, char *group)
 {
@@ -1379,9 +1429,12 @@ _get_connection_info_init (MatchSectionInfo *connection_info, GKeyFile *keyfile,
 
 	connection_info->match_device.spec = nm_config_get_match_spec (keyfile,
 	                                                               group,
-	                                                               "match-device",
+	                                                               NM_CONFIG_KEYFILE_KEY_MATCH_DEVICE,
 	                                                               &connection_info->match_device.has);
-	connection_info->stop_match = nm_config_keyfile_get_boolean (keyfile, group, "stop-match", FALSE);
+	connection_info->stop_match = nm_config_keyfile_get_boolean (keyfile,
+	                                                             group,
+	                                                             NM_CONFIG_KEYFILE_KEY_STOP_MATCH,
+	                                                             FALSE);
 }
 
 static void
@@ -1624,27 +1677,58 @@ constructed (GObject *object)
 	priv->connection_infos = _match_section_infos_construct (priv->keyfile, NM_CONFIG_KEYFILE_GROUPPREFIX_CONNECTION);
 	priv->device_infos = _match_section_infos_construct (priv->keyfile, NM_CONFIG_KEYFILE_GROUPPREFIX_DEVICE);
 
-	priv->connectivity.enabled = nm_config_keyfile_get_boolean (priv->keyfile, NM_CONFIG_KEYFILE_GROUP_CONNECTIVITY, "enabled", TRUE);
-	priv->connectivity.uri = nm_strstrip (g_key_file_get_string (priv->keyfile, NM_CONFIG_KEYFILE_GROUP_CONNECTIVITY, "uri", NULL));
-	priv->connectivity.response = g_key_file_get_string (priv->keyfile, NM_CONFIG_KEYFILE_GROUP_CONNECTIVITY, "response", NULL);
-
-	str = nm_config_keyfile_get_value (priv->keyfile, NM_CONFIG_KEYFILE_GROUP_MAIN, NM_CONFIG_KEYFILE_KEY_MAIN_AUTOCONNECT_RETRIES_DEFAULT, NM_CONFIG_GET_VALUE_NONE);
+	priv->connectivity.enabled = nm_config_keyfile_get_boolean (priv->keyfile,
+	                                                            NM_CONFIG_KEYFILE_GROUP_CONNECTIVITY,
+	                                                            NM_CONFIG_KEYFILE_KEY_CONNECTIVITY_ENABLED,
+	                                                            TRUE);
+	priv->connectivity.uri = nm_strstrip (g_key_file_get_string (priv->keyfile,
+	                                                             NM_CONFIG_KEYFILE_GROUP_CONNECTIVITY,
+	                                                             NM_CONFIG_KEYFILE_KEY_CONNECTIVITY_URI,
+	                                                             NULL));
+	priv->connectivity.response = g_key_file_get_string (priv->keyfile,
+	                                                     NM_CONFIG_KEYFILE_GROUP_CONNECTIVITY,
+	                                                     NM_CONFIG_KEYFILE_KEY_CONNECTIVITY_RESPONSE,
+	                                                     NULL);
+	str = nm_config_keyfile_get_value (priv->keyfile,
+	                                   NM_CONFIG_KEYFILE_GROUP_MAIN,
+	                                   NM_CONFIG_KEYFILE_KEY_MAIN_AUTOCONNECT_RETRIES_DEFAULT,
+	                                   NM_CONFIG_GET_VALUE_NONE);
 	priv->autoconnect_retries_default = _nm_utils_ascii_str_to_int64 (str, 10, 0, G_MAXINT32, 4);
 	g_free (str);
 
 	/* On missing config value, fallback to 300. On invalid value, disable connectivity checking by setting
 	 * the interval to zero. */
-	str = g_key_file_get_string (priv->keyfile, NM_CONFIG_KEYFILE_GROUP_CONNECTIVITY, "interval", NULL);
+	str = g_key_file_get_string (priv->keyfile,
+	                             NM_CONFIG_KEYFILE_GROUP_CONNECTIVITY,
+	                             NM_CONFIG_KEYFILE_KEY_CONNECTIVITY_INTERVAL,
+	                             NULL);
 	priv->connectivity.interval = _nm_utils_ascii_str_to_int64 (str, 10, 0, G_MAXUINT, NM_CONFIG_DEFAULT_CONNECTIVITY_INTERVAL);
 	g_free (str);
 
-	priv->dns_mode = nm_strstrip (g_key_file_get_string (priv->keyfile, NM_CONFIG_KEYFILE_GROUP_MAIN, "dns", NULL));
-	priv->rc_manager = nm_strstrip (g_key_file_get_string (priv->keyfile, NM_CONFIG_KEYFILE_GROUP_MAIN, "rc-manager", NULL));
-
-	priv->ignore_carrier = nm_config_get_match_spec (priv->keyfile, NM_CONFIG_KEYFILE_GROUP_MAIN, "ignore-carrier", NULL);
-	priv->assume_ipv6ll_only = nm_config_get_match_spec (priv->keyfile, NM_CONFIG_KEYFILE_GROUP_MAIN, "assume-ipv6ll-only", NULL);
-
-	priv->no_auto_default.specs_config = nm_config_get_match_spec (priv->keyfile, NM_CONFIG_KEYFILE_GROUP_MAIN, "no-auto-default", NULL);
+	priv->dns_mode = nm_strstrip (g_key_file_get_string (priv->keyfile,
+	                                                     NM_CONFIG_KEYFILE_GROUP_MAIN,
+	                                                     NM_CONFIG_KEYFILE_KEY_MAIN_DNS,
+	                                                     NULL));
+	priv->rc_manager = nm_strstrip (g_key_file_get_string (priv->keyfile,
+	                                                       NM_CONFIG_KEYFILE_GROUP_MAIN,
+	                                                       NM_CONFIG_KEYFILE_KEY_MAIN_RC_MANAGER,
+	                                                       NULL));
+	priv->systemd_resolved = nm_config_keyfile_get_boolean (priv->keyfile,
+	                                                        NM_CONFIG_KEYFILE_GROUP_MAIN,
+	                                                        NM_CONFIG_KEYFILE_KEY_MAIN_SYSTEMD_RESOLVED,
+	                                                        TRUE);
+	priv->ignore_carrier = nm_config_get_match_spec (priv->keyfile,
+	                                                 NM_CONFIG_KEYFILE_GROUP_MAIN,
+	                                                 NM_CONFIG_KEYFILE_KEY_MAIN_IGNORE_CARRIER,
+	                                                 NULL);
+	priv->assume_ipv6ll_only = nm_config_get_match_spec (priv->keyfile,
+	                                                     NM_CONFIG_KEYFILE_GROUP_MAIN,
+	                                                     NM_CONFIG_KEYFILE_KEY_MAIN_ASSUME_IPV6LL_ONLY,
+	                                                     NULL);
+	priv->no_auto_default.specs_config = nm_config_get_match_spec (priv->keyfile,
+	                                                               NM_CONFIG_KEYFILE_GROUP_MAIN,
+	                                                               NM_CONFIG_KEYFILE_KEY_MAIN_NO_AUTO_DEFAULT,
+	                                                               NULL);
 
 	priv->global_dns = load_global_dns (priv->keyfile_user, FALSE);
 	if (!priv->global_dns)

@@ -21,8 +21,6 @@
 
 #include "nm-sleep-monitor.h"
 
-#include <errno.h>
-#include <string.h>
 #include <sys/stat.h>
 #include <gio/gunixfdlist.h>
 
@@ -84,7 +82,7 @@ struct _NMSleepMonitor {
 	/* used both during construction of proxy and during Inhibit call. */
 	GCancellable *cancellable;
 
-	gint inhibit_fd;
+	int inhibit_fd;
 	GSList *handles_active;
 	GSList *handles_stale;
 

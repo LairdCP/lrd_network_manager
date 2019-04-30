@@ -22,8 +22,6 @@
 
 #include "nm-dbus-helpers.h"
 
-#include <string.h>
-
 #include "nm-dbus-interface.h"
 
 static GBusType nm_bus = G_BUS_TYPE_SYSTEM;
@@ -105,7 +103,7 @@ _nm_dbus_is_connection_private (GDBusConnection *connection)
  * rule the proxy added and ensure a less granular rule is present instead.
  *
  * Also, don't do this immediately since it has a performance penalty.
- * Still better than loosing the signals altogether.
+ * Still better than losing the signals altogether.
  *
  * Ideally, we should be able to tell glib not to hook its rules:
  * https://bugzilla.gnome.org/show_bug.cgi?id=758749
@@ -115,7 +113,7 @@ _nm_dbus_proxy_replace_match (GDBusProxy *proxy)
 {
 	GDBusConnection *connection = g_dbus_proxy_get_connection (proxy);
 	static unsigned match_counter = 1024;
-	gchar *match;
+	char *match;
 
 	if (match_counter == 1) {
 		/* If we hit the low matches watermark, install a

@@ -15,7 +15,7 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
- * Copyright (C) 2015 - 2017 Red Hat, Inc.
+ * Copyright (C) 2015 - 2018 Red Hat, Inc.
  */
 
 #include "nm-default.h"
@@ -24,12 +24,17 @@
 
 #include <unistd.h>
 #include <linux/rtnetlink.h>
+#include <linux/if.h>
 #include <libudev.h>
 
 #include "nm-utils.h"
+#include "nm-utils/nm-secret-utils.h"
 
 #include "nm-core-utils.h"
 #include "nm-platform-utils.h"
+
+#include "wifi/nm-wifi-utils.h"
+#include "wpan/nm-wpan-utils.h"
 
 /*****************************************************************************/
 
@@ -81,6 +86,192 @@ struct _NMPCache {
 
 	gboolean use_udev;
 };
+
+/*****************************************************************************/
+
+int
+nm_sock_addr_union_cmp (const NMSockAddrUnion *a, const NMSockAddrUnion *b)
+{
+	nm_assert (!a || NM_IN_SET (a->sa.sa_family, AF_UNSPEC, AF_INET, AF_INET6));
+	nm_assert (!b || NM_IN_SET (b->sa.sa_family, AF_UNSPEC, AF_INET, AF_INET6));
+
+	NM_CMP_SELF (a, b);
+
+	NM_CMP_FIELD (a, b, sa.sa_family);
+	switch (a->sa.sa_family) {
+	case AF_INET:
+		NM_CMP_DIRECT (ntohl (a->in.sin_addr.s_addr), ntohl (b->in.sin_addr.s_addr));
+		NM_CMP_DIRECT (htons (a->in.sin_port), htons (b->in.sin_port));
+		break;
+	case AF_INET6:
+		NM_CMP_DIRECT_IN6ADDR (&a->in6.sin6_addr, &b->in6.sin6_addr);
+		NM_CMP_DIRECT (htons (a->in6.sin6_port), htons (b->in6.sin6_port));
+		NM_CMP_FIELD (a, b, in6.sin6_scope_id);
+		NM_CMP_FIELD (a, b, in6.sin6_flowinfo);
+		break;
+	}
+	return 0;
+}
+
+void
+nm_sock_addr_union_hash_update (const NMSockAddrUnion *a, NMHashState *h)
+{
+	if (!a) {
+		nm_hash_update_val (h, 1241364739u);
+		return;
+	}
+
+	nm_assert (NM_IN_SET (a->sa.sa_family, AF_UNSPEC, AF_INET, AF_INET6));
+
+	switch (a->sa.sa_family) {
+	case AF_INET:
+		nm_hash_update_vals (h,
+		                     a->in.sin_family,
+		                     a->in.sin_addr.s_addr,
+		                     a->in.sin_port);
+		return;
+	case AF_INET6:
+		nm_hash_update_vals (h,
+		                     a->in6.sin6_family,
+		                     a->in6.sin6_addr,
+		                     a->in6.sin6_port,
+		                     a->in6.sin6_scope_id,
+		                     a->in6.sin6_flowinfo);
+		return;
+	default:
+		nm_hash_update_val (h, a->sa.sa_family);
+		return;
+	}
+}
+
+/**
+ * nm_sock_addr_union_cpy:
+ * @dst: the destination #NMSockAddrUnion. It will always be fully initialized,
+ *   to one of the address families AF_INET, AF_INET6, or AF_UNSPEC (in case of
+ *   error).
+ * @src: (allow-none): the source buffer with an sockaddr to copy. It may be unaligned in
+ *   memory. If not %NULL, the buffer must be at least large enough to contain
+ *   sa.sa_family, and then, depending on sa.sa_family, it must be large enough
+ *   to hold struct sockaddr_in or struct sockaddr_in6.
+ *
+ * @dst will always be fully initialized (including setting all un-used bytes to zero).
+ */
+void
+nm_sock_addr_union_cpy (NMSockAddrUnion *dst,
+                        gconstpointer src /* unaligned (const NMSockAddrUnion *) */)
+{
+	struct sockaddr sa;
+	gsize src_len;
+
+	nm_assert (dst);
+
+	*dst = (NMSockAddrUnion) NM_SOCK_ADDR_UNION_INIT_UNSPEC;
+
+	if (!src)
+		return;
+
+	memcpy (&sa.sa_family, &((struct sockaddr *) src)->sa_family, sizeof (sa.sa_family));
+
+	if (sa.sa_family == AF_INET)
+		src_len = sizeof (struct sockaddr_in);
+	else if (sa.sa_family == AF_INET6)
+		src_len = sizeof (struct sockaddr_in6);
+	else
+		return;
+
+	memcpy (dst, src, src_len);
+	nm_assert (dst->sa.sa_family == sa.sa_family);
+}
+
+/**
+ * nm_sock_addr_union_cpy_untrusted:
+ * @dst: the destination #NMSockAddrUnion. It will always be fully initialized,
+ *   to one of the address families AF_INET, AF_INET6, or AF_UNSPEC (in case of
+ *   error).
+ * @src: the source buffer with an sockaddr to copy. It may be unaligned in
+ *   memory.
+ * @src_len: the length of @src in bytes.
+ *
+ * The function requires @src_len to be either sizeof(struct sockaddr_in) or sizeof (struct sockaddr_in6).
+ * If that's the case, then @src will be interpreted as such structure (unaligned), and
+ * accessed. It will check sa.sa_family to match the expected sizes, and if it does, the
+ * struct will be copied.
+ *
+ * On any failure, @dst will be set to sa.sa_family AF_UNSPEC.
+ * @dst will always be fully initialized (including setting all un-used bytes to zero).
+ */
+void
+nm_sock_addr_union_cpy_untrusted (NMSockAddrUnion *dst,
+                                  gconstpointer src /* unaligned (const NMSockAddrUnion *) */,
+                                  gsize src_len)
+{
+	int f_expected;
+	struct sockaddr sa;
+
+	nm_assert (dst);
+
+	*dst = (NMSockAddrUnion) NM_SOCK_ADDR_UNION_INIT_UNSPEC;
+
+	if (src_len == sizeof (struct sockaddr_in))
+		f_expected = AF_INET;
+	else if (src_len == sizeof (struct sockaddr_in6))
+		f_expected = AF_INET6;
+	else
+		return;
+
+	memcpy (&sa.sa_family, &((struct sockaddr *) src)->sa_family, sizeof (sa.sa_family));
+
+	if (sa.sa_family != f_expected)
+		return;
+
+	memcpy (dst, src, src_len);
+	nm_assert (dst->sa.sa_family == sa.sa_family);
+}
+
+const char *
+nm_sock_addr_union_to_string (const NMSockAddrUnion *sa,
+                              char *buf,
+                              gsize len)
+{
+	char s_addr[NM_UTILS_INET_ADDRSTRLEN];
+	char s_scope_id[40];
+
+	if (!nm_utils_to_string_buffer_init_null (sa, &buf, &len))
+		return buf;
+
+	/* maybe we should use getnameinfo(), but here implement it ourself.
+	 *
+	 * We want to see the actual bytes for debugging (as we understand them),
+	 * and now what getnameinfo() makes of it. Also, it's simpler this way. */
+
+	switch (sa->sa.sa_family) {
+	case AF_INET:
+		g_snprintf (buf, len,
+		            "%s:%u",
+		            nm_utils_inet4_ntop (sa->in.sin_addr.s_addr, s_addr),
+		            (guint) htons (sa->in.sin_port));
+		break;
+	case AF_INET6:
+		g_snprintf (buf, len,
+		            "[%s%s]:%u",
+		            nm_utils_inet6_ntop (&sa->in6.sin6_addr, s_addr),
+		            (  sa->in6.sin6_scope_id != 0
+		             ? nm_sprintf_buf (s_scope_id, "%u", sa->in6.sin6_scope_id)
+		             : ""),
+		            (guint) htons (sa->in6.sin6_port));
+		break;
+	case AF_UNSPEC:
+		g_snprintf (buf, len, "unspec");
+		break;
+	default:
+		g_snprintf (buf, len,
+		            "{addr-family:%u}",
+		            (unsigned) sa->sa.sa_family);
+		break;
+	}
+
+	return buf;
+}
 
 /*****************************************************************************/
 
@@ -337,8 +528,90 @@ _vlan_xgress_qos_mappings_cpy (guint *dst_n_map,
 		g_clear_pointer (dst_map, g_free);
 		*dst_n_map = src_n_map;
 		if (src_n_map > 0)
-			*dst_map = g_memdup (src_map, sizeof (*src_map) * src_n_map);
+			*dst_map = nm_memdup (src_map, sizeof (*src_map) * src_n_map);
 	}
+}
+
+/*****************************************************************************/
+
+static void
+_wireguard_allowed_ip_hash_update (const NMPWireGuardAllowedIP *ip,
+                                   NMHashState *h)
+{
+	nm_hash_update_vals (h, ip->family,
+	                        ip->mask);
+
+	if (ip->family == AF_INET)
+		nm_hash_update_val (h, ip->addr.addr4);
+	else if (ip->family == AF_INET6)
+		nm_hash_update_val (h, ip->addr.addr6);
+}
+
+static int
+_wireguard_allowed_ip_cmp (const NMPWireGuardAllowedIP *a,
+                           const NMPWireGuardAllowedIP *b)
+{
+	NM_CMP_SELF (a, b);
+
+	NM_CMP_FIELD (a, b, family);
+	NM_CMP_FIELD (a, b, mask);
+
+	if (a->family == AF_INET)
+		NM_CMP_FIELD (a, b, addr.addr4);
+	else if (a->family == AF_INET6)
+		NM_CMP_FIELD_IN6ADDR (a, b, addr.addr6);
+
+	return 0;
+}
+
+static void
+_wireguard_peer_hash_update (const NMPWireGuardPeer *peer,
+                             NMHashState *h)
+{
+	guint i;
+
+	nm_hash_update (h, peer->public_key, sizeof (peer->public_key));
+	nm_hash_update (h, peer->preshared_key, sizeof (peer->preshared_key));
+	nm_hash_update_vals (h,
+	                     peer->persistent_keepalive_interval,
+	                     peer->allowed_ips_len,
+	                     peer->rx_bytes,
+	                     peer->tx_bytes,
+	                     peer->last_handshake_time.tv_sec,
+	                     peer->last_handshake_time.tv_nsec);
+
+	nm_sock_addr_union_hash_update (&peer->endpoint, h);
+
+	for (i = 0; i < peer->allowed_ips_len; i++)
+		_wireguard_allowed_ip_hash_update (&peer->allowed_ips[i], h);
+}
+
+static int
+_wireguard_peer_cmp (const NMPWireGuardPeer *a,
+                     const NMPWireGuardPeer *b)
+{
+	guint i;
+
+	NM_CMP_SELF (a, b);
+
+	NM_CMP_FIELD (a, b, last_handshake_time.tv_sec);
+	NM_CMP_FIELD (a, b, last_handshake_time.tv_nsec);
+	NM_CMP_FIELD (a, b, rx_bytes);
+	NM_CMP_FIELD (a, b, tx_bytes);
+	NM_CMP_FIELD (a, b, allowed_ips_len);
+	NM_CMP_FIELD (a, b, persistent_keepalive_interval);
+	NM_CMP_FIELD (a, b, endpoint.sa.sa_family);
+	NM_CMP_FIELD_MEMCMP (a, b, public_key);
+	NM_CMP_FIELD_MEMCMP (a, b, preshared_key);
+
+	NM_CMP_RETURN (nm_sock_addr_union_cmp (&a->endpoint, &b->endpoint));
+
+	for (i = 0; i < a->allowed_ips_len; i++) {
+		NM_CMP_RETURN (_wireguard_allowed_ip_cmp (&a->allowed_ips[i],
+		                                          &b->allowed_ips[i]));
+	}
+
+	return 0;
 }
 
 /*****************************************************************************/
@@ -456,6 +729,7 @@ _vt_cmd_obj_dispose_link (NMPObject *obj)
 		udev_device_unref (obj->_link.udev.device);
 		obj->_link.udev.device = NULL;
 	}
+	g_clear_object (&obj->_link.ext_data);
 	nmp_object_unref (obj->_link.netlink.lnk);
 }
 
@@ -464,6 +738,28 @@ _vt_cmd_obj_dispose_lnk_vlan (NMPObject *obj)
 {
 	g_free ((gpointer) obj->_lnk_vlan.ingress_qos_map);
 	g_free ((gpointer) obj->_lnk_vlan.egress_qos_map);
+}
+
+static void
+_wireguard_clear (NMPObjectLnkWireGuard *lnk)
+{
+	guint i;
+
+	nm_explicit_bzero (lnk->_public.private_key,
+	                   sizeof (lnk->_public.private_key));
+	for (i = 0; i < lnk->peers_len; i++) {
+		NMPWireGuardPeer *peer = (NMPWireGuardPeer *) &lnk->peers[i];
+
+		nm_explicit_bzero (peer->preshared_key, sizeof (peer->preshared_key));
+	}
+	g_free ((gpointer) lnk->peers);
+	g_free ((gpointer) lnk->_allowed_ips_buf);
+}
+
+static void
+_vt_cmd_obj_dispose_lnk_wireguard (NMPObject *obj)
+{
+	_wireguard_clear (&obj->_lnk_wireguard);
 }
 
 static NMPObject *
@@ -511,9 +807,12 @@ _nmp_object_stackinit_from_class (NMPObject *obj, const NMPClass *klass)
 	nm_assert (obj);
 	nm_assert (klass);
 
-	memset (obj, 0, sizeof (NMPObject));
-	obj->_class = klass;
-	obj->parent._ref_count = NM_OBJ_REF_COUNT_STACKINIT;
+	*obj = (NMPObject) {
+		.parent = {
+			.klass      = (const NMDedupMultiObjClass *) klass,
+			._ref_count = NM_OBJ_REF_COUNT_STACKINIT,
+		},
+	};
 }
 
 static NMPObject *
@@ -525,9 +824,12 @@ _nmp_object_stackinit_from_type (NMPObject *obj, NMPObjectType obj_type)
 	klass = nmp_class_from_type (obj_type);
 	nm_assert (klass);
 
-	memset (obj, 0, sizeof (NMPObject));
-	obj->_class = klass;
-	obj->parent._ref_count = NM_OBJ_REF_COUNT_STACKINIT;
+	*obj = (NMPObject) {
+		.parent = {
+			.klass      = (const NMDedupMultiObjClass *) klass,
+			._ref_count = NM_OBJ_REF_COUNT_STACKINIT,
+		},
+	};
 	return obj;
 }
 
@@ -631,31 +933,35 @@ static const char *
 _vt_cmd_obj_to_string_link (const NMPObject *obj, NMPObjectToStringMode to_string_mode, char *buf, gsize buf_size)
 {
 	const NMPClass *klass = NMP_OBJECT_GET_CLASS (obj);
-	char buf2[sizeof (_nm_utils_to_string_buffer)];
-	char buf3[sizeof (_nm_utils_to_string_buffer)];
+	char *b = buf;
 
 	switch (to_string_mode) {
 	case NMP_OBJECT_TO_STRING_ID:
 		return klass->cmd_plobj_to_string_id (&obj->object, buf, buf_size);
 	case NMP_OBJECT_TO_STRING_ALL:
-		g_snprintf (buf, buf_size,
-		            "[%s,%p,%u,%calive,%cvisible,%cin-nl,%p; %s]",
-		            klass->obj_type_name, obj, obj->parent._ref_count,
-		            nmp_object_is_alive (obj) ? '+' : '-',
-		            nmp_object_is_visible (obj) ? '+' : '-',
-		            obj->_link.netlink.is_in_netlink ? '+' : '-',
-		            obj->_link.udev.device,
-		            nmp_object_to_string (obj, NMP_OBJECT_TO_STRING_PUBLIC, buf2, sizeof (buf2)));
+		nm_utils_strbuf_append (&b, &buf_size,
+		                        "[%s,%p,%u,%calive,%cvisible,%cin-nl,%p; ",
+		                        klass->obj_type_name, obj, obj->parent._ref_count,
+		                        nmp_object_is_alive (obj) ? '+' : '-',
+		                        nmp_object_is_visible (obj) ? '+' : '-',
+		                        obj->_link.netlink.is_in_netlink ? '+' : '-',
+		                        obj->_link.udev.device);
+		NMP_OBJECT_GET_CLASS (obj)->cmd_plobj_to_string (&obj->object, b, buf_size);
+		nm_utils_strbuf_seek_end (&b, &buf_size);
+		if (obj->_link.netlink.lnk) {
+			nm_utils_strbuf_append_str (&b, &buf_size, "; ");
+			nmp_object_to_string (obj->_link.netlink.lnk, NMP_OBJECT_TO_STRING_ALL, b, buf_size);
+			nm_utils_strbuf_seek_end (&b, &buf_size);
+		}
+		nm_utils_strbuf_append_c (&b, &buf_size, ']');
 		return buf;
 	case NMP_OBJECT_TO_STRING_PUBLIC:
+		NMP_OBJECT_GET_CLASS (obj)->cmd_plobj_to_string (&obj->object, b, buf_size);
 		if (obj->_link.netlink.lnk) {
-			NMP_OBJECT_GET_CLASS (obj)->cmd_plobj_to_string (&obj->object, buf2, sizeof (buf2));
-			nmp_object_to_string (obj->_link.netlink.lnk, NMP_OBJECT_TO_STRING_PUBLIC, buf3, sizeof (buf3));
-			g_snprintf (buf, buf_size,
-			            "%s; %s",
-			            buf2, buf3);
-		} else
-			NMP_OBJECT_GET_CLASS (obj)->cmd_plobj_to_string (&obj->object, buf, buf_size);
+			nm_utils_strbuf_seek_end (&b, &buf_size);
+			nm_utils_strbuf_append_str (&b, &buf_size, "; ");
+			nmp_object_to_string (obj->_link.netlink.lnk, NMP_OBJECT_TO_STRING_PUBLIC, b, buf_size);
+		}
 		return buf;
 	default:
 		g_return_val_if_reached ("ERROR");
@@ -720,16 +1026,63 @@ _vt_cmd_obj_to_string_lnk_vlan (const NMPObject *obj, NMPObjectToStringMode to_s
 	}
 }
 
+static const char *
+_vt_cmd_obj_to_string_lnk_wireguard (const NMPObject *obj, NMPObjectToStringMode to_string_mode, char *buf, gsize buf_size)
+{
+	const NMPClass *klass;
+	char buf2[sizeof (_nm_utils_to_string_buffer)];
+	char *b;
+	guint i;
+
+	klass = NMP_OBJECT_GET_CLASS (obj);
+
+	switch (to_string_mode) {
+	case NMP_OBJECT_TO_STRING_ID:
+		g_snprintf (buf, buf_size, "%p", obj);
+		return buf;
+	case NMP_OBJECT_TO_STRING_ALL:
+		b = buf;
+
+		nm_utils_strbuf_append (&b, &buf_size,
+		                        "[%s,%p,%u,%calive,%cvisible; %s"
+		                        "%s",
+		                        klass->obj_type_name, obj, obj->parent._ref_count,
+		                        nmp_object_is_alive (obj) ? '+' : '-',
+		                        nmp_object_is_visible (obj) ? '+' : '-',
+		                        nmp_object_to_string (obj, NMP_OBJECT_TO_STRING_PUBLIC, buf2, sizeof (buf2)),
+		                        obj->_lnk_wireguard.peers_len > 0
+		                          ? " peers {"
+		                          : "");
+
+		for (i = 0; i < obj->_lnk_wireguard.peers_len; i++) {
+			const NMPWireGuardPeer *peer = &obj->_lnk_wireguard.peers[i];
+
+			nm_utils_strbuf_append_str (&b, &buf_size, " { ");
+			nm_platform_wireguard_peer_to_string (peer, b, buf_size);
+			nm_utils_strbuf_seek_end (&b, &buf_size);
+			nm_utils_strbuf_append_str (&b, &buf_size, " }");
+		}
+		if (obj->_lnk_wireguard.peers_len)
+			nm_utils_strbuf_append_str (&b, &buf_size, " }");
+
+		return buf;
+	case NMP_OBJECT_TO_STRING_PUBLIC:
+		NMP_OBJECT_GET_CLASS (obj)->cmd_plobj_to_string (&obj->object, buf, buf_size);
+
+		return buf;
+	default:
+		g_return_val_if_reached ("ERROR");
+	}
+}
+
 #define _vt_cmd_plobj_to_string_id(type, plat_type, ...) \
 static const char * \
 _vt_cmd_plobj_to_string_id_##type (const NMPlatformObject *_obj, char *buf, gsize buf_len) \
 { \
 	plat_type *const obj = (plat_type *) _obj; \
-	char buf1[NM_UTILS_INET_ADDRSTRLEN]; \
-	char buf2[NM_UTILS_INET_ADDRSTRLEN]; \
+	_nm_unused char buf1[NM_UTILS_INET_ADDRSTRLEN]; \
+	_nm_unused char buf2[NM_UTILS_INET_ADDRSTRLEN]; \
 	\
-	(void) buf1; \
-	(void) buf2; \
 	g_snprintf (buf, buf_len, \
 	            __VA_ARGS__); \
 	return buf; \
@@ -768,6 +1121,7 @@ _vt_cmd_obj_hash_update_link (const NMPObject *obj, NMHashState *h)
 	nm_platform_link_hash_update (&obj->link, h);
 	nm_hash_update_vals (h,
 	                     obj->_link.netlink.is_in_netlink,
+	                     obj->_link.wireguard_family_id,
 	                     obj->_link.udev.device);
 	if (obj->_link.netlink.lnk)
 		nmp_object_hash_update (obj->_link.netlink.lnk, h);
@@ -787,17 +1141,26 @@ _vt_cmd_obj_hash_update_lnk_vlan (const NMPObject *obj, NMHashState *h)
 	                                       h);
 }
 
+static void
+_vt_cmd_obj_hash_update_lnk_wireguard (const NMPObject *obj, NMHashState *h)
+{
+	guint i;
+
+	nm_assert (NMP_OBJECT_GET_TYPE (obj) == NMP_OBJECT_TYPE_LNK_WIREGUARD);
+
+	nm_platform_lnk_wireguard_hash_update (&obj->lnk_wireguard, h);
+
+	nm_hash_update_val (h, obj->_lnk_wireguard.peers_len);
+	for (i = 0; i < obj->_lnk_wireguard.peers_len; i++)
+		_wireguard_peer_hash_update (&obj->_lnk_wireguard.peers[i], h);
+}
+
 int
 nmp_object_cmp (const NMPObject *obj1, const NMPObject *obj2)
 {
 	const NMPClass *klass1, *klass2;
 
-	if (obj1 == obj2)
-		return 0;
-	if (!obj1)
-		return -1;
-	if (!obj2)
-		return 1;
+	NM_CMP_SELF (obj1, obj2);
 
 	g_return_val_if_fail (NMP_OBJECT_IS_VALID (obj1), -1);
 	g_return_val_if_fail (NMP_OBJECT_IS_VALID (obj2), 1);
@@ -818,16 +1181,11 @@ nmp_object_cmp (const NMPObject *obj1, const NMPObject *obj2)
 static int
 _vt_cmd_obj_cmp_link (const NMPObject *obj1, const NMPObject *obj2)
 {
-	int i;
+	NM_CMP_RETURN (nm_platform_link_cmp (&obj1->link, &obj2->link));
+	NM_CMP_DIRECT (obj1->_link.netlink.is_in_netlink, obj2->_link.netlink.is_in_netlink);
+	NM_CMP_RETURN (nmp_object_cmp (obj1->_link.netlink.lnk, obj2->_link.netlink.lnk));
+	NM_CMP_DIRECT (obj1->_link.wireguard_family_id, obj2->_link.wireguard_family_id);
 
-	i = nm_platform_link_cmp (&obj1->link, &obj2->link);
-	if (i)
-		return i;
-	if (obj1->_link.netlink.is_in_netlink != obj2->_link.netlink.is_in_netlink)
-		return obj1->_link.netlink.is_in_netlink ? -1 : 1;
-	i = nmp_object_cmp (obj1->_link.netlink.lnk, obj2->_link.netlink.lnk);
-	if (i)
-		return i;
 	if (obj1->_link.udev.device != obj2->_link.udev.device) {
 		if (!obj1->_link.udev.device)
 			return -1;
@@ -840,6 +1198,7 @@ _vt_cmd_obj_cmp_link (const NMPObject *obj1, const NMPObject *obj2)
 		 * Have this check as very last. */
 		return (obj1->_link.udev.device < obj2->_link.udev.device) ? -1 : 1;
 	}
+
 	return 0;
 }
 
@@ -863,6 +1222,21 @@ _vt_cmd_obj_cmp_lnk_vlan (const NMPObject *obj1, const NMPObject *obj2)
 	c = _vlan_xgress_qos_mappings_cmp (obj1->_lnk_vlan.n_egress_qos_map, obj1->_lnk_vlan.egress_qos_map, obj2->_lnk_vlan.egress_qos_map);
 
 	return c;
+}
+
+static int
+_vt_cmd_obj_cmp_lnk_wireguard (const NMPObject *obj1, const NMPObject *obj2)
+{
+	guint i;
+
+	NM_CMP_RETURN (nm_platform_lnk_wireguard_cmp (&obj1->lnk_wireguard, &obj2->lnk_wireguard));
+
+	NM_CMP_FIELD (obj1, obj2, _lnk_wireguard.peers_len);
+
+	for (i = 0; i < obj1->_lnk_wireguard.peers_len; i++)
+		NM_CMP_RETURN (_wireguard_peer_cmp (&obj1->_lnk_wireguard.peers[i], &obj2->_lnk_wireguard.peers[i]));
+
+	return 0;
 }
 
 /* @src is a const object, which is not entirely correct for link types, where
@@ -908,6 +1282,12 @@ _vt_cmd_obj_copy_link (NMPObject *dst, const NMPObject *src)
 			nmp_object_unref (dst->_link.netlink.lnk);
 		dst->_link.netlink.lnk = src->_link.netlink.lnk;
 	}
+	if (dst->_link.ext_data != src->_link.ext_data) {
+		if (dst->_link.ext_data)
+			g_clear_object (&dst->_link.ext_data);
+		if (src->_link.ext_data)
+			dst->_link.ext_data = g_object_ref (src->_link.ext_data);
+	}
 	dst->_link = src->_link;
 }
 
@@ -923,6 +1303,41 @@ _vt_cmd_obj_copy_lnk_vlan (NMPObject *dst, const NMPObject *src)
 	                               NM_UNCONST_PPTR (NMVlanQosMapping, &dst->_lnk_vlan.egress_qos_map),
 	                               src->_lnk_vlan.n_egress_qos_map,
 	                               src->_lnk_vlan.egress_qos_map);
+}
+
+static void
+_vt_cmd_obj_copy_lnk_wireguard (NMPObject *dst, const NMPObject *src)
+{
+	guint i;
+
+	nm_assert (dst != src);
+
+	_wireguard_clear (&dst->_lnk_wireguard);
+
+	dst->_lnk_wireguard = src->_lnk_wireguard;
+
+	dst->_lnk_wireguard.peers = nm_memdup (dst->_lnk_wireguard.peers,
+	                                       sizeof (NMPWireGuardPeer) * dst->_lnk_wireguard.peers_len);
+	dst->_lnk_wireguard._allowed_ips_buf = nm_memdup (dst->_lnk_wireguard._allowed_ips_buf,
+	                                                  sizeof (NMPWireGuardAllowedIP) * dst->_lnk_wireguard._allowed_ips_buf_len);
+
+	/* all the peers' pointers point into the buffer. They need to be readjusted. */
+	for (i = 0; i < dst->_lnk_wireguard.peers_len; i++) {
+		NMPWireGuardPeer *peer = (NMPWireGuardPeer *) &dst->_lnk_wireguard.peers[i];
+
+		if (peer->allowed_ips_len == 0) {
+			nm_assert (!peer->allowed_ips);
+			continue;
+		}
+		nm_assert (dst->_lnk_wireguard._allowed_ips_buf_len > 0);
+		nm_assert (src->_lnk_wireguard._allowed_ips_buf);
+		nm_assert (peer->allowed_ips >= src->_lnk_wireguard._allowed_ips_buf);
+		nm_assert (&peer->allowed_ips[peer->allowed_ips_len] <= &src->_lnk_wireguard._allowed_ips_buf[src->_lnk_wireguard._allowed_ips_buf_len]);
+
+		peer->allowed_ips = &dst->_lnk_wireguard._allowed_ips_buf[peer->allowed_ips - src->_lnk_wireguard._allowed_ips_buf];
+	}
+
+	nm_assert (nmp_object_equal (src, dst));
 }
 
 #define _vt_cmd_plobj_id_copy(type, plat_type, cmd) \
@@ -1130,13 +1545,13 @@ _vt_cmd_plobj_id_hash_update (tfilter, NMPlatformTfilter, {
 	                     obj->handle);
 })
 
-static inline void
+static void
 _vt_cmd_plobj_hash_update_ip4_route (const NMPlatformObject *obj, NMHashState *h)
 {
 	return nm_platform_ip4_route_hash_update ((const NMPlatformIP4Route *) obj, NM_PLATFORM_IP_ROUTE_CMP_TYPE_FULL, h);
 }
 
-static inline void
+static void
 _vt_cmd_plobj_hash_update_ip6_route (const NMPlatformObject *obj, NMHashState *h)
 {
 	return nm_platform_ip6_route_hash_update ((const NMPlatformIP6Route *) obj, NM_PLATFORM_IP_ROUTE_CMP_TYPE_FULL, h);
@@ -1403,7 +1818,7 @@ nmp_cache_link_connected_needs_toggle (const NMPCache *cache, const NMPObject *m
  * The flag obj->link.connected depends on the state of other links in the
  * @cache. See also nmp_cache_link_connected_needs_toggle(). Given an ifindex
  * of a master, check if the cache contains such a master link that needs
- * toogling of the connected flag.
+ * toggling of the connected flag.
  *
  * Returns: NULL if there is no master link with ifindex @master_ifindex that should be toggled.
  *   Otherwise, return the link object from inside the cache with the given ifindex.
@@ -1742,6 +2157,8 @@ nmp_cache_lookup_link_full (const NMPCache *cache,
 	} else if (!ifname && !match_fn)
 		return NULL;
 	else {
+		const NMPObject *obj_best = NULL;
+
 		if (ifname) {
 			if (strlen (ifname) >= IFNAMSIZ)
 				return NULL;
@@ -1753,16 +2170,21 @@ nmp_cache_lookup_link_full (const NMPCache *cache,
 		nmp_cache_iter_for_each_link (&iter, head_entry, &link) {
 			obj = NMP_OBJECT_UP_CAST (link);
 
-			if (visible_only && !nmp_object_is_visible (obj))
-				continue;
 			if (link_type != NM_LINK_TYPE_NONE && obj->link.type != link_type)
+				continue;
+			if (visible_only && !nmp_object_is_visible (obj))
 				continue;
 			if (match_fn && !match_fn (obj, user_data))
 				continue;
 
-			return obj;
+			/* if there are multiple candidates, prefer the visible ones. */
+			if (   visible_only
+			    || nmp_object_is_visible (obj))
+				return obj;
+			if (!obj_best)
+				obj_best = obj;
 		}
-		return NULL;
+		return obj_best;
 	}
 }
 
@@ -2097,15 +2519,15 @@ nmp_cache_remove_netlink (NMPCache *cache,
  *    afterwards. Hence, during a dump, every update should move the object to the
  *    end of the list, to obtain the correct order. That means, to use NM_DEDUP_MULTI_IDX_MODE_APPEND_FORCE,
  *    instead of NM_DEDUP_MULTI_IDX_MODE_APPEND.
- * @out_obj_old: (allow-none): (out): return the object with same ID as @obj_hand_over,
+ * @out_obj_old: (allow-none) (out): return the object with same ID as @obj_hand_over,
  *    that was in the cache before update. If an object is returned, the caller must
  *    unref it afterwards.
- * @out_obj_new: (allow-none): (out): return the object from the cache after update.
+ * @out_obj_new: (allow-none) (out): return the object from the cache after update.
  *    The caller must unref this object.
  *
  * Returns: how the cache changed.
  *
- * Even if there was no change in the cace (NMP_CACHE_OPS_UNCHANGED), @out_obj_old
+ * Even if there was no change in the cache (NMP_CACHE_OPS_UNCHANGED), @out_obj_old
  * and @out_obj_new will be set accordingly.
  **/
 NMPCacheOpsType
@@ -2376,7 +2798,7 @@ update_done:
 		nm_dedup_multi_entry_reorder (entry_cur, NULL, FALSE);
 		break;
 	default:
-		/* this is an unexecpted case, probably a bug that we need to handle better. */
+		/* this is an unexpected case, probably a bug that we need to handle better. */
 		resync_required = TRUE;
 		break;
 	}
@@ -2498,15 +2920,15 @@ nmp_cache_update_link_master_connected (NMPCache *cache,
 /*****************************************************************************/
 
 void
-nmp_cache_dirty_set_all (NMPCache *cache, NMPObjectType obj_type)
+nmp_cache_dirty_set_all (NMPCache *cache,
+                         const NMPLookup *lookup)
 {
-	NMPObject obj_needle;
-
 	nm_assert (cache);
+	nm_assert (lookup);
 
 	nm_dedup_multi_index_dirty_set_head (cache->multi_idx,
-	                                     _idx_type_get (cache, NMP_CACHE_ID_TYPE_OBJECT_TYPE),
-	                                     _nmp_object_stackinit_from_type (&obj_needle, obj_type));
+	                                     _idx_type_get (cache, lookup->cache_id_type),
+	                                     &lookup->selector_obj);
 }
 
 /*****************************************************************************/
@@ -2555,7 +2977,6 @@ const NMPClass _nmp_classes[NMP_OBJECT_TYPE_MAX] = {
 		.sizeof_data                        = sizeof (NMPObjectLink),
 		.sizeof_public                      = sizeof (NMPlatformLink),
 		.obj_type_name                      = "link",
-		.addr_family                        = AF_UNSPEC,
 		.rtm_gettype                        = RTM_GETLINK,
 		.signal_type_id                     = NM_PLATFORM_SIGNAL_ID_LINK,
 		.signal_type                        = NM_PLATFORM_SIGNAL_LINK_CHANGED,
@@ -2702,6 +3123,17 @@ const NMPClass _nmp_classes[NMP_OBJECT_TYPE_MAX] = {
 		.cmd_plobj_hash_update              = (void (*) (const NMPlatformObject *obj, NMHashState *h)) nm_platform_lnk_gre_hash_update,
 		.cmd_plobj_cmp                      = (int (*) (const NMPlatformObject *obj1, const NMPlatformObject *obj2)) nm_platform_lnk_gre_cmp,
 	},
+	[NMP_OBJECT_TYPE_LNK_GRETAP - 1] = {
+		.parent                             = DEDUP_MULTI_OBJ_CLASS_INIT(),
+		.obj_type                           = NMP_OBJECT_TYPE_LNK_GRETAP,
+		.sizeof_data                        = sizeof (NMPObjectLnkGre),
+		.sizeof_public                      = sizeof (NMPlatformLnkGre),
+		.obj_type_name                      = "gretap",
+		.lnk_link_type                      = NM_LINK_TYPE_GRETAP,
+		.cmd_plobj_to_string                = (const char *(*) (const NMPlatformObject *obj, char *buf, gsize len)) nm_platform_lnk_gre_to_string,
+		.cmd_plobj_hash_update              = (void (*) (const NMPlatformObject *obj, NMHashState *h)) nm_platform_lnk_gre_hash_update,
+		.cmd_plobj_cmp                      = (int (*) (const NMPlatformObject *obj1, const NMPlatformObject *obj2)) nm_platform_lnk_gre_cmp,
+	},
 	[NMP_OBJECT_TYPE_LNK_INFINIBAND - 1] = {
 		.parent                             = DEDUP_MULTI_OBJ_CLASS_INIT(),
 		.obj_type                           = NMP_OBJECT_TYPE_LNK_INFINIBAND,
@@ -2720,6 +3152,28 @@ const NMPClass _nmp_classes[NMP_OBJECT_TYPE_MAX] = {
 		.sizeof_public                      = sizeof (NMPlatformLnkIp6Tnl),
 		.obj_type_name                      = "ip6tnl",
 		.lnk_link_type                      = NM_LINK_TYPE_IP6TNL,
+		.cmd_plobj_to_string                = (const char *(*) (const NMPlatformObject *obj, char *buf, gsize len)) nm_platform_lnk_ip6tnl_to_string,
+		.cmd_plobj_hash_update              = (void (*) (const NMPlatformObject *obj, NMHashState *h)) nm_platform_lnk_ip6tnl_hash_update,
+		.cmd_plobj_cmp                      = (int (*) (const NMPlatformObject *obj1, const NMPlatformObject *obj2)) nm_platform_lnk_ip6tnl_cmp,
+	},
+	[NMP_OBJECT_TYPE_LNK_IP6GRE - 1] = {
+		.parent                             = DEDUP_MULTI_OBJ_CLASS_INIT(),
+		.obj_type                           = NMP_OBJECT_TYPE_LNK_IP6GRE,
+		.sizeof_data                        = sizeof (NMPObjectLnkIp6Tnl),
+		.sizeof_public                      = sizeof (NMPlatformLnkIp6Tnl),
+		.obj_type_name                      = "ip6gre",
+		.lnk_link_type                      = NM_LINK_TYPE_IP6GRE,
+		.cmd_plobj_to_string                = (const char *(*) (const NMPlatformObject *obj, char *buf, gsize len)) nm_platform_lnk_ip6tnl_to_string,
+		.cmd_plobj_hash_update              = (void (*) (const NMPlatformObject *obj, NMHashState *h)) nm_platform_lnk_ip6tnl_hash_update,
+		.cmd_plobj_cmp                      = (int (*) (const NMPlatformObject *obj1, const NMPlatformObject *obj2)) nm_platform_lnk_ip6tnl_cmp,
+	},
+	[NMP_OBJECT_TYPE_LNK_IP6GRETAP - 1] = {
+		.parent                             = DEDUP_MULTI_OBJ_CLASS_INIT(),
+		.obj_type                           = NMP_OBJECT_TYPE_LNK_IP6GRETAP,
+		.sizeof_data                        = sizeof (NMPObjectLnkIp6Tnl),
+		.sizeof_public                      = sizeof (NMPlatformLnkIp6Tnl),
+		.obj_type_name                      = "ip6gretap",
+		.lnk_link_type                      = NM_LINK_TYPE_IP6GRETAP,
 		.cmd_plobj_to_string                = (const char *(*) (const NMPlatformObject *obj, char *buf, gsize len)) nm_platform_lnk_ip6tnl_to_string,
 		.cmd_plobj_hash_update              = (void (*) (const NMPlatformObject *obj, NMHashState *h)) nm_platform_lnk_ip6tnl_hash_update,
 		.cmd_plobj_cmp                      = (int (*) (const NMPlatformObject *obj1, const NMPlatformObject *obj2)) nm_platform_lnk_ip6tnl_cmp,
@@ -2817,5 +3271,20 @@ const NMPClass _nmp_classes[NMP_OBJECT_TYPE_MAX] = {
 		.cmd_plobj_hash_update              = (void (*) (const NMPlatformObject *obj, NMHashState *h)) nm_platform_lnk_vxlan_hash_update,
 		.cmd_plobj_cmp                      = (int (*) (const NMPlatformObject *obj1, const NMPlatformObject *obj2)) nm_platform_lnk_vxlan_cmp,
 	},
+	[NMP_OBJECT_TYPE_LNK_WIREGUARD - 1] = {
+		.parent                             = DEDUP_MULTI_OBJ_CLASS_INIT(),
+		.obj_type                           = NMP_OBJECT_TYPE_LNK_WIREGUARD,
+		.sizeof_data                        = sizeof (NMPObjectLnkWireGuard),
+		.sizeof_public                      = sizeof (NMPlatformLnkWireGuard),
+		.obj_type_name                      = "wireguard",
+		.lnk_link_type                      = NM_LINK_TYPE_WIREGUARD,
+		.cmd_obj_hash_update                = _vt_cmd_obj_hash_update_lnk_wireguard,
+		.cmd_obj_cmp                        = _vt_cmd_obj_cmp_lnk_wireguard,
+		.cmd_obj_copy                       = _vt_cmd_obj_copy_lnk_wireguard,
+		.cmd_obj_dispose                    = _vt_cmd_obj_dispose_lnk_wireguard,
+		.cmd_obj_to_string                  = _vt_cmd_obj_to_string_lnk_wireguard,
+		.cmd_plobj_to_string                = (const char *(*) (const NMPlatformObject *obj, char *buf, gsize len)) nm_platform_lnk_wireguard_to_string,
+		.cmd_plobj_hash_update              = (void (*) (const NMPlatformObject *obj, NMHashState *h)) nm_platform_lnk_wireguard_hash_update,
+		.cmd_plobj_cmp                      = (int (*) (const NMPlatformObject *obj1, const NMPlatformObject *obj2)) nm_platform_lnk_wireguard_cmp,
+	},
 };
-

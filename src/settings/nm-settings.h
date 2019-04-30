@@ -85,7 +85,7 @@ void nm_settings_add_connection_dbus (NMSettings *self,
                                       NMSettingsAddCallback callback,
                                       gpointer user_data);
 
-NMSettingsConnection *const* nm_settings_get_connections (NMSettings *settings, guint *out_len);
+NMSettingsConnection *const*nm_settings_get_connections (NMSettings *settings, guint *out_len);
 
 NMSettingsConnection **nm_settings_get_connections_clone (NMSettings *self,
                                                           guint *out_len,
@@ -112,6 +112,6 @@ void nm_settings_device_added (NMSettings *self, NMDevice *device);
 
 void nm_settings_device_removed (NMSettings *self, NMDevice *device, gboolean quitting);
 
-gboolean nm_settings_get_startup_complete (NMSettings *self);
+const char *nm_settings_get_startup_complete_blocked_reason (NMSettings *self);
 
 #endif  /* __NM_SETTINGS_H__ */

@@ -54,7 +54,7 @@ typedef enum {
 static inline NMDeviceStateReason
 nm_device_state_reason_check (NMDeviceStateReason reason)
 {
-	/* the device-state-reason serves mostly informational purpse during a state
+	/* the device-state-reason serves mostly informational purpose during a state
 	 * change. In some cases however, decisions are made based on the reason.
 	 * I tend to think that interpreting the state reason to derive some behaviors
 	 * is confusing, because the cause and effect are so far apart.
@@ -76,6 +76,7 @@ nm_device_state_reason_check (NMDeviceStateReason reason)
 #define NM_PENDING_ACTION_WAITING_FOR_SUPPLICANT    "waiting-for-supplicant"
 #define NM_PENDING_ACTION_WIFI_SCAN                 "wifi-scan"
 #define NM_PENDING_ACTION_WAITING_FOR_COMPANION     "waiting-for-companion"
+#define NM_PENDING_ACTION_LINK_INIT                 "link-init"
 
 #define NM_PENDING_ACTIONPREFIX_QUEUED_STATE_CHANGE "queued-state-change-"
 #define NM_PENDING_ACTIONPREFIX_ACTIVATION          "activation-"
@@ -120,7 +121,8 @@ nm_device_state_reason_check (NMDeviceStateReason reason)
 #define NM_DEVICE_PARENT           "parent"
 
 /* the "slaves" property is internal in the parent class, but exposed
- * by the derived classes NMDeviceBond, NMDeviceBridge and NMDeviceTeam. */
+ * by the derived classes NMDeviceBond, NMDeviceBridge, NMDeviceTeam,
+ * NMDeviceOvsBridge and NMDeviceOvsPort. */
 #define NM_DEVICE_SLAVES           "slaves"         /* partially internal */
 
 #define NM_DEVICE_TYPE_DESC        "type-desc"      /* Internal only */
@@ -141,13 +143,13 @@ nm_device_state_reason_check (NMDeviceStateReason reason)
 #define NM_DEVICE_STATE_CHANGED         "state-changed"
 #define NM_DEVICE_LINK_INITIALIZED      "link-initialized"
 #define NM_DEVICE_AUTOCONNECT_ALLOWED   "autoconnect-allowed"
-#define NM_DEVICE_CONNECTIVITY_CHANGED  "connectivity-changed"
 
 #define NM_DEVICE_STATISTICS_REFRESH_RATE_MS "refresh-rate-ms"
 #define NM_DEVICE_STATISTICS_TX_BYTES        "tx-bytes"
 #define NM_DEVICE_STATISTICS_RX_BYTES        "rx-bytes"
 
-#define NM_DEVICE_CONNECTIVITY               "connectivity"
+#define NM_DEVICE_IP4_CONNECTIVITY           "ip4-connectivity"
+#define NM_DEVICE_IP6_CONNECTIVITY           "ip6-connectivity"
 
 #define NM_TYPE_DEVICE            (nm_device_get_type ())
 #define NM_DEVICE(obj)            (G_TYPE_CHECK_INSTANCE_CAST ((obj), NM_TYPE_DEVICE, NMDevice))
@@ -166,14 +168,34 @@ typedef enum NMActStageReturn NMActStageReturn;
 typedef enum { /*< skip >*/
 	NM_DEVICE_CHECK_CON_AVAILABLE_NONE                                  = 0,
 
+	/* since NM_DEVICE_CHECK_CON_AVAILABLE_FOR_USER_REQUEST is a collection of flags with more fine grained
+	 * parts, this flag in general indicates that this is a user-request. */
 	_NM_DEVICE_CHECK_CON_AVAILABLE_FOR_USER_REQUEST                     = (1L << 0),
+
+	/* we also consider devices which have no carrier but are still waiting for the driver
+	 * to detect carrier. Usually, such devices are not yet available, however for a user-request
+	 * they are. They might fail later if carrier doesn't come. */
 	_NM_DEVICE_CHECK_CON_AVAILABLE_FOR_USER_REQUEST_WAITING_CARRIER     = (1L << 1),
+
+	/* usually, a profile is only available if the Wi-Fi AP is in range. For an
+	 * explicit user request, we also consider profiles for APs that are not (yet)
+	 * visible. */
 	_NM_DEVICE_CHECK_CON_AVAILABLE_FOR_USER_REQUEST_IGNORE_AP           = (1L << 2),
+
+	/* a device can be marked as unmanaged for various reasons. Some of these reasons
+	 * are authoritative, others not. Non-authoritative reasons can be overruled by
+	 * `nmcli device set $DEVICE managed yes`. Also, for an explicit user activation
+	 * request we may want to consider the device as managed. This flag makes devices
+	 * that are unmanaged appear available. */
+	_NM_DEVICE_CHECK_CON_AVAILABLE_FOR_USER_REQUEST_OVERRULE_UNMANAGED  = (1L << 3),
+
+	/* a collection of flags, that are commonly set for an explicit user-request. */
 	NM_DEVICE_CHECK_CON_AVAILABLE_FOR_USER_REQUEST                      = _NM_DEVICE_CHECK_CON_AVAILABLE_FOR_USER_REQUEST
 	                                                                    | _NM_DEVICE_CHECK_CON_AVAILABLE_FOR_USER_REQUEST_WAITING_CARRIER
-	                                                                    | _NM_DEVICE_CHECK_CON_AVAILABLE_FOR_USER_REQUEST_IGNORE_AP,
+	                                                                    | _NM_DEVICE_CHECK_CON_AVAILABLE_FOR_USER_REQUEST_IGNORE_AP
+	                                                                    | _NM_DEVICE_CHECK_CON_AVAILABLE_FOR_USER_REQUEST_OVERRULE_UNMANAGED,
 
-	NM_DEVICE_CHECK_CON_AVAILABLE_ALL                                   = (1L << 3) - 1,
+	NM_DEVICE_CHECK_CON_AVAILABLE_ALL                                   = (1L << 4) - 1,
 } NMDeviceCheckConAvailableFlags;
 
 struct _NMDevicePrivate;
@@ -189,11 +211,20 @@ struct _NMDevice {
 typedef enum { /*< skip >*/
 	NM_DEVICE_CHECK_DEV_AVAILABLE_NONE                                  = 0,
 
+	/* the device is considered available, even if it has no carrier.
+	 *
+	 * For various device types (software devices) we ignore carrier based
+	 * on the type. So, for them, this flag has no effect anyway. */
 	_NM_DEVICE_CHECK_DEV_AVAILABLE_IGNORE_CARRIER                       = (1L << 0),
+
 	NM_DEVICE_CHECK_DEV_AVAILABLE_FOR_USER_REQUEST                      = _NM_DEVICE_CHECK_DEV_AVAILABLE_IGNORE_CARRIER,
 
 	NM_DEVICE_CHECK_DEV_AVAILABLE_ALL                                   = (1L << 1) - 1,
 } NMDeviceCheckDevAvailableFlags;
+
+typedef void (*NMDeviceDeactivateCallback) (NMDevice *self,
+                                            GError *error,
+                                            gpointer user_data);
 
 typedef struct _NMDeviceClass {
 	NMDBusObjectClass parent;
@@ -201,7 +232,12 @@ typedef struct _NMDeviceClass {
 	struct _NMDeviceClass *default_type_description_klass;
 	const char *default_type_description;
 
-	const char *connection_type;
+	const char *connection_type_supported;
+
+	/* most device types, can only handle profiles of a particular type. This
+	 * is the connection.type setting, as checked by nm_device_check_connection_compatible() */
+	const char *connection_type_check_compatible;
+
 	const NMLinkType *link_types;
 
 	/* Whether the device type is a master-type. This depends purely on the
@@ -247,7 +283,7 @@ typedef struct _NMDeviceClass {
 	 * Hook for derived classes to be notfied during realize_start_setup()
 	 * and perform additional setup.
 	 *
-	 * The default implemention of NMDevice calls link_changed().
+	 * The default implementation of NMDevice calls link_changed().
 	 */
 	void        (*realize_start_notify) (NMDevice *self,
 	                                     const NMPlatformLink *pllink);
@@ -291,16 +327,20 @@ typedef struct _NMDeviceClass {
 	gboolean    (* get_autoconnect_allowed) (NMDevice *self);
 
 	gboolean    (* can_auto_connect) (NMDevice *self,
-	                                  NMConnection *connection,
+	                                  NMSettingsConnection *sett_conn,
 	                                  char **specific_object);
 
 	guint32     (*get_configured_mtu) (NMDevice *self, NMDeviceMtuSource *out_source);
 
+	const char *(*get_auto_ip_config_method) (NMDevice *self, int addr_family);
+
 	/* Checks whether the connection is compatible with the device using
 	 * only the devices type and characteristics.  Does not use any live
-	 * network information like WiFi scan lists etc.
+	 * network information like Wi-Fi scan lists etc.
 	 */
-	gboolean    (* check_connection_compatible) (NMDevice *self, NMConnection *connection);
+	gboolean    (* check_connection_compatible) (NMDevice *self,
+	                                             NMConnection *connection,
+	                                             GError **error);
 
 	/* Checks whether the connection is likely available to be activated,
 	 * including any live network information like scan lists.  The connection
@@ -316,7 +356,8 @@ typedef struct _NMDeviceClass {
 	gboolean    (* check_connection_available) (NMDevice *self,
 	                                            NMConnection *connection,
 	                                            NMDeviceCheckConAvailableFlags flags,
-	                                            const char *specific_object);
+	                                            const char *specific_object,
+	                                            GError **error);
 
 	gboolean    (* complete_connection)         (NMDevice *self,
 	                                             NMConnection *connection,
@@ -328,27 +369,21 @@ typedef struct _NMDeviceClass {
 	                                             NMDeviceStateReason *out_failure_reason);
 	NMActStageReturn    (* act_stage2_config)   (NMDevice *self,
 	                                             NMDeviceStateReason *out_failure_reason);
-	NMActStageReturn    (* act_stage3_ip4_config_start) (NMDevice *self,
-	                                                     NMIP4Config **out_config,
-	                                                     NMDeviceStateReason *out_failure_reason);
-	NMActStageReturn    (* act_stage3_ip6_config_start) (NMDevice *self,
-	                                                     NMIP6Config **out_config,
-	                                                     NMDeviceStateReason *out_failure_reason);
-	NMActStageReturn    (* act_stage4_ip4_config_timeout)   (NMDevice *self,
-	                                                         NMDeviceStateReason *out_failure_reason);
-	NMActStageReturn    (* act_stage4_ip6_config_timeout)   (NMDevice *self,
-	                                                         NMDeviceStateReason *out_failure_reason);
+	NMActStageReturn    (* act_stage3_ip_config_start) (NMDevice *self,
+	                                                    int addr_family,
+	                                                    gpointer *out_config,
+	                                                    NMDeviceStateReason *out_failure_reason);
+	NMActStageReturn    (* act_stage4_ip_config_timeout)   (NMDevice *self,
+	                                                        int addr_family,
+	                                                        NMDeviceStateReason *out_failure_reason);
 
 	void                (* ip4_config_pre_commit) (NMDevice *self, NMIP4Config *config);
 
 	/* Async deactivating (in the DEACTIVATING phase) */
 	void            (* deactivate_async)        (NMDevice *self,
 	                                             GCancellable *cancellable,
-	                                             GAsyncReadyCallback callback,
+	                                             NMDeviceDeactivateCallback callback,
 	                                             gpointer user_data);
-	gboolean        (* deactivate_async_finish) (NMDevice *self,
-	                                             GAsyncResult *res,
-	                                             GError **error);
 
 	void            (* deactivate_reset_hw_addr) (NMDevice *self);
 
@@ -418,6 +453,11 @@ typedef struct _NMDeviceClass {
 
 	guint32         (* get_dhcp_timeout) (NMDevice *self,
 	                                      int addr_family);
+
+	/* Controls, whether to call act_stage2_config() callback also for assuming
+	 * a device or for external activations. In this case, act_stage2_config() must
+	 * take care not to touch the device's configuration. */
+	bool act_stage2_config_also_for_external_or_assume:1;
 } NMDeviceClass;
 
 typedef void (*NMDeviceAuthRequestFunc) (NMDevice *device,
@@ -447,6 +487,7 @@ int             nm_device_get_ifindex           (NMDevice *dev);
 gboolean        nm_device_is_software           (NMDevice *dev);
 gboolean        nm_device_is_real               (NMDevice *dev);
 const char *    nm_device_get_ip_iface          (NMDevice *dev);
+const char *    nm_device_get_ip_iface_from_platform (NMDevice *dev);
 int             nm_device_get_ip_ifindex        (const NMDevice *dev);
 const char *    nm_device_get_driver            (NMDevice *dev);
 const char *    nm_device_get_driver_version    (NMDevice *dev);
@@ -492,6 +533,9 @@ gboolean        nm_device_parent_notify_changed (NMDevice *self,
                                                  NMDevice *change_candidate,
                                                  gboolean device_removed);
 
+const char     *nm_device_parent_find_for_connection (NMDevice *self,
+                                                      const char *current_setting_parent);
+
 /* Master */
 gboolean        nm_device_is_master             (NMDevice *dev);
 
@@ -500,10 +544,14 @@ NMDevice *      nm_device_get_master            (NMDevice *dev);
 
 NMActRequest *  nm_device_get_act_request       (NMDevice *dev);
 NMSettingsConnection *nm_device_get_settings_connection (NMDevice *dev);
+NMConnection *  nm_device_get_settings_connection_get_connection (NMDevice *self);
 NMConnection *  nm_device_get_applied_connection (NMDevice *dev);
 gboolean        nm_device_has_unmodified_applied_connection (NMDevice *self,
                                                              NMSettingCompareFlags compare_flags);
-NMSetting *     nm_device_get_applied_setting   (NMDevice *dev, GType setting_type);
+NMActivationStateFlags nm_device_get_activation_state_flags (NMDevice *self);
+
+gpointer /* (NMSetting *) */ nm_device_get_applied_setting   (NMDevice *dev,
+                                                              GType setting_type);
 
 void            nm_device_removed               (NMDevice *self, gboolean unconfigure_ip_config);
 
@@ -523,7 +571,7 @@ gboolean nm_device_master_update_slave_connection (NMDevice *master,
                                                    GError **error);
 
 gboolean nm_device_can_auto_connect (NMDevice *self,
-                                     NMConnection *connection,
+                                     NMSettingsConnection *sett_conn,
                                      char **specific_object);
 
 gboolean nm_device_complete_connection (NMDevice *device,
@@ -532,7 +580,10 @@ gboolean nm_device_complete_connection (NMDevice *device,
                                         NMConnection *const*existing_connections,
                                         GError **error);
 
-gboolean nm_device_check_connection_compatible (NMDevice *device, NMConnection *connection);
+gboolean nm_device_check_connection_compatible (NMDevice *device,
+                                                NMConnection *connection,
+                                                GError **error);
+
 gboolean nm_device_check_slave_connection_compatible (NMDevice *device, NMConnection *connection);
 
 gboolean nm_device_unmanage_on_quit (NMDevice *self);
@@ -567,7 +618,7 @@ void nm_device_copy_ip6_dns_config (NMDevice *self, NMDevice *from_device);
  * @NM_UNMANAGED_SLEEPING: %TRUE when unmanaged because NM is sleeping.
  * @NM_UNMANAGED_QUITTING: %TRUE when unmanaged because NM is shutting down.
  * @NM_UNMANAGED_PARENT: %TRUE when unmanaged due to parent device being unmanaged
- * @NM_UNMANAGED_LOOPBACK: %TRUE for unmanaging loopback device
+ * @NM_UNMANAGED_BY_TYPE: %TRUE for unmanaging device by type, like loopback.
  * @NM_UNMANAGED_PLATFORM_INIT: %TRUE when unmanaged because platform link not
  *   yet initialized. Unrealized device are also unmanaged for this reason.
  * @NM_UNMANAGED_USER_EXPLICIT: %TRUE when unmanaged by explicit user decision
@@ -576,7 +627,7 @@ void nm_device_copy_ip6_dns_config (NMDevice *self, NMDevice *from_device);
  *   the settings plugin (for example keyfile.unmanaged-devices or ifcfg-rh's
  *   NM_CONTROLLED=no). Although this is user-configuration (provided from
  *   the settings plugins, such as NM_CONTROLLED=no in ifcfg-rh), it cannot
- *   be overruled and is authorative. That is because users may depend on
+ *   be overruled and is authoritative. That is because users may depend on
  *   dropping a ifcfg-rh file to ensure the device is unmanaged.
  * @NM_UNMANAGED_USER_CONF: %TRUE when unmanaged by user decision via
  *   the NetworkManager.conf ("unmanaged" in the [device] section).
@@ -593,12 +644,12 @@ void nm_device_copy_ip6_dns_config (NMDevice *self, NMDevice *from_device);
 typedef enum { /*< skip >*/
 	NM_UNMANAGED_NONE          = 0,
 
-	/* these flags are authorative. If one of them is set,
+	/* these flags are authoritative. If one of them is set,
 	 * the device cannot be managed. */
 	NM_UNMANAGED_SLEEPING      = (1LL <<  0),
 	NM_UNMANAGED_QUITTING      = (1LL <<  1),
 	NM_UNMANAGED_PARENT        = (1LL <<  2),
-	NM_UNMANAGED_LOOPBACK      = (1LL <<  3),
+	NM_UNMANAGED_BY_TYPE       = (1LL <<  3),
 	NM_UNMANAGED_PLATFORM_INIT = (1LL <<  4),
 	NM_UNMANAGED_USER_EXPLICIT = (1LL <<  5),
 	NM_UNMANAGED_USER_SETTINGS = (1LL <<  6),
@@ -681,6 +732,8 @@ typedef enum {
 
 	NM_DEVICE_AUTOCONNECT_BLOCKED_WRONG_PIN             = (1LL <<  1),
 	NM_DEVICE_AUTOCONNECT_BLOCKED_MANUAL_DISCONNECT     = (1LL <<  2),
+	NM_DEVICE_AUTOCONNECT_BLOCKED_SIM_MISSING           = (1LL <<  3),
+	NM_DEVICE_AUTOCONNECT_BLOCKED_INIT_FAILED           = (1LL <<  4),
 
 	_NM_DEVICE_AUTOCONNECT_BLOCKED_LAST,
 
@@ -724,7 +777,9 @@ void nm_device_queue_state   (NMDevice *self,
 
 gboolean nm_device_get_firmware_missing (NMDevice *self);
 
-void nm_device_disconnect_active_connection (NMActiveConnection *active);
+void nm_device_disconnect_active_connection (NMActiveConnection *active,
+                                             NMDeviceStateReason device_reason,
+                                             NMActiveConnectionStateReason active_reason);
 
 void nm_device_queue_activation (NMDevice *device, NMActRequest *req);
 
@@ -732,7 +787,13 @@ gboolean nm_device_supports_vlans (NMDevice *device);
 
 gboolean nm_device_add_pending_action    (NMDevice *device, const char *action, gboolean assert_not_yet_pending);
 gboolean nm_device_remove_pending_action (NMDevice *device, const char *action, gboolean assert_is_pending);
-gboolean nm_device_has_pending_action    (NMDevice *device);
+const char *nm_device_has_pending_action_reason (NMDevice *device);
+
+static inline gboolean
+nm_device_has_pending_action (NMDevice *device)
+{
+	return !!nm_device_has_pending_action_reason (device);
+}
 
 NMSettingsConnection *nm_device_get_best_connection (NMDevice *device,
                                                      const char *specific_object,
@@ -741,7 +802,8 @@ NMSettingsConnection *nm_device_get_best_connection (NMDevice *device,
 gboolean   nm_device_check_connection_available (NMDevice *device,
                                                  NMConnection *connection,
                                                  NMDeviceCheckConAvailableFlags flags,
-                                                 const char *specific_object);
+                                                 const char *specific_object,
+                                                 GError **error);
 
 gboolean nm_device_notify_component_added (NMDevice *device, GObject *component);
 
@@ -794,12 +856,13 @@ typedef void (*NMDeviceConnectivityCallback) (NMDevice *self,
 void nm_device_check_connectivity_update_interval (NMDevice *self);
 
 NMDeviceConnectivityHandle *nm_device_check_connectivity (NMDevice *self,
+                                                          int addr_family,
                                                           NMDeviceConnectivityCallback callback,
                                                           gpointer user_data);
 
 void nm_device_check_connectivity_cancel (NMDeviceConnectivityHandle *handle);
 
-NMConnectivityState nm_device_get_connectivity_state (NMDevice *self);
+NMConnectivityState nm_device_get_connectivity_state (NMDevice *self, int addr_family);
 
 typedef struct _NMBtVTableNetworkServer NMBtVTableNetworkServer;
 struct _NMBtVTableNetworkServer {

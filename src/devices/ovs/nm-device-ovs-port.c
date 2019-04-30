@@ -70,38 +70,11 @@ get_generic_capabilities (NMDevice *device)
 	return NM_DEVICE_CAP_IS_SOFTWARE;
 }
 
-static gboolean
-check_connection_compatible (NMDevice *device, NMConnection *connection)
-{
-	NMSettingConnection *s_con;
-	const char *connection_type;
-
-	if (!NM_DEVICE_CLASS (nm_device_ovs_port_parent_class)->check_connection_compatible (device, connection))
-		return FALSE;
-
-	s_con = nm_connection_get_setting_connection (connection);
-	connection_type = nm_setting_connection_get_connection_type (s_con);
-	if (!connection_type)
-		return FALSE;
-
-	if (strcmp (connection_type, NM_SETTING_OVS_PORT_SETTING_NAME) == 0)
-		return TRUE;
-
-	return FALSE;
-}
-
 static NMActStageReturn
-act_stage3_ip4_config_start (NMDevice *device,
-                             NMIP4Config **out_config,
-                             NMDeviceStateReason *out_failure_reason)
-{
-	return NM_ACT_STAGE_RETURN_IP_FAIL;
-}
-
-static NMActStageReturn
-act_stage3_ip6_config_start (NMDevice *device,
-                             NMIP6Config **out_config,
-                             NMDeviceStateReason *out_failure_reason)
+act_stage3_ip_config_start (NMDevice *device,
+                            int addr_family,
+                            gpointer *out_config,
+                            NMDeviceStateReason *out_failure_reason)
 {
 	return NM_ACT_STAGE_RETURN_IP_FAIL;
 }
@@ -180,6 +153,9 @@ nm_device_ovs_port_init (NMDeviceOvsPort *self)
 static const NMDBusInterfaceInfoExtended interface_info_device_ovs_port = {
 	.parent = NM_DEFINE_GDBUS_INTERFACE_INFO_INIT (
 		NM_DBUS_INTERFACE_DEVICE_OVS_PORT,
+		.properties = NM_DEFINE_GDBUS_PROPERTY_INFOS (
+			NM_DEFINE_DBUS_PROPERTY_INFO_EXTENDED_READABLE ("Slaves", "ao", NM_DEVICE_SLAVES),
+		),
 		.signals = NM_DEFINE_GDBUS_SIGNAL_INFOS (
 			&nm_signal_info_property_changed_legacy,
 		),
@@ -195,14 +171,15 @@ nm_device_ovs_port_class_init (NMDeviceOvsPortClass *klass)
 
 	dbus_object_class->interface_infos = NM_DBUS_INTERFACE_INFOS (&interface_info_device_ovs_port);
 
-	device_class->connection_type = NM_SETTING_OVS_PORT_SETTING_NAME;
+	device_class->connection_type_supported = NM_SETTING_OVS_PORT_SETTING_NAME;
+	device_class->connection_type_check_compatible = NM_SETTING_OVS_PORT_SETTING_NAME;
+	device_class->link_types = NM_DEVICE_DEFINE_LINK_TYPES ();
+
 	device_class->is_master = TRUE;
 	device_class->get_type_description = get_type_description;
 	device_class->create_and_realize = create_and_realize;
 	device_class->get_generic_capabilities = get_generic_capabilities;
-	device_class->check_connection_compatible = check_connection_compatible;
-	device_class->act_stage3_ip4_config_start = act_stage3_ip4_config_start;
-	device_class->act_stage3_ip6_config_start = act_stage3_ip6_config_start;
+	device_class->act_stage3_ip_config_start = act_stage3_ip_config_start;
 	device_class->enslave_slave = enslave_slave;
 	device_class->release_slave = release_slave;
 }

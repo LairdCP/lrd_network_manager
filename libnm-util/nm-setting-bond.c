@@ -23,7 +23,6 @@
 
 #include <string.h>
 #include <stdlib.h>
-#include <errno.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <dbus/dbus-glib.h>
@@ -222,7 +221,7 @@ nm_setting_bond_get_option (NMSettingBond *setting,
 static gboolean
 validate_int (const char *name, const char *value, const BondDefault *def)
 {
-	glong num;
+	long num;
 	guint i;
 
 	for (i = 0; i < strlen (value); i++) {

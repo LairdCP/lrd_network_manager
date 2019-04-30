@@ -28,8 +28,6 @@
 #include "nm-active-connection.h"
 #include "nm-vpn-plugin-info.h"
 
-#define NM_VPN_ROUTE_METRIC_DEFAULT     50
-
 #define NM_TYPE_VPN_CONNECTION            (nm_vpn_connection_get_type ())
 #define NM_VPN_CONNECTION(obj)            (G_TYPE_CHECK_INSTANCE_CAST ((obj), NM_TYPE_VPN_CONNECTION, NMVpnConnection))
 #define NM_VPN_CONNECTION_CLASS(klass)    (G_TYPE_CHECK_CLASS_CAST ((klass), NM_TYPE_VPN_CONNECTION, NMVpnConnectionClass))
@@ -53,13 +51,14 @@ NMVpnConnection * nm_vpn_connection_new (NMSettingsConnection *settings_connecti
                                          NMDevice *parent_device,
                                          const char *specific_object,
                                          NMActivationReason activation_reason,
+                                         NMActivationStateFlags initial_state_flags,
                                          NMAuthSubject *subject);
 
 void                 nm_vpn_connection_activate        (NMVpnConnection *self,
                                                         NMVpnPluginInfo *plugin_info);
 NMVpnConnectionState nm_vpn_connection_get_vpn_state   (NMVpnConnection *self);
 const char *         nm_vpn_connection_get_banner      (NMVpnConnection *self);
-const gchar *        nm_vpn_connection_get_service     (NMVpnConnection *self);
+const char *        nm_vpn_connection_get_service     (NMVpnConnection *self);
 
 gboolean             nm_vpn_connection_deactivate      (NMVpnConnection *self,
                                                         NMActiveConnectionStateReason reason,

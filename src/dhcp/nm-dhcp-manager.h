@@ -59,7 +59,8 @@ NMDhcpClient * nm_dhcp_manager_start_ip4     (NMDhcpManager *manager,
                                               GBytes *dhcp_client_id,
                                               guint32 timeout,
                                               const char *dhcp_anycast_addr,
-                                              const char *last_ip_address);
+                                              const char *last_ip_address,
+                                              GError **error);
 
 NMDhcpClient * nm_dhcp_manager_start_ip6     (NMDhcpManager *manager,
                                               struct _NMDedupMultiIndex *multi_idx,
@@ -78,11 +79,14 @@ NMDhcpClient * nm_dhcp_manager_start_ip6     (NMDhcpManager *manager,
                                               const char *dhcp_anycast_addr,
                                               gboolean info_only,
                                               NMSettingIP6ConfigPrivacy privacy,
-                                              guint needed_prefixes);
+                                              guint needed_prefixes,
+                                              GError **error);
 
 /* For testing only */
 extern const char* nm_dhcp_helper_path;
 
 extern const NMDhcpClientFactory *const _nm_dhcp_manager_factories[4];
+
+void nmtst_dhcp_manager_unget (gpointer singleton_instance);
 
 #endif /* __NETWORKMANAGER_DHCP_MANAGER_H__ */

@@ -1,16 +1,13 @@
 /* SPDX-License-Identifier: LGPL-2.1+ */
-/***
-  Copyright © 2014 Tom Gundersen
-  Copyright © 2014 Susant Sahani
-***/
 
-#include "nm-sd-adapt.h"
+#include "nm-sd-adapt-core.h"
 
 #include <linux/filter.h>
 #include <netinet/if_ether.h>
 
 #include "fd-util.h"
 #include "lldp-network.h"
+#include "missing.h"
 #include "socket-util.h"
 
 int lldp_network_bind_raw_socket(int ifindex) {

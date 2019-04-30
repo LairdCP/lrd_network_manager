@@ -27,12 +27,11 @@
 
 #include "nm-default.h"
 
+#include "nm-editor-bindings.h"
+
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <stdlib.h>
-#include <string.h>
-
-#include "nm-editor-bindings.h"
 
 static void
 value_transform_string_int (const GValue *src_value,
@@ -59,7 +58,7 @@ value_transform_string_uint (const GValue *src_value,
 	if (val < 0 || val > G_MAXUINT || *end)
 		return;
 
-	g_value_set_uint (dest_value, (gint) val);
+	g_value_set_uint (dest_value, (int) val);
 }
 
 void
@@ -180,9 +179,9 @@ ip_addresses_with_prefix_from_strv (GBinding     *binding,
 void
 nm_editor_bind_ip_addresses_with_prefix_to_strv (int            addr_family,
                                                  gpointer       source,
-                                                 const gchar   *source_property,
+                                                 const char    *source_property,
                                                  gpointer       target,
-                                                 const gchar   *target_property,
+                                                 const char    *target_property,
                                                  GBindingFlags  flags)
 {
 	g_object_bind_property_full (source, source_property,
@@ -232,9 +231,9 @@ ip_addresses_check_and_copy (GBinding     *binding,
 void
 nm_editor_bind_ip_addresses_to_strv (int            addr_family,
                                      gpointer       source,
-                                     const gchar   *source_property,
+                                     const char    *source_property,
                                      gpointer       target,
-                                     const gchar   *target_property,
+                                     const char    *target_property,
                                      GBindingFlags  flags)
 {
 	g_object_bind_property_full (source, source_property,
@@ -328,8 +327,8 @@ void
 nm_editor_bind_ip_gateway_to_string (int                addr_family,
                                      NMSettingIPConfig *source,
                                      gpointer           target,
-                                     const gchar       *target_property,
-                                     const gchar       *target_sensitive_property,
+                                     const char        *target_property,
+                                     const char        *target_sensitive_property,
                                      GBindingFlags      flags)
 {
 	g_object_bind_property_full (source, "gateway",
@@ -516,7 +515,7 @@ ip_route_transform_from_metric_string (GBinding     *binding,
  * @addr_family: the IP address family
  * @source: the source object
  * @source_property: the source property
- * @dest_target: the target object for the route's destionation
+ * @dest_target: the target object for the route's destination
  * @dest_target_property: the property on @dest_target
  * @next_hop_target: the target object for the route's next hop
  * @next_hop_target_property: the property on @next_hop_target
@@ -535,13 +534,13 @@ ip_route_transform_from_metric_string (GBinding     *binding,
 void
 nm_editor_bind_ip_route_to_strings (int            addr_family,
                                     gpointer       source,
-                                    const gchar   *source_property,
+                                    const char    *source_property,
                                     gpointer       dest_target,
-                                    const gchar   *dest_target_property,
+                                    const char    *dest_target_property,
                                     gpointer       next_hop_target,
-                                    const gchar   *next_hop_target_property,
+                                    const char    *next_hop_target_property,
                                     gpointer       metric_target,
-                                    const gchar   *metric_target_property,
+                                    const char    *metric_target_property,
                                     GBindingFlags  flags)
 {
 	g_object_bind_property_full (source, source_property,

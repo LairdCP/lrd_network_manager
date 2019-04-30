@@ -10,7 +10,7 @@ dnl  - add corresponding NM_VERSION_x_y_z macros in
 dnl    "shared/nm-version-macros.h.in"
 dnl  - update number in meson.build
 m4_define([nm_major_version], [1])
-m4_define([nm_minor_version], [12])
+m4_define([nm_minor_version], [16])
 m4_define([nm_micro_version], [0])
 m4_define([nm_version],
           [LRD_BUILD_NUMBER-nm_major_version.nm_minor_version.nm_micro_version])
@@ -84,6 +84,12 @@ AC_CHECK_DECLS([
 #include <malloc.h>
 ]])
 
+AC_CHECK_DECLS([
+	memfd_create],
+	[], [], [[
+#include <sys/mman.h>
+]])
+
 AC_CHECK_HEADERS(sys/auxv.h)
 
 AC_CHECK_DECLS([getrandom],
@@ -112,11 +118,6 @@ GETTEXT_PACKAGE=NetworkManager
 AC_SUBST(GETTEXT_PACKAGE)
 AC_DEFINE_UNQUOTED(GETTEXT_PACKAGE,"$GETTEXT_PACKAGE", [Gettext package])
 
-dnl
-dnl Make sha1.c happy on big endian systems
-dnl
-AC_C_BIGENDIAN
-
 # Add runstatedir if not specified manually in autoconf < 2.70
 AS_IF([test -z "$runstatedir"], runstatedir="$localstatedir/run")
 AC_SUBST(runstatedir)
@@ -137,13 +138,13 @@ AC_ARG_ENABLE(config-plugin-ibft, AS_HELP_STRING([--enable-config-plugin-ibft], 
 AC_ARG_ENABLE(ifcfg-rh, AS_HELP_STRING([--enable-ifcfg-rh], [enable ifcfg-rh configuration plugin (Fedora/RHEL)]))
 AC_ARG_ENABLE(ifupdown, AS_HELP_STRING([--enable-ifupdown], [enable ifupdown configuration plugin (Debian/Ubuntu)]))
 # Default alternative plugins by distribution
-AS_IF([test -z "$enable_ifcfg_rh"], AC_CHECK_FILE(/etc/sysconfig/network-scripts, enable_ifcfg_rh=yes))
-AS_IF([test -z "$enable_ifupdown"], AC_CHECK_FILE(/etc/debian_version, enable_ifupdown=yes))
+AS_IF([test -z "$enable_ifcfg_rh" -a -d /etc/sysconfig/network-scripts], enable_ifcfg_rh=yes)
+AS_IF([test -z "$enable_ifupdown" -a -f /etc/debian_version],            enable_ifupdown=yes)
 # Otherwise plugins default to "no"
 AS_IF([test -z "$enable_ifcfg_rh"], enable_ifcfg_rh=no)
 AS_IF([test -z "$enable_ifupdown"], enable_ifupdown=no)
-# Enable ibft by default
-AS_IF([test -z "$enable_config_plugin_ibft"], enable_config_plugin_ibft="yes")
+# Disable obsolete ibft plugin by default
+AS_IF([test -z "$enable_config_plugin_ibft"], enable_config_plugin_ibft="no")
 # Create automake conditionals
 AM_CONDITIONAL(CONFIG_PLUGIN_IBFT, test "$enable_config_plugin_ibft" = "yes")
 AM_CONDITIONAL(CONFIG_PLUGIN_IFCFG_RH, test "$enable_ifcfg_rh" = "yes")
@@ -447,6 +448,8 @@ fi
 if test "$have_systemd_logind" = "yes"; then
 	AC_DEFINE([SESSION_TRACKING_SYSTEMD], 1, [Define to 1 if libsystemd-login is available])
 	session_tracking="$session_tracking, systemd-logind"
+else
+	AC_DEFINE([SESSION_TRACKING_SYSTEMD], 0, [Define to 1 if libsystemd-login is available])
 fi
 
 if test "$use_elogind" = "yes" -a "$have_systemd_logind" = "yes"; then
@@ -463,12 +466,15 @@ fi
 if test "$have_elogind" = "yes"; then
 	AC_DEFINE([SESSION_TRACKING_ELOGIND], 1, [Define to 1 if libelogin is available])
 	session_tracking="$session_tracking, elogind"
+else
+	AC_DEFINE([SESSION_TRACKING_ELOGIND], 0, [Define to 1 if libelogin is available])
 fi
 
 if test "$use_consolekit" = "yes"; then
 	AC_DEFINE([SESSION_TRACKING_CONSOLEKIT], 1, [Define to 1 if ConsoleKit is available])
-	AC_DEFINE([CKDB_PATH], "/var/run/ConsoleKit/database", [Path to ConsoleKit database])
 	session_tracking="$session_tracking, consolekit"
+else
+	AC_DEFINE([SESSION_TRACKING_CONSOLEKIT], 0, [Define to 1 if ConsoleKit is available])
 fi
 session_tracking="$(printf '%s' "${session_tracking}" | sed 's/^, //')"
 
@@ -520,6 +526,20 @@ case $with_suspend_resume in
 		AC_MSG_ERROR(--with-suspend-resume must be one of [upower, systemd, elogind, consolekit])
 		;;
 esac
+
+# eBPF support
+AC_ARG_WITH(ebpf,
+            AS_HELP_STRING([--with-ebpf=yes|no|auto], [Build with eBPF support (default: auto)]),
+            [], [with_ebpf=auto])
+if test "$with_ebpf" = "yes" -o "$with_ebpf" = "auto"; then
+	AC_CHECK_HEADER(linux/bpf.h, [have_ebpf=yes], [have_ebpf=no])
+else
+	have_ebpf=no
+fi
+if test "$with_ebpf" = "yes" -a "$have_ebpf" = "no"; then
+	AC_MSG_ERROR([--with-ebpf=yes requires eBPF kernel header])
+fi
+AM_CONDITIONAL(WITH_EBPF, test "${have_ebpf}" = "yes")
 
 # SELinux support
 AC_ARG_WITH(selinux,
@@ -606,9 +626,6 @@ if (test "${enable_teamdctl}" = "yes"); then
 	fi
 	# temporary bug workaround
 	LIBTEAMDCTL_CFLAGS=`echo $LIBTEAMDCTL_CFLAGS | sed -e 's:/teamdctl.h::'`
-	AC_DEFINE(WITH_TEAMDCTL, 1, [Define if you have Teamd control support])
-else
-	AC_DEFINE(WITH_TEAMDCTL, 0, [Define if you have Teamd control support])
 fi
 AM_CONDITIONAL(WITH_TEAMDCTL, test "${enable_teamdctl}" = "yes")
 
@@ -629,7 +646,7 @@ AM_CONDITIONAL(WITH_JSON_VALIDATION, test "${enable_json_validation}" != "no")
 
 # we usually compile with polkit support. --enable-polkit=yes|no only sets the
 # default configuration for main.auth-polkit. User can always enable/disable polkit
-# autorization via config.
+# authorization via config.
 AC_ARG_ENABLE(polkit,
               AS_HELP_STRING([--enable-polkit=yes|no],
                              [set default value for auth-polkit configuration option. This value can be overwritten by NM configuration. 'disabled' is an alias for 'no']),
@@ -666,21 +683,31 @@ else
 fi
 AC_SUBST(NM_MODIFY_SYSTEM_POLICY)
 
+PKG_CHECK_MODULES(GNUTLS, [gnutls >= 2.12], [have_crypto_gnutls=yes], [have_crypto_gnutls=no])
+PKG_CHECK_MODULES(NSS, [nss], [have_crypto_nss=yes], [have_crypto_nss=yes])
+if test "${have_crypto_nss}" = "yes"; then
+	# Work around a pkg-config bug (fdo #29801) where exists != usable
+	FOO=`$PKG_CONFIG --cflags --libs nss`
+	if test x"$?" != "x0"; then
+		have_crypto_nss=no
+	fi
+fi
+AM_CONDITIONAL(HAVE_CRYPTO_GNUTLS, test "${have_crypto_gnutls}" = 'yes')
+AM_CONDITIONAL(HAVE_CRYPTO_NSS, test "${have_crypto_nss}" = 'yes')
+
 AC_ARG_WITH(crypto,
             AS_HELP_STRING([--with-crypto=nss|gnutls],
                            [Cryptography library to use for certificate and key operations]),
             with_crypto=$withval,
             with_crypto=nss)
 if test "$with_crypto" = 'nss'; then
-	PKG_CHECK_MODULES(NSS, [nss])
-
-	# Work around a pkg-config bug (fdo #29801) where exists != usable
-	FOO=`$PKG_CONFIG --cflags --libs nss`
-	if test x"$?" != "x0"; then
-		AC_MSG_ERROR([No usable NSS found])
+	if test "${have_crypto_nss}" != "yes"; then
+		AC_MSG_ERROR([No usable NSS found for --with-crypto=nss])
 	fi
 elif test "$with_crypto" = 'gnutls'; then
-	PKG_CHECK_MODULES(GNUTLS, [gnutls >= 2.12])
+	if test "${have_crypto_gnutls}" != "yes"; then
+		AC_MSG_ERROR([No usable gnutls found for --with-crypto=gnutls])
+	fi
 else
 	AC_MSG_ERROR([Please choose either 'nss' or 'gnutls' for certificate and crypto operations])
 fi
@@ -756,12 +783,6 @@ if (test "${with_modem_manager_1}" != "no"); then
 		with_modem_manager_1="yes"
 	fi
 fi
-
-if (test "${with_modem_manager_1}" = "yes"); then
-	AC_DEFINE(WITH_MODEM_MANAGER_1, 1, [Define if you have ModemManager1 support])
-else
-	AC_DEFINE(WITH_MODEM_MANAGER_1, 0, [Define if you have ModemManager1 support])
-fi
 AM_CONDITIONAL(WITH_MODEM_MANAGER_1, test "${with_modem_manager_1}" = "yes")
 
 # Bluez5 DUN support
@@ -805,27 +826,24 @@ if test "$with_dhcpcanon" != "no"; then
 fi
 if test "$with_dhcpcanon" != "no"; then
     AC_DEFINE(WITH_DHCPCANON, 1, [Define if you have dhcpcanon])
-    AC_SUBST(DHCPCANON_PATH, $with_dhcpcanon)
+    AC_DEFINE_UNQUOTED(DHCPCANON_PATH, "$with_dhcpcanon", [Define path to dhcpcanon])
 else
     AC_DEFINE(WITH_DHCPCANON, 0, [Define if you have dhcpcanon])
 fi
 
-# OpenVSwitch integration
-AC_ARG_ENABLE(ovs, AS_HELP_STRING([--enable-ovs], [enable OpenVSwitch support]))
+# Open vSwitch integration
+AC_ARG_ENABLE(ovs, AS_HELP_STRING([--enable-ovs], [enable Open vSwitch support]))
 if test "${enable_ovs}" != "no"; then
 	enable_ovs='yes'
 	if test "$have_jansson" = "no"; then
 		AC_MSG_ERROR(Jansson is required for ovs support)
 	fi
-	AC_DEFINE(WITH_OPENVSWITCH, 1, [Define if you have OpenVSwitch support])
-else
-	AC_DEFINE(WITH_OPENVSWITCH, 0, [Define if you have OpenVSwitch support])
 fi
 AM_CONDITIONAL(WITH_OPENVSWITCH, test "${enable_ovs}" = "yes")
 
 # DHCP client support
 AC_ARG_WITH([dhclient],
-            AS_HELP_STRING([--with-dhclient=yes|no|path], [Enable dhclient 4.x support]))
+            AS_HELP_STRING([--with-dhclient=yes|no|path], [Enable dhclient support]))
 if test "$with_dhclient" != "no"; then
 	with_dhclient_="$with_dhclient"
 	AC_PATH_PROGS(with_dhclient, dhclient, no, /sbin:/usr/sbin:/usr/local/sbin)
@@ -834,25 +852,17 @@ if test "$with_dhclient" != "no"; then
 			AC_MSG_WARN([dhclient not found, assume path /usr/sbin/dhclient])
 			with_dhclient=/usr/sbin/dhclient
 		fi
-	else
-		if ! $with_dhclient --version 2>&1 | grep -q "^isc-dhclient-4\."; then
-			AC_MSG_WARN([Seems version of dhclient $with_dhclient is too old, version 4.x or newer is required.])
-		fi
 	fi
 fi
 if test "$with_dhclient" != "no"; then
 	AC_DEFINE(WITH_DHCLIENT, 1, [Define if you have dhclient])
-	AC_SUBST(DHCLIENT_PATH, $with_dhclient)
+	AC_DEFINE_UNQUOTED(DHCLIENT_PATH, "$with_dhclient", [Define path to dhclient])
 else
 	AC_DEFINE(WITH_DHCLIENT, 0, [Define if you have dhclient])
 fi
 
 AC_ARG_WITH([dhcpcd],
             AS_HELP_STRING([--with-dhcpcd=yes|no|path], [Enable dhcpcd 4.x support]))
-AC_ARG_WITH([dhcpcd-supports-ipv6],
-            AS_HELP_STRING([--with-dhcpcd-supports-ipv6=yes|no|auto],
-                           [Whether using dhcpcd >= 6.x which has IPv6 support]),
-            [with_dhcpcd_supports_ipv6=$withval], [with_dhcpcd_supports_ipv6=auto])
 if test "$with_dhcpcd" != "no"; then
 	with_dhcpcd_="$with_dhcpcd"
 	AC_PATH_PROGS(with_dhcpcd, dhcpcd, no, /sbin:/usr/sbin:/usr/local/sbin)
@@ -860,39 +870,12 @@ if test "$with_dhcpcd" != "no"; then
 		if test "$with_dhcpcd_" == yes; then
 			AC_MSG_WARN([dhcpcd not found, assume path /usr/sbin/dhcpcd])
 			with_dhcpcd=/usr/sbin/dhcpcd
-			if test "$with_dhcpcd_supports_ipv6" == auto; then
-				with_dhcpcd_supports_ipv6=yes
-			fi
-		fi
-	else
-		if ! $with_dhcpcd --version 2>&1 | grep -q "^dhcpcd [[456789]]\."; then
-			AC_MSG_WARN([Seems version of dhcpcd $with_dhcpcd is too old, version 4.x or newer is required])
 		fi
 	fi
-fi
-if test "$with_dhcpcd" != "no"; then
-	if $with_dhcpcd --version 2>&1 | grep -q "^dhcpcd [[6789]]\."; then
-		if test "$with_dhcpcd_supports_ipv6" == no; then
-			AC_MSG_WARN([Seems version of dhcpcd $with_dhcpcd supports IPv6, but compiling --with-dhcpcd-supports-ipv6=no])
-		else
-			with_dhcpcd_supports_ipv6=yes
-		fi
-	else
-		if test "$with_dhcpcd_supports_ipv6" == yes; then
-			AC_MSG_WARN([Seems version of dhcpcd $with_dhcpcd does not support IPv6, but compiling --with-dhcpcd-supports-ipv6=yes])
-		else
-			with_dhcpcd_supports_ipv6=no
-		fi
-	fi
-	if test "$with_dhcpcd_supports_ipv6" != no; then
-		AC_DEFINE(DHCPCD_SUPPORTS_IPV6, 1, [Define if dhcpcd supports IPv6 (6.x+)])
-	fi
-else
-	with_dhcpcd_supports_ipv6=no
 fi
 if test "$with_dhcpcd" != "no"; then
 	AC_DEFINE(WITH_DHCPCD, 1, [Define if you have dhcpcd])
-	AC_SUBST(DHCPCD_PATH, $with_dhcpcd)
+	AC_DEFINE_UNQUOTED(DHCPCD_PATH, "$with_dhcpcd", [Define path to dhcpcd])
 else
 	AC_DEFINE(WITH_DHCPCD, 0, [Define if you have dhcpcd])
 fi
@@ -911,38 +894,45 @@ test -z "$config_dhcp_default"                             && config_dhcp_defaul
 AC_DEFINE_UNQUOTED(NM_CONFIG_DEFAULT_MAIN_DHCP, "$config_dhcp_default", [Default configuration option for main.dhcp setting])
 AC_SUBST(NM_CONFIG_DEFAULT_MAIN_DHCP, $config_dhcp_default)
 
-# resolvconf and netconfig support
 AC_ARG_WITH(resolvconf, AS_HELP_STRING([--with-resolvconf=yes|no|path], [Enable resolvconf support]))
 AC_ARG_WITH(netconfig, AS_HELP_STRING([--with-netconfig=yes|no], [Enable SUSE netconfig support]))
 AC_ARG_WITH(config-dns-rc-manager-default, AS_HELP_STRING([--with-config-dns-rc-manager-default=symlink|file|netconfig|resolvconf], [Configure default value for main.rc-manager setting]), [config_dns_rc_manager_default=$withval])
-if test "$config_dns_rc_manager_default" != symlink -a \
+if test "$config_dns_rc_manager_default" != "" -a \
         "$config_dns_rc_manager_default" != file -a \
-        "$config_dns_rc_manager_default" != "" -a \
+        "$config_dns_rc_manager_default" != symlink -a \
         "$config_dns_rc_manager_default" != netconfig -a \
         "$config_dns_rc_manager_default" != resolvconf; then
 	AC_MSG_WARN([Unknown --with-config-dns-rc-manager-default=$config_dns_rc_manager_default setting.])
 	config_dns_rc_manager_default=
 fi
 # Use netconfig by default on SUSE
-AS_IF([test -z "$with_netconfig"], AC_CHECK_FILE(/etc/SuSE-release, with_netconfig=yes))
+AS_IF([test -z "$with_netconfig" -a -f /etc/SuSE-release], with_netconfig=yes)
 # Otherwise default to "no"
 AS_IF([test -z "$with_resolvconf"], with_resolvconf=no)
 AS_IF([test -z "$with_netconfig"], with_netconfig=no)
-# Find resolvconf and netconfig
+
 if test "$with_resolvconf" = "yes"; then
-	AC_PATH_PROGS(with_resolvconf, resolvconf, no, /sbin:/usr/sbin:/usr/local/sbin)
+	AC_PATH_PROGS(with_resolvconf, resolvconf, 'yes', /sbin:/usr/sbin:/usr/local/sbin)
+	if test "$with_resolvconf" = "yes"; then
+		AC_MSG_ERROR(cannot find resolvconf in path. Set the path explicitly via --with-resolvconf=PATH.)
+	fi
 fi
 if test "$with_resolvconf" != "no"; then
 	AS_IF([test -z "$config_dns_rc_manager_default"], config_dns_rc_manager_default=resolvconf)
 fi
+
 if test "$with_netconfig" = "yes"; then
-	AC_PATH_PROGS(with_netconfig, netconfig, no, /sbin:/usr/sbin:/usr/local/sbin)
+	AC_PATH_PROGS(with_netconfig, netconfig, yes, /sbin:/usr/sbin:/usr/local/sbin)
+	if test "$with_netconfig" = "yes"; then
+		AC_MSG_ERROR(cannot find netconfig in path. Set the path explicitly via --with-netconfig=PATH.)
+	fi
 fi
 if test "$with_netconfig" != "no"; then
 	AS_IF([test -z "$config_dns_rc_manager_default"], config_dns_rc_manager_default=netconfig)
 fi
+
 AS_IF([test -z "$config_dns_rc_manager_default"], config_dns_rc_manager_default=symlink)
-# Define resolvconf and netconfig paths
+
 if test "$with_resolvconf" != "no"; then
 	AC_DEFINE_UNQUOTED(RESOLVCONF_PATH, "$with_resolvconf", [Path to resolvconf])
 fi
@@ -981,13 +971,13 @@ AC_SUBST(DNSMASQ_PATH)
 AC_ARG_WITH(dnssec_trigger,
             AS_HELP_STRING([--with-dnssec-trigger=/path/to/dnssec-trigger-script], [path to unbound dnssec-trigger-script]))
 if test "x${with_dnssec_trigger}" = x; then
-	AC_PATH_PROG(DNSSEC_TRIGGER_SCRIPT, dnssec-trigger-script, /usr/libexec/dnssec-trigger-script,
+	AC_PATH_PROG(DNSSEC_TRIGGER_PATH, dnssec-trigger-script, /usr/libexec/dnssec-trigger-script,
 	             /usr/local/libexec:/usr/local/lib:/usr/local/lib/dnssec-trigger:/usr/libexec:/usr/lib:/usr/lib/dnssec-trigger)
 else
-	DNSSEC_TRIGGER_SCRIPT="$with_dnssec_trigger"
+	DNSSEC_TRIGGER_PATH="$with_dnssec_trigger"
 fi
-AC_DEFINE_UNQUOTED(DNSSEC_TRIGGER_SCRIPT, "$DNSSEC_TRIGGER_SCRIPT", [Define to path of unbound dnssec-trigger-script])
-AC_SUBST(DNSSEC_TRIGGER_SCRIPT)
+AC_DEFINE_UNQUOTED(DNSSEC_TRIGGER_PATH, "$DNSSEC_TRIGGER_PATH", [Define to path of unbound dnssec-trigger-script])
+AC_SUBST(DNSSEC_TRIGGER_PATH)
 
 # system CA certificates path
 AC_ARG_WITH(system-ca-path,
@@ -1076,7 +1066,7 @@ else
 	more_logging_default=no
 fi
 
-NM_COMPILER_WARNINGS(CFLAGS, ${more_warnings_default})
+NM_COMPILER_WARNINGS(AM_CFLAGS, ${more_warnings_default})
 
 NM_COMPILER_FLAG(LIBSYSTEMD_NM_CFLAGS, "-Wno-gnu-variable-sized-type-not-at-end")
 AC_SUBST(LIBSYSTEMD_NM_CFLAGS)
@@ -1084,7 +1074,7 @@ AC_SUBST(LIBSYSTEMD_NM_CFLAGS)
 CC_CHECK_FLAGS_APPEND([with_cflags], [CFLAGS], [\
 	-fno-strict-aliasing \
 ])
-CFLAGS="$CFLAGS $with_cflags"
+AM_CFLAGS="$AM_CFLAGS $with_cflags"
 
 AC_ARG_ENABLE(more-asserts,
               AS_HELP_STRING([--enable-more-asserts],
@@ -1114,6 +1104,8 @@ if test "${enable_more_logging}" = ""; then
 fi
 if test "${enable_more_logging}" = "yes"; then
 	AC_DEFINE(NM_MORE_LOGGING, [1], [Define if more debug logging is enabled])
+else
+	AC_DEFINE(NM_MORE_LOGGING, [0], [Define if more debug logging is enabled])
 fi
 
 NM_LTO
@@ -1248,7 +1240,7 @@ else
 	if test "$enable_gtk_doc" = "yes"; then
 		# large parts of the documentation require introspection/pygobject to extract
 		# the documentation out of the source files. You cannot enable gtk-doc without alone.
-		AC_MSG_ERROR(["--with-gtk-doc requires --enable-introspection"])
+		AC_MSG_ERROR(["--enable-gtk-doc requires --enable-introspection"])
 	fi
 	have_introspection=no
 fi
@@ -1279,6 +1271,7 @@ fi
 
 AM_CONDITIONAL(BUILD_DOCS, test "$build_docs" = "yes")
 AM_CONDITIONAL(HAVE_DOCS, test "$build_docs" = "yes" -o "$use_pregen_docs" = "yes")
+AC_SUBST(AM_CFLAGS)
 
 AC_CONFIG_FILES([
 Makefile
@@ -1337,7 +1330,7 @@ echo
 echo "Features:"
 echo "  wext: $ac_with_wext"
 echo "  wifi: $enable_wifi"
-echo "  ppp: $enable_ppp ${PPPD_PLUGIN_DIR}"
+echo "  ppp: $enable_ppp ${PPPD_PATH} plugins:${PPPD_PLUGIN_DIR}"
 echo "  modemmanager-1: $with_modem_manager_1"
 echo "  ofono: $with_ofono"
 echo "  concheck: $enable_concheck"
@@ -1365,7 +1358,6 @@ echo "DHCP clients (default $config_dhcp_default):"
 echo "  dhcpcanon: $with_dhcpcanon"
 echo "  dhclient: $with_dhclient"
 echo "  dhcpcd: $with_dhcpcd"
-echo "  dhcpcd-supports-ipv6: $with_dhcpcd_supports_ipv6"
 echo
 
 echo "Miscellaneous:"
@@ -1381,7 +1373,8 @@ echo "  code coverage: $enable_code_coverage"
 echo "  LTO: $enable_lto"
 echo "  linker garbage collection: $enable_ld_gc"
 echo "  JSON validation for libnm: $enable_json_validation"
-echo "  crypto: $with_crypto"
+echo "  crypto: $with_crypto (have-gnutls: $have_crypto_gnutls, have-nss: $have_crypto_nss)"
 echo "  sanitizers: $sanitizers"
 echo "  Mozilla Public Suffix List: $with_libpsl"
+echo "  eBPF: $have_ebpf"
 echo

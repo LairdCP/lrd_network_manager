@@ -24,7 +24,6 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <errno.h>
 
 #include "nm-manager.h"
 #include "nm-core-utils.h"
@@ -126,12 +125,13 @@ nm_ppp_manager_start (NMPPPManager *self,
 
 NMPPPManagerStopHandle *
 nm_ppp_manager_stop (NMPPPManager *self,
+                     GCancellable *cancellable,
                      NMPPPManagerStopCallback callback,
                      gpointer user_data)
 {
 	g_return_val_if_fail (ppp_ops, NULL);
 
-	return ppp_ops->stop (self, callback, user_data);
+	return ppp_ops->stop (self, cancellable, callback, user_data);
 }
 
 void

@@ -25,9 +25,16 @@
 #include "nmcli.h"
 #include "nm-secret-agent-simple.h"
 
-gboolean print_ip4_config (NMIPConfig *cfg4, const NmcConfig *nmc_config, const char *one_field);
-gboolean print_ip6_config (NMIPConfig *cfg6, const NmcConfig *nmc_config, const char *group_prefix, const char *one_field);
-gboolean print_dhcp_config (NMDhcpConfig *dhcp, const NmcConfig *nmc_config, const char *group_prefix, const char *one_field);
+
+gboolean print_ip_config (NMIPConfig *cfg,
+                          int addr_family,
+                          const NmcConfig *nmc_config,
+                          const char *one_field);
+
+gboolean print_dhcp_config (NMDhcpConfig *dhcp,
+                            int addr_family,
+                            const NmcConfig *nmc_config,
+                            const char *one_field);
 
 NMConnection *nmc_find_connection (const GPtrArray *connections,
                                    const char *filter_type,
@@ -52,8 +59,13 @@ char *nmc_unique_connection_name (const GPtrArray *connections,
                                   const char *try_name);
 
 void nmc_cleanup_readline (void);
-char *nmc_readline (const char *prompt_fmt, ...) G_GNUC_PRINTF (1, 2);
-char *nmc_readline_echo (gboolean echo_on, const char *prompt_fmt, ...) G_GNUC_PRINTF (2, 3);
+char *nmc_readline (const NmcConfig *nmc_config,
+                    const char *prompt_fmt,
+                    ...) G_GNUC_PRINTF (2, 3);
+char *nmc_readline_echo (const NmcConfig *nmc_config,
+                         gboolean echo_on,
+                         const char *prompt_fmt,
+                         ...) G_GNUC_PRINTF (3, 4);
 NmcCompEntryFunc nmc_rl_compentry_func_wrap (const char *const*values);
 char *nmc_rl_gen_func_basic (const char *text, int state, const char *const*words);
 char *nmc_rl_gen_func_ifnames (const char *text, int state);
@@ -76,14 +88,18 @@ typedef struct {
 
 void nmc_do_cmd (NmCli *nmc, const NMCCommand cmds[], const char *cmd, int argc, char **argv);
 
-void nmc_complete_strings (const char *prefix, ...) G_GNUC_NULL_TERMINATED;
+void nmc_complete_strv (const char *prefix, gssize nargs, const char *const*args);
+
+#define nmc_complete_strings(prefix, ...) nmc_complete_strv ((prefix), NM_NARG (__VA_ARGS__), (const char *const[]) { __VA_ARGS__ })
 
 void nmc_complete_bool (const char *prefix);
 
 const char *nmc_error_get_simple_message (GError *error);
 
 extern const NmcMetaGenericInfo *const metagen_ip4_config[];
-extern const NmcMetaGenericInfo *const nmc_fields_ip6_config[];
-extern const NmcMetaGenericInfo *const nmc_fields_dhcp_config[];
+extern const NmcMetaGenericInfo *const metagen_ip6_config[];
+extern const NmcMetaGenericInfo *const metagen_dhcp_config[];
+
+const char *nm_connectivity_to_string (NMConnectivityState connectivity);
 
 #endif /* NMC_COMMON_H */

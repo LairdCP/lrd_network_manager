@@ -130,12 +130,15 @@ void nm_ip6_config_subtract (NMIP6Config *dst,
                              guint32 default_route_metric_penalty);
 void nm_ip6_config_intersect (NMIP6Config *dst,
                               const NMIP6Config *src,
+                              gboolean intersect_addresses,
+                              gboolean intersect_routes,
                               guint32 default_route_metric_penalty);
 NMIP6Config *nm_ip6_config_intersect_alloc (const NMIP6Config *a,
                                             const NMIP6Config *b,
+                                            gboolean intersect_addresses,
+                                            gboolean intersect_routes,
                                             guint32 default_route_metric_penalty);
 gboolean nm_ip6_config_replace (NMIP6Config *dst, const NMIP6Config *src, gboolean *relevant_changes);
-void nm_ip6_config_dump (const NMIP6Config *self, const char *detail);
 
 const NMPObject *nm_ip6_config_best_default_route_get (const NMIP6Config *self);
 const NMPObject *_nm_ip6_config_best_default_route_find (const NMIP6Config *self);
@@ -194,8 +197,8 @@ void nm_ip6_config_del_dns_option (NMIP6Config *self, guint i);
 guint nm_ip6_config_get_num_dns_options (const NMIP6Config *self);
 const char * nm_ip6_config_get_dns_option (const NMIP6Config *self, guint i);
 
-void nm_ip6_config_set_dns_priority (NMIP6Config *self, gint priority);
-gint nm_ip6_config_get_dns_priority (const NMIP6Config *self);
+void nm_ip6_config_set_dns_priority (NMIP6Config *self, int priority);
+int nm_ip6_config_get_dns_priority (const NMIP6Config *self);
 
 const NMPObject *nm_ip6_config_nmpobj_lookup (const NMIP6Config *self,
                                               const NMPObject *needle);
@@ -223,5 +226,7 @@ void nm_ip6_config_reset_routes_ndisc (NMIP6Config *self,
                                        guint32 route_table,
                                        guint32 route_metric,
                                        gboolean kernel_support_rta_pref);
+
+void nm_ip6_config_update_routes_metric (NMIP6Config *self, gint64 metric);
 
 #endif /* __NETWORKMANAGER_IP6_CONFIG_H__ */

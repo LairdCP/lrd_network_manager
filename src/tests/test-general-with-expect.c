@@ -20,8 +20,6 @@
 
 #include "nm-default.h"
 
-#include <string.h>
-#include <errno.h>
 #include <time.h>
 #include <netinet/ether.h>
 #include <sys/types.h>
@@ -31,10 +29,6 @@
 #include "NetworkManagerUtils.h"
 
 #include "nm-test-utils-core.h"
-
-#ifndef CLOCK_BOOTTIME
-#define CLOCK_BOOTTIME 7
-#endif
 
 /*****************************************************************************/
 
@@ -46,7 +40,8 @@ test_nm_utils_monotonic_timestamp_as_boottime (void)
 	clockid_t clockid;
 	guint i;
 
-	if (clock_gettime (CLOCK_BOOTTIME, &tp) != 0 && errno == EINVAL)
+	if (   clock_gettime (CLOCK_BOOTTIME, &tp) != 0
+	    && errno == EINVAL)
 		clockid = CLOCK_MONOTONIC;
 	else
 		clockid = CLOCK_BOOTTIME;

@@ -24,6 +24,7 @@
 #include "nm-dedup-multi.h"
 
 #include "nm-hash-utils.h"
+#include "nm-c-list.h"
 
 /*****************************************************************************/
 
@@ -159,7 +160,7 @@ _entry_unpack (const NMDedupMultiEntry *entry,
 	ASSERT_idx_type (*out_idx_type);
 
 	/* for lookup of the head, we allow to omit object, but only
-	 * if the idx_type does not parition the objects. Otherwise, we
+	 * if the idx_type does not partition the objects. Otherwise, we
 	 * require a obj to compare. */
 	nm_assert (   !*out_lookup_head
 	           || (   *out_obj
@@ -260,44 +261,27 @@ _add (NMDedupMultiIndex *self,
 		nm_dedup_multi_entry_set_dirty (entry, FALSE);
 
 		nm_assert (!head_existing || entry->head == head_existing);
-
-		if (entry_order) {
-			nm_assert (entry_order->head == entry->head);
-			nm_assert (c_list_contains (&entry->lst_entries, &entry_order->lst_entries));
-			nm_assert (c_list_contains (&entry_order->lst_entries, &entry->lst_entries));
-		}
+		nm_assert (!entry_order || entry_order->head == entry->head);
+		nm_assert (!entry_order || c_list_contains (&entry->lst_entries, &entry_order->lst_entries));
+		nm_assert (!entry_order || c_list_contains (&entry_order->lst_entries, &entry->lst_entries));
 
 		switch (mode) {
 		case NM_DEDUP_MULTI_IDX_MODE_PREPEND_FORCE:
 			if (entry_order) {
-				if (   entry_order != entry
-				    && entry->lst_entries.next != &entry_order->lst_entries) {
-					c_list_unlink_stale (&entry->lst_entries);
-					c_list_link_before ((CList *) &entry_order->lst_entries, &entry->lst_entries);
+				if (nm_c_list_move_before ((CList *) &entry_order->lst_entries, &entry->lst_entries))
 					changed = TRUE;
-				}
 			} else {
-				if (entry->lst_entries.prev != &entry->head->lst_entries_head) {
-					c_list_unlink_stale (&entry->lst_entries);
-					c_list_link_front ((CList *) &entry->head->lst_entries_head, &entry->lst_entries);
+				if (nm_c_list_move_front ((CList *) &entry->head->lst_entries_head, &entry->lst_entries))
 					changed = TRUE;
-				}
 			}
 			break;
 		case NM_DEDUP_MULTI_IDX_MODE_APPEND_FORCE:
 			if (entry_order) {
-				if (   entry_order != entry
-				    && entry->lst_entries.prev != &entry_order->lst_entries) {
-					c_list_unlink_stale (&entry->lst_entries);
-					c_list_link_after ((CList *) &entry_order->lst_entries, &entry->lst_entries);
+				if (nm_c_list_move_after ((CList *) &entry_order->lst_entries, &entry->lst_entries))
 					changed = TRUE;
-				}
 			} else {
-				if (entry->lst_entries.next != &entry->head->lst_entries_head) {
-					c_list_unlink_stale (&entry->lst_entries);
-					c_list_link_tail ((CList *) &entry->head->lst_entries_head, &entry->lst_entries);
+				if (nm_c_list_move_tail ((CList *) &entry->head->lst_entries_head, &entry->lst_entries))
 					changed = TRUE;
-				}
 			}
 			break;
 		case NM_DEDUP_MULTI_IDX_MODE_PREPEND:
@@ -441,10 +425,10 @@ nm_dedup_multi_index_add (NMDedupMultiIndex *self,
  *   object will be placed in. You can omit this, and it will be automatically
  *   detected (at the expense of an additional hash lookup).
  *   Basically, this is the result of nm_dedup_multi_index_lookup_obj(),
- *   with the pecularity that if you know that @obj is not yet tracked,
+ *   with the peculiarity that if you know that @obj is not yet tracked,
  *   you may specify %NM_DEDUP_MULTI_ENTRY_MISSING.
  * @head_existing: an optional argument to safe a lookup for the head. If specified,
- *   it must be identical to nm_dedup_multi_index_lookup_head(), with the pecularity
+ *   it must be identical to nm_dedup_multi_index_lookup_head(), with the peculiarity
  *   that if the head is not yet tracked, you may specify %NM_DEDUP_MULTI_HEAD_ENTRY_MISSING
  * @out_entry: if give, return the added entry. This entry may have already exists (update)
  *   or be newly created. If @obj is not partitionable according to @idx_type, @obj
@@ -1022,33 +1006,20 @@ nm_dedup_multi_entry_reorder (const NMDedupMultiEntry *entry,
 	if (!entry_order) {
 		const NMDedupMultiHeadEntry *head_entry = entry->head;
 
-		nm_assert (c_list_contains (&head_entry->lst_entries_head, &entry->lst_entries));
 		if (order_after) {
-			if (head_entry->lst_entries_head.prev != &entry->lst_entries) {
-				c_list_unlink_stale ((CList *) &entry->lst_entries);
-				c_list_link_tail ((CList *) &head_entry->lst_entries_head, (CList *) &entry->lst_entries);
+			if (nm_c_list_move_tail ((CList *) &head_entry->lst_entries_head, (CList *) &entry->lst_entries))
 				return TRUE;
-			}
 		} else {
-			if (head_entry->lst_entries_head.next != &entry->lst_entries) {
-				c_list_unlink_stale ((CList *) &entry->lst_entries);
-				c_list_link_front ((CList *) &head_entry->lst_entries_head, (CList *) &entry->lst_entries);
+			if (nm_c_list_move_front ((CList *) &head_entry->lst_entries_head, (CList *) &entry->lst_entries))
 				return TRUE;
-			}
 		}
-	} else if (entry != entry_order) {
+	} else {
 		if (order_after) {
-			if (entry_order->lst_entries.next != &entry->lst_entries) {
-				c_list_unlink_stale ((CList *) &entry->lst_entries);
-				c_list_link_after ((CList *) &entry_order->lst_entries, (CList *) &entry->lst_entries);
+			if (nm_c_list_move_after ((CList *) &entry_order->lst_entries, (CList *) &entry->lst_entries))
 				return TRUE;
-			}
 		} else {
-			if (entry_order->lst_entries.prev != &entry->lst_entries) {
-				c_list_unlink_stale ((CList *) &entry->lst_entries);
-				c_list_link_before ((CList *) &entry_order->lst_entries, (CList *) &entry->lst_entries);
+			if (nm_c_list_move_before ((CList *) &entry_order->lst_entries, (CList *) &entry->lst_entries))
 				return TRUE;
-			}
 		}
 	}
 

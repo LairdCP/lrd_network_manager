@@ -24,10 +24,8 @@
 #include "nm-device-ethernet.h"
 
 #include <netinet/in.h>
-#include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <errno.h>
 #include <libudev.h>
 
 #include "nm-device-private.h"
@@ -343,23 +341,21 @@ match_subchans (NMDeviceEthernet *self, NMSettingWired *s_wired, gboolean *try_m
 }
 
 static gboolean
-check_connection_compatible (NMDevice *device, NMConnection *connection)
+check_connection_compatible (NMDevice *device, NMConnection *connection, GError **error)
 {
 	NMDeviceEthernet *self = NM_DEVICE_ETHERNET (device);
 	NMSettingWired *s_wired;
 
-	if (!NM_DEVICE_CLASS (nm_device_ethernet_parent_class)->check_connection_compatible (device, connection))
+	if (!NM_DEVICE_CLASS (nm_device_ethernet_parent_class)->check_connection_compatible (device, connection, error))
 		return FALSE;
-
-	s_wired = nm_connection_get_setting_wired (connection);
 
 	if (nm_connection_is_type (connection, NM_SETTING_PPPOE_SETTING_NAME)) {
-		/* NOP */
-	} else if (nm_connection_is_type (connection, NM_SETTING_WIRED_SETTING_NAME)) {
+		s_wired = nm_connection_get_setting_wired (connection);
+	} else {
+		s_wired = _nm_connection_check_main_setting (connection, NM_SETTING_WIRED_SETTING_NAME, error);
 		if (!s_wired)
 			return FALSE;
-	} else
-		return FALSE;
+	}
 
 	if (s_wired) {
 		const char *mac, *perm_hw_addr;
@@ -367,28 +363,43 @@ check_connection_compatible (NMDevice *device, NMConnection *connection)
 		const char * const *mac_blacklist;
 		int i;
 
-		if (!match_subchans (self, s_wired, &try_mac))
+		if (!match_subchans (self, s_wired, &try_mac)) {
+			nm_utils_error_set_literal (error, NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+			                            "s390 subchannels don't match");
 			return FALSE;
+		}
 
 		perm_hw_addr = nm_device_get_permanent_hw_address (device);
 		mac = nm_setting_wired_get_mac_address (s_wired);
 		if (perm_hw_addr) {
-			if (try_mac && mac && !nm_utils_hwaddr_matches (mac, -1, perm_hw_addr, -1))
+			if (   try_mac
+			    && mac
+			    && !nm_utils_hwaddr_matches (mac, -1, perm_hw_addr, -1)) {
+				nm_utils_error_set_literal (error, NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+				                            "permanent MAC address doesn't match");
 				return FALSE;
+			}
 
 			/* Check for MAC address blacklist */
 			mac_blacklist = nm_setting_wired_get_mac_address_blacklist (s_wired);
 			for (i = 0; mac_blacklist[i]; i++) {
 				if (!nm_utils_hwaddr_valid (mac_blacklist[i], ETH_ALEN)) {
-					g_warn_if_reached ();
+					nm_utils_error_set_literal (error, NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+					                            "invalid MAC in blacklist");
 					return FALSE;
 				}
 
-				if (nm_utils_hwaddr_matches (mac_blacklist[i], -1, perm_hw_addr, -1))
+				if (nm_utils_hwaddr_matches (mac_blacklist[i], -1, perm_hw_addr, -1)) {
+					nm_utils_error_set_literal (error, NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+					                            "permanent MAC address of device blacklisted");
 					return FALSE;
+				}
 			}
-		} else if (mac)
+		} else if (mac) {
+			nm_utils_error_set_literal (error, NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+			                            "device has no permanent MAC address to match");
 			return FALSE;
+		}
 	}
 
 	return TRUE;
@@ -543,7 +554,9 @@ build_supplicant_config (NMDeviceEthernet *self,
 	guint32 mtu;
 
 	connection = nm_device_get_applied_connection (NM_DEVICE (self));
-	g_assert (connection);
+
+	g_return_val_if_fail (connection, NULL);
+
 	con_uuid = nm_connection_get_uuid (connection);
 	mtu = nm_platform_link_get_mtu (nm_device_get_platform (NM_DEVICE (self)),
 	                                nm_device_get_ifindex (NM_DEVICE (self)));
@@ -777,7 +790,7 @@ link_negotiation_set (NMDevice *device)
 	guint32 speed = 0;
 	guint32 link_speed;
 
-	s_wired = (NMSettingWired *) nm_device_get_applied_setting (device, NM_TYPE_SETTING_WIRED);
+	s_wired = nm_device_get_applied_setting (device, NM_TYPE_SETTING_WIRED);
 	if (s_wired) {
 		autoneg = nm_setting_wired_get_auto_negotiate (s_wired);
 		speed = nm_setting_wired_get_speed (s_wired);
@@ -867,8 +880,8 @@ act_stage1_prepare (NMDevice *dev, NMDeviceStateReason *out_failure_reason)
 			       delay);
 			g_assert (!priv->pppoe_wait_id);
 			priv->pppoe_wait_id = g_timeout_add_seconds (delay,
-								     pppoe_reconnect_delay,
-								     self);
+			                                             pppoe_reconnect_delay,
+			                                             self);
 			return NM_ACT_STAGE_RETURN_POSTPONE;
 		}
 		priv->last_pppoe_time = 0;
@@ -887,6 +900,7 @@ nm_8021x_stage2_config (NMDeviceEthernet *self, NMDeviceStateReason *out_failure
 	NMActStageReturn ret = NM_ACT_STAGE_RETURN_FAILURE;
 
 	connection = nm_device_get_applied_connection (NM_DEVICE (self));
+
 	g_return_val_if_fail (connection, NM_ACT_STAGE_RETURN_FAILURE);
 
 	security = nm_connection_get_setting_802_1x (connection);
@@ -968,9 +982,8 @@ ppp_ip4_config (NMPPPManager *ppp_manager,
 	NMDevice *device = NM_DEVICE (user_data);
 
 	/* Ignore PPP IP4 events that come in after initial configuration */
-	if (nm_device_activate_ip4_state_in_conf (device)) {
-		nm_device_activate_schedule_ip4_config_result (device, config);
-	}
+	if (nm_device_activate_ip4_state_in_conf (device))
+		nm_device_activate_schedule_ip_config_result (device, AF_INET, NM_IP_CONFIG_CAST (config));
 }
 
 static NMActStageReturn
@@ -982,10 +995,12 @@ pppoe_stage3_ip4_config_start (NMDeviceEthernet *self, NMDeviceStateReason *out_
 	NMActRequest *req;
 	GError *err = NULL;
 
-	req = nm_device_get_act_request (NM_DEVICE (self));
+	req = nm_device_get_act_request (device);
+
 	g_return_val_if_fail (req, NM_ACT_STAGE_RETURN_FAILURE);
 
-	s_pppoe = (NMSettingPppoe *) nm_device_get_applied_setting ((NMDevice *) self, NM_TYPE_SETTING_PPPOE);
+	s_pppoe = nm_device_get_applied_setting (device, NM_TYPE_SETTING_PPPOE);
+
 	g_return_val_if_fail (s_pppoe, NM_ACT_STAGE_RETURN_FAILURE);
 
 	priv->ppp_manager = nm_ppp_manager_create (nm_device_get_iface (device),
@@ -1056,8 +1071,10 @@ dcb_configure (NMDevice *device)
 
 	nm_clear_g_source (&priv->dcb_timeout_id);
 
-	s_dcb = (NMSettingDcb *) nm_device_get_applied_setting (device, NM_TYPE_SETTING_DCB);
-	g_assert (s_dcb);
+	s_dcb = nm_device_get_applied_setting (device, NM_TYPE_SETTING_DCB);
+
+	g_return_val_if_fail (s_dcb, FALSE);
+
 	if (!nm_dcb_setup (nm_device_get_iface (device), s_dcb, &error)) {
 		_LOGW (LOGD_DCB, "Activation: (ethernet) failed to enable DCB/FCoE: %s",
 		       error->message);
@@ -1185,9 +1202,9 @@ wake_on_lan_enable (NMDevice *device)
 	NMSettingWiredWakeOnLan wol;
 	NMSettingWired *s_wired;
 	const char *password = NULL;
-	gs_free char *value = NULL;
 
-	s_wired = (NMSettingWired *) nm_device_get_applied_setting (device, NM_TYPE_SETTING_WIRED);
+	s_wired = nm_device_get_applied_setting (device, NM_TYPE_SETTING_WIRED);
+
 	if (s_wired) {
 		wol = nm_setting_wired_get_wake_on_lan (s_wired);
 		password = nm_setting_wired_get_wake_on_lan_password (s_wired);
@@ -1195,27 +1212,25 @@ wake_on_lan_enable (NMDevice *device)
 			goto found;
 	}
 
-	value = nm_config_data_get_connection_default (NM_CONFIG_GET_DATA,
-	                                               "ethernet.wake-on-lan",
-	                                               device);
+	wol = nm_config_data_get_connection_default_int64 (NM_CONFIG_GET_DATA,
+	                                                   NM_CON_DEFAULT ("ethernet.wake-on-lan"),
+	                                                   device,
+	                                                   NM_SETTING_WIRED_WAKE_ON_LAN_NONE,
+	                                                   G_MAXINT32,
+	                                                   NM_SETTING_WIRED_WAKE_ON_LAN_DEFAULT);
 
-	if (value) {
-		wol = _nm_utils_ascii_str_to_int64 (value, 10,
-		                                    NM_SETTING_WIRED_WAKE_ON_LAN_NONE,
-		                                    G_MAXINT32,
-		                                    NM_SETTING_WIRED_WAKE_ON_LAN_DEFAULT);
-
-		if (   NM_FLAGS_ANY (wol, NM_SETTING_WIRED_WAKE_ON_LAN_EXCLUSIVE_FLAGS)
-		    && !nm_utils_is_power_of_two (wol)) {
-			nm_log_dbg (LOGD_ETHER, "invalid default value %u for wake-on-lan", (guint) wol);
-			wol = NM_SETTING_WIRED_WAKE_ON_LAN_DEFAULT;
-		}
-		if (wol != NM_SETTING_WIRED_WAKE_ON_LAN_DEFAULT)
-			goto found;
+	if (   NM_FLAGS_ANY (wol, NM_SETTING_WIRED_WAKE_ON_LAN_EXCLUSIVE_FLAGS)
+	    && !nm_utils_is_power_of_two (wol)) {
+		nm_log_dbg (LOGD_ETHER, "invalid default value %u for wake-on-lan", (guint) wol);
+		wol = NM_SETTING_WIRED_WAKE_ON_LAN_DEFAULT;
 	}
+	if (wol != NM_SETTING_WIRED_WAKE_ON_LAN_DEFAULT)
+		goto found;
 	wol = NM_SETTING_WIRED_WAKE_ON_LAN_IGNORE;
 found:
-	return nm_platform_ethtool_set_wake_on_lan (nm_device_get_platform (device), nm_device_get_ifindex (device), wol, password);
+	return nm_platform_ethtool_set_wake_on_lan (nm_device_get_platform (device),
+	                                            nm_device_get_ifindex (device),
+	                                            wol, password);
 }
 
 /*****************************************************************************/
@@ -1230,8 +1245,8 @@ act_stage2_config (NMDevice *device, NMDeviceStateReason *out_failure_reason)
 	NMActStageReturn ret = NM_ACT_STAGE_RETURN_SUCCESS;
 	NMSettingDcb *s_dcb;
 
-	s_con = NM_SETTING_CONNECTION (nm_device_get_applied_setting (device,
-	                                                              NM_TYPE_SETTING_CONNECTION));
+	s_con = nm_device_get_applied_setting (device, NM_TYPE_SETTING_CONNECTION);
+
 	g_return_val_if_fail (s_con, NM_ACT_STAGE_RETURN_FAILURE);
 
 	nm_clear_g_source (&priv->dcb_timeout_id);
@@ -1244,8 +1259,8 @@ act_stage2_config (NMDevice *device, NMDeviceStateReason *out_failure_reason)
 	if (!strcmp (connection_type, NM_SETTING_WIRED_SETTING_NAME)) {
 		NMSetting8021x *security;
 
-		security = (NMSetting8021x *) nm_device_get_applied_setting (device,
-		                                                             NM_TYPE_SETTING_802_1X);
+		security = nm_device_get_applied_setting (device, NM_TYPE_SETTING_802_1X);
+
 		if (security) {
 			/* FIXME: for now 802.1x is mutually exclusive with DCB */
 			return nm_8021x_stage2_config (self, out_failure_reason);
@@ -1255,7 +1270,7 @@ act_stage2_config (NMDevice *device, NMDeviceStateReason *out_failure_reason)
 	wake_on_lan_enable (device);
 
 	/* DCB and FCoE setup */
-	s_dcb = (NMSettingDcb *) nm_device_get_applied_setting (device, NM_TYPE_SETTING_DCB);
+	s_dcb = nm_device_get_applied_setting (device, NM_TYPE_SETTING_DCB);
 	if (s_dcb) {
 		/* lldpad really really wants the carrier to be up */
 		if (nm_platform_link_is_connected (nm_device_get_platform (device), nm_device_get_ifindex (device))) {
@@ -1278,7 +1293,7 @@ act_stage2_config (NMDevice *device, NMDeviceStateReason *out_failure_reason)
 	                           NM_SETTING_PPPOE_SETTING_NAME)) {
 		NMSettingPpp *s_ppp;
 
-		s_ppp = (NMSettingPpp *) nm_device_get_applied_setting (device, NM_TYPE_SETTING_PPP);
+		s_ppp = nm_device_get_applied_setting (device, NM_TYPE_SETTING_PPP);
 		if (s_ppp) {
 			guint32 mtu = 0, mru = 0, mxu;
 
@@ -1299,21 +1314,25 @@ act_stage2_config (NMDevice *device, NMDeviceStateReason *out_failure_reason)
 }
 
 static NMActStageReturn
-act_stage3_ip4_config_start (NMDevice *device,
-                             NMIP4Config **out_config,
-                             NMDeviceStateReason *out_failure_reason)
+act_stage3_ip_config_start (NMDevice *device,
+                            int addr_family,
+                            gpointer *out_config,
+                            NMDeviceStateReason *out_failure_reason)
 {
 	NMSettingConnection *s_con;
 	const char *connection_type;
 
-	s_con = NM_SETTING_CONNECTION (nm_device_get_applied_setting (device, NM_TYPE_SETTING_CONNECTION));
-	g_return_val_if_fail (s_con, NM_ACT_STAGE_RETURN_FAILURE);
+	if (addr_family == AF_INET) {
+		s_con = nm_device_get_applied_setting (device, NM_TYPE_SETTING_CONNECTION);
 
-	connection_type = nm_setting_connection_get_connection_type (s_con);
-	if (!strcmp (connection_type, NM_SETTING_PPPOE_SETTING_NAME))
-		return pppoe_stage3_ip4_config_start (NM_DEVICE_ETHERNET (device), out_failure_reason);
+		g_return_val_if_fail (s_con, NM_ACT_STAGE_RETURN_FAILURE);
 
-	return NM_DEVICE_CLASS (nm_device_ethernet_parent_class)->act_stage3_ip4_config_start (device, out_config, out_failure_reason);
+		connection_type = nm_setting_connection_get_connection_type (s_con);
+		if (!strcmp (connection_type, NM_SETTING_PPPOE_SETTING_NAME))
+			return pppoe_stage3_ip4_config_start (NM_DEVICE_ETHERNET (device), out_failure_reason);
+	}
+
+	return NM_DEVICE_CLASS (nm_device_ethernet_parent_class)->act_stage3_ip_config_start (device, addr_family, out_config, out_failure_reason);
 }
 
 static guint32
@@ -1337,7 +1356,7 @@ deactivate (NMDevice *device)
 	nm_clear_g_source (&priv->pppoe_wait_id);
 
 	if (priv->ppp_manager) {
-		nm_ppp_manager_stop (priv->ppp_manager, NULL, NULL);
+		nm_ppp_manager_stop (priv->ppp_manager, NULL, NULL, NULL);
 		g_clear_object (&priv->ppp_manager);
 	}
 
@@ -1348,7 +1367,7 @@ deactivate (NMDevice *device)
 	priv->dcb_handle_carrier_changes = FALSE;
 
 	/* Tear down DCB/FCoE if it was enabled */
-	s_dcb = (NMSettingDcb *) nm_device_get_applied_setting (device, NM_TYPE_SETTING_DCB);
+	s_dcb = nm_device_get_applied_setting (device, NM_TYPE_SETTING_DCB);
 	if (s_dcb) {
 		if (!nm_dcb_cleanup (nm_device_get_iface (device), &error)) {
 			_LOGW (LOGD_DEVICE | LOGD_PLATFORM, "failed to disable DCB/FCoE: %s",
@@ -1430,12 +1449,13 @@ new_default_connection (NMDevice *self)
 	NMConnection *connection;
 	NMSettingsConnection *const*connections;
 	NMSetting *setting;
+	gs_unref_hashtable GHashTable *existing_ids = NULL;
 	struct udev_device *dev;
 	const char *perm_hw_addr;
 	const char *uprop = "0";
 	gs_free char *defname = NULL;
 	gs_free char *uuid = NULL;
-	gs_free char *machine_id = NULL;
+	guint i, n_connections;
 
 	if (nm_config_get_no_auto_default_for_device (nm_config_get (), self))
 		return NULL;
@@ -1448,17 +1468,20 @@ new_default_connection (NMDevice *self)
 	setting = nm_setting_connection_new ();
 	nm_connection_add_setting (connection, setting);
 
-	connections = nm_settings_get_connections (nm_device_get_settings (self), NULL);
-	defname = nm_device_ethernet_utils_get_default_wired_name ((NMConnection *const*) connections);
+	connections = nm_settings_get_connections (nm_device_get_settings (self), &n_connections);
+	if (n_connections > 0) {
+		existing_ids = g_hash_table_new (nm_str_hash, g_str_equal);
+		for (i = 0; i < n_connections; i++)
+			g_hash_table_add (existing_ids, (char *) nm_settings_connection_get_id (connections[i]));
+	}
+	defname = nm_device_ethernet_utils_get_default_wired_name (existing_ids);
 	if (!defname)
 		return NULL;
-
-	machine_id = nm_utils_machine_id_read ();
 
 	/* Create a stable UUID. The UUID is also the Network_ID for stable-privacy addr-gen-mode,
 	 * thus when it changes we will also generate different IPv6 addresses. */
 	uuid = _nm_utils_uuid_generate_from_strings ("default-wired",
-	                                             machine_id ?: "",
+	                                             nm_utils_machine_id_str (),
 	                                             defname,
 	                                             perm_hw_addr,
 	                                             NULL);
@@ -1750,11 +1773,9 @@ nm_device_ethernet_class_init (NMDeviceEthernetClass *klass)
 {
 	GObjectClass *object_class = G_OBJECT_CLASS (klass);
 	NMDBusObjectClass *dbus_object_class = NM_DBUS_OBJECT_CLASS (klass);
-	NMDeviceClass *parent_class = NM_DEVICE_CLASS (klass);
+	NMDeviceClass *device_class = NM_DEVICE_CLASS (klass);
 
 	g_type_class_add_private (object_class, sizeof (NMDeviceEthernetPrivate));
-
-	NM_DEVICE_CLASS_DECLARE_TYPES (klass, NM_SETTING_WIRED_SETTING_NAME, NM_LINK_TYPE_ETHERNET)
 
 	object_class->dispose = dispose;
 	object_class->finalize = finalize;
@@ -1763,25 +1784,28 @@ nm_device_ethernet_class_init (NMDeviceEthernetClass *klass)
 
 	dbus_object_class->interface_infos = NM_DBUS_INTERFACE_INFOS (&interface_info_device_wired);
 
-	parent_class->get_generic_capabilities = get_generic_capabilities;
-	parent_class->check_connection_compatible = check_connection_compatible;
-	parent_class->complete_connection = complete_connection;
-	parent_class->new_default_connection = new_default_connection;
+	device_class->connection_type_supported = NM_SETTING_WIRED_SETTING_NAME;
+	device_class->link_types = NM_DEVICE_DEFINE_LINK_TYPES (NM_LINK_TYPE_ETHERNET);
 
-	parent_class->act_stage1_prepare = act_stage1_prepare;
-	parent_class->act_stage2_config = act_stage2_config;
-	parent_class->act_stage3_ip4_config_start = act_stage3_ip4_config_start;
-	parent_class->get_configured_mtu = get_configured_mtu;
-	parent_class->deactivate = deactivate;
-	parent_class->get_s390_subchannels = get_s390_subchannels;
-	parent_class->update_connection = update_connection;
-	parent_class->carrier_changed_notify = carrier_changed_notify;
-	parent_class->link_changed = link_changed;
-	parent_class->is_available = is_available;
-	parent_class->can_reapply_change = can_reapply_change;
-	parent_class->reapply_connection = reapply_connection;
+	device_class->get_generic_capabilities = get_generic_capabilities;
+	device_class->check_connection_compatible = check_connection_compatible;
+	device_class->complete_connection = complete_connection;
+	device_class->new_default_connection = new_default_connection;
 
-	parent_class->state_changed = device_state_changed;
+	device_class->act_stage1_prepare = act_stage1_prepare;
+	device_class->act_stage2_config = act_stage2_config;
+	device_class->act_stage3_ip_config_start = act_stage3_ip_config_start;
+	device_class->get_configured_mtu = get_configured_mtu;
+	device_class->deactivate = deactivate;
+	device_class->get_s390_subchannels = get_s390_subchannels;
+	device_class->update_connection = update_connection;
+	device_class->carrier_changed_notify = carrier_changed_notify;
+	device_class->link_changed = link_changed;
+	device_class->is_available = is_available;
+	device_class->can_reapply_change = can_reapply_change;
+	device_class->reapply_connection = reapply_connection;
+
+	device_class->state_changed = device_state_changed;
 
 	obj_properties[PROP_SPEED] =
 	    g_param_spec_uint (NM_DEVICE_ETHERNET_SPEED, "", "",

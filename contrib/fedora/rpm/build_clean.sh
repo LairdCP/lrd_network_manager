@@ -24,6 +24,7 @@ usage() {
     echo "  -w|--with \$OPTION: pass --with \$OPTION to rpmbuild. For example --with debug"
     echo "  -W|--without \$OPTION: pass --without \$OPTION to rpmbuild. For example --without debug"
     echo "  -s|--snapshot TEXT: use TEXT as the snapshot version for the new package (overwrites \$NM_BUILD_SNAPSHOT environment)"
+    echo "  -r|--release: built a release tarball (this option must be alone)"
 }
 
 
@@ -44,6 +45,10 @@ WITH_LIST=()
 SOURCE_FROM_GIT=0
 SNAPSHOT="$NM_BUILD_SNAPSHOT"
 
+ADD_WITH_TEST=1
+
+NARGS=$#
+
 while [[ $# -gt 0 ]]; do
     A="$1"
     shift
@@ -54,6 +59,11 @@ while [[ $# -gt 0 ]]; do
             ;;
         -f|--force)
             IGNORE_DIRTY=1
+            ;;
+        -r|--release)
+            [[ $NARGS -eq 1 ]] || die "--release option must be alone"
+            export NMTST_CHECK_GTK_DOC=1
+            BUILDTYPE=SRPM
             ;;
         -c|--clean)
             GIT_CLEAN=1
@@ -82,11 +92,17 @@ while [[ $# -gt 0 ]]; do
         -w|--with)
             [[ $# -gt 0 ]] || die "Missing argument to $A"
             WITH_LIST=("${WITH_LIST[@]}" "--with" "$1")
+            if [[ "$1" == test ]]; then
+                ADD_WITH_TEST=0
+            fi
             shift
             ;;
         -W|--without)
             [[ $# -gt 0 ]] || die "Missing argument to $A"
             WITH_LIST=("${WITH_LIST[@]}" "--without" "$1")
+            if [[ "$1" == test ]]; then
+                ADD_WITH_TEST=0
+            fi
             shift
             ;;
         *)
@@ -135,7 +151,7 @@ if [[ $NO_DIST != 1 ]]; then
         --with-libnm-glib \
         --enable-ifcfg-rh \
         --enable-ifupdown \
-        --enable-ibft \
+        --enable-config-plugin-ibft \
         --with-config-logging-backend-default=syslog \
         --with-libaudit=yes-disabled-by-default \
         --enable-polkit=yes \
@@ -149,8 +165,8 @@ if [[ $NO_DIST != 1 ]]; then
     fi
 fi
 
-if [[ $QUICK == 1 ]]; then
-    WITH_LIST=(--without test "${WITH_LIST[@]}")
+if [[ "$ADD_WITH_TEST" == 1 ]]; then
+    WITH_LIST=("${WITH_LIST[@]}" "--with" "test")
 fi
 
 export SOURCE_FROM_GIT
