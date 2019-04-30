@@ -183,10 +183,12 @@ add_ip_config (NMDnsDnsmasq *self, GVariantBuilder *servers, const NMDnsIPConfig
 			                        domain[0] ? domain : NULL);
 		}
 
-		for (j = 0; ip_data->domains.reverse[j]; j++) {
-			add_dnsmasq_nameserver (self, servers,
-			                        ip_addr_to_string_buf,
-			                        ip_data->domains.reverse[j]);
+		if (ip_data->domains.reverse) {
+			for (j = 0; ip_data->domains.reverse[j]; j++) {
+				add_dnsmasq_nameserver (self, servers,
+				                        ip_addr_to_string_buf,
+				                        ip_data->domains.reverse[j]);
+			}
 		}
 	}
 }
@@ -252,9 +254,16 @@ name_owner_changed (GObject    *object,
 		priv->running = TRUE;
 		send_dnsmasq_update (self);
 	} else {
-		_LOGI ("dnsmasq disappeared");
-		priv->running = FALSE;
-		g_signal_emit_by_name (self, NM_DNS_PLUGIN_FAILED);
+		if (priv->running) {
+			_LOGI ("dnsmasq disappeared");
+			priv->running = FALSE;
+			g_signal_emit_by_name (self, NM_DNS_PLUGIN_FAILED);
+		} else {
+			/* The only reason for which (!priv->running) here
+			 * is that the dnsmasq process quit. We don't care
+			 * of that here, the manager handles child restarts
+			 * by itself. */
+		}
 	}
 }
 
@@ -304,8 +313,6 @@ start_dnsmasq (NMDnsDnsmasq *self)
 	const char *argv[15];
 	GPid pid = 0;
 	guint idx = 0;
-	NMDBusManager *dbus_mgr;
-	GDBusConnection *connection;
 
 	if (priv->running) {
 		/* the dnsmasq process is running. Nothing to do. */
@@ -356,22 +363,16 @@ start_dnsmasq (NMDnsDnsmasq *self)
 		return;
 	}
 
-	dbus_mgr = nm_dbus_manager_get ();
-	g_return_if_fail (dbus_mgr);
-
-	connection = nm_dbus_manager_get_connection (dbus_mgr);
-	g_return_if_fail (connection);
-
 	priv->dnsmasq_cancellable = g_cancellable_new ();
-	g_dbus_proxy_new (connection,
-	                  G_DBUS_PROXY_FLAGS_DO_NOT_AUTO_START,
-	                  NULL,
-	                  DNSMASQ_DBUS_SERVICE,
-	                  DNSMASQ_DBUS_PATH,
-	                  DNSMASQ_DBUS_SERVICE,
-	                  priv->dnsmasq_cancellable,
-	                  dnsmasq_proxy_cb,
-	                  self);
+	g_dbus_proxy_new_for_bus (G_BUS_TYPE_SYSTEM,
+	                          G_DBUS_PROXY_FLAGS_DO_NOT_AUTO_START,
+	                          NULL,
+	                          DNSMASQ_DBUS_SERVICE,
+	                          DNSMASQ_DBUS_PATH,
+	                          DNSMASQ_DBUS_SERVICE,
+	                          priv->dnsmasq_cancellable,
+	                          dnsmasq_proxy_cb,
+	                          self);
 }
 
 static gboolean
@@ -407,7 +408,7 @@ update (NMDnsPlugin *plugin,
 /*****************************************************************************/
 
 static void
-child_quit (NMDnsPlugin *plugin, gint status)
+child_quit (NMDnsPlugin *plugin, int status)
 {
 	NMDnsDnsmasq *self = NM_DNS_DNSMASQ (plugin);
 	NMDnsDnsmasqPrivate *priv = NM_DNS_DNSMASQ_GET_PRIVATE (self);

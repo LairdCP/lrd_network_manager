@@ -24,8 +24,25 @@
 
 #include "nm-dbus-interface.h"
 
-#define NM_CONNECTIVITY_ERROR ((NMConnectivityState) -1)
-#define NM_CONNECTIVITY_FAKE  ((NMConnectivityState) -2)
+/*****************************************************************************/
+
+static inline int
+nm_connectivity_state_cmp (NMConnectivityState a, NMConnectivityState b)
+{
+	if (a == NM_CONNECTIVITY_PORTAL && b == NM_CONNECTIVITY_LIMITED)
+		return 1;
+	if (b == NM_CONNECTIVITY_PORTAL && a == NM_CONNECTIVITY_LIMITED)
+		return -1;
+	NM_CMP_DIRECT (a, b);
+	return 0;
+}
+
+/*****************************************************************************/
+
+#define NM_CONNECTIVITY_ERROR     ((NMConnectivityState) -1)
+#define NM_CONNECTIVITY_FAKE      ((NMConnectivityState) -2)
+#define NM_CONNECTIVITY_CANCELLED ((NMConnectivityState) -3)
+#define NM_CONNECTIVITY_DISPOSING ((NMConnectivityState) -4)
 
 #define NM_TYPE_CONNECTIVITY            (nm_connectivity_get_type ())
 #define NM_CONNECTIVITY(obj)            (G_TYPE_CHECK_INSTANCE_CAST ((obj), NM_TYPE_CONNECTIVITY, NMConnectivity))
@@ -53,10 +70,11 @@ typedef struct _NMConnectivityCheckHandle NMConnectivityCheckHandle;
 typedef void (*NMConnectivityCheckCallback) (NMConnectivity *self,
                                              NMConnectivityCheckHandle *handle,
                                              NMConnectivityState state,
-                                             GError *error,
                                              gpointer user_data);
 
 NMConnectivityCheckHandle *nm_connectivity_check_start (NMConnectivity *self,
+                                                        int family,
+                                                        int ifindex,
                                                         const char *iface,
                                                         NMConnectivityCheckCallback callback,
                                                         gpointer user_data);

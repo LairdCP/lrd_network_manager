@@ -22,6 +22,7 @@
 #include "nm-default.h"
 
 #include "nm-setting-generic.h"
+
 #include "nm-setting-private.h"
 
 /**
@@ -36,17 +37,22 @@
  * the "connection type" setting on #NMConnections for generic devices.
  **/
 
-G_DEFINE_TYPE_WITH_CODE (NMSettingGeneric, nm_setting_generic, NM_TYPE_SETTING,
-                         _nm_register_setting (GENERIC, NM_SETTING_PRIORITY_HW_BASE))
-NM_SETTING_REGISTER_TYPE (NM_TYPE_SETTING_GENERIC)
-
-#define NM_SETTING_GENERIC_GET_PRIVATE(o) (G_TYPE_INSTANCE_GET_PRIVATE ((o), NM_TYPE_SETTING_GENERIC, NMSettingGenericPrivate))
+/*****************************************************************************/
 
 typedef struct {
 	int dummy;
 } NMSettingGenericPrivate;
 
+G_DEFINE_TYPE (NMSettingGeneric, nm_setting_generic, NM_TYPE_SETTING)
+
+#define NM_SETTING_GENERIC_GET_PRIVATE(o) (G_TYPE_INSTANCE_GET_PRIVATE ((o), NM_TYPE_SETTING_GENERIC, NMSettingGenericPrivate))
+
 /*****************************************************************************/
+
+static void
+nm_setting_generic_init (NMSettingGeneric *setting)
+{
+}
 
 /**
  * nm_setting_generic_new:
@@ -62,12 +68,11 @@ nm_setting_generic_new (void)
 }
 
 static void
-nm_setting_generic_init (NMSettingGeneric *setting)
+nm_setting_generic_class_init (NMSettingGenericClass *klass)
 {
-}
+	NMSettingClass *setting_class = NM_SETTING_CLASS (klass);
 
-static void
-nm_setting_generic_class_init (NMSettingGenericClass *setting_class)
-{
-	g_type_class_add_private (setting_class, sizeof (NMSettingGenericPrivate));
+	g_type_class_add_private (klass, sizeof (NMSettingGenericPrivate));
+
+	_nm_setting_class_commit (setting_class, NM_META_SETTING_TYPE_GENERIC);
 }

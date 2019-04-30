@@ -23,7 +23,6 @@
 
 #include "nm-act-request.h"
 
-#include <string.h>
 #include <stdlib.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -166,7 +165,7 @@ nm_act_request_get_secrets (NMActRequest *self,
                             gboolean ref_self,
                             const char *setting_name,
                             NMSecretAgentGetSecretsFlags flags,
-                            const char *hint,
+                            const char *const*hints,
                             NMActRequestSecretsFunc callback,
                             gpointer callback_data)
 {
@@ -175,7 +174,6 @@ nm_act_request_get_secrets (NMActRequest *self,
 	NMSettingsConnectionCallId *call_id_s;
 	NMSettingsConnection *settings_connection;
 	NMConnection *applied_connection;
-	const char *hints[2] = { hint, NULL };
 
 	g_return_val_if_fail (NM_IS_ACT_REQUEST (self), NULL);
 
@@ -534,11 +532,12 @@ nm_act_request_init (NMActRequest *req)
  *
  * @settings_connection: (allow-none): the connection to activate @device with
  * @applied_connection: (allow-none): the applied connection
- * @specific_object: the object path of the specific object (ie, WiFi access point,
+ * @specific_object: the object path of the specific object (ie, Wi-Fi access point,
  *    etc) that will be used to activate @connection and @device
  * @subject: the #NMAuthSubject representing the requestor of the activation
  * @activation_type: the #NMActivationType
  * @activation_reason: the reason for activation
+ * @initial_state_flags: the initial state flags.
  * @device: the device/interface to configure according to @connection
  *
  * Creates a new device-based activation request. If an applied connection is
@@ -553,6 +552,7 @@ nm_act_request_new (NMSettingsConnection *settings_connection,
                     NMAuthSubject *subject,
                     NMActivationType activation_type,
                     NMActivationReason activation_reason,
+                    NMActivationStateFlags initial_state_flags,
                     NMDevice *device)
 {
 	g_return_val_if_fail (!settings_connection || NM_IS_SETTINGS_CONNECTION (settings_connection), NULL);
@@ -567,6 +567,7 @@ nm_act_request_new (NMSettingsConnection *settings_connection,
 	                                      NM_ACTIVE_CONNECTION_INT_SUBJECT, subject,
 	                                      NM_ACTIVE_CONNECTION_INT_ACTIVATION_TYPE, (int) activation_type,
 	                                      NM_ACTIVE_CONNECTION_INT_ACTIVATION_REASON, (int) activation_reason,
+	                                      NM_ACTIVE_CONNECTION_STATE_FLAGS, (guint) initial_state_flags,
 	                                      NULL);
 }
 

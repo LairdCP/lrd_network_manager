@@ -23,7 +23,6 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <unistd.h>
-#include <string.h>
 #include <linux/pkt_sched.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -43,12 +42,14 @@
 #include "nm-setting-pppoe.h"
 #include "nm-setting-ppp.h"
 #include "nm-setting-vpn.h"
+#include "nm-setting-ethtool.h"
 #include "nm-setting-gsm.h"
 #include "nm-setting-cdma.h"
 #include "nm-setting-serial.h"
 #include "nm-setting-vlan.h"
 #include "nm-setting-dcb.h"
 #include "nm-core-internal.h"
+#include "nm-ethtool-utils.h"
 
 #include "NetworkManagerUtils.h"
 
@@ -121,7 +122,7 @@ _assert_reread_same_FIXME (NMConnection *connection, NMConnection *reread)
 
 /* dummy path for an "expected" file, meaning: don't check for expected
  * written ifcfg file. */
-static const char const NO_EXPECTED[1];
+static const char NO_EXPECTED[1];
 
 static void
 _assert_expected_content (NMConnection *connection, const char *filename, const char *expected)
@@ -185,7 +186,8 @@ _assert_expected_content (NMConnection *connection, const char *filename, const 
 
 	if (   len_expectd != len_written
 	    || memcmp (content_expectd, content_written, len_expectd) != 0) {
-		if (g_getenv ("NMTST_IFCFG_RH_UPDATE_EXPECTED")) {
+		if (   g_getenv ("NMTST_IFCFG_RH_UPDATE_EXPECTED")
+		    || nm_streq0 (g_getenv ("NM_TEST_REGENERATE"), "1")) {
 			if (uuid) {
 				gs_free char *search = g_strdup_printf ("UUID=%s\n", uuid);
 				const char *s;
@@ -1898,10 +1900,8 @@ test_read_write_802_1X_subj_matches (void)
 	gs_unref_object NMConnection *reread = NULL;
 	NMSetting8021x *s_8021x;
 
-	NMTST_EXPECT_NM_WARN ("*missing IEEE_8021X_CA_CERT*peap*");
 	connection = _connection_from_file (TEST_IFCFG_DIR"/ifcfg-test-wired-802-1X-subj-matches",
 	                                    NULL, TYPE_ETHERNET, NULL);
-	g_test_assert_expected_messages ();
 
 	/* ===== 802.1x SETTING ===== */
 	s_8021x = nm_connection_get_setting_802_1x (connection);
@@ -1919,16 +1919,12 @@ test_read_write_802_1X_subj_matches (void)
 	g_assert_cmpstr (nm_setting_802_1x_get_phase2_altsubject_match (s_8021x, 0), ==, "x.yourdomain.tld");
 	g_assert_cmpstr (nm_setting_802_1x_get_phase2_altsubject_match (s_8021x, 1), ==, "y.yourdomain.tld");
 
-	NMTST_EXPECT_NM_WARN ("*missing IEEE_8021X_CA_CERT for EAP method 'peap'; this is insecure!");
 	_writer_new_connec_exp (connection,
 	                        TEST_SCRATCH_DIR,
 	                        TEST_IFCFG_DIR"/ifcfg-System_test-wired-802-1X-subj-matches.cexpected",
 	                        &testfile);
-	g_test_assert_expected_messages ();
 
-	NMTST_EXPECT_NM_WARN ("*missing IEEE_8021X_CA_CERT for EAP method 'peap'; this is insecure!");
 	reread = _connection_from_file (testfile, NULL, TYPE_ETHERNET, NULL);
-	g_test_assert_expected_messages ();
 
 	nmtst_assert_connection_equals (connection, TRUE, reread, FALSE);
 
@@ -2377,7 +2373,7 @@ test_read_wifi_open (void)
 	g_assert_cmpstr (nm_setting_wireless_get_mode (s_wireless), ==, "infrastructure");
 	g_assert_cmpint (nm_setting_wireless_get_channel (s_wireless), ==, 1);
 
-	/* ===== WiFi SECURITY SETTING ===== */
+	/* ===== Wi-Fi SECURITY SETTING ===== */
 	s_wsec = nm_connection_get_setting_wireless_security (connection);
 	g_assert (s_wsec == NULL);
 
@@ -2970,6 +2966,45 @@ test_read_wifi_wpa_psk (void)
 }
 
 static void
+test_read_wifi_sae (void)
+{
+	gs_unref_object NMConnection *connection = NULL;
+	NMSettingConnection *s_con;
+	NMSettingWireless *s_wireless;
+	NMSettingWirelessSecurity *s_wsec;
+	GBytes *ssid;
+	const char *expected_ssid = "blahblah";
+
+	connection = _connection_from_file (TEST_IFCFG_DIR"/ifcfg-test-wifi-sae",
+	                                    NULL, TYPE_WIRELESS, NULL);
+
+	s_con = nm_connection_get_setting_connection (connection);
+	g_assert (s_con);
+	g_assert_cmpstr (nm_setting_connection_get_id (s_con), ==, "System blahblah (test-wifi-sae)");
+
+	g_assert_cmpint (nm_setting_connection_get_timestamp (s_con), ==, 0);
+	g_assert (nm_setting_connection_get_autoconnect (s_con));
+
+	s_wireless = nm_connection_get_setting_wireless (connection);
+	g_assert (s_wireless);
+
+	g_assert_cmpint (nm_setting_wireless_get_mtu (s_wireless), ==, 0);
+
+	ssid = nm_setting_wireless_get_ssid (s_wireless);
+	g_assert (ssid);
+	g_assert_cmpmem (g_bytes_get_data (ssid, NULL), g_bytes_get_size (ssid), expected_ssid, strlen (expected_ssid));
+
+	g_assert (!nm_setting_wireless_get_bssid (s_wireless));
+	g_assert_cmpstr (nm_setting_wireless_get_mode (s_wireless), ==, "infrastructure");
+
+	s_wsec = nm_connection_get_setting_wireless_security (connection);
+	g_assert (s_wsec);
+	g_assert_cmpstr (nm_setting_wireless_security_get_key_mgmt (s_wsec), ==, "sae");
+	g_assert_cmpstr (nm_setting_wireless_security_get_psk (s_wsec), ==, "The king is dead.");
+	g_assert (!nm_setting_wireless_security_get_auth_alg (s_wsec));
+}
+
+static void
 test_read_wifi_wpa_psk_2 (void)
 {
 	NMConnection *connection;
@@ -3117,8 +3152,7 @@ test_read_wifi_wpa_psk_hex (void)
 
 	ssid = nm_setting_wireless_get_ssid (s_wireless);
 	g_assert (ssid);
-	g_assert_cmpint (g_bytes_get_size (ssid), ==, strlen (expected_ssid));
-	g_assert (memcmp (g_bytes_get_data (ssid, NULL), expected_ssid, strlen (expected_ssid)) == 0);
+	g_assert (nm_utils_gbytes_equal_mem (ssid, expected_ssid, strlen (expected_ssid)));
 
 	/* ===== WIRELESS SECURITY SETTING ===== */
 
@@ -3279,7 +3313,7 @@ test_read_wifi_dynamic_wep_leap (void)
 	s_wifi = nm_connection_get_setting_wireless (connection);
 	g_assert (s_wifi);
 
-	/* ===== WiFi SECURITY SETTING ===== */
+	/* ===== Wi-Fi SECURITY SETTING ===== */
 	s_wsec = nm_connection_get_setting_wireless_security (connection);
 	g_assert (s_wsec);
 
@@ -3505,7 +3539,7 @@ test_write_wifi_hidden (void)
 	nm_connection_add_setting (connection, NM_SETTING (s_con));
 
 	g_object_set (s_con,
-	              NM_SETTING_CONNECTION_ID, "Test Write WiFi Hidden",
+	              NM_SETTING_CONNECTION_ID, "Test Write Wi-Fi Hidden",
 	              NM_SETTING_CONNECTION_UUID, nm_utils_uuid_generate_a (),
 	              NM_SETTING_CONNECTION_TYPE, NM_SETTING_WIRELESS_SETTING_NAME,
 	              NULL);
@@ -3588,7 +3622,7 @@ test_write_wifi_mac_random (gconstpointer user_data)
 	s_con = (NMSettingConnection *) nm_setting_connection_new ();
 	nm_connection_add_setting (connection, NM_SETTING (s_con));
 
-	val = g_strdup_printf ("Test Write WiFi MAC %s", name);
+	val = g_strdup_printf ("Test Write Wi-Fi MAC %s", name);
 	g_object_set (s_con,
 	              NM_SETTING_CONNECTION_ID, val,
 	              NM_SETTING_CONNECTION_UUID, nm_utils_uuid_generate_a (),
@@ -3725,6 +3759,7 @@ test_write_wired_auto_negotiate_on (void)
 	gs_unref_object NMConnection *connection = NULL;
 	gs_unref_object NMConnection *reread = NULL;
 	NMSettingWired *s_wired;
+	NMSettingEthtool *s_ethtool;
 	char *val;
 	shvarFile *f;
 
@@ -3734,8 +3769,14 @@ test_write_wired_auto_negotiate_on (void)
 	              NM_SETTING_WIRED_AUTO_NEGOTIATE, TRUE,
 	              NULL);
 
-	_writer_new_connection (connection,
+	s_ethtool = NM_SETTING_ETHTOOL (nm_setting_ethtool_new ());
+	nm_setting_ethtool_set_feature (s_ethtool, NM_ETHTOOL_OPTNAME_FEATURE_TX, NM_TERNARY_TRUE);
+	nm_setting_ethtool_set_feature (s_ethtool, NM_ETHTOOL_OPTNAME_FEATURE_RXVLAN, NM_TERNARY_FALSE);
+	nm_connection_add_setting (connection, NM_SETTING (s_ethtool));
+
+	_writer_new_connec_exp (connection,
 	                        TEST_SCRATCH_DIR,
+	                        TEST_IFCFG_DIR"/ifcfg-test_write_wired_auto_negotiate_on.cexpected",
 	                        &testfile);
 
 	f = _svOpenFile (testfile);
@@ -3749,7 +3790,15 @@ test_write_wired_auto_negotiate_on (void)
 
 	reread = _connection_from_file (testfile, NULL, TYPE_ETHERNET, NULL);
 
+	nmtst_assert_connection_verifies_without_normalization (reread);
+
 	nmtst_assert_connection_equals (connection, TRUE, reread, FALSE);
+
+	s_ethtool = NM_SETTING_ETHTOOL (nm_connection_get_setting (reread, NM_TYPE_SETTING_ETHTOOL));
+	g_assert (s_ethtool);
+	g_assert_cmpint (nm_setting_ethtool_get_feature (s_ethtool, NM_ETHTOOL_OPTNAME_FEATURE_TX), ==, NM_TERNARY_TRUE);
+	g_assert_cmpint (nm_setting_ethtool_get_feature (s_ethtool, NM_ETHTOOL_OPTNAME_FEATURE_RXVLAN), ==, NM_TERNARY_FALSE);
+	g_assert_cmpint (nm_setting_ethtool_get_feature (s_ethtool, NM_ETHTOOL_OPTNAME_FEATURE_TXVLAN), ==, NM_TERNARY_DEFAULT);
 }
 
 static void
@@ -3792,7 +3841,7 @@ test_write_wifi_band_a (void)
 	nm_connection_add_setting (connection, NM_SETTING (s_con));
 
 	g_object_set (s_con,
-	              NM_SETTING_CONNECTION_ID, "Test Write WiFi Band A",
+	              NM_SETTING_CONNECTION_ID, "Test Write Wi-Fi Band A",
 	              NM_SETTING_CONNECTION_UUID, nm_utils_uuid_generate_a (),
 	              NM_SETTING_CONNECTION_TYPE, NM_SETTING_WIRELESS_SETTING_NAME,
 	              NULL);
@@ -4413,6 +4462,67 @@ test_write_wired_dhcp (void)
 
 	reread = _connection_from_file (testfile, NULL, TYPE_ETHERNET, NULL);
 
+	nmtst_assert_connection_equals (connection, TRUE, reread, FALSE);
+}
+
+static void
+test_write_wired_match (void)
+{
+	nmtst_auto_unlinkfile char *testfile = NULL;
+	gs_unref_object NMConnection *connection = NULL;
+	gs_unref_object NMConnection *reread = NULL;
+	NMSettingConnection *s_con;
+	NMSettingWired *s_wired;
+	NMSettingMatch *s_match;
+	NMSettingIPConfig *s_ip4;
+	NMSettingIPConfig *s_ip6;
+
+	connection = nm_simple_connection_new ();
+
+	/* Connection setting */
+	s_con = (NMSettingConnection *) nm_setting_connection_new ();
+	nm_connection_add_setting (connection, NM_SETTING (s_con));
+
+	g_object_set (s_con,
+	              NM_SETTING_CONNECTION_ID, "Test Write Wired with Match setting",
+	              NM_SETTING_CONNECTION_UUID, nm_utils_uuid_generate_a (),
+	              NM_SETTING_CONNECTION_AUTOCONNECT, TRUE,
+	              NM_SETTING_CONNECTION_TYPE, NM_SETTING_WIRED_SETTING_NAME,
+	              NULL);
+
+	/* Wired setting */
+	s_wired = (NMSettingWired *) nm_setting_wired_new ();
+	nm_connection_add_setting (connection, NM_SETTING (s_wired));
+
+	/* IP4 setting */
+	s_ip4 = (NMSettingIPConfig *) nm_setting_ip4_config_new ();
+	nm_connection_add_setting (connection, NM_SETTING (s_ip4));
+
+	g_object_set (s_ip4,
+	              NM_SETTING_IP_CONFIG_METHOD, NM_SETTING_IP4_CONFIG_METHOD_AUTO,
+	              NULL);
+
+	/* IP6 setting */
+	s_ip6 = (NMSettingIPConfig *) nm_setting_ip6_config_new ();
+	nm_connection_add_setting (connection, NM_SETTING (s_ip6));
+
+	g_object_set (s_ip6,
+	              NM_SETTING_IP_CONFIG_METHOD, NM_SETTING_IP6_CONFIG_METHOD_IGNORE,
+	              NULL);
+
+	/* Match setting */
+	s_match = (NMSettingMatch *) nm_setting_match_new ();
+	nm_setting_match_add_interface_name (s_match, "ens*");
+	nm_setting_match_add_interface_name (s_match, "eth 1?");
+	nm_setting_match_add_interface_name (s_match, "!veth*");
+	nm_connection_add_setting (connection, NM_SETTING (s_match));
+
+	nmtst_assert_connection_verifies (connection);
+	_writer_new_connec_exp (connection,
+	                        TEST_SCRATCH_DIR,
+	                        TEST_IFCFG_DIR"/ifcfg-Test_Write_Wired_match.cexpected",
+	                        &testfile);
+	reread = _connection_from_file (testfile, NULL, TYPE_ETHERNET, NULL);
 	nmtst_assert_connection_equals (connection, TRUE, reread, FALSE);
 }
 
@@ -7330,8 +7440,6 @@ test_write_mobile_broadband (gconstpointer data)
 		/* GSM setting */
 		s_gsm = (NMSettingGsm *) nm_setting_gsm_new ();
 		nm_connection_add_setting (connection, NM_SETTING (s_gsm));
-
-		g_object_set (s_gsm, NM_SETTING_GSM_NUMBER, "*99#", NULL);
 	} else {
 		/* CDMA setting */
 		s_cdma = (NMSettingCdma *) nm_setting_cdma_new ();
@@ -8982,7 +9090,7 @@ test_team_reread_slave (void)
 	        "id=142\n"
 	        "ingress-priority-map=\n"
 	        "parent=enp31s0f1\n"
-	        , "/test_team_reread_slave", NULL);
+	        , "/test_team_reread_slave");
 
 	/* to double-check keyfile syntax, re-create the connection by hand. */
 	connection_2 = nmtst_create_minimal_connection ("team-slave-enp31s0f1-142", "74f435bb-ede4-415a-9d48-f580b60eba04", NM_SETTING_VLAN_SETTING_NAME, &s_con);
@@ -9632,6 +9740,153 @@ test_utils_ignore (void)
 	do_test_utils_ignored ("ignored-augtmp", "ifcfg-FooBar" AUGTMP_TAG, TRUE);
 }
 
+/*****************************************************************************/
+
+static void
+test_sriov_read (void)
+{
+	gs_unref_object NMConnection *connection = NULL;
+	NMSettingSriov *s_sriov;
+	NMSriovVF *vf;
+	GVariant *variant;
+	GError *error = NULL;
+	char *str;
+
+	connection = _connection_from_file (TEST_IFCFG_DIR "/ifcfg-test-sriov",
+	                                    NULL, TYPE_ETHERNET,NULL);
+
+	g_assert_cmpstr (nm_connection_get_interface_name (connection), ==, "eth0");
+
+	s_sriov = NM_SETTING_SRIOV (nm_connection_get_setting (connection, NM_TYPE_SETTING_SRIOV));
+	g_assert (s_sriov);
+
+	g_assert_cmpint (nm_setting_sriov_get_total_vfs (s_sriov), ==, 16);
+	g_assert_cmpint (nm_setting_sriov_get_num_vfs (s_sriov), ==, 3);
+	g_assert_cmpint (nm_setting_sriov_get_autoprobe_drivers (s_sriov), ==, NM_TERNARY_FALSE);
+
+	/* VF 3 */
+	vf = nm_setting_sriov_get_vf (s_sriov, 0);
+	g_assert (vf);
+	g_assert_cmpint (nm_sriov_vf_get_index (vf), ==, 3);
+
+	variant = nm_sriov_vf_get_attribute (vf, NM_SRIOV_VF_ATTRIBUTE_MAC);
+	g_assert (variant);
+	g_assert (g_variant_is_of_type (variant, G_VARIANT_TYPE_STRING));
+	g_assert_cmpstr (g_variant_get_string (variant, NULL), ==, "55:44:33:22:11:00");
+
+	variant = nm_sriov_vf_get_attribute (vf, NM_SRIOV_VF_ATTRIBUTE_SPOOF_CHECK);
+	g_assert (variant);
+	g_assert (g_variant_is_of_type (variant, G_VARIANT_TYPE_BOOLEAN));
+	g_assert_cmpint (g_variant_get_boolean (variant), ==, TRUE);
+
+	/* VF 12 */
+	vf = nm_setting_sriov_get_vf (s_sriov, 1);
+	str = nm_utils_sriov_vf_to_str (vf, FALSE, &error);
+	g_assert_no_error (error);
+	g_assert_cmpstr (str, ==, "12 min-tx-rate=100 trust=false vlans=1.200.ad");
+	g_free (str);
+
+	/* VF 15 */
+	vf = nm_setting_sriov_get_vf (s_sriov, 2);
+	str = nm_utils_sriov_vf_to_str (vf, FALSE, &error);
+	g_assert_no_error (error);
+	g_assert_cmpstr (str, ==, "15 mac=01:23:45:67:89:ab max-tx-rate=200 vlans=2");
+	g_free (str);
+}
+
+static void
+test_sriov_write (void)
+{
+	nmtst_auto_unlinkfile char *testfile = NULL;
+	gs_unref_object NMConnection *connection = NULL;
+	gs_unref_object NMConnection *reread = NULL;
+	NMSettingConnection *s_con;
+	NMSettingIPConfig *s_ip4;
+	NMSettingIPConfig *s_ip6;
+	NMSettingWired *s_wired;
+	NMSettingSriov *s_sriov;
+	NMSriovVF *vf;
+	gs_unref_ptrarray GPtrArray *vfs = NULL;
+	NMIPAddress *addr;
+	GError *error = NULL;
+
+	connection = nm_simple_connection_new ();
+
+	/* Connection setting */
+	s_con = (NMSettingConnection *) nm_setting_connection_new ();
+	nm_connection_add_setting (connection, NM_SETTING (s_con));
+
+	g_object_set (s_con,
+	              NM_SETTING_CONNECTION_ID, "Test Write SR-IOV config",
+	              NM_SETTING_CONNECTION_UUID, nm_utils_uuid_generate_a (),
+	              NM_SETTING_CONNECTION_AUTOCONNECT, TRUE,
+	              NM_SETTING_CONNECTION_INTERFACE_NAME, "eth0",
+	              NM_SETTING_CONNECTION_TYPE, NM_SETTING_WIRED_SETTING_NAME,
+	              NULL);
+
+	/* Wired setting */
+	s_wired = (NMSettingWired *) nm_setting_wired_new ();
+	nm_connection_add_setting (connection, NM_SETTING (s_wired));
+
+	/* IP4 setting */
+	s_ip4 = (NMSettingIPConfig *) nm_setting_ip4_config_new ();
+	nm_connection_add_setting (connection, NM_SETTING (s_ip4));
+
+	g_object_set (s_ip4,
+	              NM_SETTING_IP_CONFIG_METHOD, NM_SETTING_IP4_CONFIG_METHOD_MANUAL,
+	              NM_SETTING_IP_CONFIG_GATEWAY, "1.1.1.1",
+	              NM_SETTING_IP_CONFIG_MAY_FAIL, TRUE,
+	              NULL);
+
+	addr = nm_ip_address_new (AF_INET, "1.1.1.3", 24, &error);
+	g_assert_no_error (error);
+	nm_setting_ip_config_add_address (s_ip4, addr);
+	nm_ip_address_unref (addr);
+
+	/* IP6 setting */
+	s_ip6 = (NMSettingIPConfig *) nm_setting_ip6_config_new ();
+	nm_connection_add_setting (connection, NM_SETTING (s_ip6));
+
+	g_object_set (s_ip6,
+	              NM_SETTING_IP_CONFIG_METHOD, NM_SETTING_IP6_CONFIG_METHOD_IGNORE,
+	              NULL);
+
+	/* SRIOV setting */
+	s_sriov = (NMSettingSriov *) nm_setting_sriov_new ();
+	nm_connection_add_setting (connection, NM_SETTING (s_sriov));
+
+	vfs = g_ptr_array_new_with_free_func ((GDestroyNotify) nm_sriov_vf_unref);
+
+	vf = nm_utils_sriov_vf_from_str ("2 mac=55:55:55:55:55:55 vlans=3.10.ad;10", &error);
+	nmtst_assert_success (vf, error);
+	g_ptr_array_add (vfs, vf);
+
+	vf = nm_utils_sriov_vf_from_str ("19 spoof-check=true", &error);
+	nmtst_assert_success (vf, error);
+	g_ptr_array_add (vfs, vf);
+
+	g_object_set (s_sriov,
+	              NM_SETTING_SRIOV_TOTAL_VFS, 64,
+	              NM_SETTING_SRIOV_VFS, vfs,
+	              NM_SETTING_SRIOV_AUTOPROBE_DRIVERS, NM_TERNARY_TRUE,
+	              NULL);
+
+	nm_connection_add_setting (connection, nm_setting_proxy_new ());
+
+	nmtst_assert_connection_verifies_without_normalization (connection);
+
+	_writer_new_connec_exp (connection,
+	                        TEST_SCRATCH_DIR,
+	                        TEST_IFCFG_DIR "/ifcfg-test-sriov-write.cexpected",
+	                        &testfile);
+
+	reread = _connection_from_file (testfile, NULL, TYPE_ETHERNET, NULL);
+
+	nmtst_assert_connection_equals (connection, TRUE, reread, FALSE);
+}
+
+/*****************************************************************************/
+
 static void
 test_tc_read (void)
 {
@@ -9764,10 +10019,14 @@ NMTST_DEFINE ();
 
 int main (int argc, char **argv)
 {
+	int errsv;
+
 	nmtst_init_assert_logging (&argc, &argv, "INFO", "DEFAULT");
 
-	if (g_mkdir_with_parents (TEST_SCRATCH_DIR_TMP, 0755) != 0)
-		g_error ("failure to create test directory \"%s\": %s", TEST_SCRATCH_DIR_TMP, g_strerror (errno));
+	if (g_mkdir_with_parents (TEST_SCRATCH_DIR_TMP, 0755) != 0) {
+		errsv = errno;
+		g_error ("failure to create test directory \"%s\": %s", TEST_SCRATCH_DIR_TMP, nm_strerror_native (errsv));
+	}
 
 	g_test_add_func (TPATH "svUnescape", test_svUnescape);
 
@@ -9864,6 +10123,7 @@ int main (int argc, char **argv)
 	g_test_add_func (TPATH "wifi/read/wpa-psk/unquoted2", test_read_wifi_wpa_psk_unquoted2);
 	g_test_add_func (TPATH "wifi/read/wpa-psk/adhoc", test_read_wifi_wpa_psk_adhoc);
 	g_test_add_func (TPATH "wifi/read/wpa-psk/hex", test_read_wifi_wpa_psk_hex);
+	g_test_add_func (TPATH "wifi/read/sae", test_read_wifi_sae);
 	g_test_add_func (TPATH "wifi/read/dynamic-wep/leap", test_read_wifi_dynamic_wep_leap);
 	g_test_add_func (TPATH "wifi/read/wpa/eap/tls", test_read_wifi_wpa_eap_tls);
 	g_test_add_func (TPATH "wifi/read/wpa/eap/ttls/tls", test_read_wifi_wpa_eap_ttls_tls);
@@ -9907,6 +10167,7 @@ int main (int argc, char **argv)
 	g_test_add_func (TPATH "wired/write/dhcp", test_write_wired_dhcp);
 	g_test_add_func (TPATH "wired/write-dhcp-plus-ip", test_write_wired_dhcp_plus_ip);
 	g_test_add_func (TPATH "wired/write/dhcp-8021x-peap-mschapv2", test_write_wired_dhcp_8021x_peap_mschapv2);
+	g_test_add_func (TPATH "wired/write/match", test_write_wired_match);
 
 #define _add_test_write_wired_8021x_tls(testpath, scheme, flags) \
 	nmtst_add_test_func (testpath, test_write_wired_8021x_tls, GINT_TO_POINTER (scheme), GINT_TO_POINTER (flags))
@@ -10032,6 +10293,9 @@ int main (int argc, char **argv)
 	g_test_add_func (TPATH "utils/name", test_utils_name);
 	g_test_add_func (TPATH "utils/path", test_utils_path);
 	g_test_add_func (TPATH "utils/ignore", test_utils_ignore);
+
+	g_test_add_func (TPATH "sriov/read", test_sriov_read);
+	g_test_add_func (TPATH "sriov/write", test_sriov_write);
 
 	g_test_add_func (TPATH "tc/read", test_tc_read);
 	g_test_add_func (TPATH "tc/write", test_tc_write);

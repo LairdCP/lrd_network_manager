@@ -64,7 +64,7 @@ G_BEGIN_DECLS
  * should be requested from the user each time it is needed
  * @NM_SETTING_SECRET_FLAG_NOT_REQUIRED: in situations where it cannot be
  * automatically determined that the secret is required (some VPNs and PPP
- * providers dont require all secrets) this flag indicates that the specific
+ * providers don't require all secrets) this flag indicates that the specific
  * secret is not required
  *
  * These flags indicate specific behavior related to handling of a secret.  Each
@@ -168,11 +168,34 @@ typedef gboolean (*NMSettingClearSecretsWithFlagsFn) (NMSetting *setting,
                                                       NMSettingSecretFlags flags,
                                                       gpointer user_data);
 
+struct _NMMetaSettingInfo;
+struct _NMSettInfoSetting;
+struct _NMSettInfoProperty;
+
+/**
+ * NMSettingValueIterFn:
+ * @setting: The setting for which properties are being iterated, given to
+ * nm_setting_enumerate_values()
+ * @key: The value/property name
+ * @value: The property's value
+ * @flags: The property's flags, like %NM_SETTING_PARAM_SECRET
+ * @user_data: User data passed to nm_setting_enumerate_values()
+ */
+typedef void (*NMSettingValueIterFn) (NMSetting *setting,
+                                      const char *key,
+                                      const GValue *value,
+                                      GParamFlags flags,
+                                      gpointer user_data);
+
+/*< private >*/
+typedef gboolean (*_NMConnectionForEachSecretFunc) (NMSettingSecretFlags flags,
+                                                    gpointer user_data);
+
 typedef struct {
 	GObjectClass parent;
 
 	/* Virtual functions */
-	gint        (*verify)            (NMSetting     *setting,
+	int         (*verify)            (NMSetting     *setting,
 	                                  NMConnection  *connection,
 	                                  GError       **error);
 
@@ -189,45 +212,65 @@ typedef struct {
 
 	gboolean    (*get_secret_flags)  (NMSetting  *setting,
 	                                  const char *secret_name,
-	                                  gboolean verify_secret,
 	                                  NMSettingSecretFlags *out_flags,
 	                                  GError **error);
 
 	gboolean    (*set_secret_flags)  (NMSetting  *setting,
 	                                  const char *secret_name,
-	                                  gboolean verify_secret,
 	                                  NMSettingSecretFlags flags,
 	                                  GError **error);
 
-	gboolean    (*clear_secrets_with_flags) (NMSetting *setting,
-	                                         GParamSpec *pspec,
-	                                         NMSettingClearSecretsWithFlagsFn func,
-	                                         gpointer user_data);
+	/*< private >*/
+	gboolean    (*clear_secrets) (const struct _NMSettInfoSetting *sett_info,
+	                              guint property_idx,
+	                              NMSetting *setting,
+	                              NMSettingClearSecretsWithFlagsFn func,
+	                              gpointer user_data);
 
-	/* Returns TRUE if the given property contains the same value in both settings */
-	gboolean    (*compare_property)  (NMSetting *setting,
-	                                  NMSetting *other,
-	                                  const GParamSpec *prop_spec,
-	                                  NMSettingCompareFlags flags);
+	/* compare_property() returns a ternary, where DEFAULT means that the property should not
+	 * be compared due to the compare @flags. A TRUE/FALSE result means that the property is
+	 * equal/not-equal.
+	 *
+	 * @other may be %NULL, in which case the function only determines whether
+	 * the setting should be compared (TRUE) or not (DEFAULT). */
+	/*< private >*/
+	NMTernary  (*compare_property)  (const struct _NMSettInfoSetting *sett_info,
+	                                 guint property_idx,
+	                                 NMSetting *setting,
+	                                 NMSetting *other,
+	                                 NMSettingCompareFlags flags);
 
 	/*< private >*/
-	gpointer padding[7];
-} NMSettingClass;
+	void (*duplicate_copy_properties) (const struct _NMSettInfoSetting *sett_info,
+	                                   NMSetting *src,
+	                                   NMSetting *dst);
 
-/**
- * NMSettingValueIterFn:
- * @setting: The setting for which properties are being iterated, given to
- * nm_setting_enumerate_values()
- * @key: The value/property name
- * @value: The property's value
- * @flags: The property's flags, like %NM_SETTING_PARAM_SECRET
- * @user_data: User data passed to nm_setting_enumerate_values()
- */
-typedef void (*NMSettingValueIterFn) (NMSetting *setting,
-                                      const char *key,
-                                      const GValue *value,
-                                      GParamFlags flags,
-                                      gpointer user_data);
+	/*< private >*/
+	void (*enumerate_values) (const struct _NMSettInfoProperty *property_info,
+	                          NMSetting *setting,
+	                          NMSettingValueIterFn func,
+	                          gpointer user_data);
+
+	/*< private >*/
+	gboolean (*aggregate) (NMSetting *setting,
+	                       int type_i,
+	                       gpointer arg);
+
+	/*< private >*/
+	void (*for_each_secret) (NMSetting *setting,
+	                         const char *secret_name,
+	                         GVariant *val,
+	                         gboolean remove_non_secrets,
+	                         _NMConnectionForEachSecretFunc callback,
+	                         gpointer callback_data,
+	                         GVariantBuilder *setting_builder);
+
+	/*< private >*/
+	gpointer padding[2];
+
+	/*< private >*/
+	const struct _NMMetaSettingInfo *setting_info;
+} NMSettingClass;
 
 GType nm_setting_get_type (void);
 
@@ -267,7 +310,7 @@ typedef enum {
 	NM_SETTING_DIFF_RESULT_IN_A =    0x00000001,
 	NM_SETTING_DIFF_RESULT_IN_B =    0x00000002,
 	NM_SETTING_DIFF_RESULT_IN_A_DEFAULT = 0x00000004,
-	NM_SETTING_DIFF_RESULT_IN_B_DEFAULT = 0x00000004,
+	NM_SETTING_DIFF_RESULT_IN_B_DEFAULT = 0x00000008,
 } NMSettingDiffResult;
 
 gboolean    nm_setting_diff          (NMSetting *a,
@@ -282,7 +325,8 @@ void        nm_setting_enumerate_values (NMSetting *setting,
 
 char       *nm_setting_to_string      (NMSetting *setting);
 
-/* Secrets */
+/*****************************************************************************/
+
 gboolean    nm_setting_get_secret_flags (NMSetting *setting,
                                          const char *secret_name,
                                          NMSettingSecretFlags *out_flags,
@@ -293,9 +337,12 @@ gboolean    nm_setting_set_secret_flags (NMSetting *setting,
                                          NMSettingSecretFlags flags,
                                          GError **error);
 
-/* Properties */
+/*****************************************************************************/
+
 const GVariantType *nm_setting_get_dbus_property_type (NMSetting *setting,
                                                        const char *property_name);
+
+/*****************************************************************************/
 
 G_END_DECLS
 

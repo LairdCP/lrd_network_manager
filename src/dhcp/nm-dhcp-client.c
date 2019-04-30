@@ -21,14 +21,11 @@
 
 #include "nm-dhcp-client.h"
 
-#include <string.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <errno.h>
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <uuid/uuid.h>
 #include <linux/rtnetlink.h>
 
 #include "nm-utils/nm-dedup-multi.h"
@@ -51,7 +48,7 @@ enum {
 
 static guint signals[LAST_SIGNAL] = { 0 };
 
-NM_GOBJECT_PROPERTIES_DEFINE_BASE (
+NM_GOBJECT_PROPERTIES_DEFINE (NMDhcpClient,
 	PROP_ADDR_FAMILY,
 	PROP_FLAGS,
 	PROP_HWADDR,
@@ -62,6 +59,7 @@ NM_GOBJECT_PROPERTIES_DEFINE_BASE (
 	PROP_ROUTE_TABLE,
 	PROP_TIMEOUT,
 	PROP_UUID,
+	PROP_HOSTNAME,
 );
 
 typedef struct _NMDhcpClientPrivate {
@@ -69,7 +67,6 @@ typedef struct _NMDhcpClientPrivate {
 	char *       iface;
 	GBytes *     hwaddr;
 	char *       uuid;
-	GBytes *     duid;
 	GBytes *     client_id;
 	char *       hostname;
 	pid_t        pid;
@@ -140,14 +137,6 @@ nm_dhcp_client_get_uuid (NMDhcpClient *self)
 }
 
 GBytes *
-nm_dhcp_client_get_duid (NMDhcpClient *self)
-{
-	g_return_val_if_fail (NM_IS_DHCP_CLIENT (self), NULL);
-
-	return NM_DHCP_CLIENT_GET_PRIVATE (self)->duid;
-}
-
-GBytes *
 nm_dhcp_client_get_hw_addr (NMDhcpClient *self)
 {
 	g_return_val_if_fail (NM_IS_DHCP_CLIENT (self), NULL);
@@ -163,12 +152,34 @@ nm_dhcp_client_get_route_table (NMDhcpClient *self)
 	return NM_DHCP_CLIENT_GET_PRIVATE (self)->route_table;
 }
 
+void
+nm_dhcp_client_set_route_table (NMDhcpClient *self, guint32 route_table)
+{
+	NMDhcpClientPrivate *priv = NM_DHCP_CLIENT_GET_PRIVATE (self);
+
+	if (route_table != priv->route_table) {
+		priv->route_table = route_table;
+		_notify (self, PROP_ROUTE_TABLE);
+	}
+}
+
 guint32
 nm_dhcp_client_get_route_metric (NMDhcpClient *self)
 {
 	g_return_val_if_fail (NM_IS_DHCP_CLIENT (self), G_MAXUINT32);
 
 	return NM_DHCP_CLIENT_GET_PRIVATE (self)->route_metric;
+}
+
+void
+nm_dhcp_client_set_route_metric (NMDhcpClient *self, guint32 route_metric)
+{
+	NMDhcpClientPrivate *priv = NM_DHCP_CLIENT_GET_PRIVATE (self);
+
+	if (route_metric != priv->route_metric) {
+		priv->route_metric = route_metric;
+		_notify (self, PROP_ROUTE_METRIC);
+	}
 }
 
 guint32
@@ -208,6 +219,18 @@ _set_client_id (NMDhcpClient *self, GBytes *client_id, gboolean take)
 	priv->client_id = client_id;
 	if (!take && client_id)
 		g_bytes_ref (client_id);
+
+	{
+		gs_free char *s = NULL;
+
+		_LOGT ("%s: set %s",
+		       nm_dhcp_client_get_addr_family (self) == AF_INET6
+		         ? "duid"
+		         : "client-id",
+		       priv->client_id
+		         ? (s = nm_dhcp_utils_duid_to_string (priv->client_id))
+		         : "default");
+	}
 }
 
 void
@@ -266,12 +289,13 @@ nm_dhcp_client_get_use_fqdn (NMDhcpClient *self)
 /*****************************************************************************/
 
 static const char *state_table[NM_DHCP_STATE_MAX + 1] = {
-	[NM_DHCP_STATE_UNKNOWN]  = "unknown",
-	[NM_DHCP_STATE_BOUND]    = "bound",
-	[NM_DHCP_STATE_TIMEOUT]  = "timeout",
-	[NM_DHCP_STATE_EXPIRE]   = "expire",
-	[NM_DHCP_STATE_DONE]     = "done",
-	[NM_DHCP_STATE_FAIL]     = "fail",
+	[NM_DHCP_STATE_UNKNOWN]    = "unknown",
+	[NM_DHCP_STATE_BOUND]      = "bound",
+	[NM_DHCP_STATE_TIMEOUT]    = "timeout",
+	[NM_DHCP_STATE_EXPIRE]     = "expire",
+	[NM_DHCP_STATE_DONE]       = "done",
+	[NM_DHCP_STATE_FAIL]       = "fail",
+	[NM_DHCP_STATE_TERMINATED] = "terminated",
 };
 
 static const char *
@@ -340,7 +364,7 @@ nm_dhcp_client_stop_pid (pid_t pid, const char *iface)
 }
 
 static void
-stop (NMDhcpClient *self, gboolean release, GBytes *duid)
+stop (NMDhcpClient *self, gboolean release)
 {
 	NMDhcpClientPrivate *priv;
 
@@ -423,11 +447,10 @@ transaction_timeout (gpointer user_data)
 }
 
 static void
-daemon_watch_cb (GPid pid, gint status, gpointer user_data)
+daemon_watch_cb (GPid pid, int status, gpointer user_data)
 {
 	NMDhcpClient *self = NM_DHCP_CLIENT (user_data);
 	NMDhcpClientPrivate *priv = NM_DHCP_CLIENT_GET_PRIVATE (self);
-	NMDhcpState new_state;
 
 	g_return_if_fail (priv->watch_id);
 	priv->watch_id = 0;
@@ -443,14 +466,9 @@ daemon_watch_cb (GPid pid, gint status, gpointer user_data)
 	else
 		_LOGW ("client died abnormally");
 
-	if (!WIFEXITED (status))
-		new_state = NM_DHCP_STATE_FAIL;
-	else
-		new_state = NM_DHCP_STATE_DONE;
-
 	priv->pid = -1;
 
-	nm_dhcp_client_set_state (self, new_state, NULL, NULL);
+	nm_dhcp_client_set_state (self, NM_DHCP_STATE_TERMINATED, NULL, NULL);
 }
 
 void
@@ -487,8 +505,8 @@ gboolean
 nm_dhcp_client_start_ip4 (NMDhcpClient *self,
                           GBytes *client_id,
                           const char *dhcp_anycast_addr,
-                          const char *hostname,
-                          const char *last_ip4_address)
+                          const char *last_ip4_address,
+                          GError **error)
 {
 	NMDhcpClientPrivate *priv;
 
@@ -506,10 +524,10 @@ nm_dhcp_client_start_ip4 (NMDhcpClient *self,
 
 	nm_dhcp_client_set_client_id (self, client_id);
 
-	g_clear_pointer (&priv->hostname, g_free);
-	priv->hostname = g_strdup (hostname);
-
-	return NM_DHCP_CLIENT_GET_CLASS (self)->ip4_start (self, dhcp_anycast_addr, last_ip4_address);
+	return NM_DHCP_CLIENT_GET_CLASS (self)->ip4_start (self,
+	                                                   dhcp_anycast_addr,
+	                                                   last_ip4_address,
+	                                                   error);
 }
 
 static GBytes *
@@ -524,33 +542,29 @@ nm_dhcp_client_start_ip6 (NMDhcpClient *self,
                           gboolean enforce_duid,
                           const char *dhcp_anycast_addr,
                           const struct in6_addr *ll_addr,
-                          const char *hostname,
                           NMSettingIP6ConfigPrivacy privacy,
-                          guint needed_prefixes)
+                          guint needed_prefixes,
+                          GError **error)
 {
 	NMDhcpClientPrivate *priv;
-	gs_free char *str = NULL;
+	gs_unref_bytes GBytes *own_client_id = NULL;
 
 	g_return_val_if_fail (NM_IS_DHCP_CLIENT (self), FALSE);
+	g_return_val_if_fail (client_id, FALSE);
 
 	priv = NM_DHCP_CLIENT_GET_PRIVATE (self);
+
 	g_return_val_if_fail (priv->pid == -1, FALSE);
 	g_return_val_if_fail (priv->addr_family == AF_INET6, FALSE);
 	g_return_val_if_fail (priv->uuid != NULL, FALSE);
-
-	nm_assert (!priv->duid);
-	nm_assert (client_id);
+	g_return_val_if_fail (!priv->client_id, FALSE);
 
 	if (!enforce_duid)
-		priv->duid = NM_DHCP_CLIENT_GET_CLASS (self)->get_duid (self);
+		own_client_id = NM_DHCP_CLIENT_GET_CLASS (self)->get_duid (self);
 
-	if (!priv->duid)
-		priv->duid = g_bytes_ref (client_id);
-
-	_LOGD ("DUID is '%s'", (str = nm_dhcp_utils_duid_to_string (priv->duid)));
-
-	g_clear_pointer (&priv->hostname, g_free);
-	priv->hostname = g_strdup (hostname);
+	_set_client_id (self,
+	                own_client_id ?: client_id,
+	                FALSE);
 
 	if (priv->timeout == NM_DHCP_TIMEOUT_INFINITY)
 		_LOGI ("activation: beginning transaction (no timeout)");
@@ -561,8 +575,8 @@ nm_dhcp_client_start_ip6 (NMDhcpClient *self,
 	                                                   dhcp_anycast_addr,
 	                                                   ll_addr,
 	                                                   privacy,
-	                                                   priv->duid,
-	                                                   needed_prefixes);
+	                                                   needed_prefixes,
+	                                                   error);
 }
 
 void
@@ -611,7 +625,7 @@ out:
 		int errsv = errno;
 
 		nm_log_dbg (LOGD_DHCP, "dhcp: could not remove pid file \"%s\": %s (%d)",
-		            pid_file, g_strerror (errsv), errsv);
+		            pid_file, nm_strerror_native (errsv), errsv);
 	}
 }
 
@@ -627,7 +641,7 @@ nm_dhcp_client_stop (NMDhcpClient *self, gboolean release)
 
 	/* Kill the DHCP client */
 	old_pid = priv->pid;
-	NM_DHCP_CLIENT_GET_CLASS (self)->stop (self, release, priv->duid);
+	NM_DHCP_CLIENT_GET_CLASS (self)->stop (self, release);
 	if (old_pid > 0)
 		_LOGI ("canceled DHCP transaction, DHCP client pid %d", old_pid);
 	else
@@ -712,7 +726,7 @@ maybe_add_option (NMDhcpClient *self,
 gboolean
 nm_dhcp_client_handle_event (gpointer unused,
                              const char *iface,
-                             gint pid,
+                             int pid,
                              GVariant *options,
                              const char *reason,
                              NMDhcpClient *self)
@@ -831,8 +845,14 @@ get_property (GObject *object, guint prop_id,
 	case PROP_UUID:
 		g_value_set_string (value, priv->uuid);
 		break;
+	case PROP_HOSTNAME:
+		g_value_set_string (value, priv->hostname);
+		break;
 	case PROP_ROUTE_METRIC:
 		g_value_set_uint (value, priv->route_metric);
+		break;
+	case PROP_ROUTE_TABLE:
+		g_value_set_uint (value, priv->route_table);
 		break;
 	case PROP_TIMEOUT:
 		g_value_set_uint (value, priv->timeout);
@@ -868,11 +888,13 @@ set_property (GObject *object, guint prop_id,
 	case PROP_IFACE:
 		/* construct-only */
 		priv->iface = g_value_dup_string (value);
+		g_return_if_fail (   priv->iface
+		                  && nm_utils_is_valid_iface_name (priv->iface, NULL));
 		break;
 	case PROP_IFINDEX:
 		/* construct-only */
 		priv->ifindex = g_value_get_int (value);
-		g_warn_if_fail (priv->ifindex > 0);
+		g_return_if_fail (priv->ifindex > 0);
 		break;
 	case PROP_HWADDR:
 		/* construct-only */
@@ -888,12 +910,14 @@ set_property (GObject *object, guint prop_id,
 		/* construct-only */
 		priv->uuid = g_value_dup_string (value);
 		break;
-	case PROP_ROUTE_TABLE:
+	case PROP_HOSTNAME:
 		/* construct-only */
+		priv->hostname = g_value_dup_string (value);
+		break;
+	case PROP_ROUTE_TABLE:
 		priv->route_table = g_value_get_uint (value);
 		break;
 	case PROP_ROUTE_METRIC:
-		/* construct-only */
 		priv->route_metric = g_value_get_uint (value);
 		break;
 	case PROP_TIMEOUT:
@@ -942,7 +966,6 @@ dispose (GObject *object)
 	g_clear_pointer (&priv->uuid, g_free);
 	g_clear_pointer (&priv->client_id, g_bytes_unref);
 	g_clear_pointer (&priv->hwaddr, g_bytes_unref);
-	g_clear_pointer (&priv->duid, g_bytes_unref);
 
 	G_OBJECT_CLASS (nm_dhcp_client_parent_class)->dispose (object);
 
@@ -999,16 +1022,22 @@ nm_dhcp_client_class_init (NMDhcpClientClass *client_class)
 	                         G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY |
 	                         G_PARAM_STATIC_STRINGS);
 
+	obj_properties[PROP_HOSTNAME] =
+	    g_param_spec_string (NM_DHCP_CLIENT_HOSTNAME, "", "",
+	                         NULL,
+	                         G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY |
+	                         G_PARAM_STATIC_STRINGS);
+
 	obj_properties[PROP_ROUTE_TABLE] =
 	    g_param_spec_uint (NM_DHCP_CLIENT_ROUTE_TABLE, "", "",
 	                       0, G_MAXUINT32, RT_TABLE_MAIN,
-	                       G_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY |
+	                       G_PARAM_READWRITE |
 	                       G_PARAM_STATIC_STRINGS);
 
 	obj_properties[PROP_ROUTE_METRIC] =
 	    g_param_spec_uint (NM_DHCP_CLIENT_ROUTE_METRIC, "", "",
 	                       0, G_MAXUINT32, 0,
-	                       G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY |
+	                       G_PARAM_READWRITE |
 	                       G_PARAM_STATIC_STRINGS);
 
 	obj_properties[PROP_TIMEOUT] =
@@ -1029,7 +1058,7 @@ nm_dhcp_client_class_init (NMDhcpClientClass *client_class)
 	    g_signal_new (NM_DHCP_CLIENT_SIGNAL_STATE_CHANGED,
 	                  G_OBJECT_CLASS_TYPE (object_class),
 	                  G_SIGNAL_RUN_FIRST,
-	                  G_STRUCT_OFFSET (NMDhcpClientClass, state_changed),
+	                  0,
 	                  NULL, NULL, NULL,
 	                  G_TYPE_NONE, 4, G_TYPE_UINT, G_TYPE_OBJECT, G_TYPE_HASH_TABLE, G_TYPE_STRING);
 
@@ -1037,7 +1066,7 @@ nm_dhcp_client_class_init (NMDhcpClientClass *client_class)
 	    g_signal_new (NM_DHCP_CLIENT_SIGNAL_PREFIX_DELEGATED,
 	                  G_OBJECT_CLASS_TYPE (object_class),
 	                  G_SIGNAL_RUN_FIRST,
-	                  G_STRUCT_OFFSET (NMDhcpClientClass, state_changed),
+	                  0,
 	                  NULL, NULL, NULL,
 	                  G_TYPE_NONE, 1, G_TYPE_POINTER);
 }

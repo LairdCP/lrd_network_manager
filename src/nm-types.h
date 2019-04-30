@@ -15,7 +15,7 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
- * Copyright (C) 2012 - 2017 Red Hat, Inc.
+ * Copyright (C) 2012 - 2018 Red Hat, Inc.
  */
 
 #ifndef __NETWORKMANAGER_TYPES_H__
@@ -37,7 +37,6 @@ typedef struct _NMAuthSubject        NMAuthSubject;
 typedef struct _NMDBusManager        NMDBusManager;
 typedef struct _NMConfig             NMConfig;
 typedef struct _NMConfigData         NMConfigData;
-typedef struct _NMAcdManager         NMAcdManager;
 typedef struct _NMConnectivity       NMConnectivity;
 typedef struct _NMDevice             NMDevice;
 typedef struct _NMDhcp4Config        NMDhcp4Config;
@@ -52,6 +51,7 @@ typedef struct _NMPolicy             NMPolicy;
 typedef struct _NMRfkillManager      NMRfkillManager;
 typedef struct _NMPacrunnerManager   NMPacrunnerManager;
 typedef struct _NMSessionMonitor     NMSessionMonitor;
+typedef struct _NMKeepAlive          NMKeepAlive;
 typedef struct _NMSleepMonitor       NMSleepMonitor;
 typedef struct _NMLldpListener       NMLldpListener;
 typedef struct _NMConfigDeviceStateData NMConfigDeviceStateData;
@@ -150,6 +150,9 @@ typedef enum {
 	NM_LINK_TYPE_WIFI,
 	NM_LINK_TYPE_WWAN_NET,   /* WWAN kernel netdevice */
 	NM_LINK_TYPE_WIMAX,
+	NM_LINK_TYPE_WPAN,
+	NM_LINK_TYPE_6LOWPAN,
+	NM_LINK_TYPE_WIFI_P2P,
 
 	/* Software types */
 	NM_LINK_TYPE_BNEP = 0x10000,   /* Bluetooth Ethernet emulation */
@@ -158,6 +161,8 @@ typedef enum {
 	NM_LINK_TYPE_GRETAP,
 	NM_LINK_TYPE_IFB,
 	NM_LINK_TYPE_IP6TNL,
+	NM_LINK_TYPE_IP6GRE,
+	NM_LINK_TYPE_IP6GRETAP,
 	NM_LINK_TYPE_IPIP,
 	NM_LINK_TYPE_LOOPBACK,
 	NM_LINK_TYPE_MACSEC,
@@ -170,6 +175,7 @@ typedef enum {
 	NM_LINK_TYPE_VETH,
 	NM_LINK_TYPE_VLAN,
 	NM_LINK_TYPE_VXLAN,
+	NM_LINK_TYPE_WIREGUARD,
 
 	/* Software types with slaves */
 	NM_LINK_TYPE_BRIDGE = 0x10000 | 0x20000,
@@ -192,8 +198,11 @@ typedef enum {
 	NMP_OBJECT_TYPE_TFILTER,
 
 	NMP_OBJECT_TYPE_LNK_GRE,
+	NMP_OBJECT_TYPE_LNK_GRETAP,
 	NMP_OBJECT_TYPE_LNK_INFINIBAND,
 	NMP_OBJECT_TYPE_LNK_IP6TNL,
+	NMP_OBJECT_TYPE_LNK_IP6GRE,
+	NMP_OBJECT_TYPE_LNK_IP6GRETAP,
 	NMP_OBJECT_TYPE_LNK_IPIP,
 	NMP_OBJECT_TYPE_LNK_MACSEC,
 	NMP_OBJECT_TYPE_LNK_MACVLAN,
@@ -202,6 +211,7 @@ typedef enum {
 	NMP_OBJECT_TYPE_LNK_TUN,
 	NMP_OBJECT_TYPE_LNK_VLAN,
 	NMP_OBJECT_TYPE_LNK_VXLAN,
+	NMP_OBJECT_TYPE_LNK_WIREGUARD,
 
 	__NMP_OBJECT_TYPE_LAST,
 	NMP_OBJECT_TYPE_MAX = __NMP_OBJECT_TYPE_LAST - 1,

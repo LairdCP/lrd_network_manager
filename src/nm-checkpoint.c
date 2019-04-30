@@ -22,8 +22,6 @@
 
 #include "nm-checkpoint.h"
 
-#include <string.h>
-
 #include "nm-active-connection.h"
 #include "nm-act-request.h"
 #include "nm-auth-subject.h"
@@ -46,6 +44,7 @@ typedef struct {
 	guint64 ac_version_id;
 	NMDeviceState state;
 	bool realized:1;
+	bool activation_lifetime_bound_to_profile_visiblity:1;
 	NMUnmanFlagOp unmanaged_explicit;
 	NMActivationReason activation_reason;
 } DeviceCheckpoint;
@@ -159,7 +158,7 @@ find_settings_connection (NMCheckpoint *self,
 {
 	NMCheckpointPrivate *priv = NM_CHECKPOINT_GET_PRIVATE (self);
 	NMActiveConnection *active;
-	NMSettingsConnection *connection;
+	NMSettingsConnection *sett_conn;
 	const char *uuid, *ac_uuid;
 	const CList *tmp_clist;
 
@@ -167,14 +166,14 @@ find_settings_connection (NMCheckpoint *self,
 	*need_update = FALSE;
 
 	uuid = nm_connection_get_uuid (dev_checkpoint->settings_connection);
-	connection = nm_settings_get_connection_by_uuid (nm_settings_get (), uuid);
+	sett_conn = nm_settings_get_connection_by_uuid (nm_settings_get (), uuid);
 
-	if (!connection)
+	if (!sett_conn)
 		return NULL;
 
 	/* Now check if the connection changed, ... */
 	if (!nm_connection_compare (dev_checkpoint->settings_connection,
-	                            NM_CONNECTION (connection),
+	                            nm_settings_connection_get_connection (sett_conn),
 	                            NM_SETTING_COMPARE_FLAG_EXACT)) {
 		_LOGT ("rollback: settings connection %s changed", uuid);
 		*need_update = TRUE;
@@ -193,7 +192,7 @@ find_settings_connection (NMCheckpoint *self,
 	if (!active) {
 		_LOGT ("rollback: connection %s is not active", uuid);
 		*need_activation = TRUE;
-		return connection;
+		return sett_conn;
 	}
 
 	/* ... or if the connection was reactivated/reapplied */
@@ -202,7 +201,7 @@ find_settings_connection (NMCheckpoint *self,
 		*need_activation = TRUE;
 	}
 
-	return connection;
+	return sett_conn;
 }
 
 GVariant *
@@ -335,10 +334,13 @@ activate:
 				                                     subject,
 				                                     NM_ACTIVATION_TYPE_MANAGED,
 				                                     dev_checkpoint->activation_reason,
+				                                       dev_checkpoint->activation_lifetime_bound_to_profile_visiblity
+				                                     ? NM_ACTIVATION_STATE_FLAG_LIFETIME_BOUND_TO_PROFILE_VISIBILITY
+				                                     : NM_ACTIVATION_STATE_FLAG_NONE,
 				                                     &local_error)) {
 					_LOGW ("rollback: reactivation of connection %s/%s failed: %s",
-					       nm_connection_get_id ((NMConnection *) connection),
-					       nm_connection_get_uuid ((NMConnection *) connection),
+					       nm_settings_connection_get_id (connection),
+					       nm_settings_connection_get_uuid (connection),
 					       local_error->message);
 					g_clear_error (&local_error);
 					result = NM_ROLLBACK_RESULT_ERR_FAILED;
@@ -436,12 +438,11 @@ device_checkpoint_create (NMDevice *device)
 		applied_connection = nm_act_request_get_applied_connection (act_request);
 
 		dev_checkpoint->applied_connection = nm_simple_connection_new_clone (applied_connection);
-		dev_checkpoint->settings_connection =
-		    nm_simple_connection_new_clone (NM_CONNECTION (settings_connection));
-		dev_checkpoint->ac_version_id =
-		    nm_active_connection_version_id_get (NM_ACTIVE_CONNECTION (act_request));
-		dev_checkpoint->activation_reason =
-		    nm_active_connection_get_activation_reason (NM_ACTIVE_CONNECTION (act_request));
+		dev_checkpoint->settings_connection = nm_simple_connection_new_clone (nm_settings_connection_get_connection (settings_connection));
+		dev_checkpoint->ac_version_id = nm_active_connection_version_id_get (NM_ACTIVE_CONNECTION (act_request));
+		dev_checkpoint->activation_reason = nm_active_connection_get_activation_reason (NM_ACTIVE_CONNECTION (act_request));
+		dev_checkpoint->activation_lifetime_bound_to_profile_visiblity = NM_FLAGS_HAS (nm_active_connection_get_state_flags (NM_ACTIVE_CONNECTION (act_request)),
+		                                                                               NM_ACTIVATION_STATE_FLAG_LIFETIME_BOUND_TO_PROFILE_VISIBILITY);
 	}
 
 	return dev_checkpoint;

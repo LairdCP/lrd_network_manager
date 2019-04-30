@@ -16,7 +16,7 @@
  * Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
  * Boston, MA 02110-1301 USA.
  *
- * Copyright 2007 - 2017 Red Hat, Inc.
+ * Copyright 2007 - 2018 Red Hat, Inc.
  * Copyright 2007 - 2008 Novell, Inc.
  */
 
@@ -45,7 +45,7 @@ G_BEGIN_DECLS
 
 /*
  * NM_CONNECTION_NORMALIZE_PARAM_IP6_CONFIG_METHOD: overwrite the ip6 method
- * when normalizing ip6 configuration. If omited, this defaults to
+ * when normalizing ip6 configuration. If omitted, this defaults to
  * @NM_SETTING_IP6_CONFIG_METHOD_AUTO.
  */
 #define NM_CONNECTION_NORMALIZE_PARAM_IP6_CONFIG_METHOD "ip6-config-method"
@@ -59,7 +59,7 @@ G_BEGIN_DECLS
 
 /**
  * NMConnectionInterface:
- * @parent: the parent interace struct
+ * @parent: the parent interface struct
  * @secrets_updated: emitted when the connection's secrets are updated
  * @secrets_cleared: emitted when the connection's secrets are cleared
  * @changed: emitted when any change to the connection's settings occurs
@@ -231,6 +231,7 @@ NMSettingProxy *           nm_connection_get_setting_proxy             (NMConnec
 NMSettingSerial *          nm_connection_get_setting_serial            (NMConnection *connection);
 NM_AVAILABLE_IN_1_12
 NMSettingTCConfig *        nm_connection_get_setting_tc_config         (NMConnection *connection);
+NM_AVAILABLE_IN_1_2
 NMSettingTun *             nm_connection_get_setting_tun               (NMConnection *connection);
 NMSettingVpn *             nm_connection_get_setting_vpn               (NMConnection *connection);
 NMSettingWimax *           nm_connection_get_setting_wimax             (NMConnection *connection);

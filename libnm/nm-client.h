@@ -107,6 +107,7 @@ G_BEGIN_DECLS
  *  statistics can be globally enabled or disabled
  * @NM_CLIENT_PERMISSION_ENABLE_DISABLE_CONNECTIVITY_CHECK: controls whether
  *  connectivity check can be enabled or disabled
+ * @NM_CLIENT_PERMISSION_WIFI_SCAN: controls whether wifi scans can be performed
  * @NM_CLIENT_PERMISSION_LAST: a reserved boundary value
  *
  * #NMClientPermission values indicate various permissions that NetworkManager
@@ -130,8 +131,9 @@ typedef enum {
 	NM_CLIENT_PERMISSION_CHECKPOINT_ROLLBACK = 14,
 	NM_CLIENT_PERMISSION_ENABLE_DISABLE_STATISTICS = 15,
 	NM_CLIENT_PERMISSION_ENABLE_DISABLE_CONNECTIVITY_CHECK = 16,
+	NM_CLIENT_PERMISSION_WIFI_SCAN = 17,
 
-	NM_CLIENT_PERMISSION_LAST = 16,
+	NM_CLIENT_PERMISSION_LAST = 17,
 } NMClientPermission;
 
 /**
@@ -338,6 +340,21 @@ void                nm_client_add_and_activate_connection_async  (NMClient *clie
 NMActiveConnection *nm_client_add_and_activate_connection_finish (NMClient *client,
                                                                   GAsyncResult *result,
                                                                   GError **error);
+
+NM_AVAILABLE_IN_1_16
+void                nm_client_add_and_activate_connection2 (NMClient *client,
+                                                            NMConnection *partial,
+                                                            NMDevice *device,
+                                                            const char *specific_object,
+                                                            GVariant *options,
+                                                            GCancellable *cancellable,
+                                                            GAsyncReadyCallback callback,
+                                                            gpointer user_data);
+NM_AVAILABLE_IN_1_16
+NMActiveConnection *nm_client_add_and_activate_connection2_finish (NMClient *client,
+                                                                   GAsyncResult *result,
+                                                                   GVariant **out_result,
+                                                                   GError **error);
 
 gboolean nm_client_deactivate_connection        (NMClient *client,
                                                  NMActiveConnection *active,

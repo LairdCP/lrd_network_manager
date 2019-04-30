@@ -22,7 +22,6 @@
 
 #include "nm-agent-manager.h"
 
-#include <string.h>
 #include <pwd.h>
 
 #include "nm-common-macros.h"
@@ -349,7 +348,7 @@ agent_register_permissions_done (NMAuthChain *chain,
 		priv->agent_version_id += 1;
 		sender = nm_secret_agent_get_dbus_owner (agent);
 		g_hash_table_insert (priv->agents, g_strdup (sender), agent);
-		_LOGD (agent, "agent registered");
+		_LOGI (agent, "agent registered");
 		g_dbus_method_invocation_return_value (context, NULL);
 
 		/* Signal an agent was registered */
@@ -642,7 +641,7 @@ req_complete_error (Request *req, GError *error)
 	req_complete (req, NULL, NULL, NULL, error);
 }
 
-static gint
+static int
 agent_compare_func (gconstpointer aa, gconstpointer bb, gpointer user_data)
 {
 	NMSecretAgent *a = (NMSecretAgent *)aa;
@@ -651,12 +650,14 @@ agent_compare_func (gconstpointer aa, gconstpointer bb, gpointer user_data)
 	NMSessionMonitor *sm;
 	gboolean a_active, b_active;
 	gulong a_pid, b_pid, requester;
+	guint64 a_start, b_start;
+
+	a_pid = nm_secret_agent_get_pid (a);
+	b_pid = nm_secret_agent_get_pid (b);
 
 	/* Prefer agents in the process the request came from */
 	if (nm_auth_subject_is_unix_process (req->subject)) {
 		requester = nm_auth_subject_get_unix_process_pid (req->subject);
-		a_pid = nm_secret_agent_get_pid (a);
-		b_pid = nm_secret_agent_get_pid (b);
 
 		if (a_pid != b_pid) {
 			if (a_pid == requester)
@@ -672,9 +673,15 @@ agent_compare_func (gconstpointer aa, gconstpointer bb, gpointer user_data)
 	b_active = nm_session_monitor_session_exists (sm, nm_secret_agent_get_owner_uid (b), TRUE);
 	if (a_active && !b_active)
 		return -1;
-	else if (a_active == b_active)
-		return 0;
 	else if (!a_active && b_active)
+		return 1;
+
+	/* Prefer agents launched later (this is essentially to ease agent debugging) */
+	a_start = nm_utils_get_start_time_for_pid (a_pid, NULL, NULL);
+	b_start = nm_utils_get_start_time_for_pid (b_pid, NULL, NULL);
+	if (a_start > b_start)
+		return -1;
+	else if (a_start < b_start)
 		return 1;
 
 	return 0;
@@ -1051,49 +1058,6 @@ _con_get_request_start_validated (NMAuthChain *chain,
 }
 
 static void
-has_system_secrets_check (NMSetting *setting,
-                          const char *key,
-                          const GValue *value,
-                          GParamFlags flags,
-                          gpointer user_data)
-{
-	NMSettingSecretFlags secret_flags = NM_SETTING_SECRET_FLAG_NONE;
-	gboolean *has_system = user_data;
-
-	if (!(flags & NM_SETTING_PARAM_SECRET))
-		return;
-
-	/* Clear out system-owned or always-ask secrets */
-	if (NM_IS_SETTING_VPN (setting) && !strcmp (key, NM_SETTING_VPN_SECRETS)) {
-		GHashTableIter iter;
-		const char *secret_name = NULL;
-
-		/* VPNs are special; need to handle each secret separately */
-		g_hash_table_iter_init (&iter, (GHashTable *) g_value_get_boxed (value));
-		while (g_hash_table_iter_next (&iter, (gpointer *) &secret_name, NULL)) {
-			secret_flags = NM_SETTING_SECRET_FLAG_NONE;
-			nm_setting_get_secret_flags (setting, secret_name, &secret_flags, NULL);
-			if (secret_flags == NM_SETTING_SECRET_FLAG_NONE)
-				*has_system = TRUE;
-		}
-	} else {
-		if (!nm_setting_get_secret_flags (setting, key, &secret_flags, NULL))
-			g_return_if_reached ();
-		if (secret_flags == NM_SETTING_SECRET_FLAG_NONE)
-			*has_system = TRUE;
-	}
-}
-
-static gboolean
-has_system_secrets (NMConnection *connection)
-{
-	gboolean has_system = FALSE;
-
-	nm_connection_for_each_setting_value (connection, has_system_secrets_check, &has_system);
-	return has_system;
-}
-
-static void
 _con_get_request_start (Request *req)
 {
 	NMAgentManager *self;
@@ -1113,7 +1077,8 @@ _con_get_request_start (Request *req)
 	 * unprivileged users.
 	 */
 	if (   (req->con.get.flags != NM_SECRET_AGENT_GET_SECRETS_FLAG_NONE)
-	    && (req->con.get.existing_secrets || has_system_secrets (req->con.connection))) {
+	    && (   req->con.get.existing_secrets
+	        || _nm_connection_aggregate (req->con.connection, NM_CONNECTION_AGGREGATE_ANY_SYSTEM_SECRET_FLAGS, NULL))) {
 		_LOGD (NULL, "("LOG_REQ_FMT") request has system secrets; checking agent %s for MODIFY",
 		       LOG_REQ_ARG (req), agent_dbus_owner);
 

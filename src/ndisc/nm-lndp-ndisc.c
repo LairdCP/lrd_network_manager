@@ -22,7 +22,6 @@
 
 #include "nm-lndp-ndisc.h"
 
-#include <string.h>
 #include <arpa/inet.h>
 #include <netinet/icmp6.h>
 /* stdarg.h included because of a bug in ndp.h */
@@ -73,7 +72,6 @@ send_rs (NMNDisc *ndisc, GError **error)
 
 	errsv = ndp_msg_new (&msg, NDP_MSG_RS);
 	if (errsv) {
-		errsv = errsv > 0 ? errsv : -errsv;
 		g_set_error_literal (error, NM_UTILS_ERROR, NM_UTILS_ERROR_UNKNOWN,
 		                     "cannot create router solicitation");
 		return FALSE;
@@ -83,10 +81,10 @@ send_rs (NMNDisc *ndisc, GError **error)
 	errsv = ndp_msg_send (priv->ndp, msg);
 	ndp_msg_destroy (msg);
 	if (errsv) {
-		errsv = errsv > 0 ? errsv : -errsv;
+		errsv = nm_errno_native (errsv);
 		g_set_error (error, NM_UTILS_ERROR, NM_UTILS_ERROR_UNKNOWN,
 		             "%s (%d)",
-		             g_strerror (errsv), errsv);
+		             nm_strerror_native (errsv), errsv);
 		return FALSE;
 	}
 
@@ -221,10 +219,10 @@ receive_ra (struct ndp *ndp, struct ndp_msg *msg, gpointer user_data)
 				.preferred = ndp_msg_opt_prefix_preferred_time (msg, offset),
 			};
 
-			if (address.preferred > address.lifetime)
-				address.preferred = address.lifetime;
-			if (nm_ndisc_complete_and_add_address (ndisc, &address))
-				changed |= NM_NDISC_CONFIG_ADDRESSES;
+			if (address.preferred <= address.lifetime) {
+				if (nm_ndisc_complete_and_add_address (ndisc, &address, now))
+					changed |= NM_NDISC_CONFIG_ADDRESSES;
+			}
 		}
 	}
 	ndp_msg_opt_for_each_offset(offset, msg, NDP_MSG_OPT_ROUTE) {
@@ -259,7 +257,7 @@ receive_ra (struct ndp *ndp, struct ndp_msg *msg, gpointer user_data)
 
 			/* Pad the lifetime somewhat to give a bit of slack in cases
 			 * where one RA gets lost or something (which can happen on unreliable
-			 * links like WiFi where certain types of frames are not retransmitted).
+			 * links like Wi-Fi where certain types of frames are not retransmitted).
 			 * Note that 0 has special meaning and is therefore not adjusted.
 			 */
 			if (dns_server.lifetime && dns_server.lifetime < 7200)
@@ -281,7 +279,7 @@ receive_ra (struct ndp *ndp, struct ndp_msg *msg, gpointer user_data)
 
 			/* Pad the lifetime somewhat to give a bit of slack in cases
 			 * where one RA gets lost or something (which can happen on unreliable
-			 * links like WiFi where certain types of frames are not retransmitted).
+			 * links like Wi-Fi where certain types of frames are not retransmitted).
 			 * Note that 0 has special meaning and is therefore not adjusted.
 			 */
 			if (dns_domain.lifetime && dns_domain.lifetime < 7200)
@@ -361,7 +359,6 @@ send_ra (NMNDisc *ndisc, GError **error)
 
 	errsv = ndp_msg_new (&msg, NDP_MSG_RA);
 	if (errsv) {
-		errsv = errsv > 0 ? errsv : -errsv;
 		g_set_error_literal (error, NM_UTILS_ERROR, NM_UTILS_ERROR_UNKNOWN,
 		                     "cannot create a router advertisement");
 		return FALSE;
@@ -469,10 +466,10 @@ send_ra (NMNDisc *ndisc, GError **error)
 
 	ndp_msg_destroy (msg);
 	if (errsv) {
-		errsv = errsv > 0 ? errsv : -errsv;
+		errsv = nm_errno_native (errsv);
 		g_set_error (error, NM_UTILS_ERROR, NM_UTILS_ERROR_UNKNOWN,
 		             "%s (%d)",
-		             g_strerror (errsv), errsv);
+		             nm_strerror_native (errsv), errsv);
 		return FALSE;
 	}
 
@@ -491,13 +488,17 @@ receive_rs (struct ndp *ndp, struct ndp_msg *msg, gpointer user_data)
 static gboolean
 event_ready (GIOChannel *source, GIOCondition condition, NMNDisc *ndisc)
 {
+	_nm_unused gs_unref_object NMNDisc *ndisc_keep_alive = g_object_ref (ndisc);
 	nm_auto_pop_netns NMPNetns *netns = NULL;
 	NMLndpNDiscPrivate *priv = NM_LNDP_NDISC_GET_PRIVATE ((NMLndpNDisc *) ndisc);
 
 	_LOGD ("processing libndp events");
 
-	if (!nm_ndisc_netns_push (ndisc, &netns))
-		return G_SOURCE_CONTINUE;
+	if (!nm_ndisc_netns_push (ndisc, &netns)) {
+		/* something is very wrong. Stop handling events. */
+		priv->event_id = 0;
+		return G_SOURCE_REMOVE;
+	}
 
 	ndp_callall_eventfd_handler (priv->ndp);
 	return G_SOURCE_CONTINUE;
@@ -532,17 +533,17 @@ start (NMNDisc *ndisc)
 
 /*****************************************************************************/
 
-static inline int
+static int
 ipv6_sysctl_get (NMPlatform *platform, const char *ifname, const char *property, int min, int max, int defval)
 {
-	char buf[NM_UTILS_SYSCTL_IP_CONF_PATH_BUFSIZE];
-
-	return (int) nm_platform_sysctl_get_int_checked (platform,
-	                                                 NMP_SYSCTL_PATHID_ABSOLUTE (nm_utils_sysctl_ip_conf_path (AF_INET6, buf, ifname, property)),
-	                                                 10,
-	                                                 min,
-	                                                 max,
-	                                                 defval);
+	return nm_platform_sysctl_ip_conf_get_int_checked (platform,
+	                                                   AF_INET6,
+	                                                   ifname,
+	                                                   property,
+	                                                   10,
+	                                                   min,
+	                                                   max,
+	                                                   defval);
 }
 
 static void
@@ -596,10 +597,10 @@ nm_lndp_ndisc_new (NMPlatform *platform,
 	errsv = ndp_open (&priv->ndp);
 
 	if (errsv != 0) {
-		errsv = errsv > 0 ? errsv : -errsv;
+		errsv = nm_errno_native (errsv);
 		g_set_error (error, NM_UTILS_ERROR, NM_UTILS_ERROR_UNKNOWN,
 		             "failure creating libndp socket: %s (%d)",
-		             g_strerror (errsv), errsv);
+		             nm_strerror_native (errsv), errsv);
 		g_object_unref (ndisc);
 		return NULL;
 	}

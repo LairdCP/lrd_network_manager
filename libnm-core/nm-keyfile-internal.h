@@ -95,11 +95,16 @@ typedef struct {
 } NMKeyfileReadTypeDataWarn;
 
 NMConnection *nm_keyfile_read (GKeyFile *keyfile,
-                               const char *keyfile_name,
                                const char *base_dir,
                                NMKeyfileReadHandler handler,
                                void *user_data,
                                GError **error);
+
+gboolean nm_keyfile_read_ensure_id (NMConnection *connection,
+                                    const char *fallback_id);
+
+gboolean nm_keyfile_read_ensure_uuid (NMConnection *connection,
+                                      const char *fallback_uuid_seed);
 
 /*****************************************************************************/
 
@@ -162,5 +167,20 @@ void _nm_keyfile_copy (GKeyFile *dst, GKeyFile *src);
 gboolean _nm_keyfile_a_contains_all_in_b (GKeyFile *kf_a, GKeyFile *kf_b);
 gboolean _nm_keyfile_equals (GKeyFile *kf_a, GKeyFile *kf_b, gboolean consider_order);
 gboolean _nm_keyfile_has_values (GKeyFile *keyfile);
+
+/*****************************************************************************/
+
+#define NM_KEYFILE_PATH_NAME_ETC_DEFAULT         NMCONFDIR "/system-connections"
+#define NM_KEYFILE_PATH_NAME_RUN                 NMRUNDIR "/system-connections"
+
+#define NM_KEYFILE_PATH_SUFFIX_NMCONNECTION      ".nmconnection"
+
+#define NM_KEYFILE_PATH_PREFIX_NMLOADED          ".loaded-"
+
+#define NM_KEYFILE_PATH_NMLOADED_NULL            "/dev/null"
+
+gboolean nm_keyfile_utils_ignore_filename (const char *filename, gboolean require_extension);
+
+char *nm_keyfile_utils_create_filename (const char *filename, gboolean with_extension);
 
 #endif /* __NM_KEYFILE_INTERNAL_H__ */

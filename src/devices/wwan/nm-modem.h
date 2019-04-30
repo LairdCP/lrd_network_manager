@@ -109,6 +109,10 @@ struct _NMModem {
 
 typedef struct _NMModem NMModem;
 
+typedef void (*_NMModemDisconnectCallback) (NMModem *modem,
+                                            GError *error,
+                                            gpointer user_data);
+
 typedef struct {
 	GObjectClass parent;
 
@@ -121,8 +125,9 @@ typedef struct {
 	                                            const char **user,
 	                                            const char **pass);
 
-	gboolean (*check_connection_compatible)    (NMModem *modem,
-	                                            NMConnection *connection);
+	gboolean (*check_connection_compatible_with_modem) (NMModem *modem,
+	                                                    NMConnection *connection,
+	                                                    GError **error);
 
 	gboolean (*complete_connection)            (NMModem *modem,
 	                                            NMConnection *connection,
@@ -148,13 +153,12 @@ typedef struct {
 	void     (*disconnect)                     (NMModem *self,
 	                                            gboolean warn,
 	                                            GCancellable *cancellable,
-	                                            GAsyncReadyCallback callback,
+	                                            _NMModemDisconnectCallback callback,
 	                                            gpointer user_data);
-	gboolean (*disconnect_finish)              (NMModem *self,
-	                                            GAsyncResult *res,
-	                                            GError **error);
 
-	void     (*deactivate_cleanup)             (NMModem *self, NMDevice *device);
+	void     (*deactivate_cleanup)             (NMModem *self,
+	                                            NMDevice *device,
+	                                            gboolean stop_ppp_manager);
 
 	gboolean (*owns_port)                      (NMModem *self, const char *iface);
 } NMModemClass;
@@ -185,7 +189,9 @@ void        nm_modem_get_capabilities (NMModem *self,
                                        NMDeviceModemCapabilities *modem_caps,
                                        NMDeviceModemCapabilities *current_caps);
 
-gboolean nm_modem_check_connection_compatible (NMModem *self, NMConnection *connection);
+gboolean nm_modem_check_connection_compatible (NMModem *self,
+                                               NMConnection *connection,
+                                               GError **error);
 
 gboolean nm_modem_complete_connection (NMModem *self,
                                        NMConnection *connection,
@@ -233,14 +239,15 @@ void nm_modem_get_secrets (NMModem *modem,
 
 void nm_modem_deactivate (NMModem *modem, NMDevice *device);
 
+typedef void (*NMModemDeactivateCallback) (NMModem *self,
+                                           GError *error,
+                                           gpointer user_data);
+
 void     nm_modem_deactivate_async        (NMModem *self,
                                            NMDevice *device,
                                            GCancellable *cancellable,
-                                           GAsyncReadyCallback callback,
+                                           NMModemDeactivateCallback callback,
                                            gpointer user_data);
-gboolean nm_modem_deactivate_async_finish (NMModem *self,
-                                           GAsyncResult *res,
-                                           GError **error);
 
 void nm_modem_device_state_changed (NMModem *modem,
                                     NMDeviceState new_state,
@@ -273,7 +280,7 @@ void nm_modem_emit_ip6_config_result (NMModem *self,
                                       NMIP6Config *config,
                                       GError *error);
 
-const gchar *nm_modem_ip_type_to_string (NMModemIPType ip_type);
+const char *nm_modem_ip_type_to_string (NMModemIPType ip_type);
 
 guint32 nm_modem_get_configured_mtu (NMDevice *self, NMDeviceMtuSource *out_source);
 

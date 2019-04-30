@@ -23,7 +23,6 @@
 #include "nm-device-bt.h"
 
 #include <stdio.h>
-#include <string.h>
 
 #include "nm-bluez-common.h"
 #include "nm-bluez-device.h"
@@ -36,8 +35,10 @@
 #include "nm-setting-serial.h"
 #include "nm-setting-ppp.h"
 #include "NetworkManagerUtils.h"
+#include "settings/nm-settings-connection.h"
 #include "nm-utils.h"
 #include "nm-bt-error.h"
+#include "nm-ip4-config.h"
 #include "platform/nm-platform.h"
 
 #include "devices/wwan/nm-modem-manager.h"
@@ -77,7 +78,9 @@ typedef struct {
 
 	char *rfcomm_iface;
 	NMModem *modem;
-	guint32 timeout_id;
+	guint timeout_id;
+
+	GCancellable *cancellable;
 
 	guint32 bt_type;  /* BT type of the current connection */
 } NMDeviceBtPrivate;
@@ -137,7 +140,7 @@ get_generic_capabilities (NMDevice *device)
 
 static gboolean
 can_auto_connect (NMDevice *device,
-                  NMConnection *connection,
+                  NMSettingsConnection *sett_conn,
                   char **specific_object)
 {
 	NMDeviceBtPrivate *priv = NM_DEVICE_BT_GET_PRIVATE ((NMDeviceBt *) device);
@@ -145,11 +148,11 @@ can_auto_connect (NMDevice *device,
 
 	nm_assert (!specific_object || !*specific_object);
 
-	if (!NM_DEVICE_CLASS (nm_device_bt_parent_class)->can_auto_connect (device, connection, NULL))
+	if (!NM_DEVICE_CLASS (nm_device_bt_parent_class)->can_auto_connect (device, sett_conn, NULL))
 		return FALSE;
 
 	/* Can't auto-activate a DUN connection without ModemManager */
-	bt_type = get_connection_bt_type (connection);
+	bt_type = get_connection_bt_type (nm_settings_connection_get_connection (sett_conn));
 	if (bt_type == NM_BT_CAPABILITY_DUN && priv->mm_running == FALSE)
 		return FALSE;
 
@@ -157,36 +160,36 @@ can_auto_connect (NMDevice *device,
 }
 
 static gboolean
-check_connection_compatible (NMDevice *device, NMConnection *connection)
+check_connection_compatible (NMDevice *device, NMConnection *connection, GError **error)
 {
 	NMDeviceBtPrivate *priv = NM_DEVICE_BT_GET_PRIVATE ((NMDeviceBt *) device);
-	NMSettingConnection *s_con;
 	NMSettingBluetooth *s_bt;
 	const char *bdaddr;
 	guint32 bt_type;
 
-	if (!NM_DEVICE_CLASS (nm_device_bt_parent_class)->check_connection_compatible (device, connection))
-		return FALSE;
-
-	s_con = nm_connection_get_setting_connection (connection);
-	g_assert (s_con);
-
-	if (strcmp (nm_setting_connection_get_connection_type (s_con), NM_SETTING_BLUETOOTH_SETTING_NAME))
-		return FALSE;
-
-	s_bt = nm_connection_get_setting_bluetooth (connection);
-	if (!s_bt)
+	if (!NM_DEVICE_CLASS (nm_device_bt_parent_class)->check_connection_compatible (device, connection, error))
 		return FALSE;
 
 	bt_type = get_connection_bt_type (connection);
-	if (!(bt_type & priv->capabilities))
+	if (!NM_FLAGS_ALL (priv->capabilities, bt_type)) {
+		nm_utils_error_set_literal (error, NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+		                            "device does not support bluetooth type of profile");
 		return FALSE;
+	}
+
+	s_bt = nm_connection_get_setting_bluetooth (connection);
 
 	bdaddr = nm_setting_bluetooth_get_bdaddr (s_bt);
-	if (!bdaddr)
+	if (!bdaddr) {
+		nm_utils_error_set_literal (error, NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+		                            "profile lacks bdaddr setting");
 		return FALSE;
-	if (!nm_utils_hwaddr_matches (priv->bdaddr, -1, bdaddr, -1))
+	}
+	if (!nm_utils_hwaddr_matches (priv->bdaddr, -1, bdaddr, -1)) {
+		nm_utils_error_set_literal (error, NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+		                            "devices bdaddr setting mismatches");
 		return FALSE;
+	}
 
 	return TRUE;
 }
@@ -195,18 +198,25 @@ static gboolean
 check_connection_available (NMDevice *device,
                             NMConnection *connection,
                             NMDeviceCheckConAvailableFlags flags,
-                            const char *specific_object)
+                            const char *specific_object,
+                            GError **error)
 {
 	NMDeviceBtPrivate *priv = NM_DEVICE_BT_GET_PRIVATE ((NMDeviceBt *) device);
 	guint32 bt_type;
 
 	bt_type = get_connection_bt_type (connection);
-	if (!(bt_type & priv->capabilities))
+	if (!(bt_type & priv->capabilities)) {
+		nm_utils_error_set_literal (error, NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+		                            "device does not support bluetooth type");
 		return FALSE;
+	}
 
 	/* DUN connections aren't available without ModemManager */
-	if (bt_type == NM_BT_CAPABILITY_DUN && priv->mm_running == FALSE)
+	if (bt_type == NM_BT_CAPABILITY_DUN && priv->mm_running == FALSE) {
+		nm_utils_error_set_literal (error, NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+		                            "ModemManager missing for DUN profile");
 		return FALSE;
+	}
 
 	return TRUE;
 }
@@ -310,12 +320,10 @@ complete_connection (NMDevice *device,
 
 		if (s_gsm) {
 			fallback_prefix = _("GSM connection");
-			if (!nm_setting_gsm_get_number (s_gsm))
-				g_object_set (G_OBJECT (s_gsm), NM_SETTING_GSM_NUMBER, "*99#", NULL);
 		} else {
 			fallback_prefix = _("CDMA connection");
 			if (!nm_setting_cdma_get_number (s_cdma))
-				g_object_set (G_OBJECT (s_cdma), NM_SETTING_GSM_NUMBER, "#777", NULL);
+				g_object_set (G_OBJECT (s_cdma), NM_SETTING_CDMA_NUMBER, "#777", NULL);
 		}
 	} else {
 		g_set_error_literal (error,
@@ -390,9 +398,9 @@ ppp_failed (NMModem *modem,
 	case NM_DEVICE_STATE_SECONDARIES:
 	case NM_DEVICE_STATE_ACTIVATED:
 		if (nm_device_activate_ip4_state_in_conf (device))
-			nm_device_activate_schedule_ip4_config_timeout (device);
+			nm_device_activate_schedule_ip_config_timeout (device, AF_INET);
 		else if (nm_device_activate_ip6_state_in_conf (device))
-			nm_device_activate_schedule_ip6_config_timeout (device);
+			nm_device_activate_schedule_ip_config_timeout (device, AF_INET6);
 		else if (nm_device_activate_ip4_state_done (device)) {
 			nm_device_ip_method_failed (device,
 			                            AF_INET,
@@ -534,7 +542,7 @@ modem_ip4_config_result (NMModem *modem,
 		                            AF_INET,
 		                            NM_DEVICE_STATE_REASON_IP_CONFIG_UNAVAILABLE);
 	} else
-		nm_device_activate_schedule_ip4_config_result (device, config);
+		nm_device_activate_schedule_ip_config_result (device, AF_INET, NM_IP_CONFIG_CAST (config));
 }
 
 static void
@@ -664,6 +672,7 @@ component_added (NMDevice *device, GObject *component)
 
 	/* Got the modem */
 	nm_clear_g_source (&priv->timeout_id);
+	nm_clear_g_cancellable (&priv->cancellable);
 
 	/* Can only accept the modem in stage2, but since the interface matched
 	 * what we were expecting, don't let anything else claim the modem either.
@@ -707,8 +716,11 @@ static gboolean
 modem_find_timeout (gpointer user_data)
 {
 	NMDeviceBt *self = NM_DEVICE_BT (user_data);
+	NMDeviceBtPrivate *priv = NM_DEVICE_BT_GET_PRIVATE (self);
 
-	NM_DEVICE_BT_GET_PRIVATE (self)->timeout_id = 0;
+	priv->timeout_id = 0;
+	nm_clear_g_cancellable (&priv->cancellable);
+
 	nm_device_state_changed (NM_DEVICE (self),
 	                         NM_DEVICE_STATE_FAILED,
 	                         NM_DEVICE_STATE_REASON_MODEM_NOT_FOUND);
@@ -730,8 +742,8 @@ check_connect_continue (NMDeviceBt *self)
 	       "Activation: (bluetooth) Stage 2 of 5 (Device Configure) successful. Will connect via %s.",
 	       dun ? "DUN" : (pan ? "PAN" : "unknown"));
 
-	/* Kill the connect timeout since we're connected now */
 	nm_clear_g_source (&priv->timeout_id);
+	nm_clear_g_cancellable (&priv->cancellable);
 
 	if (pan) {
 		/* Bluez says we're connected now.  Start IP config. */
@@ -747,25 +759,25 @@ check_connect_continue (NMDeviceBt *self)
 }
 
 static void
-bluez_connect_cb (GObject *object,
-                  GAsyncResult *res,
-                  void *user_data)
+bluez_connect_cb (NMBluezDevice *bt_device,
+                  const char *device_name,
+                  GError *error,
+                  gpointer user_data)
 {
-	gs_unref_object NMDeviceBt *self = NM_DEVICE_BT (user_data);
+	gs_unref_object NMDeviceBt *self = user_data;
 	NMDeviceBtPrivate *priv = NM_DEVICE_BT_GET_PRIVATE (self);
-	GError *error = NULL;
-	const char *device;
 
-	device = nm_bluez_device_connect_finish (NM_BLUEZ_DEVICE (object),
-	                                         res, &error);
+	if (nm_utils_error_is_cancelled (error, FALSE))
+		return;
+
+	nm_clear_g_source (&priv->timeout_id);
+	g_clear_object (&priv->cancellable);
 
 	if (!nm_device_is_activating (NM_DEVICE (self)))
 		return;
 
-	if (!device) {
+	if (!device_name) {
 		_LOGW (LOGD_BT, "Error connecting with bluez: %s", error->message);
-		g_clear_error (&error);
-
 		nm_device_state_changed (NM_DEVICE (self),
 		                         NM_DEVICE_STATE_FAILED,
 		                         NM_DEVICE_STATE_REASON_BT_FAILED);
@@ -774,10 +786,10 @@ bluez_connect_cb (GObject *object,
 
 	if (priv->bt_type == NM_BT_CAPABILITY_DUN) {
 		g_free (priv->rfcomm_iface);
-		priv->rfcomm_iface = g_strdup (device);
+		priv->rfcomm_iface = g_strdup (device_name);
 	} else if (priv->bt_type == NM_BT_CAPABILITY_NAP) {
-		if (!nm_device_set_ip_iface (NM_DEVICE (self), device)) {
-			_LOGW (LOGD_BT, "Error connecting with bluez: cannot find device %s", device);
+		if (!nm_device_set_ip_iface (NM_DEVICE (self), device_name)) {
+			_LOGW (LOGD_BT, "Error connecting with bluez: cannot find device %s", device_name);
 			nm_device_state_changed (NM_DEVICE (self),
 			                         NM_DEVICE_STATE_FAILED,
 			                         NM_DEVICE_STATE_REASON_BT_FAILED);
@@ -835,10 +847,13 @@ static gboolean
 bt_connect_timeout (gpointer user_data)
 {
 	NMDeviceBt *self = NM_DEVICE_BT (user_data);
+	NMDeviceBtPrivate *priv = NM_DEVICE_BT_GET_PRIVATE (self);
 
 	_LOGD (LOGD_BT, "initial connection timed out");
 
-	NM_DEVICE_BT_GET_PRIVATE (self)->timeout_id = 0;
+	priv->timeout_id = 0;
+	nm_clear_g_cancellable (&priv->cancellable);
+
 	nm_device_state_changed (NM_DEVICE (self),
 	                         NM_DEVICE_STATE_FAILED,
 	                         NM_DEVICE_STATE_REASON_BT_FAILED);
@@ -868,45 +883,45 @@ act_stage2_config (NMDevice *device, NMDeviceStateReason *out_failure_reason)
 
 	_LOGD (LOGD_BT, "requesting connection to the device");
 
-	/* Connect to the BT device */
+	nm_clear_g_source (&priv->timeout_id);
+	nm_clear_g_cancellable (&priv->cancellable);
+
+	priv->timeout_id = g_timeout_add_seconds (30, bt_connect_timeout, device);
+	priv->cancellable = g_cancellable_new ();
+
 	nm_bluez_device_connect_async (priv->bt_device,
 	                               priv->bt_type & (NM_BT_CAPABILITY_DUN | NM_BT_CAPABILITY_NAP),
-	                               bluez_connect_cb, g_object_ref (device));
-
-	nm_clear_g_source (&priv->timeout_id);
-	priv->timeout_id = g_timeout_add_seconds (30, bt_connect_timeout, device);
+	                               priv->cancellable,
+	                               bluez_connect_cb,
+	                               g_object_ref (self));
 
 	return NM_ACT_STAGE_RETURN_POSTPONE;
 }
 
 static NMActStageReturn
-act_stage3_ip4_config_start (NMDevice *device,
-                             NMIP4Config **out_config,
-                             NMDeviceStateReason *out_failure_reason)
+act_stage3_ip_config_start (NMDevice *device,
+                            int addr_family,
+                            gpointer *out_config,
+                            NMDeviceStateReason *out_failure_reason)
 {
 	NMDeviceBtPrivate *priv = NM_DEVICE_BT_GET_PRIVATE ((NMDeviceBt *) device);
+
+	nm_assert_addr_family (addr_family);
 
 	if (priv->bt_type == NM_BT_CAPABILITY_DUN) {
-		return nm_modem_stage3_ip4_config_start (priv->modem,
-		                                         device,
-		                                         NM_DEVICE_CLASS (nm_device_bt_parent_class),
-		                                         out_failure_reason);
+		if (addr_family == AF_INET) {
+			return nm_modem_stage3_ip4_config_start (priv->modem,
+			                                         device,
+			                                         NM_DEVICE_CLASS (nm_device_bt_parent_class),
+			                                         out_failure_reason);
+		} else {
+			return nm_modem_stage3_ip6_config_start (priv->modem,
+			                                         device,
+			                                         out_failure_reason);
+		}
 	}
 
-	return NM_DEVICE_CLASS (nm_device_bt_parent_class)->act_stage3_ip4_config_start (device, out_config, out_failure_reason);
-}
-
-static NMActStageReturn
-act_stage3_ip6_config_start (NMDevice *device,
-                             NMIP6Config **out_config,
-                             NMDeviceStateReason *out_failure_reason)
-{
-	NMDeviceBtPrivate *priv = NM_DEVICE_BT_GET_PRIVATE ((NMDeviceBt *) device);
-
-	if (priv->bt_type == NM_BT_CAPABILITY_DUN)
-		return nm_modem_stage3_ip6_config_start (priv->modem, device, out_failure_reason);
-
-	return NM_DEVICE_CLASS (nm_device_bt_parent_class)->act_stage3_ip6_config_start (device, out_config, out_failure_reason);
+	return NM_DEVICE_CLASS (nm_device_bt_parent_class)->act_stage3_ip_config_start (device, addr_family, out_config, out_failure_reason);
 }
 
 static void
@@ -916,6 +931,9 @@ deactivate (NMDevice *device)
 
 	priv->have_iface = FALSE;
 	priv->connected = FALSE;
+
+	nm_clear_g_source (&priv->timeout_id);
+	nm_clear_g_cancellable (&priv->cancellable);
 
 	if (priv->bt_type == NM_BT_CAPABILITY_DUN) {
 		if (priv->modem) {
@@ -933,8 +951,6 @@ deactivate (NMDevice *device)
 
 	if (priv->bt_type != NM_BT_CAPABILITY_NONE)
 		nm_bluez_device_disconnect (priv->bt_device);
-
-	nm_clear_g_source (&priv->timeout_id);
 
 	priv->bt_type = NM_BT_CAPABILITY_NONE;
 
@@ -1120,6 +1136,7 @@ dispose (GObject *object)
 	NMDeviceBtPrivate *priv = NM_DEVICE_BT_GET_PRIVATE ((NMDeviceBt *) object);
 
 	nm_clear_g_source (&priv->timeout_id);
+	nm_clear_g_cancellable (&priv->cancellable);
 
 	g_signal_handlers_disconnect_matched (priv->bt_device, G_SIGNAL_MATCH_DATA, 0, 0, NULL, NULL, object);
 
@@ -1177,12 +1194,13 @@ nm_device_bt_class_init (NMDeviceBtClass *klass)
 
 	dbus_object_class->interface_infos = NM_DBUS_INTERFACE_INFOS (&interface_info_device_bluetooth);
 
+	device_class->connection_type_check_compatible = NM_SETTING_BLUETOOTH_SETTING_NAME;
+
 	device_class->get_generic_capabilities = get_generic_capabilities;
 	device_class->can_auto_connect = can_auto_connect;
 	device_class->deactivate = deactivate;
 	device_class->act_stage2_config = act_stage2_config;
-	device_class->act_stage3_ip4_config_start = act_stage3_ip4_config_start;
-	device_class->act_stage3_ip6_config_start = act_stage3_ip6_config_start;
+	device_class->act_stage3_ip_config_start = act_stage3_ip_config_start;
 	device_class->check_connection_compatible = check_connection_compatible;
 	device_class->check_connection_available = check_connection_available;
 	device_class->complete_connection = complete_connection;

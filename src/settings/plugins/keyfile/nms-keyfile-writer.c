@@ -26,13 +26,13 @@
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <errno.h>
-#include <string.h>
 
 #include "nm-keyfile-internal.h"
 
 #include "nms-keyfile-utils.h"
 #include "nms-keyfile-reader.h"
+
+#include "nm-utils/nm-io-utils.h"
 
 /*****************************************************************************/
 
@@ -127,7 +127,7 @@ cert_writer (NMConnection *connection,
 		new_path = g_strdup_printf ("%s/%s-%s.%s", info->keyfile_dir, nm_connection_get_uuid (connection),
 		                            cert_data->vtable->file_suffix, ext);
 
-		success = nm_utils_file_set_contents (new_path, (const gchar *) blob_data,
+		success = nm_utils_file_set_contents (new_path, (const char *) blob_data,
 		                                      blob_len, 0600, &local);
 		if (success) {
 			/* Write the path value to the keyfile.
@@ -170,26 +170,35 @@ _handler_write (NMConnection *connection,
 static gboolean
 _internal_write_connection (NMConnection *connection,
                             const char *keyfile_dir,
+                            const char *profile_dir,
+                            gboolean with_extension,
                             uid_t owner_uid,
                             pid_t owner_grp,
                             const char *existing_path,
+                            gboolean existing_path_read_only,
                             gboolean force_rename,
                             char **out_path,
                             NMConnection **out_reread,
                             gboolean *out_reread_same,
                             GError **error)
 {
-	gs_unref_keyfile GKeyFile *key_file = NULL;
-	gs_free char *data = NULL;
-	gsize len;
+	gs_unref_keyfile GKeyFile *kf_file = NULL;
+	gs_free char *kf_content_buf = NULL;
+	gsize kf_content_len;
 	gs_free char *path = NULL;
 	const char *id;
 	WriteInfo info = { 0 };
 	GError *local_err = NULL;
 	int errsv;
+	gboolean rename;
 
 	g_return_val_if_fail (!out_path || !*out_path, FALSE);
 	g_return_val_if_fail (keyfile_dir && keyfile_dir[0] == '/', FALSE);
+
+	rename =    force_rename
+	         || existing_path_read_only
+	         || (   existing_path
+	             && !nm_utils_file_is_in_path (existing_path, keyfile_dir));
 
 	switch (_nm_connection_verify (connection, error)) {
 	case NM_SETTING_VERIFY_NORMALIZABLE:
@@ -206,11 +215,11 @@ _internal_write_connection (NMConnection *connection,
 
 	info.keyfile_dir = keyfile_dir;
 
-	key_file = nm_keyfile_write (connection, _handler_write, &info, error);
-	if (!key_file)
+	kf_file = nm_keyfile_write (connection, _handler_write, &info, error);
+	if (!kf_file)
 		return FALSE;
-	data = g_key_file_to_data (key_file, &len, error);
-	if (!data)
+	kf_content_buf = g_key_file_to_data (kf_file, &kf_content_len, error);
+	if (!kf_content_buf)
 		return FALSE;
 
 	if (!g_file_test (keyfile_dir, G_FILE_TEST_IS_DIR))
@@ -219,13 +228,14 @@ _internal_write_connection (NMConnection *connection,
 	/* If we have existing file path, use it. Else generate one from
 	 * connection's ID.
 	 */
-	if (existing_path != NULL && !force_rename) {
+	if (   existing_path
+	    && !rename)
 		path = g_strdup (existing_path);
-	} else {
-		char *filename_escaped = nms_keyfile_utils_escape_filename (id);
+	else {
+		gs_free char *filename_escaped = NULL;
 
+		filename_escaped = nm_keyfile_utils_create_filename (id, with_extension);
 		path = g_build_filename (keyfile_dir, filename_escaped, NULL);
-		g_free (filename_escaped);
 	}
 
 	/* If a file with this path already exists (but isn't the existing path
@@ -235,32 +245,34 @@ _internal_write_connection (NMConnection *connection,
 	 * there's a race here, but there's not a lot we can do about it, and
 	 * we shouldn't get more than one connection with the same UUID either.
 	 */
-	if (g_strcmp0 (path, existing_path) != 0 && g_file_test (path, G_FILE_TEST_EXISTS)) {
+	if (   !nm_streq0 (path, existing_path)
+	    && g_file_test (path, G_FILE_TEST_EXISTS)) {
 		guint i;
 		gboolean name_found = FALSE;
 
 		/* A keyfile with this connection's ID already exists. Pick another name. */
 		for (i = 0; i < 100; i++) {
-			char *filename, *filename_escaped;
+			gs_free char *filename_escaped = NULL;
+			gs_free char *filename = NULL;
 
 			if (i == 0)
 				filename = g_strdup_printf ("%s-%s", id, nm_connection_get_uuid (connection));
 			else
 				filename = g_strdup_printf ("%s-%s-%u", id, nm_connection_get_uuid (connection), i);
 
-			filename_escaped = nms_keyfile_utils_escape_filename (filename);
+			filename_escaped = nm_keyfile_utils_create_filename (filename, with_extension);
 
 			g_free (path);
 			path = g_strdup_printf ("%s/%s", keyfile_dir, filename_escaped);
-			g_free (filename);
-			g_free (filename_escaped);
-			if (g_strcmp0 (path, existing_path) == 0 || !g_file_test (path, G_FILE_TEST_EXISTS)) {
+
+			if (   nm_streq0 (path, existing_path)
+			    || !g_file_test (path, G_FILE_TEST_EXISTS)) {
 				name_found = TRUE;
 				break;
 			}
 		}
 		if (!name_found) {
-			if (existing_path == NULL) {
+			if (existing_path_read_only || !existing_path) {
 				/* this really should not happen, we tried hard to find an unused name... bail out. */
 				g_set_error (error, NM_SETTINGS_ERROR, NM_SETTINGS_ERROR_FAILED,
 				                    "could not find suitable keyfile file name (%s already used)", path);
@@ -273,13 +285,7 @@ _internal_write_connection (NMConnection *connection,
 		}
 	}
 
-	/* In case of updating the connection and changing the file path,
-	 * we need to remove the old one, not to end up with two connections.
-	 */
-	if (existing_path != NULL && strcmp (path, existing_path) != 0)
-		unlink (existing_path);
-
-	nm_utils_file_set_contents (path, data, len, 0600, &local_err);
+	nm_utils_file_set_contents (path, kf_content_buf, kf_content_len, 0600, &local_err);
 	if (local_err) {
 		g_set_error (error, NM_SETTINGS_ERROR, NM_SETTINGS_ERROR_FAILED,
 		             "error writing to file '%s': %s",
@@ -292,22 +298,24 @@ _internal_write_connection (NMConnection *connection,
 		errsv = errno;
 		g_set_error (error, NM_SETTINGS_ERROR, NM_SETTINGS_ERROR_FAILED,
 		             "error chowning '%s': %s (%d)",
-		             path, g_strerror (errsv), errsv);
+		             path, nm_strerror_native (errsv), errsv);
 		unlink (path);
 		return FALSE;
 	}
 
-	if (out_path && g_strcmp0 (existing_path, path)) {
-		*out_path = path;  /* pass path out to caller */
-		path = NULL;
-	}
+	/* In case of updating the connection and changing the file path,
+	 * we need to remove the old one, not to end up with two connections.
+	 */
+	if (   existing_path
+	    && !existing_path_read_only
+	    && !nm_streq (path, existing_path))
+		unlink (existing_path);
 
-	if (out_reread || out_reread_same)
-	{
+	if (out_reread || out_reread_same) {
 		gs_unref_object NMConnection *reread = NULL;
 		gboolean reread_same = FALSE;
 
-		reread = nms_keyfile_reader_from_keyfile (key_file, path, FALSE, NULL);
+		reread = nms_keyfile_reader_from_keyfile (kf_file, path, NULL, profile_dir, FALSE, NULL);
 
 		nm_assert (NM_IS_CONNECTION (reread));
 
@@ -333,11 +341,14 @@ _internal_write_connection (NMConnection *connection,
 		NM_SET_OUT (out_reread_same, reread_same);
 	}
 
+	NM_SET_OUT (out_path, g_steal_pointer (&path));
+
 	return TRUE;
 }
 
 gboolean
 nms_keyfile_writer_connection (NMConnection *connection,
+                               gboolean save_to_disk,
                                const char *existing_path,
                                gboolean force_rename,
                                char **out_path,
@@ -345,10 +356,21 @@ nms_keyfile_writer_connection (NMConnection *connection,
                                gboolean *out_reread_same,
                                GError **error)
 {
+	const char *keyfile_dir;
+
+	if (save_to_disk)
+		keyfile_dir = nms_keyfile_utils_get_path ();
+	else
+		keyfile_dir = NM_KEYFILE_PATH_NAME_RUN;
+
 	return _internal_write_connection (connection,
+	                                   keyfile_dir,
 	                                   nms_keyfile_utils_get_path (),
-	                                   0, 0,
+	                                   TRUE,
+	                                   0,
+	                                   0,
 	                                   existing_path,
+	                                   FALSE,
 	                                   force_rename,
 	                                   out_path,
 	                                   out_reread,
@@ -368,8 +390,12 @@ nms_keyfile_writer_test_connection (NMConnection *connection,
 {
 	return _internal_write_connection (connection,
 	                                   keyfile_dir,
-	                                   owner_uid, owner_grp,
+	                                   keyfile_dir,
+	                                   FALSE,
+	                                   owner_uid,
+	                                   owner_grp,
 	                                   NULL,
+	                                   FALSE,
 	                                   FALSE,
 	                                   out_path,
 	                                   out_reread,

@@ -24,8 +24,6 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <errno.h>
 
 struct Opt {
 	const char *     key;
@@ -73,7 +71,7 @@ const char * key_mgmt_allowed[] = { "WPA-PSK", "WPA-PSK-SHA256",
                                     "WPA-EAP", "WPA-EAP-SHA256",
                                     "CCKM",
                                     "FILS-SHA256", "FILS-SHA384",
-                                    "IEEE8021X", "WPA-NONE",
+                                    "IEEE8021X", "WPA-NONE", "SAE",
                                     "NONE", NULL };
 const char * auth_alg_allowed[] = { "OPEN", "SHARED", "LEAP", NULL };
 const char * eap_allowed[] =      { "LEAP", "MD5", "TLS", "PEAP", "TTLS", "SIM",
@@ -161,6 +159,7 @@ static const struct Opt opt_table[] = {
 	{ "bgscan",             TYPE_BYTES,   0, 0, FALSE,  NULL },
 	{ "laird_auth_timeout", TYPE_INT,     0, 60, FALSE, NULL },
 	{ "pac_file_password",  TYPE_BYTES,   0, 1024, FALSE,  NULL },
+	{ "ignore_broadcast_ssid", TYPE_INT,  0, 2, FALSE, NULL },
 	{ "dms",                TYPE_INT,     0, 6, FALSE, NULL },
 };
 
@@ -169,23 +168,13 @@ validate_type_int (const struct Opt * opt,
                    const char * value,
                    const guint32 len)
 {
-	long int intval;
+	gint64 v;
 
 	g_return_val_if_fail (opt != NULL, FALSE);
 	g_return_val_if_fail (value != NULL, FALSE);
 
-	errno = 0;
-	intval = strtol (value, NULL, 10);
-	if (errno != 0)
-		return FALSE;
-
-	/* strtol returns a long, but we are dealing with ints */
-	if (intval > INT_MAX || intval < INT_MIN)
-		return FALSE;
-	if (intval > opt->int_high || intval < opt->int_low)
-		return FALSE;
-
-	return TRUE;
+	v = _nm_utils_ascii_str_to_int64 (value, 10, opt->int_low, opt->int_high, G_MININT64);
+	return v != G_MININT64 || errno == 0;
 }
 
 static gboolean
@@ -231,7 +220,7 @@ validate_type_keyword (const struct Opt * opt,
                        const guint32 len)
 {
 	char **allowed;
-	gchar **candidates = NULL;
+	char **candidates = NULL;
 	char **candidate;
 	gboolean found = FALSE;
 
@@ -293,3 +282,4 @@ nm_supplicant_settings_verify_setting (const char * key,
 
 	return type;
 }
+

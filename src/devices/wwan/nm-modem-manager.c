@@ -24,7 +24,6 @@
 
 #include "nm-modem-manager.h"
 
-#include <string.h>
 #include <libmm-glib.h>
 
 #if HAVE_LIBSYSTEMD
@@ -170,7 +169,7 @@ modm_handle_object_added (MMManager *modem_manager,
                           NMModemManager *self)
 {
 	NMModemManagerPrivate *priv = NM_MODEM_MANAGER_GET_PRIVATE (self);
-	const gchar *path;
+	const char *path;
 	MMModem *modem_iface;
 	NMModem *modem;
 	GError *error = NULL;
@@ -211,7 +210,7 @@ modm_handle_object_removed (MMManager *manager,
 {
 	NMModemManagerPrivate *priv = NM_MODEM_MANAGER_GET_PRIVATE (self);
 	NMModem *modem;
-	const gchar *path;
+	const char *path;
 
 	path = mm_object_get_path (modem_object);
 	modem = (NMModem *) g_hash_table_lookup (priv->modems, path);
@@ -246,7 +245,7 @@ modm_handle_name_owner_changed (MMManager *modem_manager,
                                 NMModemManager *self)
 {
 	NMModemManagerPrivate *priv = NM_MODEM_MANAGER_GET_PRIVATE (self);
-	gchar *name_owner;
+	char *name_owner;
 
 	/* Quit poking, if any */
 	nm_clear_g_source (&priv->modm.relaunch_id);
@@ -341,7 +340,7 @@ static void
 modm_manager_check_name_owner (NMModemManager *self)
 {
 	NMModemManagerPrivate *priv = NM_MODEM_MANAGER_GET_PRIVATE (self);
-	gs_free gchar *name_owner = NULL;
+	gs_free char *name_owner = NULL;
 
 	name_owner = g_dbus_object_manager_client_get_name_owner (G_DBUS_OBJECT_MANAGER_CLIENT (priv->modm.manager));
 	if (name_owner) {
@@ -606,14 +605,14 @@ ofono_create_modem (NMModemManager *self, const char *path)
 
 static void
 ofono_signal_cb (GDBusProxy *proxy,
-                 gchar *sender_name,
-                 gchar *signal_name,
+                 char *sender_name,
+                 char *signal_name,
                  GVariant *parameters,
                  gpointer user_data)
 {
 	NMModemManager *self = NM_MODEM_MANAGER (user_data);
 	NMModemManagerPrivate *priv = NM_MODEM_MANAGER_GET_PRIVATE (self);
-	gchar *object_path;
+	char *object_path;
 	NMModem *modem;
 
 	if (g_strcmp0 (signal_name, "ModemAdded") == 0) {

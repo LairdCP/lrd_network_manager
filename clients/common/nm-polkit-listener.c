@@ -35,7 +35,6 @@
 
 #include "nm-polkit-listener.h"
 
-#include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -175,7 +174,7 @@ on_cancelled (GCancellable *cancellable, gpointer user_data)
 	polkit_agent_session_cancel (priv->active_session);
 }
 
-static gint
+static int
 compare_users (gconstpointer a, gconstpointer b)
 {
 	char *user;
@@ -198,7 +197,7 @@ choose_identity (GList *identities)
 	GList *elem;
 
 	/* Choose identity. First try current user, then root, and else
-	 * take the firts one */
+	 * take the first one */
 	user = getenv("USER");
 	elem = g_list_find_custom (identities, user, (GCompareFunc) compare_users);
 	if (!elem) {

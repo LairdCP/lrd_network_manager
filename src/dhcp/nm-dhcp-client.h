@@ -41,6 +41,7 @@
 #define NM_DHCP_CLIENT_IFINDEX      "ifindex"
 #define NM_DHCP_CLIENT_INTERFACE    "iface"
 #define NM_DHCP_CLIENT_MULTI_IDX    "multi-idx"
+#define NM_DHCP_CLIENT_HOSTNAME     "hostname"
 #define NM_DHCP_CLIENT_ROUTE_METRIC "route-metric"
 #define NM_DHCP_CLIENT_ROUTE_TABLE  "route-table"
 #define NM_DHCP_CLIENT_TIMEOUT      "timeout"
@@ -56,6 +57,7 @@ typedef enum {
 	NM_DHCP_STATE_DONE,         /* client quit or stopped */
 	NM_DHCP_STATE_EXPIRE,       /* lease expired or NAKed */
 	NM_DHCP_STATE_FAIL,         /* failed for some reason */
+	NM_DHCP_STATE_TERMINATED,   /* client is no longer running */
 	__NM_DHCP_STATE_MAX,
 	NM_DHCP_STATE_MAX = __NM_DHCP_STATE_MAX - 1,
 } NMDhcpState;
@@ -76,22 +78,20 @@ typedef enum {
 typedef struct {
 	GObjectClass parent;
 
-	/* Methods */
-
 	gboolean (*ip4_start)     (NMDhcpClient *self,
 	                           const char *anycast_addr,
-	                           const char *last_ip4_address);
+	                           const char *last_ip4_address,
+	                           GError **error);
 
 	gboolean (*ip6_start)     (NMDhcpClient *self,
 	                           const char *anycast_addr,
 	                           const struct in6_addr *ll_addr,
 	                           NMSettingIP6ConfigPrivacy privacy,
-	                           GBytes *duid,
-	                           guint needed_prefixes);
+	                           guint needed_prefixes,
+	                           GError **error);
 
 	void (*stop)              (NMDhcpClient *self,
-	                           gboolean release,
-	                           GBytes *duid);
+	                           gboolean release);
 
 	/**
 	 * get_duid:
@@ -103,12 +103,6 @@ typedef struct {
 	 * returned.
 	 */
 	GBytes *(*get_duid) (NMDhcpClient *self);
-
-	/* Signals */
-	void (*state_changed) (NMDhcpClient *self,
-	                       NMDhcpState state,
-	                       GObject *ip_config,
-	                       GHashTable *options);
 } NMDhcpClientClass;
 
 GType nm_dhcp_client_get_type (void);
@@ -131,7 +125,11 @@ GBytes *nm_dhcp_client_get_hw_addr (NMDhcpClient *self);
 
 guint32 nm_dhcp_client_get_route_table (NMDhcpClient *self);
 
+void nm_dhcp_client_set_route_table (NMDhcpClient *self, guint32 route_table);
+
 guint32 nm_dhcp_client_get_route_metric (NMDhcpClient *self);
+
+void nm_dhcp_client_set_route_metric (NMDhcpClient *self, guint32 route_metric);
 
 guint32 nm_dhcp_client_get_timeout (NMDhcpClient *self);
 
@@ -146,17 +144,17 @@ gboolean nm_dhcp_client_get_use_fqdn (NMDhcpClient *self);
 gboolean nm_dhcp_client_start_ip4 (NMDhcpClient *self,
                                    GBytes *client_id,
                                    const char *dhcp_anycast_addr,
-                                   const char *hostname,
-                                   const char *last_ip4_address);
+                                   const char *last_ip4_address,
+                                   GError **error);
 
 gboolean nm_dhcp_client_start_ip6 (NMDhcpClient *self,
                                    GBytes *client_id,
                                    gboolean enforce_duid,
                                    const char *dhcp_anycast_addr,
                                    const struct in6_addr *ll_addr,
-                                   const char *hostname,
                                    NMSettingIP6ConfigPrivacy privacy,
-                                   guint needed_prefixes);
+                                   guint needed_prefixes,
+                                   GError **error);
 
 void nm_dhcp_client_stop (NMDhcpClient *self, gboolean release);
 
@@ -176,7 +174,7 @@ void nm_dhcp_client_set_state (NMDhcpClient *self,
 
 gboolean nm_dhcp_client_handle_event (gpointer unused,
                                       const char *iface,
-                                      gint pid,
+                                      int pid,
                                       GVariant *options,
                                       const char *reason,
                                       NMDhcpClient *self);

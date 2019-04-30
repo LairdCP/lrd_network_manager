@@ -21,9 +21,9 @@
 
 #include "nm-dhcp-dhclient-utils.h"
 
-#include <string.h>
 #include <ctype.h>
 #include <arpa/inet.h>
+#include <net/if.h>
 
 #include "nm-utils/nm-dedup-multi.h"
 
@@ -233,29 +233,6 @@ read_client_id (const char *str)
 	return nm_utils_hexstr2bin (s);
 }
 
-GBytes *
-nm_dhcp_dhclient_get_client_id_from_config_file (const char *path)
-{
-	gs_free char *contents = NULL;
-	gs_strfreev char **lines = NULL;
-	char **line;
-
-	g_return_val_if_fail (path != NULL, NULL);
-
-	if (!g_file_test (path, G_FILE_TEST_EXISTS))
-		return NULL;
-
-	if (!g_file_get_contents (path, &contents, NULL, NULL))
-		return NULL;
-
-	lines = g_strsplit_set (contents, "\n\r", 0);
-	for (line = lines; lines && *line; line++) {
-		if (!strncmp (*line, CLIENTID_TAG, NM_STRLEN (CLIENTID_TAG)))
-			return read_client_id (*line);
-	}
-	return NULL;
-}
-
 static gboolean
 read_interface (const char *line, char *interface, guint size)
 {
@@ -316,6 +293,7 @@ nm_dhcp_dhclient_create_config (const char *interface,
 
 	if (orig_contents) {
 		char **lines, **line;
+		int nest = 0;
 		gboolean in_alsoreq = FALSE;
 		gboolean in_req = FALSE;
 		char intf[IFNAMSIZ];
@@ -330,17 +308,23 @@ nm_dhcp_dhclient_create_config (const char *interface,
 			if (!strlen (g_strstrip (p)))
 				continue;
 
-			if (   !intf[0]
-			    && g_str_has_prefix (p, "interface")
-			    && !in_req) {
-				if (read_interface (p, intf, sizeof (intf)))
-					continue;
-			}
-
-			if (intf[0] && strchr (p, '}')) {
+			if (in_req) {
+				/* pass */
+			} else if (strchr (p, '{')) {
+				nest++;
+				if (   !intf[0]
+				    && g_str_has_prefix (p, "interface"))
+					if (read_interface (p, intf, sizeof (intf)))
+						continue;
+			} else if (strchr (p, '}')) {
+				if (nest)
+					nest--;
 				intf[0] = '\0';
 				continue;
 			}
+
+			if (nest && !intf[0])
+				continue;
 
 			if (intf[0] && !nm_streq (intf, interface))
 				continue;
@@ -437,10 +421,13 @@ nm_dhcp_dhclient_create_config (const char *interface,
 		add_request (reqs, "static-routes");
 		add_request (reqs, "wpad");
 		add_request (reqs, "ntp-servers");
+		add_request (reqs, "root-path");
 	} else {
 		add_hostname6 (new_contents, hostname);
 		add_request (reqs, "dhcp6.name-servers");
 		add_request (reqs, "dhcp6.domain-search");
+
+		/* FIXME: internal client does not support requesting client-id option. Does this even work? */
 		add_request (reqs, "dhcp6.client-id");
 	}
 
@@ -507,7 +494,7 @@ nm_dhcp_dhclient_escape_duid (GBytes *duid)
 	return escaped;
 }
 
-static inline gboolean
+static gboolean
 isoctal (const guint8 *p)
 {
 	return (   p[0] >= '0' && p[0] <= '3'
@@ -523,6 +510,10 @@ nm_dhcp_dhclient_unescape_duid (const char *duid)
 	guint i, len;
 	guint8 octal;
 
+	/* FIXME: it's wrong to have an "unescape-duid" function. dhclient
+	 * defines a file format with escaping. So we need a general unescape
+	 * function that can handle dhclient syntax. */
+
 	len = strlen (duid);
 	unescaped = g_byte_array_sized_new (len);
 	for (i = 0; i < len; i++) {
@@ -536,6 +527,9 @@ nm_dhcp_dhclient_unescape_duid (const char *duid)
 				g_byte_array_append (unescaped, &octal, 1);
 				i += 2;
 			} else {
+				/* FIXME: don't warn on untrusted data. Either signal an error, or accept
+				 * it silently. */
+
 				/* One of ", ', $, `, \, |, or & */
 				g_warn_if_fail (p[i] == '"' || p[i] == '\'' || p[i] == '$' ||
 				                p[i] == '`' || p[i] == '\\' || p[i] == '|' ||
@@ -555,6 +549,7 @@ error:
 
 #define DUID_PREFIX "default-duid \""
 
+/* Beware: @error may be unset even if the function returns %NULL. */
 GBytes *
 nm_dhcp_dhclient_read_duid (const char *leasefile, GError **error)
 {
@@ -591,9 +586,10 @@ nm_dhcp_dhclient_read_duid (const char *leasefile, GError **error)
 
 gboolean
 nm_dhcp_dhclient_save_duid (const char *leasefile,
-                            const char *escaped_duid,
+                            GBytes *duid,
                             GError **error)
 {
+	gs_free char *escaped_duid = NULL;
 	gs_strfreev char **lines = NULL;
 	char **iter, *l;
 	GString *s;
@@ -601,6 +597,14 @@ nm_dhcp_dhclient_save_duid (const char *leasefile,
 	gsize len = 0;
 
 	g_return_val_if_fail (leasefile != NULL, FALSE);
+
+	if (!duid) {
+		nm_utils_error_set_literal (error, NM_UTILS_ERROR_UNKNOWN,
+		                            "missing duid");
+		g_return_val_if_reached (FALSE);
+	}
+
+	escaped_duid = nm_dhcp_dhclient_escape_duid (duid);
 	g_return_val_if_fail (escaped_duid != NULL, FALSE);
 
 	if (g_file_test (leasefile, G_FILE_TEST_EXISTS)) {

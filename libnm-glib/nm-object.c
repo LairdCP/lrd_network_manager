@@ -451,10 +451,10 @@ nm_object_class_init (NMObjectClass *nm_object_class)
 	/**
 	 * NMObject::object-creation-failed:
 	 * @master_object: the object that received the signal
-	 * @error: the error that occured while creating object
+	 * @error: the error that occurred while creating object
 	 * @failed_path: object path of the failed object
 	 *
-	 * Indicates that an error occured while creating an #NMObject object
+	 * Indicates that an error occurred while creating an #NMObject object
 	 * during property handling of @master_object.
 	 *
 	 * Note: Be aware that the signal is private for libnm-glib's internal
@@ -551,7 +551,7 @@ deferred_notify_cb (gpointer data)
 	for (iter = props; iter; iter = g_slist_next (iter)) {
 		NotifyItem *item = iter->data;
 		char buf[50];
-		gint ret = 0;
+		int ret = 0;
 
 		switch (item->pending) {
 		case NOTIFY_SIGNAL_PENDING_ADDED:

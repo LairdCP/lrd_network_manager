@@ -21,7 +21,6 @@
 
 #include "general.h"
 
-#include <string.h>
 #include <stdlib.h>
 
 #include "nm-common-macros.h"
@@ -37,7 +36,7 @@
 
 /*****************************************************************************/
 
-NM_UTILS_LOOKUP_STR_DEFINE_STATIC (nm_state_to_string_no_l10n, NMState,
+NM_UTILS_LOOKUP_STR_DEFINE_STATIC (nm_state_to_string, NMState,
 	NM_UTILS_LOOKUP_DEFAULT (N_("unknown")),
 	NM_UTILS_LOOKUP_ITEM (NM_STATE_ASLEEP,           N_("asleep")),
 	NM_UTILS_LOOKUP_ITEM (NM_STATE_CONNECTING,       N_("connecting")),
@@ -48,12 +47,6 @@ NM_UTILS_LOOKUP_STR_DEFINE_STATIC (nm_state_to_string_no_l10n, NMState,
 	NM_UTILS_LOOKUP_ITEM (NM_STATE_DISCONNECTED,     N_("disconnected")),
 	NM_UTILS_LOOKUP_ITEM_IGNORE (NM_STATE_UNKNOWN),
 );
-
-static const char *
-nm_state_to_string (NMState state)
-{
-	return _(nm_state_to_string_no_l10n (state));
-}
 
 static NMMetaColor
 state_to_color (NMState state)
@@ -76,21 +69,6 @@ state_to_color (NMState state)
 	default:
 		return NM_META_COLOR_STATE_UNKNOWN;
 	}
-}
-
-NM_UTILS_LOOKUP_STR_DEFINE_STATIC (nm_connectivity_to_string_no_l10n, NMConnectivityState,
-	NM_UTILS_LOOKUP_DEFAULT (N_("unknown")),
-	NM_UTILS_LOOKUP_ITEM (NM_CONNECTIVITY_NONE,    N_("none")),
-	NM_UTILS_LOOKUP_ITEM (NM_CONNECTIVITY_PORTAL,  N_("portal")),
-	NM_UTILS_LOOKUP_ITEM (NM_CONNECTIVITY_LIMITED, N_("limited")),
-	NM_UTILS_LOOKUP_ITEM (NM_CONNECTIVITY_FULL,    N_("full")),
-	NM_UTILS_LOOKUP_ITEM_IGNORE (NM_CONNECTIVITY_UNKNOWN),
-);
-
-static const char *
-nm_connectivity_to_string (NMConnectivityState connectivity)
-{
-	return _(nm_connectivity_to_string_no_l10n (connectivity));
 }
 
 static NMMetaColor
@@ -146,12 +124,14 @@ permission_to_string (NMClientPermission perm)
 		return NM_AUTH_PERMISSION_ENABLE_DISABLE_STATISTICS;
 	case NM_CLIENT_PERMISSION_ENABLE_DISABLE_CONNECTIVITY_CHECK:
 		return NM_AUTH_PERMISSION_ENABLE_DISABLE_CONNECTIVITY_CHECK;
+	case NM_CLIENT_PERMISSION_WIFI_SCAN:
+		return NM_AUTH_PERMISSION_WIFI_SCAN;
 	default:
 		return _("unknown");
 	}
 }
 
-NM_UTILS_LOOKUP_STR_DEFINE_STATIC (permission_result_to_string_no_l10n, NMClientPermissionResult,
+NM_UTILS_LOOKUP_STR_DEFINE_STATIC (permission_result_to_string, NMClientPermissionResult,
 	NM_UTILS_LOOKUP_DEFAULT (N_("unknown")),
 	NM_UTILS_LOOKUP_ITEM (NM_CLIENT_PERMISSION_RESULT_YES,  N_("yes")),
 	NM_UTILS_LOOKUP_ITEM (NM_CLIENT_PERMISSION_RESULT_NO,   N_("no")),
@@ -192,7 +172,7 @@ _metagen_general_status_get_fcn (NMC_META_GENERIC_INFO_GET_FCN_ARGS)
 	case NMC_GENERIC_INFO_TYPE_GENERAL_STATUS_STATE:
 		state = nm_client_get_state (nmc->client);
 		NMC_HANDLE_COLOR (state_to_color (state));
-		value = nm_state_to_string_no_l10n (state);
+		value = nm_state_to_string (state);
 		goto translate_and_out;
 	case NMC_GENERIC_INFO_TYPE_GENERAL_STATUS_STARTUP:
 		v_bool = nm_client_get_startup (nmc->client);
@@ -202,7 +182,7 @@ _metagen_general_status_get_fcn (NMC_META_GENERIC_INFO_GET_FCN_ARGS)
 	case NMC_GENERIC_INFO_TYPE_GENERAL_STATUS_CONNECTIVITY:
 		connectivity = nm_client_get_connectivity (nmc->client);
 		NMC_HANDLE_COLOR (connectivity_to_color (connectivity));
-		value = nm_connectivity_to_string_no_l10n (connectivity);
+		value = nm_connectivity_to_string (connectivity);
 		goto translate_and_out;
 	case NMC_GENERIC_INFO_TYPE_GENERAL_STATUS_NETWORKING:
 		v_bool = nm_client_networking_get_enabled (nmc->client);
@@ -221,7 +201,7 @@ _metagen_general_status_get_fcn (NMC_META_GENERIC_INFO_GET_FCN_ARGS)
 		goto enabled_out;
 	case NMC_GENERIC_INFO_TYPE_GENERAL_STATUS_WIMAX_HW:
 	case NMC_GENERIC_INFO_TYPE_GENERAL_STATUS_WIMAX:
-		/* deprected fields. Don't return anything. */
+		/* deprecated fields. Don't return anything. */
 		return NULL;
 	default:
 		break;
@@ -286,7 +266,7 @@ _metagen_general_permissions_get_fcn (NMC_META_GENERIC_INFO_GET_FCN_ARGS)
 	case NMC_GENERIC_INFO_TYPE_GENERAL_PERMISSIONS_VALUE:
 		perm_result = nm_client_get_permission_result (nmc->client, perm);
 		NMC_HANDLE_COLOR (permission_result_to_color (perm_result));
-		s = permission_result_to_string_no_l10n (perm_result);
+		s = permission_result_to_string (perm_result);
 		if (get_type == NM_META_ACCESSOR_GET_TYPE_PRETTY)
 			return _(s);
 		return s;
@@ -508,6 +488,7 @@ show_nm_status (NmCli *nmc, const char *pretty_header_name, const char *print_fl
 
 	if (!nmc_print (&nmc->nmc_config,
 	                (gpointer[]) { nmc, NULL },
+	                NULL,
 	                pretty_header_name ?: N_("NetworkManager status"),
 	                (const NMMetaAbstractInfo *const*) metagen_general_status,
 	                fields_str,
@@ -560,11 +541,11 @@ print_permissions (void *user_data)
 		permissions[i++] = GINT_TO_POINTER (perm);
 	permissions[i++] = NULL;
 
-	/* Optionally start paging the output. */
-	nmc_terminal_spawn_pager (&nmc->nmc_config);
+	nm_cli_spawn_pager (nmc);
 
 	if (!nmc_print (&nmc->nmc_config,
 	                permissions,
+	                NULL,
 	                _("NetworkManager permissions"),
 	                (const NMMetaAbstractInfo *const*) metagen_general_permissions,
 	                fields_str,
@@ -657,6 +638,7 @@ show_general_logging (NmCli *nmc)
 
 	if (!nmc_print (&nmc->nmc_config,
 	                (gpointer const []) { &d, NULL },
+	                NULL,
 	                _("NetworkManager logging"),
 	                (const NMMetaAbstractInfo *const*) metagen_general_logging,
 	                fields_str,
@@ -995,7 +977,7 @@ do_radio_wifi (NmCli *nmc, int argc, char **argv)
 		if (nmc->complete)
 			return nmc->return_value;
 
-		/* no argument, show current WiFi state */
+		/* no argument, show current Wi-Fi state */
 		nmc_switch_show (nmc, NMC_FIELDS_NM_WIFI, N_("Wi-Fi radio switch"));
 	} else {
 		if (nmc->complete) {
@@ -1111,7 +1093,8 @@ client_connectivity (NMClient *client, GParamSpec *param, NmCli *nmc)
 
 	g_object_get (client, NM_CLIENT_CONNECTIVITY, &connectivity, NULL);
 	str = nmc_colorize (&nmc->nmc_config, connectivity_to_color (connectivity),
-	                    _("Connectivity is now '%s'\n"), nm_connectivity_to_string (connectivity));
+	                    _("Connectivity is now '%s'\n"),
+	                    gettext (nm_connectivity_to_string (connectivity)));
 	g_print ("%s", str);
 	g_free (str);
 }
@@ -1125,7 +1108,7 @@ client_state (NMClient *client, GParamSpec *param, NmCli *nmc)
 	g_object_get (client, NM_CLIENT_STATE, &state, NULL);
 	str = nmc_colorize (&nmc->nmc_config, state_to_color (state),
 	                    _("Networkmanager is now in the '%s' state\n"),
-	                    nm_state_to_string (state));
+	                    gettext (nm_state_to_string (state)));
 	g_print ("%s", str);
 	g_free (str);
 }
@@ -1282,8 +1265,7 @@ do_overview (NmCli *nmc, int argc, char **argv)
 	/* Register polkit agent */
 	nmc_start_polkit_agent_start_try (nmc);
 
-	/* Optionally start paging the output. */
-	nmc_terminal_spawn_pager (&nmc->nmc_config);
+	nm_cli_spawn_pager (nmc);
 
 	/* The VPN connections don't have devices (yet?). */
 	p = nm_client_get_active_connections (nmc->client);
@@ -1316,7 +1298,7 @@ do_overview (NmCli *nmc, int argc, char **argv)
 		color = nmc_device_state_to_color (state);
 		tmp = nmc_colorize (&nmc->nmc_config, color, "%s: %s%s%s",
 		                    nm_device_get_iface (devices[i]),
-		                    nmc_device_state_to_string (state),
+		                    gettext (nmc_device_state_to_string (state)),
 		                    ac ? " to " : "",
 		                    ac ? nm_active_connection_get_id (ac) : "");
 		g_print ("%s\n", tmp);

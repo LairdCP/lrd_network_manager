@@ -31,7 +31,7 @@ AC_DEFUN([NM_COMPILER_FLAG], [
 
 dnl Check whether a particular warning is not emitted with code provided,
 dnl append an option to disable the warning to a specified variable if the check fails.
-dnl NM_COMPILER_WARNING([ENV-VAR], [C-SNIPPET], [WARNING]])
+dnl NM_COMPILER_WARNING([ENV-VAR], [WARNING], [C-SNIPPET])
 AC_DEFUN([NM_COMPILER_WARNING], [
         _NM_COMPILER_FLAG([-W$2], [$3], [eval "AS_TR_SH([$1])='$$1 -W$2'"], [eval "AS_TR_SH([$1])='$$1 -Wno-$2'"])
 ])
@@ -47,10 +47,10 @@ if test "$GCC" = "yes" -a "$set_more_warnings" != "no"; then
 
 	dnl This is enabled in clang by default, makes little sense,
 	dnl and causes the build to abort with -Werror.
-	CFLAGS_SAVED="$$1"
-	eval "AS_TR_SH([$1])='$$1 -Qunused-arguments'"
-	AC_COMPILE_IFELSE([AC_LANG_SOURCE([])], [], eval "AS_TR_SH([$1])='$CFLAGS_SAVED'")
-	unset CFLAGS_SAVED
+	CFLAGS_SAVED="$CFLAGS"
+	CFLAGS="$CFLAGS -Qunused-arguments"
+	AC_COMPILE_IFELSE([AC_LANG_SOURCE([])], eval "AS_TR_SH([$1])='$$1 -Qunused-arguments'", [])
+	CFLAGS="$CFLAGS_SAVED"
 
 	dnl clang only warns about unknown warnings, unless
 	dnl called with "-Werror=unknown-warning-option"
@@ -58,7 +58,7 @@ if test "$GCC" = "yes" -a "$set_more_warnings" != "no"; then
 	dnl attach it to the CFLAGS.
 	NM_COMPILER_WARNING([$1], [unknown-warning-option], [])
 
-	CFLAGS_MORE_WARNINGS="-Wall -std=gnu99"
+	CFLAGS_MORE_WARNINGS="-Wall"
 
 	if test "x$set_more_warnings" = xerror; then
 		CFLAGS_MORE_WARNINGS="$CFLAGS_MORE_WARNINGS -Werror"
@@ -92,7 +92,7 @@ if test "$GCC" = "yes" -a "$set_more_warnings" != "no"; then
 		      -Wno-unused-parameter \
 		      ; do
 		dnl GCC 4.4 does not warn when checking for -Wno-* flags (https://gcc.gnu.org/wiki/FAQ#wnowarning)
-                _NM_COMPILER_FLAG([$(printf '%s' "$option" | sed 's/^-Wno-/-W/')], [],
+		_NM_COMPILER_FLAG([-Wall $(printf '%s' "$option" | sed 's/^-Wno-/-W/')], [],
 		                  [CFLAGS_MORE_WARNINGS="$CFLAGS_MORE_WARNINGS $option"], [])
 	done
 	unset option
@@ -124,12 +124,6 @@ if test "$GCC" = "yes" -a "$set_more_warnings" != "no"; then
 		[int f () { int i = yolo; yolo; return i; }]
 	)
 
-	dnl clang 3.9 would like to see "{ { 0 } }" here, but that does not
-	dnl look too wise.
-	NM_COMPILER_WARNING([$1], [missing-braces],
-		[union { int a[1]; int b[2]; } c = { 0 }]
-	)
-
 	dnl a new warning in gcc 8, glib 2.55 doesn't play nice yet
 	dnl https://bugzilla.gnome.org/show_bug.cgi?id=793272
 	NM_COMPILER_WARNING([$1], [cast-function-type],
@@ -150,9 +144,9 @@ fi
 AC_DEFUN([NM_LTO],
 [AC_ARG_ENABLE(lto, AS_HELP_STRING([--enable-lto], [Enable Link Time Optimization for smaller size (default: no)]))
 if (test "${enable_lto}" = "yes"); then
-	CC_CHECK_FLAG_APPEND([lto_flags], [CFLAGS], [-flto])
+	CC_CHECK_FLAG_APPEND([lto_flags], [CFLAGS], [-flto -flto-partition=none])
 	if (test -n "${lto_flags}"); then
-		CFLAGS="-flto $CFLAGS"
+		CFLAGS="-flto -flto-partition=none $CFLAGS"
 	else
 		AC_MSG_ERROR([Link Time Optimization -flto is not supported.])
 	fi

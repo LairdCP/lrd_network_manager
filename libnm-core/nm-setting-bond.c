@@ -21,13 +21,12 @@
 
 #include "nm-default.h"
 
-#include <string.h>
+#include "nm-setting-bond.h"
+
 #include <stdlib.h>
-#include <errno.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-#include "nm-setting-bond.h"
 #include "nm-utils.h"
 #include "nm-utils-private.h"
 #include "nm-connection-private.h"
@@ -46,20 +45,16 @@
 
 /*****************************************************************************/
 
-enum {
-	PROP_0,
+NM_GOBJECT_PROPERTIES_DEFINE (NMSettingBond,
 	PROP_OPTIONS,
-	LAST_PROP
-};
+);
 
 typedef struct {
 	GHashTable *options;
 	NMUtilsNamedValue *options_idx_cache;
 } NMSettingBondPrivate;
 
-G_DEFINE_TYPE_WITH_CODE (NMSettingBond, nm_setting_bond, NM_TYPE_SETTING,
-                         _nm_register_setting (BOND, NM_SETTING_PRIORITY_HW_BASE))
-NM_SETTING_REGISTER_TYPE (NM_TYPE_SETTING_BOND)
+G_DEFINE_TYPE (NMSettingBond, nm_setting_bond, NM_TYPE_SETTING)
 
 #define NM_SETTING_BOND_GET_PRIVATE(o) (G_TYPE_INSTANCE_GET_PRIVATE ((o), NM_TYPE_SETTING_BOND, NMSettingBondPrivate))
 
@@ -180,19 +175,14 @@ nm_setting_bond_get_option (NMSettingBond *setting,
 static gboolean
 validate_int (const char *name, const char *value, const BondDefault *def)
 {
-	glong num;
-	guint i;
+	guint64 num;
 
-	for (i = 0; i < strlen (value); i++) {
-		if (!g_ascii_isdigit (value[i]) && value[i] != '-')
-			return FALSE;
-	}
-
-	errno = 0;
-	num = strtol (value, NULL, 10);
-	if (errno)
+	if (!NM_STRCHAR_ALL (value, ch, g_ascii_isdigit (ch)))
 		return FALSE;
-	if (num < def->min || num > def->max)
+
+	num = _nm_utils_ascii_str_to_uint64 (value, 10, def->min, def->max, G_MAXUINT64);
+	if (   num == G_MAXUINT64
+	    && errno != 0)
 		return FALSE;
 
 	return TRUE;
@@ -367,7 +357,7 @@ nm_setting_bond_add_option (NMSettingBond *setting,
 		g_hash_table_remove (priv->options, NM_SETTING_BOND_OPTION_UPDELAY);
 	}
 
-	g_object_notify (G_OBJECT (setting), NM_SETTING_BOND_OPTIONS);
+	_notify (setting, PROP_OPTIONS);
 
 	return TRUE;
 }
@@ -400,7 +390,7 @@ nm_setting_bond_remove_option (NMSettingBond *setting,
 	nm_clear_g_free (&priv->options_idx_cache);
 	found = g_hash_table_remove (priv->options, name);
 	if (found)
-		g_object_notify (G_OBJECT (setting), NM_SETTING_BOND_OPTIONS);
+		_notify (setting, PROP_OPTIONS);
 	return found;
 }
 
@@ -813,15 +803,15 @@ verify (NMSetting *setting, NMConnection *connection, GError **error)
 /*****************************************************************************/
 
 static gboolean
-options_hash_match (NMSettingBond *s_bond,
-                    GHashTable *options1,
-                    GHashTable *options2,
+options_equal_asym (NMSettingBond *s_bond,
+                    NMSettingBond *s_bond2,
                     NMSettingCompareFlags flags)
 {
+	GHashTable *options2 = NM_SETTING_BOND_GET_PRIVATE (s_bond2)->options;
 	GHashTableIter iter;
 	const char *key, *value, *value2;
 
-	g_hash_table_iter_init (&iter, options1);
+	g_hash_table_iter_init (&iter, NM_SETTING_BOND_GET_PRIVATE (s_bond)->options);
 	while (g_hash_table_iter_next (&iter, (gpointer *) &key, (gpointer *) &value)) {
 
 		if (NM_FLAGS_HAS (flags, NM_SETTING_COMPARE_FLAG_INFERRABLE)) {
@@ -843,15 +833,10 @@ options_hash_match (NMSettingBond *s_bond,
 				value2 = g_hash_table_lookup (options2, "num_grat_arp");
 		}
 
-		if (value2) {
-			if (nm_streq (value, value2))
-				continue;
-		} else {
-			if (nm_streq (value, nm_setting_bond_get_option_default (s_bond, key)))
-				continue;
-		}
-
-		return FALSE;
+		if (!value2)
+			value2 = nm_setting_bond_get_option_default (s_bond2, key);
+		if (!nm_streq (value, value2))
+			return FALSE;
 	}
 
 	return TRUE;
@@ -859,32 +844,32 @@ options_hash_match (NMSettingBond *s_bond,
 
 static gboolean
 options_equal (NMSettingBond *s_bond,
-               GHashTable *options1,
-               GHashTable *options2,
+               NMSettingBond *s_bond2,
                NMSettingCompareFlags flags)
 {
-	return    options_hash_match (s_bond, options1, options2, flags)
-	       && options_hash_match (s_bond, options2, options1, flags);
+	return    options_equal_asym (s_bond, s_bond2, flags)
+	       && options_equal_asym (s_bond2, s_bond, flags);
 }
 
-static gboolean
-compare_property (NMSetting *setting,
+static NMTernary
+compare_property (const NMSettInfoSetting *sett_info,
+                  guint property_idx,
+                  NMSetting *setting,
                   NMSetting *other,
-                  const GParamSpec *prop_spec,
                   NMSettingCompareFlags flags)
 {
-	NMSettingClass *parent_class;
-
-	if (nm_streq0 (prop_spec->name, NM_SETTING_BOND_OPTIONS)) {
-		return options_equal (NM_SETTING_BOND (setting),
-		                      NM_SETTING_BOND_GET_PRIVATE (setting)->options,
-		                      NM_SETTING_BOND_GET_PRIVATE (other)->options,
-		                      flags);
+	if (nm_streq (sett_info->property_infos[property_idx].name, NM_SETTING_BOND_OPTIONS)) {
+		return (   !other
+		        || options_equal (NM_SETTING_BOND (setting),
+		                          NM_SETTING_BOND (other),
+		                          flags));
 	}
 
-	/* Otherwise chain up to parent to handle generic compare */
-	parent_class = NM_SETTING_CLASS (nm_setting_bond_parent_class);
-	return parent_class->compare_property (setting, other, prop_spec, flags);
+	return NM_SETTING_CLASS (nm_setting_bond_parent_class)->compare_property (sett_info,
+	                                                                          property_idx,
+	                                                                          setting,
+	                                                                          other,
+	                                                                          flags);
 }
 
 /*****************************************************************************/
@@ -961,21 +946,21 @@ finalize (GObject *object)
 }
 
 static void
-nm_setting_bond_class_init (NMSettingBondClass *setting_class)
+nm_setting_bond_class_init (NMSettingBondClass *klass)
 {
-	GObjectClass *object_class = G_OBJECT_CLASS (setting_class);
-	NMSettingClass *parent_class = NM_SETTING_CLASS (setting_class);
+	GObjectClass *object_class = G_OBJECT_CLASS (klass);
+	NMSettingClass *setting_class = NM_SETTING_CLASS (klass);
+	GArray *properties_override = _nm_sett_info_property_override_create_array ();
 
-	g_type_class_add_private (setting_class, sizeof (NMSettingBondPrivate));
+	g_type_class_add_private (klass, sizeof (NMSettingBondPrivate));
 
-	/* virtual methods */
-	object_class->set_property     = set_property;
 	object_class->get_property     = get_property;
+	object_class->set_property     = set_property;
 	object_class->finalize         = finalize;
-	parent_class->verify           = verify;
-	parent_class->compare_property = compare_property;
 
-	/* Properties */
+	setting_class->verify           = verify;
+	setting_class->compare_property = compare_property;
+
 	/**
 	 * NMSettingBond:options: (type GHashTable(utf8,utf8)):
 	 *
@@ -990,17 +975,18 @@ nm_setting_bond_class_init (NMSettingBondClass *setting_class)
 	 * example: BONDING_OPTS="miimon=100 mode=broadcast"
 	 * ---end---
 	 */
-	 g_object_class_install_property
-		 (object_class, PROP_OPTIONS,
-		 g_param_spec_boxed (NM_SETTING_BOND_OPTIONS, "", "",
-		                     G_TYPE_HASH_TABLE,
-		                     G_PARAM_READWRITE |
-		                     NM_SETTING_PARAM_INFERRABLE |
-		                     G_PARAM_STATIC_STRINGS));
-	 _nm_setting_class_transform_property (parent_class, NM_SETTING_BOND_OPTIONS,
-	                                       G_VARIANT_TYPE ("a{ss}"),
-	                                       _nm_utils_strdict_to_dbus,
-	                                       _nm_utils_strdict_from_dbus);
+	obj_properties[PROP_OPTIONS] =
+	    g_param_spec_boxed (NM_SETTING_BOND_OPTIONS, "", "",
+	                        G_TYPE_HASH_TABLE,
+	                        G_PARAM_READWRITE |
+	                        NM_SETTING_PARAM_INFERRABLE |
+	                        G_PARAM_STATIC_STRINGS);
+
+	_properties_override_add_transform (properties_override,
+	                                    obj_properties[PROP_OPTIONS],
+	                                    G_VARIANT_TYPE ("a{ss}"),
+	                                    _nm_utils_strdict_to_dbus,
+	                                    _nm_utils_strdict_from_dbus);
 
 	 /* ---dbus---
 	  * property: interface-name
@@ -1010,8 +996,14 @@ nm_setting_bond_class_init (NMSettingBondClass *setting_class)
 	  *   bond's interface name.
 	  * ---end---
 	  */
-	 _nm_setting_class_add_dbus_only_property (parent_class, "interface-name",
-	                                           G_VARIANT_TYPE_STRING,
-	                                           _nm_setting_get_deprecated_virtual_interface_name,
-	                                           NULL);
+	_properties_override_add_dbus_only (properties_override,
+	                                    "interface-name",
+	                                    G_VARIANT_TYPE_STRING,
+	                                    _nm_setting_get_deprecated_virtual_interface_name,
+	                                    NULL);
+
+	g_object_class_install_properties (object_class, _PROPERTY_ENUMS_LAST, obj_properties);
+
+	_nm_setting_class_commit_full (setting_class, NM_META_SETTING_TYPE_BOND,
+	                               NULL, properties_override);
 }

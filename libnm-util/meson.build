@@ -30,17 +30,17 @@ enums_headers = [version_header] + files(
   'nm-setting-wireless.h',
   'nm-setting-wireless-security.h',
   'nm-utils.h',
-  'nm-version.h'
+  'nm-version.h',
 )
 
 headers = enums_headers + files(
   'NetworkManager.h',
-  'NetworkManagerVPN.h'
+  'NetworkManagerVPN.h',
 )
 
 install_headers(
   headers,
-  subdir: nm_name
+  subdir: nm_name,
 )
 
 enum_types = 'nm-utils-enum-types'
@@ -52,12 +52,11 @@ libnm_utils_enum = gnome.mkenums(
   c_template: enum_types + '.c.template',
   h_template: enum_types + '.h.template',
   install_header: true,
-  install_dir: nm_pkgincludedir
+  install_dir: nm_pkgincludedir,
 )
 
 sources = files(
   'crypto.c',
-  'crypto_' + crypto + '.c',
   'nm-connection.c',
   'nm-param-spec-specialized.c',
   'nm-setting-8021x.c',
@@ -88,26 +87,49 @@ sources = files(
   'nm-setting-vlan.c',
   'nm-setting-vpn.c',
   'nm-utils.c',
-  'nm-value-transforms.c'
+  'nm-value-transforms.c',
 )
-sources += shared_files_libnm_util
 
 deps = [
-  crypto_dep,
   dbus_dep,
   dbus_glib_dep,
-  shared_dep,
-  uuid_dep
+  shared_nm_utils_base_dep,
+  uuid_dep,
 ]
 
 common_cflags = [
   '-DNETWORKMANAGER_COMPILATION=NM_NETWORKMANAGER_COMPILATION_LIBNM_UTIL',
-  '-DNMLOCALEDIR="@0@"'.format(nm_localedir),
 ]
 
 cflags = common_cflags + [
-  '-DG_LOG_DOMAIN="@0@"'.format(libnm_util_name)
+  '-DG_LOG_DOMAIN="@0@"'.format(libnm_util_name),
 ]
+
+if crypto_gnutls_dep.found()
+  libnm_util_crypto_gnutls = static_library(
+    'nm-util-crypto-gnutls',
+    sources: [ 'crypto_gnutls.c' ],
+    dependencies: deps + [ crypto_gnutls_dep ],
+    c_args: cflags,
+  )
+endif
+
+if crypto_nss_dep.found()
+  libnm_util_crypto_nss = static_library(
+    'nm-util-crypto-nss',
+    sources: [ 'crypto_nss.c' ],
+    dependencies: deps + [ crypto_nss_dep ],
+    c_args: cflags,
+  )
+endif
+
+if crypto == 'gnutls'
+  libnm_util_crypto = libnm_util_crypto_gnutls
+elif crypto == 'nss'
+  libnm_util_crypto = libnm_util_crypto_nss
+else
+  error('bug')
+endif
 
 linker_script = join_paths(meson.current_source_dir(), 'libnm-util.ver')
 
@@ -121,13 +143,14 @@ libnm_util = shared_library(
     '-Wl,--version-script,@0@'.format(linker_script),
   ],
   link_depends: linker_script,
-  install: true
+  link_with: libnm_util_crypto,
+  install: true,
 )
 
 libnm_util_dep = declare_dependency(
   sources: libnm_utils_enum[1],
   include_directories: libnm_util_inc,
-  link_with: libnm_util
+  link_with: libnm_util,
 )
 
 pkg.generate(
@@ -138,7 +161,7 @@ pkg.generate(
   filebase: libnm_util_name,
   subdirs: nm_name,
   requires: 'NetworkManager >= ' + nm_version + ' glib-2.0 dbus-glib-1',
-  variables: 'exec_prefix=${prefix}'
+  variables: 'exec_prefix=${prefix}',
 )
 
 if enable_introspection
@@ -146,7 +169,7 @@ if enable_introspection
 
   gir_includes = [
     'DBusGLib-1.0',
-    'GObject-2.0'
+    'GObject-2.0',
   ]
 
   libnm_util_gir = gnome.generate_gir(
@@ -158,36 +181,35 @@ if enable_introspection
     symbol_prefix: nm_id_prefix.to_lower(),
     export_packages: libnm_util_name,
     includes: gir_includes,
-    install: true
+    install: true,
   )
 
   libnm_util_gir_dep = declare_dependency(
     sources: libnm_util_gir,
-    link_with: libnm_util
+    link_with: libnm_util,
   )
 endif
 
-run_target(
+test(
   'check-local-exports-' + libnm_util_name,
-  command: [check_exports, libnm_util.full_path(), linker_script],
-  depends: libnm_util
+  check_exports,
+  args: [libnm_util.full_path(), linker_script],
 )
 
 sources = files(
   'crypto.c',
-  'crypto_' + crypto + '.c'
 )
 
 deps = [
-  crypto_dep,
-  shared_dep
+  shared_nm_utils_base_dep,
 ]
 
 libtest_crypto = static_library(
   'test-crypto',
   sources: sources,
   dependencies: deps,
-  c_args: cflags
+  link_with: libnm_util_crypto,
+  c_args: cflags,
 )
 
 if enable_tests

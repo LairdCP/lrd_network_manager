@@ -15,7 +15,7 @@
  * Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
  * Boston, MA 02110-1301 USA.
  *
- * (C) Copyright 2014 - 2017 Red Hat, Inc.
+ * (C) Copyright 2014 - 2018 Red Hat, Inc.
  */
 
 #ifndef NM_CORE_NM_INTERNAL_H
@@ -37,6 +37,9 @@
 
 #include "nm-connection.h"
 #include "nm-core-enum-types.h"
+#include "nm-core-types-internal.h"
+#include "nm-meta-setting.h"
+#include "nm-setting-6lowpan.h"
 #include "nm-setting-8021x.h"
 #include "nm-setting-adsl.h"
 #include "nm-setting-bluetooth.h"
@@ -51,11 +54,11 @@
 #include "nm-setting-gsm.h"
 #include "nm-setting-infiniband.h"
 #include "nm-setting-ip-tunnel.h"
-#include "nm-setting-proxy.h"
 #include "nm-setting-ip4-config.h"
 #include "nm-setting-ip6-config.h"
 #include "nm-setting-macsec.h"
 #include "nm-setting-macvlan.h"
+#include "nm-setting-match.h"
 #include "nm-setting-olpc-mesh.h"
 #include "nm-setting-ovs-bridge.h"
 #include "nm-setting-ovs-interface.h"
@@ -63,7 +66,9 @@
 #include "nm-setting-ovs-port.h"
 #include "nm-setting-ppp.h"
 #include "nm-setting-pppoe.h"
+#include "nm-setting-proxy.h"
 #include "nm-setting-serial.h"
+#include "nm-setting-sriov.h"
 #include "nm-setting-tc-config.h"
 #include "nm-setting-team-port.h"
 #include "nm-setting-team.h"
@@ -71,15 +76,17 @@
 #include "nm-setting-vlan.h"
 #include "nm-setting-vpn.h"
 #include "nm-setting-vxlan.h"
+#include "nm-setting-wifi-p2p.h"
 #include "nm-setting-wimax.h"
 #include "nm-setting-wired.h"
+#include "nm-setting-wireguard.h"
 #include "nm-setting-wireless-security.h"
 #include "nm-setting-wireless.h"
+#include "nm-setting-wpan.h"
 #include "nm-setting.h"
 #include "nm-simple-connection.h"
 #include "nm-utils.h"
 #include "nm-vpn-dbus-interface.h"
-#include "nm-core-types-internal.h"
 #include "nm-vpn-editor-plugin.h"
 
 /* IEEE 802.1D-1998 timer values */
@@ -95,6 +102,11 @@
 /* IEEE 802.1D-1998 Table 7.4 */
 #define NM_BR_MIN_AGEING_TIME   0
 #define NM_BR_MAX_AGEING_TIME   1000000
+
+#define NM_BR_PORT_MAX_PRIORITY 63
+#define NM_BR_PORT_DEF_PRIORITY 32
+
+#define NM_BR_PORT_MAX_PATH_COST 65535
 
 /* NM_SETTING_COMPARE_FLAG_INFERRABLE: check whether a device-generated
  * connection can be replaced by a already-defined connection. This flag only
@@ -116,11 +128,21 @@
  */
 #define NM_SETTING_COMPARE_FLAG_NONE ((NMSettingCompareFlags) 0)
 
-#define NM_SETTING_SECRET_FLAGS_ALL \
-	(NM_SETTING_SECRET_FLAG_NONE | \
-	 NM_SETTING_SECRET_FLAG_AGENT_OWNED | \
-	 NM_SETTING_SECRET_FLAG_NOT_SAVED | \
-	 NM_SETTING_SECRET_FLAG_NOT_REQUIRED)
+/*****************************************************************************/
+
+#define NM_SETTING_SECRET_FLAG_ALL \
+	((NMSettingSecretFlags) (  NM_SETTING_SECRET_FLAG_NONE \
+	                         | NM_SETTING_SECRET_FLAG_AGENT_OWNED \
+	                         | NM_SETTING_SECRET_FLAG_NOT_SAVED \
+	                         | NM_SETTING_SECRET_FLAG_NOT_REQUIRED))
+
+static inline gboolean
+_nm_setting_secret_flags_valid (NMSettingSecretFlags flags)
+{
+	return !NM_FLAGS_ANY (flags, ~NM_SETTING_SECRET_FLAG_ALL);
+}
+
+/*****************************************************************************/
 
 typedef enum { /*< skip >*/
 	NM_SETTING_PARSE_FLAGS_NONE                     = 0,
@@ -136,6 +158,30 @@ gboolean _nm_connection_replace_settings (NMConnection *connection,
                                           GVariant *new_settings,
                                           NMSettingParseFlags parse_flags,
                                           GError **error);
+
+gpointer _nm_connection_check_main_setting (NMConnection *connection,
+                                            const char *setting_name,
+                                            GError **error);
+
+typedef enum {
+	/* whether the connection has any secrets.
+	 *
+	 * @arg may be %NULL or a pointer to a gboolean for the result. The return
+	 *   value of _nm_connection_aggregate() is likewise the boolean result. */
+	NM_CONNECTION_AGGREGATE_ANY_SECRETS,
+
+	/* whether the connection has any secret with flags NM_SETTING_SECRET_FLAG_NONE.
+	 * Note that this only cares about the flags, not whether the secret is actually
+	 * present.
+	 *
+	 * @arg may be %NULL or a pointer to a gboolean for the result. The return
+	 *   value of _nm_connection_aggregate() is likewise the boolean result. */
+	NM_CONNECTION_AGGREGATE_ANY_SYSTEM_SECRET_FLAGS,
+} NMConnectionAggregateType;
+
+gboolean _nm_connection_aggregate (NMConnection *connection,
+                                   NMConnectionAggregateType type,
+                                   gpointer arg);
 
 /**
  * NMSettingVerifyResult:
@@ -161,56 +207,47 @@ NMConnection *_nm_simple_connection_new_from_dbus (GVariant      *dict,
                                                    NMSettingParseFlags parse_flags,
                                                    GError       **error);
 
-/*
- * A setting's priority should roughly follow the OSI layer model, but it also
- * controls which settings get asked for secrets first.  Thus settings which
- * relate to things that must be working first, like hardware, should get a
- * higher priority than things which layer on top of the hardware.  For example,
- * the GSM/CDMA settings should provide secrets before the PPP setting does,
- * because a PIN is required to unlock the device before PPP can even start.
- * Even settings without secrets should be assigned the right priority.
- *
- * 0: reserved for invalid
- *
- * 1: reserved for the Connection setting
- *
- * 2,3: hardware-related settings like Ethernet, Wi-Fi, InfiniBand, Bridge, etc.
- * These priority 1 settings are also "base types", which means that at least
- * one of them is required for the connection to be valid, and their name is
- * valid in the 'type' property of the Connection setting.
- *
- * 4: hardware-related auxiliary settings that require a base setting to be
- * successful first, like Wi-Fi security, 802.1x, etc.
- *
- * 5: hardware-independent settings that are required before IP connectivity
- * can be established, like PPP, PPPoE, etc.
- *
- * 6: IP-level stuff
- *
- * 10: NMSettingUser
- */
-typedef enum { /*< skip >*/
-	NM_SETTING_PRIORITY_INVALID     = 0,
-	NM_SETTING_PRIORITY_CONNECTION  = 1,
-	NM_SETTING_PRIORITY_HW_BASE     = 2,
-	NM_SETTING_PRIORITY_HW_NON_BASE = 3,
-	NM_SETTING_PRIORITY_HW_AUX      = 4,
-	NM_SETTING_PRIORITY_AUX         = 5,
-	NM_SETTING_PRIORITY_IP          = 6,
-	NM_SETTING_PRIORITY_USER        = 10,
-} NMSettingPriority;
-
 NMSettingPriority _nm_setting_get_setting_priority (NMSetting *setting);
 
 gboolean _nm_setting_get_property (NMSetting *setting, const char *name, GValue *value);
+
+/*****************************************************************************/
+
+GHashTable *_nm_setting_gendata_hash (NMSetting *setting,
+                                      gboolean create_if_necessary);
+
+void _nm_setting_gendata_notify (NMSetting *setting,
+                                 gboolean keys_changed);
+
+guint _nm_setting_gendata_get_all (NMSetting *setting,
+                                   const char *const**out_names,
+                                   GVariant *const**out_values);
+
+gboolean _nm_setting_gendata_reset_from_hash (NMSetting *setting,
+                                              GHashTable *new);
+
+void _nm_setting_gendata_to_gvalue (NMSetting *setting,
+                                    GValue *value);
+
+GVariant *nm_setting_gendata_get (NMSetting *setting,
+                                  const char *name);
+
+const char *const*nm_setting_gendata_get_all_names (NMSetting *setting,
+                                                    guint *out_len);
+
+GVariant *const*nm_setting_gendata_get_all_values (NMSetting *setting);
+
+/*****************************************************************************/
+
+guint nm_setting_ethtool_init_features (NMSettingEthtool *setting,
+                                        NMTernary *requested /* indexed by NMEthtoolID - _NM_ETHTOOL_ID_FEATURE_FIRST */);
+
+/*****************************************************************************/
 
 #define NM_UTILS_HWADDR_LEN_MAX_STR (NM_UTILS_HWADDR_LEN_MAX * 3)
 
 guint8 *_nm_utils_hwaddr_aton (const char *asc, gpointer buffer, gsize buffer_length, gsize *out_length);
 const char *nm_utils_hwaddr_ntoa_buf (gconstpointer addr, gsize addr_len, gboolean upper_case, char *buf, gsize buf_len);
-
-char *_nm_utils_bin2str (gconstpointer addr, gsize length, gboolean upper_case);
-void _nm_utils_bin2str_full (gconstpointer addr, gsize length, const char delimiter, gboolean upper_case, char *out);
 
 GSList *    _nm_utils_hash_values_to_slist (GHashTable *hash);
 
@@ -224,6 +261,9 @@ gboolean _nm_ip_route_attribute_validate_all (const NMIPRoute *route);
 const char **_nm_ip_route_get_attribute_names (const NMIPRoute *route, gboolean sorted, guint *out_length);
 GHashTable *_nm_ip_route_get_attributes_direct (NMIPRoute *route);
 
+NMSriovVF *_nm_utils_sriov_vf_from_strparts (const char *index, const char *detail, gboolean ignore_unknown, GError **error);
+gboolean _nm_sriov_vf_attribute_validate_all (const NMSriovVF *vf, GError **error);
+
 static inline void
 _nm_auto_ip_route_unref (NMIPRoute **v)
 {
@@ -232,27 +272,12 @@ _nm_auto_ip_route_unref (NMIPRoute **v)
 }
 #define nm_auto_ip_route_unref nm_auto (_nm_auto_ip_route_unref)
 
-GPtrArray *_nm_utils_copy_slist_to_array (const GSList *list,
-                                          NMUtilsCopyFunc copy_func,
-                                          GDestroyNotify unref_func);
-GSList    *_nm_utils_copy_array_to_slist (const GPtrArray *array,
-                                          NMUtilsCopyFunc copy_func);
-
 GPtrArray *_nm_utils_copy_array (const GPtrArray *array,
                                  NMUtilsCopyFunc copy_func,
                                  GDestroyNotify free_func);
 GPtrArray *_nm_utils_copy_object_array (const GPtrArray *array);
 
 gssize _nm_utils_ptrarray_find_first (gconstpointer *list, gssize len, gconstpointer needle);
-
-gssize _nm_utils_ptrarray_find_binary_search (gconstpointer *list,
-                                              gsize len,
-                                              gconstpointer needle,
-                                              GCompareDataFunc cmpfcn,
-                                              gpointer user_data,
-                                              gssize *out_idx_first,
-                                              gssize *out_idx_last);
-gssize _nm_utils_array_find_binary_search (gconstpointer list, gsize elem_size, gsize len, gconstpointer needle, GCompareDataFunc cmpfcn, gpointer user_data);
 
 GSList *    _nm_utils_strv_to_slist (char **strv, gboolean deep_copy);
 char **     _nm_utils_slist_to_strv (GSList *slist, gboolean deep_copy);
@@ -274,8 +299,25 @@ gboolean _nm_utils_check_module_file (const char *name,
                                       gpointer user_data,
                                       GError **error);
 
+/*****************************************************************************/
+
+typedef struct _NMUuid {
+	guchar uuid[16];
+} NMUuid;
+
+NMUuid *_nm_utils_uuid_parse (const char *str,
+                              NMUuid *uuid);
+char *_nm_utils_uuid_unparse (const NMUuid *uuid,
+                              char *out_str /*[37]*/);
+NMUuid *_nm_utils_uuid_generate_random (NMUuid *out_uuid);
+
+gboolean nm_utils_uuid_is_null (const NMUuid *uuid);
+
 #define NM_UTILS_UUID_TYPE_LEGACY            0
-#define NM_UTILS_UUID_TYPE_VARIANT3          1
+#define NM_UTILS_UUID_TYPE_VERSION3          3
+#define NM_UTILS_UUID_TYPE_VERSION5          5
+
+NMUuid *nm_utils_uuid_generate_from_string_bin (NMUuid *uuid, const char *s, gssize slen, int uuid_type, gpointer type_args);
 
 char *nm_utils_uuid_generate_from_string (const char *s, gssize slen, int uuid_type, gpointer type_args);
 
@@ -296,10 +338,8 @@ void _nm_dbus_errors_init (void);
 
 extern gboolean _nm_utils_is_manager_process;
 
-GByteArray *nm_utils_rsa_key_encrypt (const guint8 *data,
-                                      gsize len,
-                                      const char *in_password,
-                                      char **out_password,
+gboolean _nm_dbus_typecheck_response (GVariant *response,
+                                      const GVariantType *reply_type,
                                       GError **error);
 
 gulong _nm_dbus_signal_connect_data (GDBusProxy *proxy,
@@ -318,16 +358,28 @@ GVariant *_nm_dbus_proxy_call_finish (GDBusProxy           *proxy,
                                       GError              **error);
 
 GVariant *_nm_dbus_proxy_call_sync   (GDBusProxy           *proxy,
-                                      const gchar          *method_name,
+                                      const char           *method_name,
                                       GVariant             *parameters,
                                       const GVariantType   *reply_type,
                                       GDBusCallFlags        flags,
-                                      gint                  timeout_msec,
+                                      int                   timeout_msec,
                                       GCancellable         *cancellable,
                                       GError              **error);
 
+GVariant * _nm_dbus_connection_call_finish (GDBusConnection *dbus_connection,
+                                            GAsyncResult *result,
+                                            const GVariantType *reply_type,
+                                            GError **error);
+
 gboolean _nm_dbus_error_has_name (GError     *error,
                                   const char *dbus_error_name);
+
+/*****************************************************************************/
+
+char *_nm_utils_ssid_to_string_arr (const guint8 *ssid, gsize len);
+char *_nm_utils_ssid_to_string (GBytes *ssid);
+char *_nm_utils_ssid_to_utf8 (GBytes *ssid);
+gboolean _nm_utils_is_empty_ssid (GBytes *ssid);
 
 /*****************************************************************************/
 
@@ -397,6 +449,11 @@ gboolean _nm_utils_generate_mac_address_mask_parse (const char *value,
 
 /*****************************************************************************/
 
+NMSettingIPConfig *nm_connection_get_setting_ip_config (NMConnection *connection,
+                                                        int addr_family);
+
+/*****************************************************************************/
+
 typedef enum {
 	NM_BOND_OPTION_TYPE_INT,
 	NM_BOND_OPTION_TYPE_STRING,
@@ -427,6 +484,8 @@ _nm_connection_get_uuid (NMConnection *connection)
 	return connection ? nm_connection_get_uuid (connection) : NULL;
 }
 
+NMConnectionMultiConnect _nm_connection_get_multi_connect (NMConnection *connection);
+
 /*****************************************************************************/
 
 typedef enum {
@@ -450,6 +509,30 @@ NMSettingBluetooth *_nm_connection_get_setting_bluetooth_for_nap (NMConnection *
 /*****************************************************************************/
 
 const char *nm_utils_inet_ntop (int addr_family, gconstpointer addr, char *dst);
+
+static inline char *
+nm_utils_inet4_ntop_dup (in_addr_t addr)
+{
+	char buf[NM_UTILS_INET_ADDRSTRLEN];
+
+	return g_strdup (nm_utils_inet4_ntop (addr, buf));
+}
+
+static inline char *
+nm_utils_inet6_ntop_dup (const struct in6_addr *addr)
+{
+	char buf[NM_UTILS_INET_ADDRSTRLEN];
+
+	return g_strdup (nm_utils_inet6_ntop (addr, buf));
+}
+
+static inline char *
+nm_utils_inet_ntop_dup (int addr_family, gconstpointer addr)
+{
+	char buf[NM_UTILS_INET_ADDRSTRLEN];
+
+	return g_strdup (nm_utils_inet_ntop (addr_family, addr, buf));
+}
 
 gboolean _nm_utils_inet6_is_token (const struct in6_addr *in6addr);
 
@@ -511,4 +594,181 @@ _nm_connection_type_is_master (const char *type)
 gboolean _nm_utils_dhcp_duid_valid (const char *duid, GBytes **out_duid_bin);
 
 /*****************************************************************************/
+
+gboolean _nm_setting_sriov_sort_vfs (NMSettingSriov *setting);
+
+/*****************************************************************************/
+
+typedef struct _NMSockAddrEndpoint NMSockAddrEndpoint;
+
+NMSockAddrEndpoint *nm_sock_addr_endpoint_new (const char *endpoint);
+
+NMSockAddrEndpoint *nm_sock_addr_endpoint_ref (NMSockAddrEndpoint *self);
+void nm_sock_addr_endpoint_unref (NMSockAddrEndpoint *self);
+
+const char *nm_sock_addr_endpoint_get_endpoint (NMSockAddrEndpoint *self);
+const char *nm_sock_addr_endpoint_get_host (NMSockAddrEndpoint *self);
+gint32 nm_sock_addr_endpoint_get_port (NMSockAddrEndpoint *self);
+
+gboolean nm_sock_addr_endpoint_get_fixed_sockaddr (NMSockAddrEndpoint *self,
+                                                   gpointer sockaddr);
+
+#define nm_auto_unref_sockaddrendpoint nm_auto(_nm_auto_unref_sockaddrendpoint)
+NM_AUTO_DEFINE_FCN0 (NMSockAddrEndpoint *, _nm_auto_unref_sockaddrendpoint, nm_sock_addr_endpoint_unref)
+
+/*****************************************************************************/
+
+NMSockAddrEndpoint *_nm_wireguard_peer_get_endpoint (const NMWireGuardPeer *self);
+void _nm_wireguard_peer_set_endpoint (NMWireGuardPeer *self,
+                                      NMSockAddrEndpoint *endpoint);
+
+void _nm_wireguard_peer_set_public_key_bin (NMWireGuardPeer *self,
+                                            const guint8 public_key[static NM_WIREGUARD_PUBLIC_KEY_LEN]);
+
+/*****************************************************************************/
+
+typedef struct _NMSettInfoSetting  NMSettInfoSetting;
+typedef struct _NMSettInfoProperty NMSettInfoProperty;
+
+typedef GVariant *(*NMSettingPropertyGetFunc)           (NMSetting     *setting,
+                                                         const char    *property);
+typedef GVariant *(*NMSettingPropertySynthFunc)         (const NMSettInfoSetting *sett_info,
+                                                         guint property_idx,
+                                                         NMConnection  *connection,
+                                                         NMSetting     *setting,
+                                                         NMConnectionSerializationFlags flags);
+typedef gboolean  (*NMSettingPropertySetFunc)           (NMSetting     *setting,
+                                                         GVariant      *connection_dict,
+                                                         const char    *property,
+                                                         GVariant      *value,
+                                                         NMSettingParseFlags parse_flags,
+                                                         GError       **error);
+typedef gboolean  (*NMSettingPropertyNotSetFunc)        (NMSetting     *setting,
+                                                         GVariant      *connection_dict,
+                                                         const char    *property,
+                                                         NMSettingParseFlags parse_flags,
+                                                         GError       **error);
+typedef GVariant *(*NMSettingPropertyTransformToFunc)   (const GValue *from);
+typedef void      (*NMSettingPropertyTransformFromFunc) (GVariant *from,
+                                                          GValue *to);
+
+struct _NMSettInfoProperty {
+	const char *name;
+	GParamSpec *param_spec;
+	const GVariantType *dbus_type;
+
+	NMSettingPropertyGetFunc           get_func;
+	NMSettingPropertySynthFunc         synth_func;
+	NMSettingPropertySetFunc           set_func;
+	NMSettingPropertyNotSetFunc        not_set_func;
+
+	NMSettingPropertyTransformToFunc   to_dbus;
+	NMSettingPropertyTransformFromFunc from_dbus;
+};
+
+typedef struct {
+	const GVariantType *(*get_variant_type) (const struct _NMSettInfoSetting *sett_info,
+	                                         const char *name,
+	                                         GError **error);
+} NMSettInfoSettGendata;
+
+typedef struct {
+	/* if set, then this setting class has no own fields. Instead, its
+	 * data is entirely based on gendata. Meaning: it tracks all data
+	 * as native GVariants.
+	 * It might have some GObject properties, but these are merely accessors
+	 * to the underlying gendata.
+	 *
+	 * Note, that at the moment there are few hooks, to customize the behavior
+	 * of the setting further. They are currently unneeded. This is desired,
+	 * but could be added when there is a good reason.
+	 *
+	 * However, a few hooks there are... see NMSettInfoSettGendata. */
+	const NMSettInfoSettGendata *gendata_info;
+} NMSettInfoSettDetail;
+
+struct _NMSettInfoSetting {
+	NMSettingClass *setting_class;
+
+	/* the properties, sorted by property name. */
+	const NMSettInfoProperty *property_infos;
+
+	/* the @property_infos list is sorted by property name. For some uses we need
+	 * a different sort order. If @property_infos_sorted is set, this is the order
+	 * instead. It is used for:
+	 *
+	 *   - nm_setting_enumerate_values()
+	 *   - keyfile writer adding keys to the group.
+	 *
+	 * Note that currently only NMSettingConnection implements here a sort order
+	 * that differs from alphabetical sort of the property names.
+	 */
+	const NMSettInfoProperty *const*property_infos_sorted;
+
+	guint property_infos_len;
+	NMSettInfoSettDetail detail;
+};
+
+static inline const NMSettInfoProperty *
+_nm_sett_info_property_info_get_sorted (const NMSettInfoSetting *sett_info,
+                                        guint idx)
+{
+	nm_assert (sett_info);
+	nm_assert (idx < sett_info->property_infos_len);
+	nm_assert (!sett_info->property_infos_sorted || sett_info->property_infos_sorted[idx]);
+
+	return   sett_info->property_infos_sorted
+	       ? sett_info->property_infos_sorted[idx]
+	       : &sett_info->property_infos[idx];
+}
+
+const NMSettInfoProperty *_nm_sett_info_setting_get_property_info (const NMSettInfoSetting *sett_info,
+                                                                   const char *property_name);
+
+const NMSettInfoSetting *_nm_setting_class_get_sett_info (NMSettingClass *setting_class);
+
+static inline const NMSettInfoProperty *
+_nm_setting_class_get_property_info (NMSettingClass *setting_class,
+                                     const char *property_name)
+{
+	return _nm_sett_info_setting_get_property_info (_nm_setting_class_get_sett_info (setting_class),
+	                                                property_name);
+}
+
+/*****************************************************************************/
+
+NMSetting8021xCKScheme _nm_setting_802_1x_cert_get_scheme (GBytes *bytes, GError **error);
+
+GBytes *_nm_setting_802_1x_cert_value_to_bytes (NMSetting8021xCKScheme scheme,
+                                                const guint8 *val_bin,
+                                                gssize val_len,
+                                                GError **error);
+
+/*****************************************************************************/
+
+GVariant *_nm_connection_for_each_secret (NMConnection *self,
+                                          GVariant *secrets,
+                                          gboolean remove_non_secrets,
+                                          _NMConnectionForEachSecretFunc callback,
+                                          gpointer callback_data);
+
+typedef gboolean (*NMConnectionFindSecretFunc) (NMSettingSecretFlags flags,
+                                                gpointer user_data);
+
+gboolean _nm_connection_find_secret (NMConnection *self,
+                                     GVariant *secrets,
+                                     NMConnectionFindSecretFunc callback,
+                                     gpointer callback_data);
+
+/*****************************************************************************/
+
+#define nm_auto_unref_wgpeer nm_auto(_nm_auto_unref_wgpeer)
+NM_AUTO_DEFINE_FCN0 (NMWireGuardPeer *, _nm_auto_unref_wgpeer, nm_wireguard_peer_unref)
+
+gboolean nm_utils_base64secret_normalize (const char *base64_key,
+                                          gsize required_key_len,
+                                          char **out_base64_key_norm);
+
+/*****************************************************************************/
+
 #endif

@@ -85,25 +85,20 @@ is_available (NMDevice *device, NMDeviceCheckDevAvailableFlags flags)
 }
 
 static gboolean
-check_connection_compatible (NMDevice *device, NMConnection *connection)
+check_connection_compatible (NMDevice *device, NMConnection *connection, GError **error)
 {
-	NMSettingConnection *s_con;
 	NMSettingOvsInterface *s_ovs_iface;
 
-	if (!NM_DEVICE_CLASS (nm_device_ovs_interface_parent_class)->check_connection_compatible (device, connection))
+	if (!NM_DEVICE_CLASS (nm_device_ovs_interface_parent_class)->check_connection_compatible (device, connection, error))
 		return FALSE;
 
 	s_ovs_iface = nm_connection_get_setting_ovs_interface (connection);
-	if (!s_ovs_iface)
-		return FALSE;
-	if (!NM_IN_STRSET (nm_setting_ovs_interface_get_interface_type (s_ovs_iface),
-	                   "internal", "patch")) {
-		return FALSE;
-	}
 
-	s_con = nm_connection_get_setting_connection (connection);
-	if (g_strcmp0 (nm_setting_connection_get_connection_type (s_con),
-	               NM_SETTING_OVS_INTERFACE_SETTING_NAME) != 0) {
+	if (!NM_IN_STRSET (nm_setting_ovs_interface_get_interface_type (s_ovs_iface),
+	                   "internal",
+	                   "patch")) {
+		nm_utils_error_set_literal (error, NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+		                            "unsupported OVS interface type in profile");
 		return FALSE;
 	}
 
@@ -126,48 +121,32 @@ link_changed (NMDevice *device,
 static gboolean
 _is_internal_interface (NMDevice *device)
 {
-	NMConnection *connection = nm_device_get_applied_connection (device);
-	NMSettingOvsInterface *s_ovs_iface = nm_connection_get_setting_ovs_interface (connection);
+	NMSettingOvsInterface *s_ovs_iface;
+
+	s_ovs_iface = nm_device_get_applied_setting (device, NM_TYPE_SETTING_OVS_INTERFACE);
 
 	g_return_val_if_fail (s_ovs_iface, FALSE);
 
-	return strcmp (nm_setting_ovs_interface_get_interface_type (s_ovs_iface), "internal") == 0;
+	return nm_streq (nm_setting_ovs_interface_get_interface_type (s_ovs_iface), "internal");
 }
 
 static NMActStageReturn
-act_stage3_ip4_config_start (NMDevice *device,
-                             NMIP4Config **out_config,
-                             NMDeviceStateReason *out_failure_reason)
+act_stage3_ip_config_start (NMDevice *device,
+                            int addr_family,
+                            gpointer *out_config,
+                            NMDeviceStateReason *out_failure_reason)
 {
 	NMDeviceOvsInterfacePrivate *priv = NM_DEVICE_OVS_INTERFACE_GET_PRIVATE (device);
 
 	if (!_is_internal_interface (device))
 		return NM_ACT_STAGE_RETURN_IP_FAIL;
 
-	if (!nm_device_get_ip_ifindex (device)) {
+	if (nm_device_get_ip_ifindex (device) <= 0) {
 		priv->waiting_for_interface = TRUE;
 		return NM_ACT_STAGE_RETURN_POSTPONE;
 	}
 
-	return NM_DEVICE_CLASS (nm_device_ovs_interface_parent_class)->act_stage3_ip4_config_start (device, out_config, out_failure_reason);
-}
-
-static NMActStageReturn
-act_stage3_ip6_config_start (NMDevice *device,
-                             NMIP6Config **out_config,
-                             NMDeviceStateReason *out_failure_reason)
-{
-	NMDeviceOvsInterfacePrivate *priv = NM_DEVICE_OVS_INTERFACE_GET_PRIVATE (device);
-
-	if (!_is_internal_interface (device))
-		return NM_ACT_STAGE_RETURN_IP_FAIL;
-
-	if (!nm_device_get_ip_ifindex (device)) {
-		priv->waiting_for_interface = TRUE;
-		return NM_ACT_STAGE_RETURN_POSTPONE;
-	}
-
-	return NM_DEVICE_CLASS (nm_device_ovs_interface_parent_class)->act_stage3_ip6_config_start (device, out_config, out_failure_reason);
+	return NM_DEVICE_CLASS (nm_device_ovs_interface_parent_class)->act_stage3_ip_config_start (device, addr_family, out_config, out_failure_reason);
 }
 
 static gboolean
@@ -199,18 +178,18 @@ nm_device_ovs_interface_class_init (NMDeviceOvsInterfaceClass *klass)
 	NMDBusObjectClass *dbus_object_class = NM_DBUS_OBJECT_CLASS (klass);
 	NMDeviceClass *device_class = NM_DEVICE_CLASS (klass);
 
-	NM_DEVICE_CLASS_DECLARE_TYPES (klass, NULL, NM_LINK_TYPE_OPENVSWITCH);
-
 	dbus_object_class->interface_infos = NM_DBUS_INTERFACE_INFOS (&interface_info_device_ovs_interface);
 
-	device_class->connection_type = NM_SETTING_OVS_INTERFACE_SETTING_NAME;
+	device_class->connection_type_supported = NM_SETTING_OVS_INTERFACE_SETTING_NAME;
+	device_class->connection_type_check_compatible = NM_SETTING_OVS_INTERFACE_SETTING_NAME;
+	device_class->link_types = NM_DEVICE_DEFINE_LINK_TYPES (NM_LINK_TYPE_OPENVSWITCH);
+
 	device_class->get_type_description = get_type_description;
 	device_class->create_and_realize = create_and_realize;
 	device_class->get_generic_capabilities = get_generic_capabilities;
 	device_class->is_available = is_available;
 	device_class->check_connection_compatible = check_connection_compatible;
 	device_class->link_changed = link_changed;
-	device_class->act_stage3_ip4_config_start = act_stage3_ip4_config_start;
-	device_class->act_stage3_ip6_config_start = act_stage3_ip6_config_start;
+	device_class->act_stage3_ip_config_start = act_stage3_ip_config_start;
 	device_class->can_unmanaged_external_down = can_unmanaged_external_down;
 }

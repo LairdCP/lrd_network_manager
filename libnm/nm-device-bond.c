@@ -20,12 +20,10 @@
 
 #include "nm-default.h"
 
-#include <string.h>
+#include "nm-setting-bond.h"
 
 #include "nm-setting-connection.h"
-#include "nm-setting-bond.h"
 #include "nm-utils.h"
-
 #include "nm-device-bond.h"
 #include "nm-object-private.h"
 #include "nm-core-internal.h"
@@ -86,7 +84,7 @@ nm_device_bond_get_carrier (NMDeviceBond *device)
  * nm_device_bond_get_slaves:
  * @device: a #NMDeviceBond
  *
- * Gets the devices currently slaved to @device.
+ * Gets the devices currently enslaved to @device.
  *
  * Returns: (element-type NMDevice): the #GPtrArray containing
  * #NMDevices that are slaves of @device. This is the internal
@@ -250,7 +248,7 @@ nm_device_bond_class_init (NMDeviceBondClass *bond_class)
 	/**
 	 * NMDeviceBond:slaves: (type GPtrArray(NMDevice))
 	 *
-	 * The devices slaved to the bond device.
+	 * The devices enslaved to the bond device.
 	 **/
 	g_object_class_install_property
 		(object_class, PROP_SLAVES,

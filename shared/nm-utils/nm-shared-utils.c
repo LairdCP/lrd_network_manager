@@ -23,10 +23,12 @@
 
 #include "nm-shared-utils.h"
 
-#include <errno.h>
 #include <arpa/inet.h>
 #include <poll.h>
 #include <fcntl.h>
+#include <sys/syscall.h>
+
+#include "nm-errno.h"
 
 /*****************************************************************************/
 
@@ -34,7 +36,116 @@ const void *const _NM_PTRARRAY_EMPTY[1] = { NULL };
 
 /*****************************************************************************/
 
-const NMIPAddr nm_ip_addr_zero = { 0 };
+const NMIPAddr nm_ip_addr_zero = { };
+
+/* this initializes a struct in_addr/in6_addr and allows for untrusted
+ * arguments (like unsuitable @addr_family or @src_len). It's almost safe
+ * in the sense that it verifies input arguments strictly. Also, it
+ * uses memcpy() to access @src, so alignment is not an issue.
+ *
+ * Only potential pitfalls:
+ *
+ * - it allows for @addr_family to be AF_UNSPEC. If that is the case (and the
+ *   caller allows for that), the caller MUST provide @out_addr_family.
+ * - when setting @dst to an IPv4 address, the trailing bytes are not touched.
+ *   Meaning, if @dst is an NMIPAddr union, only the first bytes will be set.
+ *   If that matter to you, clear @dst before. */
+gboolean
+nm_ip_addr_set_from_untrusted (int addr_family,
+                               gpointer dst,
+                               gconstpointer src,
+                               gsize src_len,
+                               int *out_addr_family)
+{
+	nm_assert (dst);
+
+	switch (addr_family) {
+	case AF_UNSPEC:
+		if (!out_addr_family) {
+			/* when the callers allow undefined @addr_family, they must provide
+			 * an @out_addr_family argument. */
+			nm_assert_not_reached ();
+			return FALSE;
+		}
+		switch (src_len) {
+		case sizeof (struct in_addr):  addr_family = AF_INET;  break;
+		case sizeof (struct in6_addr): addr_family = AF_INET6; break;
+		default:
+			return FALSE;
+		}
+		break;
+	case AF_INET:
+		if (src_len != sizeof (struct in_addr))
+			return FALSE;
+		break;
+	case AF_INET6:
+		if (src_len != sizeof (struct in6_addr))
+			return FALSE;
+		break;
+	default:
+		/* when the callers allow undefined @addr_family, they must provide
+		 * an @out_addr_family argument. */
+		nm_assert (out_addr_family);
+		return FALSE;
+	}
+
+	nm_assert (src);
+
+	memcpy (dst, src, src_len);
+	NM_SET_OUT (out_addr_family, addr_family);
+	return TRUE;
+}
+
+/*****************************************************************************/
+
+pid_t
+nm_utils_gettid (void)
+{
+	return (pid_t) syscall (SYS_gettid);
+}
+
+/* Used for asserting that this function is called on the main-thread.
+ * The main-thread is determined by remembering the thread-id
+ * of when the function was called the first time.
+ *
+ * When forking, the thread-id is again reset upon first call. */
+gboolean
+_nm_assert_on_main_thread (void)
+{
+	G_LOCK_DEFINE_STATIC (lock);
+	static pid_t seen_tid;
+	static pid_t seen_pid;
+	pid_t tid;
+	pid_t pid;
+	gboolean success = FALSE;
+
+	tid = nm_utils_gettid ();
+	nm_assert (tid != 0);
+
+	G_LOCK (lock);
+
+	if (G_LIKELY (tid == seen_tid)) {
+		/* we don't care about false positives (when the process forked, and the thread-id
+		 * is accidentally re-used) . It's for assertions only. */
+		success = TRUE;
+	} else {
+		pid = getpid ();
+		nm_assert (pid != 0);
+
+		if (   seen_tid == 0
+			|| seen_pid != pid) {
+			/* either this is the first time we call the function, or the process
+			 * forked. In both cases, remember the thread-id. */
+			seen_tid = tid;
+			seen_pid = pid;
+			success = TRUE;
+		}
+	}
+
+	G_UNLOCK (lock);
+
+	return success;
+}
 
 /*****************************************************************************/
 
@@ -54,6 +165,41 @@ nm_utils_strbuf_append_c (char **buf, gsize *len, char c)
 		(*buf)[1] = '\0';
 		(*len)--;
 		(*buf)++;
+		return;
+	}
+}
+
+void
+nm_utils_strbuf_append_bin (char **buf, gsize *len, gconstpointer str, gsize str_len)
+{
+	switch (*len) {
+	case 0:
+		return;
+	case 1:
+		if (str_len == 0) {
+			(*buf)[0] = '\0';
+			return;
+		}
+		(*buf)[0] = '\0';
+		*len = 0;
+		(*buf)++;
+		return;
+	default:
+		if (str_len == 0) {
+			(*buf)[0] = '\0';
+			return;
+		}
+		if (str_len >= *len) {
+			memcpy (*buf, str, *len - 1);
+			(*buf)[*len - 1] = '\0';
+			*buf = &(*buf)[*len];
+			*len = 0;
+		} else {
+			memcpy (*buf, str, str_len);
+			*buf = &(*buf)[str_len];
+			(*buf)[0] = '\0';
+			*len -= str_len;
+		}
 		return;
 	}
 }
@@ -97,7 +243,7 @@ nm_utils_strbuf_append (char **buf, gsize *len, const char *format, ...)
 {
 	char *p = *buf;
 	va_list args;
-	gint retval;
+	int retval;
 
 	if (*len == 0)
 		return;
@@ -106,13 +252,138 @@ nm_utils_strbuf_append (char **buf, gsize *len, const char *format, ...)
 	retval = g_vsnprintf (p, *len, format, args);
 	va_end (args);
 
-	if (retval >= *len) {
+	if ((gsize) retval >= *len) {
 		*buf = &p[*len];
 		*len = 0;
 	} else {
 		*buf = &p[retval];
 		*len -= retval;
 	}
+}
+
+/**
+ * nm_utils_strbuf_seek_end:
+ * @buf: the input/output buffer
+ * @len: the input/output length of the buffer.
+ *
+ * Commonly, one uses nm_utils_strbuf_append*(), to incrementally
+ * append strings to the buffer. However, sometimes we need to use
+ * existing API to write to the buffer.
+ * After doing so, we want to adjust the buffer counter.
+ * Essentially,
+ *
+ *   g_snprintf (buf, len, ...);
+ *   nm_utils_strbuf_seek_end (&buf, &len);
+ *
+ * is almost the same as
+ *
+ *   nm_utils_strbuf_append (&buf, &len, ...);
+ *
+ * The only difference is the behavior when the string got truncated:
+ * nm_utils_strbuf_append() will recognize that and set the remaining
+ * length to zero.
+ *
+ * In general, the behavior is:
+ *
+ *  - if *len is zero, do nothing
+ *  - if the buffer contains a NUL byte within the first *len characters,
+ *    the buffer is pointed to the NUL byte and len is adjusted. In this
+ *    case, the remaining *len is always >= 1.
+ *    In particular, that is also the case if the NUL byte is at the very last
+ *    position ((*buf)[*len -1]). That happens, when the previous operation
+ *    either fit the string exactly into the buffer or the string was truncated
+ *    by g_snprintf(). The difference cannot be determined.
+ *  - if the buffer contains no NUL bytes within the first *len characters,
+ *    write NUL at the last position, set *len to zero, and point *buf past
+ *    the NUL byte. This would happen with
+ *
+ *       strncpy (buf, long_str, len);
+ *       nm_utils_strbuf_seek_end (&buf, &len).
+ *
+ *    where strncpy() does truncate the string and not NUL terminate it.
+ *    nm_utils_strbuf_seek_end() would then NUL terminate it.
+ */
+void
+nm_utils_strbuf_seek_end (char **buf, gsize *len)
+{
+	gsize l;
+	char *end;
+
+	nm_assert (len);
+	nm_assert (buf && *buf);
+
+	if (*len <= 1) {
+		if (   *len == 1
+		    && (*buf)[0])
+			goto truncate;
+		return;
+	}
+
+	end = memchr (*buf, 0, *len);
+	if (end) {
+		l = end - *buf;
+		nm_assert (l < *len);
+
+		*buf = end;
+		*len -= l;
+		return;
+	}
+
+truncate:
+	/* hm, no NUL character within len bytes.
+	 * Just NUL terminate the array and consume them
+	 * all. */
+	*buf += *len;
+	(*buf)[-1] = '\0';
+	*len = 0;
+	return;
+}
+
+/*****************************************************************************/
+
+/**
+ * nm_utils_gbytes_equals:
+ * @bytes: (allow-none): a #GBytes array to compare. Note that
+ *   %NULL is treated like an #GBytes array of length zero.
+ * @mem_data: the data pointer with @mem_len bytes
+ * @mem_len: the length of the data pointer
+ *
+ * Returns: %TRUE if @bytes contains the same data as @mem_data. As a
+ *   special case, a %NULL @bytes is treated like an empty array.
+ */
+gboolean
+nm_utils_gbytes_equal_mem (GBytes *bytes,
+                           gconstpointer mem_data,
+                           gsize mem_len)
+{
+	gconstpointer p;
+	gsize l;
+
+	if (!bytes) {
+		/* as a special case, let %NULL GBytes compare idential
+		 * to an empty array. */
+		return (mem_len == 0);
+	}
+
+	p = g_bytes_get_data (bytes, &l);
+	return    l == mem_len
+	       && (   mem_len == 0 /* allow @mem_data to be %NULL */
+	           || memcmp (p, mem_data, mem_len) == 0);
+}
+
+GVariant *
+nm_utils_gbytes_to_variant_ay (GBytes *bytes)
+{
+	const guint8 *p;
+	gsize l;
+
+	if (!bytes) {
+		/* for convenience, accept NULL to return an empty variant */
+		return g_variant_new_array (G_VARIANT_TYPE_BYTE, NULL, 0);
+	}
+
+	p = g_bytes_get_data (bytes, &l);
+	return g_variant_new_fixed_array (G_VARIANT_TYPE_BYTE, p, l, 1);
 }
 
 /*****************************************************************************/
@@ -334,34 +605,25 @@ nm_utils_ip_is_site_local (int addr_family,
 gboolean
 nm_utils_parse_inaddr_bin (int addr_family,
                            const char *text,
+                           int *out_addr_family,
                            gpointer out_addr)
 {
 	NMIPAddr addrbin;
 
 	g_return_val_if_fail (text, FALSE);
 
-	if (addr_family == AF_UNSPEC)
+	if (addr_family == AF_UNSPEC) {
+		g_return_val_if_fail (!out_addr || out_addr_family, FALSE);
 		addr_family = strchr (text, ':') ? AF_INET6 : AF_INET;
-	else
+	} else
 		g_return_val_if_fail (NM_IN_SET (addr_family, AF_INET, AF_INET6), FALSE);
 
-	/* use a temporary variable @addrbin, to guarantee that @out_addr
-	 * is only modified on success. */
 	if (inet_pton (addr_family, text, &addrbin) != 1)
 		return FALSE;
 
-	if (out_addr) {
-		switch (addr_family) {
-		case AF_INET:
-			*((in_addr_t *) out_addr) = addrbin.addr4;
-			break;
-		case AF_INET6:
-			*((struct in6_addr *) out_addr) = addrbin.addr6;
-			break;
-		default:
-			nm_assert_not_reached ();
-		}
-	}
+	NM_SET_OUT (out_addr_family, addr_family);
+	if (out_addr)
+		nm_ip_addr_set (addr_family, out_addr, &addrbin);
 	return TRUE;
 }
 
@@ -373,9 +635,7 @@ nm_utils_parse_inaddr (int addr_family,
 	NMIPAddr addrbin;
 	char addrstr_buf[MAX (INET_ADDRSTRLEN, INET6_ADDRSTRLEN)];
 
-	nm_assert (!out_addr || !*out_addr);
-
-	if (!nm_utils_parse_inaddr_bin (addr_family, text, &addrbin))
+	if (!nm_utils_parse_inaddr_bin (addr_family, text, &addr_family, &addrbin))
 		return FALSE;
 	NM_SET_OUT (out_addr, g_strdup (inet_ntop (addr_family, &addrbin, addrstr_buf, sizeof (addrstr_buf))));
 	return TRUE;
@@ -384,6 +644,7 @@ nm_utils_parse_inaddr (int addr_family,
 gboolean
 nm_utils_parse_inaddr_prefix_bin (int addr_family,
                                   const char *text,
+                                  int *out_addr_family,
                                   gpointer out_addr,
                                   int *out_prefix)
 {
@@ -392,19 +653,14 @@ nm_utils_parse_inaddr_prefix_bin (int addr_family,
 	const char *slash;
 	const char *addrstr;
 	NMIPAddr addrbin;
-	int addr_len;
 
 	g_return_val_if_fail (text, FALSE);
 
-	if (addr_family == AF_UNSPEC)
+	if (addr_family == AF_UNSPEC) {
+		g_return_val_if_fail (!out_addr || out_addr_family, FALSE);
 		addr_family = strchr (text, ':') ? AF_INET6 : AF_INET;
-
-	if (addr_family == AF_INET)
-		addr_len = sizeof (in_addr_t);
-	else if (addr_family == AF_INET6)
-		addr_len = sizeof (struct in6_addr);
-	else
-		g_return_val_if_reached (FALSE);
+	} else
+		g_return_val_if_fail (NM_IN_SET (addr_family, AF_INET, AF_INET6), FALSE);
 
 	slash = strchr (text, '/');
 	if (slash)
@@ -416,6 +672,8 @@ nm_utils_parse_inaddr_prefix_bin (int addr_family,
 		return FALSE;
 
 	if (slash) {
+		/* For IPv4, `ip addr add` supports the prefix-length as a netmask. We don't
+		 * do that. */
 		prefix = _nm_utils_ascii_str_to_int64 (slash + 1, 10,
 		                                       0,
 		                                       addr_family == AF_INET ? 32 : 128,
@@ -424,8 +682,9 @@ nm_utils_parse_inaddr_prefix_bin (int addr_family,
 			return FALSE;
 	}
 
+	NM_SET_OUT (out_addr_family, addr_family);
 	if (out_addr)
-		memcpy (out_addr, &addrbin, addr_len);
+		nm_ip_addr_set (addr_family, out_addr, &addrbin);
 	NM_SET_OUT (out_prefix, prefix);
 	return TRUE;
 }
@@ -439,7 +698,7 @@ nm_utils_parse_inaddr_prefix (int addr_family,
 	NMIPAddr addrbin;
 	char addrstr_buf[MAX (INET_ADDRSTRLEN, INET6_ADDRSTRLEN)];
 
-	if (!nm_utils_parse_inaddr_prefix_bin (addr_family, text, &addrbin, out_prefix))
+	if (!nm_utils_parse_inaddr_prefix_bin (addr_family, text, &addr_family, &addrbin, out_prefix))
 		return FALSE;
 	NM_SET_OUT (out_addr, g_strdup (inet_ntop (addr_family, &addrbin, addrstr_buf, sizeof (addrstr_buf))));
 	return TRUE;
@@ -490,6 +749,50 @@ _nm_utils_ascii_str_to_int64 (const char *str, guint base, gint64 min, gint64 ma
 		}
 	}
 	if (v > max || v < min) {
+		errno = ERANGE;
+		return fallback;
+	}
+
+	return v;
+}
+
+guint64
+_nm_utils_ascii_str_to_uint64 (const char *str, guint base, guint64 min, guint64 max, guint64 fallback)
+{
+	guint64 v;
+	const char *s = NULL;
+
+	if (str) {
+		while (g_ascii_isspace (str[0]))
+			str++;
+	}
+	if (!str || !str[0]) {
+		errno = EINVAL;
+		return fallback;
+	}
+
+	errno = 0;
+	v = g_ascii_strtoull (str, (char **) &s, base);
+
+	if (errno != 0)
+		return fallback;
+	if (s[0] != '\0') {
+		while (g_ascii_isspace (s[0]))
+			s++;
+		if (s[0] != '\0') {
+			errno = EINVAL;
+			return fallback;
+		}
+	}
+	if (v > max || v < min) {
+		errno = ERANGE;
+		return fallback;
+	}
+
+	if (   v != 0
+	    && str[0] == '-') {
+		/* I don't know why, but g_ascii_strtoull() accepts minus signs ("-2" gives 18446744073709551614).
+		 * For "-0" that is OK, but otherwise not. */
 		errno = ERANGE;
 		return fallback;
 	}
@@ -656,6 +959,7 @@ comp_l:
  * @str: the string to split.
  * @delimiters: the set of delimiters. If %NULL, defaults to " \t\n",
  *   like bash's $IFS.
+ * @allow_escaping: whether delimiters can be escaped by a backslash
  *
  * This is a replacement for g_strsplit_set() which avoids copying
  * each word once (the entire strv array), but instead copies it once
@@ -663,6 +967,10 @@ comp_l:
  *
  * Another difference from g_strsplit_set() is that this never returns
  * empty words. Multiple delimiters are combined and treated as one.
+ *
+ * If @allow_escaping is %TRUE, delimiters prefixed by a backslash are
+ * not treated as a separator. Such delimiters and their escape
+ * character are copied to the current word without unescaping them.
  *
  * Returns: %NULL if @str is %NULL or contains only delimiters.
  *   Otherwise, a %NULL terminated strv array containing non-empty
@@ -673,7 +981,7 @@ comp_l:
  *   but free everything with g_free().
  */
 const char **
-nm_utils_strsplit_set (const char *str, const char *delimiters)
+nm_utils_strsplit_set (const char *str, const char *delimiters, gboolean allow_escaping)
 {
 	const char **ptr, **ptr0;
 	gsize alloc_size, plen, i;
@@ -681,6 +989,7 @@ nm_utils_strsplit_set (const char *str, const char *delimiters)
 	char *s0;
 	char *s;
 	guint8 delimiters_table[256];
+	gboolean escaped = FALSE;
 
 	if (!str)
 		return NULL;
@@ -692,13 +1001,23 @@ nm_utils_strsplit_set (const char *str, const char *delimiters)
 	for (i = 0; delimiters[i]; i++)
 		delimiters_table[(guint8) delimiters[i]] = 1;
 
-#define _is_delimiter(ch, delimiters_table) \
-	((delimiters_table)[(guint8) (ch)] != 0)
+#define _is_delimiter(ch, delimiters_table, allow_esc, esc) \
+	((delimiters_table)[(guint8) (ch)] != 0 && (!allow_esc || !esc))
+
+#define next_char(p, esc) \
+	G_STMT_START { \
+		if (esc) \
+			esc = FALSE; \
+		else \
+			esc = p[0] == '\\'; \
+		p++; \
+	} G_STMT_END
 
 	/* skip initial delimiters, and return of the remaining string is
 	 * empty. */
-	while (_is_delimiter (str[0], delimiters_table))
-		str++;
+	while (_is_delimiter (str[0], delimiters_table, allow_escaping, escaped))
+		next_char (str, escaped);
+
 	if (!str[0])
 		return NULL;
 
@@ -730,20 +1049,20 @@ nm_utils_strsplit_set (const char *str, const char *delimiters)
 
 		ptr[plen++] = s;
 
-		nm_assert (s[0] && !_is_delimiter (s[0], delimiters_table));
+		nm_assert (s[0] && !_is_delimiter (s[0], delimiters_table, allow_escaping, escaped));
 
 		while (TRUE) {
-			s++;
-			if (_is_delimiter (s[0], delimiters_table))
+			next_char (s, escaped);
+			if (_is_delimiter (s[0], delimiters_table, allow_escaping, escaped))
 				break;
 			if (s[0] == '\0')
 				goto done;
 		}
 
 		s[0] = '\0';
-		s++;
-		while (_is_delimiter (s[0], delimiters_table))
-			s++;
+		next_char (s, escaped);
+		while (_is_delimiter (s[0], delimiters_table, allow_escaping, escaped))
+			next_char (s, escaped);
 		if (s[0] == '\0')
 			break;
 	}
@@ -840,9 +1159,9 @@ _nm_utils_strv_cleanup (char **strv,
 
 /*****************************************************************************/
 
-gint
+int
 _nm_utils_ascii_str_to_bool (const char *str,
-                             gint default_value)
+                             int default_value)
 {
 	gsize len;
 	char *s = NULL;
@@ -896,11 +1215,24 @@ nm_utils_error_is_cancelled (GError *error,
                              gboolean consider_is_disposing)
 {
 	if (error) {
-		if (g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
-			return TRUE;
-		if (   consider_is_disposing
-		    && g_error_matches (error, NM_UTILS_ERROR, NM_UTILS_ERROR_CANCELLED_DISPOSING))
-			return TRUE;
+		if (error->domain == G_IO_ERROR)
+			return NM_IN_SET (error->code, G_IO_ERROR_CANCELLED);
+		if (consider_is_disposing) {
+			if (error->domain == NM_UTILS_ERROR)
+				return NM_IN_SET (error->code, NM_UTILS_ERROR_CANCELLED_DISPOSING);
+		}
+	}
+	return FALSE;
+}
+
+gboolean
+nm_utils_error_is_notfound (GError *error)
+{
+	if (error) {
+		if (error->domain == G_IO_ERROR)
+			return NM_IN_SET (error->code, G_IO_ERROR_NOT_FOUND);
+		if (error->domain == G_FILE_ERROR)
+			return NM_IN_SET (error->code, G_FILE_ERROR_NOENT);
 	}
 	return FALSE;
 }
@@ -924,7 +1256,7 @@ nm_utils_error_is_cancelled (GError *error,
  */
 gboolean
 nm_g_object_set_property (GObject *object,
-                          const gchar  *property_name,
+                          const char *property_name,
                           const GValue *value,
                           GError **error)
 {
@@ -997,30 +1329,136 @@ nm_g_object_set_property (GObject *object,
 	return TRUE;
 }
 
+#define _set_property(object, property_name, gtype, gtype_set, value, error) \
+	G_STMT_START { \
+		nm_auto_unset_gvalue GValue gvalue = { 0 }; \
+		\
+		g_value_init (&gvalue, gtype); \
+		gtype_set (&gvalue, (value)); \
+		return nm_g_object_set_property ((object), (property_name), &gvalue, (error)); \
+	} G_STMT_END
+
+gboolean
+nm_g_object_set_property_string (GObject *object,
+                                 const char *property_name,
+                                 const char *value,
+                                 GError **error)
+{
+	_set_property (object, property_name, G_TYPE_STRING, g_value_set_string, value, error);
+}
+
+gboolean
+nm_g_object_set_property_string_static (GObject *object,
+                                        const char *property_name,
+                                        const char *value,
+                                        GError **error)
+{
+	_set_property (object, property_name, G_TYPE_STRING, g_value_set_static_string, value, error);
+}
+
+gboolean
+nm_g_object_set_property_string_take (GObject *object,
+                                      const char *property_name,
+                                      char *value,
+                                      GError **error)
+{
+	_set_property (object, property_name, G_TYPE_STRING, g_value_take_string, value, error);
+}
+
 gboolean
 nm_g_object_set_property_boolean (GObject *object,
-                                  const gchar  *property_name,
+                                  const char *property_name,
                                   gboolean value,
                                   GError **error)
 {
-	nm_auto_unset_gvalue GValue gvalue = { 0 };
+	_set_property (object, property_name, G_TYPE_BOOLEAN, g_value_set_boolean, !!value, error);
+}
 
-	g_value_init (&gvalue, G_TYPE_BOOLEAN);
-	g_value_set_boolean (&gvalue, !!value);
-	return nm_g_object_set_property (object, property_name, &gvalue, error);
+gboolean
+nm_g_object_set_property_char (GObject *object,
+                               const char *property_name,
+                               gint8 value,
+                               GError **error)
+{
+	/* glib says about G_TYPE_CHAR:
+	 *
+	 * The type designated by G_TYPE_CHAR is unconditionally an 8-bit signed integer.
+	 *
+	 * This is always a (signed!) char. */
+	_set_property (object, property_name, G_TYPE_CHAR, g_value_set_schar, value, error);
+}
+
+gboolean
+nm_g_object_set_property_uchar (GObject *object,
+                                const char *property_name,
+                                guint8 value,
+                                GError **error)
+{
+	_set_property (object, property_name, G_TYPE_UCHAR, g_value_set_uchar, value, error);
+}
+
+gboolean
+nm_g_object_set_property_int (GObject *object,
+                              const char *property_name,
+                              int value,
+                              GError **error)
+{
+	_set_property (object, property_name, G_TYPE_INT, g_value_set_int, value, error);
+}
+
+gboolean
+nm_g_object_set_property_int64 (GObject *object,
+                                const char *property_name,
+                                gint64 value,
+                                GError **error)
+{
+	_set_property (object, property_name, G_TYPE_INT64, g_value_set_int64, value, error);
 }
 
 gboolean
 nm_g_object_set_property_uint (GObject *object,
-                               const gchar  *property_name,
+                               const char *property_name,
                                guint value,
                                GError **error)
 {
-	nm_auto_unset_gvalue GValue gvalue = { 0 };
+	_set_property (object, property_name, G_TYPE_UINT, g_value_set_uint, value, error);
+}
 
-	g_value_init (&gvalue, G_TYPE_UINT);
-	g_value_set_uint (&gvalue, value);
-	return nm_g_object_set_property (object, property_name, &gvalue, error);
+gboolean
+nm_g_object_set_property_uint64 (GObject *object,
+                                 const char *property_name,
+                                 guint64 value,
+                                 GError **error)
+{
+	_set_property (object, property_name, G_TYPE_UINT64, g_value_set_uint64, value, error);
+}
+
+gboolean
+nm_g_object_set_property_flags (GObject *object,
+                                const char *property_name,
+                                GType gtype,
+                                guint value,
+                                GError **error)
+{
+	nm_assert (({
+	                nm_auto_unref_gtypeclass GTypeClass *gtypeclass = g_type_class_ref (gtype);
+	                G_IS_FLAGS_CLASS (gtypeclass);
+	           }));
+	_set_property (object, property_name, gtype, g_value_set_flags, value, error);
+}
+
+gboolean
+nm_g_object_set_property_enum (GObject *object,
+                               const char *property_name,
+                               GType gtype,
+                               int value,
+                               GError **error)
+{
+	nm_assert (({
+	                nm_auto_unref_gtypeclass GTypeClass *gtypeclass = g_type_class_ref (gtype);
+	                G_IS_ENUM_CLASS (gtypeclass);
+	           }));
+	_set_property (object, property_name, gtype, g_value_set_enum, value, error);
 }
 
 GParamSpec *
@@ -1035,6 +1473,53 @@ nm_g_object_class_find_property_from_gtype (GType gtype,
 
 /*****************************************************************************/
 
+/**
+ * nm_g_type_find_implementing_class_for_property:
+ * @gtype: the GObject type which has a property @pname
+ * @pname: the name of the property to look up
+ *
+ * This is only a helper function for printf debugging. It's not
+ * used in actual code. Hence, the function just asserts that
+ * @pname and @gtype arguments are suitable. It cannot fail.
+ *
+ * Returns: the most ancestor type of @gtype, that
+ *   implements the property @pname. It means, it
+ *   searches the type hierarchy to find the type
+ *   that added @pname.
+ */
+GType
+nm_g_type_find_implementing_class_for_property (GType gtype,
+                                                const char *pname)
+{
+	nm_auto_unref_gtypeclass GObjectClass *klass = NULL;
+	GParamSpec *pspec;
+
+	g_return_val_if_fail (pname, G_TYPE_INVALID);
+
+	klass = g_type_class_ref (gtype);
+	g_return_val_if_fail (G_IS_OBJECT_CLASS (klass), G_TYPE_INVALID);
+
+	pspec = g_object_class_find_property (klass, pname);
+	g_return_val_if_fail (pspec, G_TYPE_INVALID);
+
+	gtype = G_TYPE_FROM_CLASS (klass);
+
+	while (TRUE) {
+		nm_auto_unref_gtypeclass GObjectClass *k = NULL;
+
+		k = g_type_class_ref (g_type_parent (gtype));
+
+		g_return_val_if_fail (G_IS_OBJECT_CLASS (k), G_TYPE_INVALID);
+
+		if (g_object_class_find_property (k, pname) != pspec)
+			return gtype;
+
+		gtype = G_TYPE_FROM_CLASS (k);
+	}
+}
+
+/*****************************************************************************/
+
 static void
 _str_append_escape (GString *s, char ch)
 {
@@ -1042,6 +1527,231 @@ _str_append_escape (GString *s, char ch)
 	g_string_append_c (s, '0' + ((((guchar) ch) >> 6) & 07));
 	g_string_append_c (s, '0' + ((((guchar) ch) >> 3) & 07));
 	g_string_append_c (s, '0' + ( ((guchar) ch)       & 07));
+}
+
+gconstpointer
+nm_utils_buf_utf8safe_unescape (const char *str, gsize *out_len, gpointer *to_free)
+{
+	GString *gstr;
+	gsize len;
+	const char *s;
+
+	g_return_val_if_fail (to_free, NULL);
+	g_return_val_if_fail (out_len, NULL);
+
+	if (!str) {
+		*out_len = 0;
+		*to_free = NULL;
+		return NULL;
+	}
+
+	len = strlen (str);
+
+	s = memchr (str, '\\', len);
+	if (!s) {
+		*out_len = len;
+		*to_free = NULL;
+		return str;
+	}
+
+	gstr = g_string_new_len (NULL, len);
+
+	g_string_append_len (gstr, str, s - str);
+	str = s;
+
+	for (;;) {
+		char ch;
+		guint v;
+
+		nm_assert (str[0] == '\\');
+
+		ch = (++str)[0];
+
+		if (ch == '\0') {
+			// error. Trailing '\\'
+			break;
+		}
+
+		if (ch >= '0' && ch <= '9') {
+			v = ch - '0';
+			ch = (++str)[0];
+			if (ch >= '0' && ch <= '7') {
+				v = v * 8 + (ch - '0');
+				ch = (++str)[0];
+				if (ch >= '0' && ch <= '7') {
+					v = v * 8 + (ch - '0');
+					++str;
+				}
+			}
+			ch = v;
+		} else {
+			switch (ch) {
+			case 'b': ch = '\b'; break;
+			case 'f': ch = '\f'; break;
+			case 'n': ch = '\n'; break;
+			case 'r': ch = '\r'; break;
+			case 't': ch = '\t'; break;
+			case 'v': ch = '\v'; break;
+			default:
+				/* Here we handle "\\\\", but all other unexpected escape sequences are really a bug.
+				 * Take them literally, after removing the escape character */
+				break;
+			}
+			str++;
+		}
+
+		g_string_append_c (gstr, ch);
+
+		s = strchr (str, '\\');
+		if (!s) {
+			g_string_append (gstr, str);
+			break;
+		}
+
+		g_string_append_len (gstr, str, s - str);
+		str = s;
+	}
+
+	*out_len = gstr->len;
+	*to_free = gstr->str;
+	return g_string_free (gstr, FALSE);
+}
+
+/**
+ * nm_utils_buf_utf8safe_escape:
+ * @buf: byte array, possibly in utf-8 encoding, may have NUL characters.
+ * @buflen: the length of @buf in bytes, or -1 if @buf is a NUL terminated
+ *   string.
+ * @flags: #NMUtilsStrUtf8SafeFlags flags
+ * @to_free: (out): return the pointer location of the string
+ *   if a copying was necessary.
+ *
+ * Based on the assumption, that @buf contains UTF-8 encoded bytes,
+ * this will return valid UTF-8 sequence, and invalid sequences
+ * will be escaped with backslash (C escaping, like g_strescape()).
+ * This is sanitize non UTF-8 characters. The result is valid
+ * UTF-8.
+ *
+ * The operation can be reverted with nm_utils_buf_utf8safe_unescape().
+ * Note that if, and only if @buf contains no NUL bytes, the operation
+ * can also be reverted with g_strcompress().
+ *
+ * Depending on @flags, valid UTF-8 characters are not escaped at all
+ * (except the escape character '\\'). This is the difference to g_strescape(),
+ * which escapes all non-ASCII characters. This allows to pass on
+ * valid UTF-8 characters as-is and can be directly shown to the user
+ * as UTF-8 -- with exception of the backslash escape character,
+ * invalid UTF-8 sequences, and other (depending on @flags).
+ *
+ * Returns: the escaped input buffer, as valid UTF-8. If no escaping
+ *   is necessary, it returns the input @buf. Otherwise, an allocated
+ *   string @to_free is returned which must be freed by the caller
+ *   with g_free. The escaping can be reverted by g_strcompress().
+ **/
+const char *
+nm_utils_buf_utf8safe_escape (gconstpointer buf, gssize buflen, NMUtilsStrUtf8SafeFlags flags, char **to_free)
+{
+	const char *const str = buf;
+	const char *p = NULL;
+	const char *s;
+	gboolean nul_terminated = FALSE;
+	GString *gstr;
+
+	g_return_val_if_fail (to_free, NULL);
+
+	*to_free = NULL;
+
+	if (buflen == 0)
+		return NULL;
+
+	if (buflen < 0) {
+		if (!str)
+			return NULL;
+		buflen = strlen (str);
+		if (buflen == 0)
+			return str;
+		nul_terminated = TRUE;
+	}
+
+	if (   g_utf8_validate (str, buflen, &p)
+	    && nul_terminated) {
+		/* note that g_utf8_validate() does not allow NUL character inside @str. Good.
+		 * We can treat @str like a NUL terminated string. */
+		if (!NM_STRCHAR_ANY (str, ch,
+		                        (   ch == '\\' \
+		                         || (   NM_FLAGS_HAS (flags, NM_UTILS_STR_UTF8_SAFE_FLAG_ESCAPE_CTRL) \
+		                             && ch < ' ') \
+		                         || (   NM_FLAGS_HAS (flags, NM_UTILS_STR_UTF8_SAFE_FLAG_ESCAPE_NON_ASCII) \
+		                             && ((guchar) ch) >= 127))))
+			return str;
+	}
+
+	gstr = g_string_sized_new (buflen + 5);
+
+	s = str;
+	do {
+		buflen -= p - s;
+		nm_assert (buflen >= 0);
+
+		for (; s < p; s++) {
+			char ch = s[0];
+
+			if (ch == '\\')
+				g_string_append (gstr, "\\\\");
+			else if (   (   NM_FLAGS_HAS (flags, NM_UTILS_STR_UTF8_SAFE_FLAG_ESCAPE_CTRL) \
+			             && ch < ' ') \
+			         || (   NM_FLAGS_HAS (flags, NM_UTILS_STR_UTF8_SAFE_FLAG_ESCAPE_NON_ASCII) \
+			             && ((guchar) ch) >= 127))
+				_str_append_escape (gstr, ch);
+			else
+				g_string_append_c (gstr, ch);
+		}
+
+		if (buflen <= 0)
+			break;
+
+		_str_append_escape (gstr, p[0]);
+
+		buflen--;
+		if (buflen == 0)
+			break;
+
+		s = &p[1];
+		g_utf8_validate (s, buflen, &p);
+	} while (TRUE);
+
+	*to_free = g_string_free (gstr, FALSE);
+	return *to_free;
+}
+
+const char *
+nm_utils_buf_utf8safe_escape_bytes (GBytes *bytes, NMUtilsStrUtf8SafeFlags flags, char **to_free)
+{
+	gconstpointer p;
+	gsize l;
+
+	if (bytes)
+		p = g_bytes_get_data (bytes, &l);
+	else {
+		p = NULL;
+		l = 0;
+	}
+
+	return nm_utils_buf_utf8safe_escape (p, l, flags, to_free);
+}
+
+/*****************************************************************************/
+
+const char *
+nm_utils_str_utf8safe_unescape (const char *str, char **to_free)
+{
+	g_return_val_if_fail (to_free, NULL);
+
+	if (!str || !strchr (str, '\\')) {
+		*to_free = NULL;
+		return str;
+	}
+	return (*to_free = g_strcompress (str));
 }
 
 /**
@@ -1074,63 +1784,7 @@ _str_append_escape (GString *s, char ch)
 const char *
 nm_utils_str_utf8safe_escape (const char *str, NMUtilsStrUtf8SafeFlags flags, char **to_free)
 {
-	const char *p = NULL;
-	GString *s;
-
-	g_return_val_if_fail (to_free, NULL);
-
-	*to_free = NULL;
-	if (!str || !str[0])
-		return str;
-
-	if (   g_utf8_validate (str, -1, &p)
-	    && !NM_STRCHAR_ANY (str, ch,
-	                        (   ch == '\\' \
-	                         || (   NM_FLAGS_HAS (flags, NM_UTILS_STR_UTF8_SAFE_FLAG_ESCAPE_CTRL) \
-	                             && ch < ' ') \
-	                         || (   NM_FLAGS_HAS (flags, NM_UTILS_STR_UTF8_SAFE_FLAG_ESCAPE_NON_ASCII) \
-	                             && ((guchar) ch) >= 127))))
-		return str;
-
-	s = g_string_sized_new ((p - str) + strlen (p) + 5);
-
-	do {
-		for (; str < p; str++) {
-			char ch = str[0];
-
-			if (ch == '\\')
-				g_string_append (s, "\\\\");
-			else if (   (   NM_FLAGS_HAS (flags, NM_UTILS_STR_UTF8_SAFE_FLAG_ESCAPE_CTRL) \
-			             && ch < ' ') \
-			         || (   NM_FLAGS_HAS (flags, NM_UTILS_STR_UTF8_SAFE_FLAG_ESCAPE_NON_ASCII) \
-			             && ((guchar) ch) >= 127))
-				_str_append_escape (s, ch);
-			else
-				g_string_append_c (s, ch);
-		}
-
-		if (p[0] == '\0')
-			break;
-		_str_append_escape (s, p[0]);
-
-		str = &p[1];
-		g_utf8_validate (str, -1, &p);
-	} while (TRUE);
-
-	*to_free = g_string_free (s, FALSE);
-	return *to_free;
-}
-
-const char *
-nm_utils_str_utf8safe_unescape (const char *str, char **to_free)
-{
-	g_return_val_if_fail (to_free, NULL);
-
-	if (!str || !strchr (str, '\\')) {
-		*to_free = NULL;
-		return str;
-	}
-	return (*to_free = g_strcompress (str));
+	return nm_utils_buf_utf8safe_escape (str, -1, flags, to_free);
 }
 
 /**
@@ -1197,7 +1851,7 @@ nm_utils_fd_wait_for_event (int fd, int event, gint64 timeout_ns)
 
 	r = ppoll (&pollfd, 1, pts, NULL);
 	if (r < 0)
-		return -errno;
+		return -NM_ERRNO_NATIVE (errno);
 	if (r == 0)
 		return 0;
 	return pollfd.revents;
@@ -1224,10 +1878,12 @@ nm_utils_fd_read_loop (int fd, void *buf, size_t nbytes, bool do_poll)
 
 		k = read (fd, p, nbytes);
 		if (k < 0) {
-			if (errno == EINTR)
+			int errsv = errno;
+
+			if (errsv == EINTR)
 				continue;
 
-			if (errno == EAGAIN && do_poll) {
+			if (errsv == EAGAIN && do_poll) {
 
 				/* We knowingly ignore any return value here,
 				 * and expect that any error/EOF is reported
@@ -1237,7 +1893,7 @@ nm_utils_fd_read_loop (int fd, void *buf, size_t nbytes, bool do_poll)
 				continue;
 			}
 
-			return n > 0 ? n : -errno;
+			return n > 0 ? n : -NM_ERRNO_NATIVE (errsv);
 		}
 
 		if (k == 0)
@@ -1350,6 +2006,209 @@ nm_utils_strv_make_deep_copied (const char **strv)
 
 /*****************************************************************************/
 
+gssize
+nm_utils_ptrarray_find_binary_search (gconstpointer *list,
+                                      gsize len,
+                                      gconstpointer needle,
+                                      GCompareDataFunc cmpfcn,
+                                      gpointer user_data,
+                                      gssize *out_idx_first,
+                                      gssize *out_idx_last)
+{
+	gssize imin, imax, imid, i2min, i2max, i2mid;
+	int cmp;
+
+	g_return_val_if_fail (list || !len, ~((gssize) 0));
+	g_return_val_if_fail (cmpfcn, ~((gssize) 0));
+
+	imin = 0;
+	if (len > 0) {
+		imax = len - 1;
+
+		while (imin <= imax) {
+			imid = imin + (imax - imin) / 2;
+
+			cmp = cmpfcn (list[imid], needle, user_data);
+			if (cmp == 0) {
+				/* we found a matching entry at index imid.
+				 *
+				 * Does the caller request the first/last index as well (in case that
+				 * there are multiple entries which compare equal). */
+
+				if (out_idx_first) {
+					i2min = imin;
+					i2max = imid + 1;
+					while (i2min <= i2max) {
+						i2mid = i2min + (i2max - i2min) / 2;
+
+						cmp = cmpfcn (list[i2mid], needle, user_data);
+						if (cmp == 0)
+							i2max = i2mid -1;
+						else {
+							nm_assert (cmp < 0);
+							i2min = i2mid + 1;
+						}
+					}
+					*out_idx_first = i2min;
+				}
+				if (out_idx_last) {
+					i2min = imid + 1;
+					i2max = imax;
+					while (i2min <= i2max) {
+						i2mid = i2min + (i2max - i2min) / 2;
+
+						cmp = cmpfcn (list[i2mid], needle, user_data);
+						if (cmp == 0)
+							i2min = i2mid + 1;
+						else {
+							nm_assert (cmp > 0);
+							i2max = i2mid - 1;
+						}
+					}
+					*out_idx_last = i2min - 1;
+				}
+				return imid;
+			}
+
+			if (cmp < 0)
+				imin = imid + 1;
+			else
+				imax = imid - 1;
+		}
+	}
+
+	/* return the inverse of @imin. This is a negative number, but
+	 * also is ~imin the position where the value should be inserted. */
+	imin = ~imin;
+	NM_SET_OUT (out_idx_first, imin);
+	NM_SET_OUT (out_idx_last, imin);
+	return imin;
+}
+
+/*****************************************************************************/
+
+/**
+ * nm_utils_array_find_binary_search:
+ * @list: the list to search. It must be sorted according to @cmpfcn ordering.
+ * @elem_size: the size in bytes of each element in the list
+ * @len: the number of elements in @list
+ * @needle: the value that is searched
+ * @cmpfcn: the compare function. The elements @list are passed as first
+ *   argument to @cmpfcn, while @needle is passed as second. Usually, the
+ *   needle is the same data type as inside the list, however, that is
+ *   not necessary, as long as @cmpfcn takes care to cast the two arguments
+ *   accordingly.
+ * @user_data: optional argument passed to @cmpfcn
+ *
+ * Performs binary search for @needle in @list. On success, returns the
+ * (non-negative) index where the compare function found the searched element.
+ * On success, it returns a negative value. Note that the return negative value
+ * is the bitwise inverse of the position where the element should be inserted.
+ *
+ * If the list contains multiple matching elements, an arbitrary index is
+ * returned.
+ *
+ * Returns: the index to the element in the list, or the (negative, bitwise inverted)
+ *   position where it should be.
+ */
+gssize
+nm_utils_array_find_binary_search (gconstpointer list,
+                                   gsize elem_size,
+                                   gsize len,
+                                   gconstpointer needle,
+                                   GCompareDataFunc cmpfcn,
+                                   gpointer user_data)
+{
+	gssize imin, imax, imid;
+	int cmp;
+
+	g_return_val_if_fail (list || !len, ~((gssize) 0));
+	g_return_val_if_fail (cmpfcn, ~((gssize) 0));
+	g_return_val_if_fail (elem_size > 0, ~((gssize) 0));
+
+	imin = 0;
+	if (len == 0)
+		return ~imin;
+
+	imax = len - 1;
+
+	while (imin <= imax) {
+		imid = imin + (imax - imin) / 2;
+
+		cmp = cmpfcn (&((const char *) list)[elem_size * imid], needle, user_data);
+		if (cmp == 0)
+			return imid;
+
+		if (cmp < 0)
+			imin = imid + 1;
+		else
+			imax = imid - 1;
+	}
+
+	/* return the inverse of @imin. This is a negative number, but
+	 * also is ~imin the position where the value should be inserted. */
+	return ~imin;
+}
+
+/*****************************************************************************/
+
+/**
+ * nm_utils_hash_table_equal:
+ * @a: one #GHashTable
+ * @b: other #GHashTable
+ * @treat_null_as_empty: if %TRUE, when either @a or @b is %NULL, it is
+ *   treated like an empty hash. It means, a %NULL hash will compare equal
+ *   to an empty hash.
+ * @equal_func: the equality function, for comparing the values.
+ *   If %NULL, the values are not compared. In that case, the function
+ *   only checks, if both dictionaries have the same keys -- according
+ *   to @b's key equality function.
+ *   Note that the values of @a will be passed as first argument
+ *   to @equal_func.
+ *
+ * Compares two hash tables, whether they have equal content.
+ * This only makes sense, if @a and @b have the same key types and
+ * the same key compare-function.
+ *
+ * Returns: %TRUE, if both dictionaries have the same content.
+ */
+gboolean
+nm_utils_hash_table_equal (const GHashTable *a,
+                           const GHashTable *b,
+                           gboolean treat_null_as_empty,
+                           NMUtilsHashTableEqualFunc equal_func)
+{
+	guint n;
+	GHashTableIter iter;
+	gconstpointer key, v_a, v_b;
+
+	if (a == b)
+		return TRUE;
+	if (!treat_null_as_empty) {
+		if (!a || !b)
+			return FALSE;
+	}
+
+	n = a ? g_hash_table_size ((GHashTable *) a) : 0;
+	if (n != (b ? g_hash_table_size ((GHashTable *) b) : 0))
+		return FALSE;
+
+	if (n > 0) {
+		g_hash_table_iter_init (&iter, (GHashTable *) a);
+		while (g_hash_table_iter_next (&iter, (gpointer *) &key, (gpointer *) &v_a)) {
+			if (!g_hash_table_lookup_extended ((GHashTable *) b, key, NULL, (gpointer *) &v_b))
+				return FALSE;
+			if (   equal_func
+			    && !equal_func (v_a, v_b))
+				return FALSE;
+		}
+	}
+
+	return TRUE;
+}
+
+/*****************************************************************************/
+
 /**
  * nm_utils_get_start_time_for_pid:
  * @pid: the process identifier
@@ -1369,10 +2228,10 @@ nm_utils_get_start_time_for_pid (pid_t pid, char *out_state, pid_t *out_ppid)
 {
 	guint64 start_time;
 	char filename[256];
-	gs_free gchar *contents = NULL;
+	gs_free char *contents = NULL;
 	size_t length;
 	gs_free const char **tokens = NULL;
-	gchar *p;
+	char *p;
 	char state = ' ';
 	gint64 ppid = 0;
 
@@ -1399,7 +2258,7 @@ nm_utils_get_start_time_for_pid (pid_t pid, char *out_state, pid_t *out_ppid)
 
 	state = p[0];
 
-	tokens = nm_utils_strsplit_set (p, " ");
+	tokens = nm_utils_strsplit_set (p, " ", FALSE);
 
 	if (NM_PTRARRAY_LEN (tokens) < 20)
 		goto fail;
@@ -1498,4 +2357,385 @@ _nm_utils_user_data_unpack (gpointer user_data, int nargs, ...)
 	va_end (ap);
 
 	g_slice_free1 (((gsize) nargs) * sizeof (gconstpointer), user_data);
+}
+
+/*****************************************************************************/
+
+#define IS_SPACE(c) NM_IN_SET ((c), ' ', '\t')
+
+const char *
+_nm_utils_escape_spaces (const char *str, char **to_free)
+{
+	const char *ptr = str;
+	char *ret, *r;
+
+	*to_free = NULL;
+
+	if (!str)
+		return NULL;
+
+	while (TRUE) {
+		if (!*ptr)
+			return str;
+		if (IS_SPACE (*ptr))
+			break;
+		ptr++;
+	}
+
+	ptr = str;
+	ret = g_new (char, strlen (str) * 2 + 1);
+	r = ret;
+	*to_free = ret;
+	while (*ptr) {
+		if (IS_SPACE (*ptr))
+			*r++ = '\\';
+		*r++ = *ptr++;
+	}
+	*r = '\0';
+
+	return ret;
+}
+
+char *
+_nm_utils_unescape_spaces (char *str)
+{
+	guint i, j = 0;
+
+	if (!str)
+		return NULL;
+
+	for (i = 0; str[i]; i++) {
+		if (str[i] == '\\' && IS_SPACE (str[i+1]))
+			i++;
+		str[j++] = str[i];
+	}
+	str[j] = '\0';
+
+	return str;
+}
+
+#undef IS_SPACE
+
+/*****************************************************************************/
+
+typedef struct {
+	gpointer callback_user_data;
+	GCancellable *cancellable;
+	NMUtilsInvokeOnIdleCallback callback;
+	gulong cancelled_id;
+	guint idle_id;
+} InvokeOnIdleData;
+
+static gboolean
+_nm_utils_invoke_on_idle_cb_idle (gpointer user_data)
+{
+	InvokeOnIdleData *data = user_data;
+
+	data->idle_id = 0;
+	nm_clear_g_signal_handler (data->cancellable, &data->cancelled_id);
+
+	data->callback (data->callback_user_data, data->cancellable);
+	nm_g_object_unref (data->cancellable);
+	g_slice_free (InvokeOnIdleData, data);
+	return G_SOURCE_REMOVE;
+}
+
+static void
+_nm_utils_invoke_on_idle_cb_cancelled (GCancellable *cancellable,
+                                       InvokeOnIdleData *data)
+{
+	/* on cancellation, we invoke the callback synchronously. */
+	nm_clear_g_signal_handler (data->cancellable, &data->cancelled_id);
+	nm_clear_g_source (&data->idle_id);
+	data->callback (data->callback_user_data, data->cancellable);
+	nm_g_object_unref (data->cancellable);
+	g_slice_free (InvokeOnIdleData, data);
+}
+
+void
+nm_utils_invoke_on_idle (NMUtilsInvokeOnIdleCallback callback,
+                         gpointer callback_user_data,
+                         GCancellable *cancellable)
+{
+	InvokeOnIdleData *data;
+
+	g_return_if_fail (callback);
+
+	data = g_slice_new (InvokeOnIdleData);
+	data->callback = callback;
+	data->callback_user_data = callback_user_data;
+	data->cancellable = nm_g_object_ref (cancellable);
+	if (   cancellable
+	    && !g_cancellable_is_cancelled (cancellable)) {
+		/* if we are passed a non-cancelled cancellable, we register to the "cancelled"
+		 * signal an invoke the callback synchronously (from the signal handler).
+		 *
+		 * We don't do that,
+		 *  - if the cancellable is already cancelled (because we don't want to invoke
+		 *    the callback synchronously from the caller).
+		 *  - if we have no cancellable at hand. */
+		data->cancelled_id = g_signal_connect (cancellable,
+		                                       "cancelled",
+		                                       G_CALLBACK (_nm_utils_invoke_on_idle_cb_cancelled),
+		                                       data);
+	} else
+		data->cancelled_id = 0;
+	data->idle_id = g_idle_add (_nm_utils_invoke_on_idle_cb_idle, data);
+}
+
+/*****************************************************************************/
+
+int
+nm_utils_getpagesize (void)
+{
+	static volatile int val = 0;
+	long l;
+	int v;
+
+	v = g_atomic_int_get (&val);
+
+	if (G_UNLIKELY (v == 0)) {
+		l = sysconf (_SC_PAGESIZE);
+
+		g_return_val_if_fail (l > 0 && l < G_MAXINT, 4*1024);
+
+		v = (int) l;
+		if (!g_atomic_int_compare_and_exchange (&val, 0, v)) {
+			v = g_atomic_int_get (&val);
+			g_return_val_if_fail (v > 0, 4*1024);
+		}
+	}
+
+	nm_assert (v > 0);
+#if NM_MORE_ASSERTS > 5
+	nm_assert (v == getpagesize ());
+	nm_assert (v == sysconf (_SC_PAGESIZE));
+#endif
+
+	return v;
+}
+
+gboolean
+nm_utils_memeqzero (gconstpointer data, gsize length)
+{
+	const unsigned char *p = data;
+	int len;
+
+	/* Taken from https://github.com/rustyrussell/ccan/blob/9d2d2c49f053018724bcc6e37029da10b7c3d60d/ccan/mem/mem.c#L92,
+	 * CC-0 licensed. */
+
+	/* Check first 16 bytes manually */
+	for (len = 0; len < 16; len++) {
+		if (!length)
+			return TRUE;
+		if (*p)
+			return FALSE;
+		p++;
+		length--;
+	}
+
+	/* Now we know that's zero, memcmp with self. */
+	return memcmp (data, p, length) == 0;
+}
+
+/**
+ * nm_utils_bin2hexstr_full:
+ * @addr: pointer of @length bytes. If @length is zero, this may
+ *   also be %NULL.
+ * @length: number of bytes in @addr. May also be zero, in which
+ *   case this will return an empty string.
+ * @delimiter: either '\0', otherwise the output string will have the
+ *   given delimiter character between each two hex numbers.
+ * @upper_case: if TRUE, use upper case ASCII characters for hex.
+ * @out: if %NULL, the function will allocate a new buffer of
+ *   either (@length*2+1) or (@length*3) bytes, depending on whether
+ *   a @delimiter is specified. In that case, the allocated buffer will
+ *   be returned and must be freed by the caller.
+ *   If not %NULL, the buffer must already be preallocated and contain
+ *   at least (@length*2+1) or (@length*3) bytes, depending on the delimiter.
+ *
+ * Returns: the binary value converted to a hex string. If @out is given,
+ *   this always returns @out. If @out is %NULL, a newly allocated string
+ *   is returned.
+ */
+char *
+nm_utils_bin2hexstr_full (gconstpointer addr,
+                          gsize length,
+                          char delimiter,
+                          gboolean upper_case,
+                          char *out)
+{
+	const guint8 *in = addr;
+	const char *LOOKUP = upper_case ? "0123456789ABCDEF" : "0123456789abcdef";
+	char *out0;
+
+	if (out)
+		out0 = out;
+	else {
+		out0 = out = g_new (char, delimiter == '\0'
+		                          ? length * 2 + 1
+		                          : length * 3);
+	}
+
+	/* @out must contain at least @length*3 bytes if @delimiter is set,
+	 * otherwise, @length*2+1. */
+
+	if (length > 0) {
+		nm_assert (in);
+		for (;;) {
+			const guint8 v = *in++;
+
+			*out++ = LOOKUP[v >> 4];
+			*out++ = LOOKUP[v & 0x0F];
+			length--;
+			if (!length)
+				break;
+			if (delimiter)
+				*out++ = delimiter;
+		}
+	}
+
+	*out = '\0';
+	return out0;
+}
+
+guint8 *
+nm_utils_hexstr2bin_full (const char *hexstr,
+                          gboolean allow_0x_prefix,
+                          gboolean delimiter_required,
+                          const char *delimiter_candidates,
+                          gsize required_len,
+                          guint8 *buffer,
+                          gsize buffer_len,
+                          gsize *out_len)
+{
+	const char *in = hexstr;
+	guint8 *out = buffer;
+	gboolean delimiter_has = TRUE;
+	guint8 delimiter = '\0';
+	gsize len;
+
+	nm_assert (hexstr);
+	nm_assert (buffer);
+	nm_assert (required_len > 0 || out_len);
+
+	if (   allow_0x_prefix
+	    && in[0] == '0'
+	    && in[1] == 'x')
+		in += 2;
+
+	while (TRUE) {
+		const guint8 d1 = in[0];
+		guint8 d2;
+		int i1, i2;
+
+		i1 = nm_utils_hexchar_to_int (d1);
+		if (i1 < 0)
+			goto fail;
+
+		/* If there's no leading zero (ie "aa:b:cc") then fake it */
+		d2 = in[1];
+		if (   d2
+		    && (i2 = nm_utils_hexchar_to_int (d2)) >= 0) {
+			*out++ = (i1 << 4) + i2;
+			d2 = in[2];
+			if (!d2)
+				break;
+			in += 2;
+		} else {
+			/* Fake leading zero */
+			*out++ = i1;
+			if (!d2) {
+				if (!delimiter_has) {
+					/* when using no delimiter, there must be pairs of hex chars */
+					goto fail;
+				}
+				break;
+			}
+			in += 1;
+		}
+
+		if (--buffer_len == 0)
+			goto fail;
+
+		if (delimiter_has) {
+			if (d2 != delimiter) {
+				if (delimiter)
+					goto fail;
+				if (delimiter_candidates) {
+					while (delimiter_candidates[0]) {
+						if (delimiter_candidates++[0] == d2)
+							delimiter = d2;
+					}
+				}
+				if (!delimiter) {
+					if (delimiter_required)
+						goto fail;
+					delimiter_has = FALSE;
+					continue;
+				}
+			}
+			in++;
+		}
+	}
+
+	len = out - buffer;
+	if (   required_len == 0
+	    || len == required_len) {
+		NM_SET_OUT (out_len, len);
+		return buffer;
+	}
+
+fail:
+	NM_SET_OUT (out_len, 0);
+	return NULL;
+}
+
+guint8 *
+nm_utils_hexstr2bin_alloc (const char *hexstr,
+                           gboolean allow_0x_prefix,
+                           gboolean delimiter_required,
+                           const char *delimiter_candidates,
+                           gsize required_len,
+                           gsize *out_len)
+{
+	guint8 *buffer;
+	gsize buffer_len, len;
+
+	g_return_val_if_fail (hexstr, NULL);
+
+	nm_assert (required_len > 0 || out_len);
+
+	if (   allow_0x_prefix
+	    && hexstr[0] == '0'
+	    && hexstr[1] == 'x')
+		hexstr += 2;
+
+	if (!hexstr[0])
+		goto fail;
+
+	if (required_len > 0)
+		buffer_len = required_len;
+	else
+		buffer_len = strlen (hexstr) / 2 + 3;
+
+	buffer = g_malloc (buffer_len);
+
+	if (nm_utils_hexstr2bin_full (hexstr,
+	                              FALSE,
+	                              delimiter_required,
+	                              delimiter_candidates,
+	                              required_len,
+	                              buffer,
+	                              buffer_len,
+	                              &len)) {
+		NM_SET_OUT (out_len, len);
+		return buffer;
+	}
+
+	g_free (buffer);
+
+fail:
+	NM_SET_OUT (out_len, 0);
+	return NULL;
 }

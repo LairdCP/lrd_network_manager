@@ -61,41 +61,63 @@ static gboolean
 check_connection_available (NMDevice *device,
                             NMConnection *connection,
                             NMDeviceCheckConAvailableFlags flags,
-                            const char *specific_object)
+                            const char *specific_object,
+                            GError **error)
 {
 	NMSettingBluetooth *s_bt;
 
-	if (!NM_DEVICE_CLASS (nm_device_bridge_parent_class)->check_connection_available (device, connection, flags, specific_object))
+	if (!NM_DEVICE_CLASS (nm_device_bridge_parent_class)->check_connection_available (device, connection, flags, specific_object, error))
 		return FALSE;
 
 	s_bt = _nm_connection_get_setting_bluetooth_for_nap (connection);
 	if (s_bt) {
-		return    nm_bt_vtable_network_server
-		       && nm_bt_vtable_network_server->is_available (nm_bt_vtable_network_server,
-		                                                     nm_setting_bluetooth_get_bdaddr (s_bt));
+		const char *bdaddr;
+
+		if (!nm_bt_vtable_network_server) {
+			nm_utils_error_set_literal (error, NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+			                            "bluetooth plugin not available to activate NAP profile");
+			return FALSE;
+		}
+
+		bdaddr = nm_setting_bluetooth_get_bdaddr (s_bt);
+		if (!nm_bt_vtable_network_server->is_available (nm_bt_vtable_network_server, bdaddr)) {
+			if (bdaddr)
+				nm_utils_error_set (error, NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+				                    "not suitable NAP device \"%s\" available", bdaddr);
+			else
+				nm_utils_error_set_literal (error, NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+				                            "not suitable NAP device available");
+			return FALSE;
+		}
 	}
 
 	return TRUE;
 }
 
 static gboolean
-check_connection_compatible (NMDevice *device, NMConnection *connection)
+check_connection_compatible (NMDevice *device, NMConnection *connection, GError **error)
 {
 	NMSettingBridge *s_bridge;
 	const char *mac_address;
 
-	if (!NM_DEVICE_CLASS (nm_device_bridge_parent_class)->check_connection_compatible (device, connection))
+	if (!NM_DEVICE_CLASS (nm_device_bridge_parent_class)->check_connection_compatible (device, connection, error))
 		return FALSE;
 
-	s_bridge = nm_connection_get_setting_bridge (connection);
-	if (!s_bridge)
-		return FALSE;
+	if (   nm_connection_is_type (connection, NM_SETTING_BLUETOOTH_SETTING_NAME)
+	    && _nm_connection_get_setting_bluetooth_for_nap (connection)) {
+		s_bridge = nm_connection_get_setting_bridge (connection);
+		if (!s_bridge) {
+			nm_utils_error_set_literal (error, NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+			                            "missing bridge setting for bluetooth NAP profile");
+			return FALSE;
+		}
 
-	if (!nm_connection_is_type (connection, NM_SETTING_BRIDGE_SETTING_NAME)) {
-		if (   nm_connection_is_type (connection, NM_SETTING_BLUETOOTH_SETTING_NAME)
-		    && _nm_connection_get_setting_bluetooth_for_nap (connection)) {
-			/* a bluetooth NAP connection is handled by the bridge */
-		} else
+		/* a bluetooth NAP connection is handled by the bridge.
+		 *
+		 * Proceed... */
+	} else {
+		s_bridge = _nm_connection_check_main_setting (connection, NM_SETTING_BRIDGE_SETTING_NAME, error);
+		if (!s_bridge)
 			return FALSE;
 	}
 
@@ -104,8 +126,11 @@ check_connection_compatible (NMDevice *device, NMConnection *connection)
 		const char *hw_addr;
 
 		hw_addr = nm_device_get_hw_address (device);
-		if (!hw_addr || !nm_utils_hwaddr_matches (hw_addr, -1, mac_address, -1))
+		if (!hw_addr || !nm_utils_hwaddr_matches (hw_addr, -1, mac_address, -1)) {
+			nm_utils_error_set_literal (error, NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+			                            "mac address mismatches");
 			return FALSE;
+		}
 	}
 
 	return TRUE;
@@ -143,26 +168,52 @@ complete_connection (NMDevice *device,
 typedef struct {
 	const char *name;
 	const char *sysname;
-	gboolean default_if_zero;
-	gboolean user_hz_compensate;
+	uint nm_min;
+	uint nm_max;
+	uint nm_default;
+	bool default_if_zero;
+	bool user_hz_compensate;
+	bool only_with_stp;
 } Option;
 
 static const Option master_options[] = {
-	{ NM_SETTING_BRIDGE_STP, "stp_state", FALSE, FALSE },
-	{ NM_SETTING_BRIDGE_PRIORITY, "priority", TRUE, FALSE },
-	{ NM_SETTING_BRIDGE_FORWARD_DELAY, "forward_delay", TRUE, TRUE },
-	{ NM_SETTING_BRIDGE_HELLO_TIME, "hello_time", TRUE, TRUE },
-	{ NM_SETTING_BRIDGE_MAX_AGE, "max_age", TRUE, TRUE },
-	{ NM_SETTING_BRIDGE_AGEING_TIME, "ageing_time", TRUE, TRUE },
-	{ NM_SETTING_BRIDGE_GROUP_FORWARD_MASK, "group_fwd_mask", TRUE, FALSE },
-	{ NM_SETTING_BRIDGE_MULTICAST_SNOOPING, "multicast_snooping", FALSE, FALSE },
+	{ NM_SETTING_BRIDGE_STP,                "stp_state", /* this must stay as the first item */
+	                                        0, 1, 1,
+	                                        FALSE, FALSE, FALSE },
+	{ NM_SETTING_BRIDGE_PRIORITY,           "priority",
+	                                        0, G_MAXUINT16, 0x8000,
+	                                        TRUE, FALSE, TRUE },
+	{ NM_SETTING_BRIDGE_FORWARD_DELAY,      "forward_delay",
+	                                        0, NM_BR_MAX_FORWARD_DELAY, 15,
+	                                        TRUE, TRUE, TRUE},
+	{ NM_SETTING_BRIDGE_HELLO_TIME,         "hello_time",
+	                                        0, NM_BR_MAX_HELLO_TIME, 2,
+	                                        TRUE, TRUE, TRUE },
+	{ NM_SETTING_BRIDGE_MAX_AGE,            "max_age",
+	                                        0, NM_BR_MAX_MAX_AGE, 20,
+	                                        TRUE, TRUE, TRUE },
+	{ NM_SETTING_BRIDGE_AGEING_TIME,        "ageing_time",
+	                                        NM_BR_MIN_AGEING_TIME, NM_BR_MAX_AGEING_TIME, 300,
+	                                        TRUE, TRUE, FALSE },
+	{ NM_SETTING_BRIDGE_GROUP_FORWARD_MASK, "group_fwd_mask",
+	                                        0, 0xFFFF, 0,
+	                                        TRUE, FALSE, FALSE },
+	{ NM_SETTING_BRIDGE_MULTICAST_SNOOPING, "multicast_snooping",
+	                                        0, 1, 1,
+	                                        FALSE, FALSE, FALSE },
 	{ NULL, NULL }
 };
 
 static const Option slave_options[] = {
-	{ NM_SETTING_BRIDGE_PORT_PRIORITY, "priority", TRUE, FALSE },
-	{ NM_SETTING_BRIDGE_PORT_PATH_COST, "path_cost", TRUE, FALSE },
-	{ NM_SETTING_BRIDGE_PORT_HAIRPIN_MODE, "hairpin_mode", FALSE, FALSE },
+	{ NM_SETTING_BRIDGE_PORT_PRIORITY,     "priority",
+	                                       0, NM_BR_PORT_MAX_PRIORITY, NM_BR_PORT_DEF_PRIORITY,
+	                                       TRUE, FALSE },
+	{ NM_SETTING_BRIDGE_PORT_PATH_COST,    "path_cost",
+	                                       0, NM_BR_PORT_MAX_PATH_COST, 100,
+	                                       TRUE, FALSE },
+	{ NM_SETTING_BRIDGE_PORT_HAIRPIN_MODE, "hairpin_mode",
+	                                       0, 1, 0,
+	                                       FALSE, FALSE },
 	{ NULL, NULL }
 };
 
@@ -250,23 +301,43 @@ update_connection (NMDevice *device, NMConnection *connection)
 	NMSettingBridge *s_bridge = nm_connection_get_setting_bridge (connection);
 	int ifindex = nm_device_get_ifindex (device);
 	const Option *option;
+	gs_free char *stp = NULL;
+	int stp_value;
 
 	if (!s_bridge) {
 		s_bridge = (NMSettingBridge *) nm_setting_bridge_new ();
 		nm_connection_add_setting (connection, (NMSetting *) s_bridge);
 	}
 
-	for (option = master_options; option->name; option++) {
+	option = master_options;
+	nm_assert (nm_streq (option->sysname, "stp_state"));
+
+	stp = nm_platform_sysctl_master_get_option (nm_device_get_platform (device), ifindex, option->sysname);
+	stp_value = _nm_utils_ascii_str_to_int64 (stp, 10, option->nm_min, option->nm_max, option->nm_default);
+	g_object_set (s_bridge, option->name, stp_value, NULL);
+	option++;
+
+	for (; option->name; option++) {
 		gs_free char *str = nm_platform_sysctl_master_get_option (nm_device_get_platform (device), ifindex, option->sysname);
-		int value;
+		uint value;
+
+		if (!stp_value && option->only_with_stp)
+			continue;
 
 		if (str) {
-			value = strtol (str, NULL, 10);
-
 			/* See comments in set_sysfs_uint() about centiseconds. */
-			if (option->user_hz_compensate)
+			if (option->user_hz_compensate) {
+				value = _nm_utils_ascii_str_to_int64 (str, 10,
+				                                      option->nm_min * 100,
+				                                      option->nm_max * 100,
+				                                      option->nm_default * 100);
 				value /= 100;
-
+			} else {
+				value = _nm_utils_ascii_str_to_int64 (str, 10,
+				                                      option->nm_min,
+				                                      option->nm_max,
+				                                      option->nm_default);
+			}
 			g_object_set (s_bridge, option->name, value, NULL);
 		} else
 			_LOGW (LOGD_BRIDGE, "failed to read bridge setting '%s'", option->sysname);
@@ -297,15 +368,22 @@ master_update_slave_connection (NMDevice *device,
 
 	for (option = slave_options; option->name; option++) {
 		gs_free char *str = nm_platform_sysctl_slave_get_option (nm_device_get_platform (device), ifindex_slave, option->sysname);
-		int value;
+		uint value;
 
 		if (str) {
-			value = strtol (str, NULL, 10);
-
 			/* See comments in set_sysfs_uint() about centiseconds. */
-			if (option->user_hz_compensate)
+			if (option->user_hz_compensate) {
+				value = _nm_utils_ascii_str_to_int64 (str, 10,
+				                                      option->nm_min * 100,
+				                                      option->nm_max * 100,
+				                                      option->nm_default * 100);
 				value /= 100;
-
+			} else {
+				value = _nm_utils_ascii_str_to_int64 (str, 10,
+				                                      option->nm_min,
+				                                      option->nm_max,
+				                                      option->nm_default);
+			}
 			g_object_set (s_port, option->name, value, NULL);
 		} else
 			_LOGW (LOGD_BRIDGE, "failed to read bridge port setting '%s'", option->sysname);
@@ -434,7 +512,7 @@ create_and_realize (NMDevice *device,
 	const char *hwaddr;
 	gs_free char *hwaddr_cloned = NULL;
 	guint8 mac_address[NM_UTILS_HWADDR_LEN_MAX];
-	NMPlatformError plerr;
+	int r;
 
 	nm_assert (iface);
 
@@ -461,17 +539,17 @@ create_and_realize (NMDevice *device,
 		}
 	}
 
-	plerr = nm_platform_link_bridge_add (nm_device_get_platform (device),
-	                                     iface,
-	                                     hwaddr ? mac_address : NULL,
-	                                     hwaddr ? ETH_ALEN : 0,
-	                                     out_plink);
-	if (plerr != NM_PLATFORM_ERROR_SUCCESS) {
+	r = nm_platform_link_bridge_add (nm_device_get_platform (device),
+	                                 iface,
+	                                 hwaddr ? mac_address : NULL,
+	                                 hwaddr ? ETH_ALEN : 0,
+	                                 out_plink);
+	if (r < 0) {
 		g_set_error (error, NM_DEVICE_ERROR, NM_DEVICE_ERROR_CREATION_FAILED,
 		             "Failed to create bridge interface '%s' for '%s': %s",
 		             iface,
 		             nm_connection_get_id (connection),
-		             nm_platform_error_to_string_a (plerr));
+		             nm_strerror (r));
 		return FALSE;
 	}
 
@@ -505,28 +583,29 @@ static void
 nm_device_bridge_class_init (NMDeviceBridgeClass *klass)
 {
 	NMDBusObjectClass *dbus_object_class = NM_DBUS_OBJECT_CLASS (klass);
-	NMDeviceClass *parent_class = NM_DEVICE_CLASS (klass);
-
-	NM_DEVICE_CLASS_DECLARE_TYPES (klass, NM_SETTING_BRIDGE_SETTING_NAME, NM_LINK_TYPE_BRIDGE)
+	NMDeviceClass *device_class = NM_DEVICE_CLASS (klass);
 
 	dbus_object_class->interface_infos = NM_DBUS_INTERFACE_INFOS (&interface_info_device_bridge);
 
-	parent_class->is_master = TRUE;
-	parent_class->get_generic_capabilities = get_generic_capabilities;
-	parent_class->check_connection_compatible = check_connection_compatible;
-	parent_class->check_connection_available = check_connection_available;
-	parent_class->complete_connection = complete_connection;
+	device_class->connection_type_supported = NM_SETTING_BRIDGE_SETTING_NAME;
+	device_class->link_types = NM_DEVICE_DEFINE_LINK_TYPES (NM_LINK_TYPE_BRIDGE);
 
-	parent_class->update_connection = update_connection;
-	parent_class->master_update_slave_connection = master_update_slave_connection;
+	device_class->is_master = TRUE;
+	device_class->get_generic_capabilities = get_generic_capabilities;
+	device_class->check_connection_compatible = check_connection_compatible;
+	device_class->check_connection_available = check_connection_available;
+	device_class->complete_connection = complete_connection;
 
-	parent_class->create_and_realize = create_and_realize;
-	parent_class->act_stage1_prepare = act_stage1_prepare;
-	parent_class->act_stage2_config = act_stage2_config;
-	parent_class->deactivate = deactivate;
-	parent_class->enslave_slave = enslave_slave;
-	parent_class->release_slave = release_slave;
-	parent_class->get_configured_mtu = nm_device_get_configured_mtu_for_wired;
+	device_class->update_connection = update_connection;
+	device_class->master_update_slave_connection = master_update_slave_connection;
+
+	device_class->create_and_realize = create_and_realize;
+	device_class->act_stage1_prepare = act_stage1_prepare;
+	device_class->act_stage2_config = act_stage2_config;
+	device_class->deactivate = deactivate;
+	device_class->enslave_slave = enslave_slave;
+	device_class->release_slave = release_slave;
+	device_class->get_configured_mtu = nm_device_get_configured_mtu_for_wired;
 }
 
 /*****************************************************************************/

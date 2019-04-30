@@ -16,16 +16,16 @@
  * Boston, MA 02110-1301 USA.
  *
  * Copyright 2007 - 2008 Novell, Inc.
- * Copyright 2007 - 2014 Red Hat, Inc.
+ * Copyright 2007 - 2018 Red Hat, Inc.
  */
 
 #include "nm-default.h"
 
-#include <string.h>
+#include "nm-client.h"
+
 #include <libudev.h>
 
 #include "nm-utils.h"
-#include "nm-client.h"
 #include "nm-manager.h"
 #include "nm-dns-manager.h"
 #include "nm-remote-settings.h"
@@ -41,6 +41,7 @@
 
 #include "introspection/org.freedesktop.NetworkManager.h"
 #include "introspection/org.freedesktop.NetworkManager.Device.Wireless.h"
+#include "introspection/org.freedesktop.NetworkManager.Device.WifiP2P.h"
 #include "introspection/org.freedesktop.NetworkManager.Device.h"
 #include "introspection/org.freedesktop.NetworkManager.DnsManager.h"
 #include "introspection/org.freedesktop.NetworkManager.Settings.h"
@@ -51,6 +52,7 @@
 #include "nm-access-point.h"
 #include "nm-active-connection.h"
 #include "nm-checkpoint.h"
+#include "nm-device-6lowpan.h"
 #include "nm-device-adsl.h"
 #include "nm-device-bond.h"
 #include "nm-device-bridge.h"
@@ -64,22 +66,26 @@
 #include "nm-device-macvlan.h"
 #include "nm-device-modem.h"
 #include "nm-device-olpc-mesh.h"
+#include "nm-device-ovs-bridge.h"
 #include "nm-device-ovs-interface.h"
 #include "nm-device-ovs-port.h"
-#include "nm-device-ovs-bridge.h"
 #include "nm-device-ppp.h"
 #include "nm-device-team.h"
 #include "nm-device-tun.h"
 #include "nm-device-vlan.h"
 #include "nm-device-vxlan.h"
+#include "nm-device-wifi-p2p.h"
 #include "nm-device-wifi.h"
 #include "nm-device-wimax.h"
+#include "nm-device-wireguard.h"
+#include "nm-device-wpan.h"
+#include "nm-dhcp-config.h"
 #include "nm-dhcp4-config.h"
 #include "nm-dhcp6-config.h"
-#include "nm-dhcp-config.h"
 #include "nm-ip4-config.h"
 #include "nm-ip6-config.h"
 #include "nm-manager.h"
+#include "nm-wifi-p2p-peer.h"
 #include "nm-remote-connection.h"
 #include "nm-remote-settings.h"
 #include "nm-vpn-connection.h"
@@ -1160,18 +1166,20 @@ add_activate_cb (GObject *object,
                  GAsyncResult *result,
                  gpointer user_data)
 {
-	GSimpleAsyncResult *simple = user_data;
-	NMActiveConnection *ac;
+	gs_unref_object GSimpleAsyncResult *simple = user_data;
+	gs_unref_variant GVariant *result_data = NULL;
+	gs_unref_object NMActiveConnection *ac = NULL;
 	GError *error = NULL;
 
-	ac = nm_manager_add_and_activate_connection_finish (NM_MANAGER (object), result, &error);
-	if (ac)
-		g_simple_async_result_set_op_res_gpointer (simple, ac, g_object_unref);
-	else
+	ac = nm_manager_add_and_activate_connection_finish (NM_MANAGER (object), result, &result_data, &error);
+	if (ac) {
+		g_simple_async_result_set_op_res_gpointer (simple,
+		                                           _nm_activate_result_new (ac, result_data),
+		                                           (GDestroyNotify) _nm_activate_result_free);
+	} else
 		g_simple_async_result_take_error (simple, error);
 
 	g_simple_async_result_complete (simple);
-	g_object_unref (simple);
 }
 
 /**
@@ -1230,8 +1238,14 @@ nm_client_add_and_activate_connection_async (NMClient *client,
 	if (cancellable)
 		g_simple_async_result_set_check_cancellable (simple, cancellable);
 	nm_manager_add_and_activate_connection_async (NM_CLIENT_GET_PRIVATE (client)->manager,
-	                                              partial, device, specific_object,
-	                                              cancellable, add_activate_cb, simple);
+	                                              partial,
+	                                              device,
+	                                              specific_object,
+	                                              NULL,
+	                                              FALSE,
+	                                              cancellable,
+	                                              add_activate_cb,
+	                                              simple);
 }
 
 /**
@@ -1254,6 +1268,7 @@ nm_client_add_and_activate_connection_finish (NMClient *client,
                                               GError **error)
 {
 	GSimpleAsyncResult *simple;
+	_NMActivateResult *r;
 
 	g_return_val_if_fail (NM_IS_CLIENT (client), NULL);
 	g_return_val_if_fail (G_IS_SIMPLE_ASYNC_RESULT (result), NULL);
@@ -1261,8 +1276,128 @@ nm_client_add_and_activate_connection_finish (NMClient *client,
 	simple = G_SIMPLE_ASYNC_RESULT (result);
 	if (g_simple_async_result_propagate_error (simple, error))
 		return NULL;
-	else
-		return g_object_ref (g_simple_async_result_get_op_res_gpointer (simple));
+	r = g_simple_async_result_get_op_res_gpointer (simple);
+	return g_object_ref (r->active);
+}
+
+/**
+ * nm_client_add_and_activate_connection2:
+ * @client: a #NMClient
+ * @partial: (allow-none): an #NMConnection to add; the connection may be
+ *   partially filled (or even %NULL) and will be completed by NetworkManager
+ *   using the given @device and @specific_object before being added
+ * @device: the #NMDevice
+ * @specific_object: (allow-none): the object path of a connection-type-specific
+ *   object this activation should use. This parameter is currently ignored for
+ *   wired and mobile broadband connections, and the value of %NULL should be used
+ *   (ie, no specific object).  For Wi-Fi or WiMAX connections, pass the object
+ *   path of a #NMAccessPoint or #NMWimaxNsp owned by @device, which you can
+ *   get using nm_object_get_path(), and which will be used to complete the
+ *   details of the newly added connection.
+ * @options: a #GVariant containing a dictionary with options, or %NULL
+ * @cancellable: a #GCancellable, or %NULL
+ * @callback: callback to be called when the activation has started
+ * @user_data: caller-specific data passed to @callback
+ *
+ * Adds a new connection using the given details (if any) as a template,
+ * automatically filling in missing settings with the capabilities of the given
+ * device and specific object.  The new connection is then asynchronously
+ * activated as with nm_client_activate_connection_async(). Cannot be used for
+ * VPN connections at this time.
+ *
+ * Note that the callback is invoked when NetworkManager has started activating
+ * the new connection, not when it finishes. You can used the returned
+ * #NMActiveConnection object (in particular, #NMActiveConnection:state) to
+ * track the activation to its completion.
+ *
+ * This is identitcal to nm_client_add_and_activate_connection_async() but takes
+ * a further @options parameter. Currently the following options are supported
+ * by the daemon:
+ *  * "persist": A string describing how the connection should be stored.
+ *               The default is "disk", but it can be modified to "memory" (until
+ *               the daemon quits) or "volatile" (will be deleted on disconnect).
+ *  * "bind-activation": Bind the connection lifetime to something. The default is "none",
+ *            meaning an explicit disconnect is needed. The value "dbus-client"
+ *            means the connection will automatically be deactivated when the calling
+ *            DBus client disappears from the system bus.
+ *
+ * Since: 1.16
+ **/
+void
+nm_client_add_and_activate_connection2 (NMClient *client,
+                                        NMConnection *partial,
+                                        NMDevice *device,
+                                        const char *specific_object,
+                                        GVariant *options,
+                                        GCancellable *cancellable,
+                                        GAsyncReadyCallback callback,
+                                        gpointer user_data)
+{
+	GSimpleAsyncResult *simple;
+	GError *error = NULL;
+
+	g_return_if_fail (NM_IS_CLIENT (client));
+	g_return_if_fail (NM_IS_DEVICE (device));
+	if (partial)
+		g_return_if_fail (NM_IS_CONNECTION (partial));
+
+	if (!_nm_client_check_nm_running (client, &error)) {
+		g_simple_async_report_take_gerror_in_idle (G_OBJECT (client), callback, user_data, error);
+		return;
+	}
+
+	simple = g_simple_async_result_new (G_OBJECT (client), callback, user_data,
+	                                    nm_client_add_and_activate_connection2);
+	if (cancellable)
+		g_simple_async_result_set_check_cancellable (simple, cancellable);
+	nm_manager_add_and_activate_connection_async (NM_CLIENT_GET_PRIVATE (client)->manager,
+	                                              partial,
+	                                              device,
+	                                              specific_object,
+	                                              options,
+	                                              TRUE,
+	                                              cancellable,
+	                                              add_activate_cb,
+	                                              simple);
+}
+
+/**
+ * nm_client_add_and_activate_connection2_finish:
+ * @client: an #NMClient
+ * @result: the result passed to the #GAsyncReadyCallback
+ * @error: location for a #GError, or %NULL
+ * @out_result: (allow-none) (transfer full): the output result
+ *   of type "a{sv}" returned by D-Bus' AddAndActivate2 call. Currently no
+ *   output is implemented yet.
+ *
+ * Gets the result of a call to nm_client_add_and_activate_connection2().
+ *
+ * You can call nm_active_connection_get_connection() on the returned
+ * #NMActiveConnection to find the path of the created #NMConnection.
+ *
+ * Returns: (transfer full): the new #NMActiveConnection on success, %NULL on
+ *   failure, in which case @error will be set.
+ **/
+NMActiveConnection *
+nm_client_add_and_activate_connection2_finish (NMClient *client,
+                                               GAsyncResult *result,
+                                               GVariant **out_result,
+                                               GError **error)
+{
+	GSimpleAsyncResult *simple;
+	_NMActivateResult *r;
+
+	g_return_val_if_fail (NM_IS_CLIENT (client), NULL);
+	g_return_val_if_fail (G_IS_SIMPLE_ASYNC_RESULT (result), NULL);
+
+	simple = G_SIMPLE_ASYNC_RESULT (result);
+	if (g_simple_async_result_propagate_error (simple, error)) {
+		NM_SET_OUT (out_result, NULL);
+		return NULL;
+	}
+	r = g_simple_async_result_get_op_res_gpointer (simple);
+	NM_SET_OUT (out_result, nm_g_variant_ref (r->add_and_activate_output));
+	return g_object_ref (r->active);
 }
 
 /**
@@ -2463,11 +2598,11 @@ nm_client_checkpoint_adjust_rollback_timeout_finish (NMClient *client,
 
 static GType
 proxy_type (GDBusObjectManagerClient *manager,
-            const gchar *object_path,
-            const gchar *interface_name,
+            const char *object_path,
+            const char *interface_name,
             gpointer user_data)
 {
-	/* ObjectManager asks us for an object proxy. Unfortunatelly, we can't
+	/* ObjectManager asks us for an object proxy. Unfortunately, we can't
 	 * decide that by interface name and GDBusObjectManager doesn't allow
 	 * us to look at the known interface list. Thus we need to create a
 	 * generic GDBusObject and only couple a NMObject subclass later. */
@@ -2479,6 +2614,8 @@ proxy_type (GDBusObjectManagerClient *manager,
 		return NMDBUS_TYPE_MANAGER_PROXY;
 	else if (strcmp (interface_name, NM_DBUS_INTERFACE_DEVICE_WIRELESS) == 0)
 		return NMDBUS_TYPE_DEVICE_WIFI_PROXY;
+	else if (strcmp (interface_name, NM_DBUS_INTERFACE_DEVICE_WIFI_P2P) == 0)
+		return NMDBUS_TYPE_DEVICE_WIFI_P2P_PROXY;
 	else if (strcmp (interface_name, NM_DBUS_INTERFACE_DEVICE) == 0)
 		return NMDBUS_TYPE_DEVICE_PROXY;
 	else if (strcmp (interface_name, NM_DBUS_INTERFACE_SETTINGS_CONNECTION) == 0)
@@ -2523,6 +2660,8 @@ obj_nm_for_gdbus_object (NMClient *self, GDBusObject *object, GDBusObjectManager
 			type = NM_TYPE_ACCESS_POINT;
 		else if (strcmp (ifname, NM_DBUS_INTERFACE_ACTIVE_CONNECTION) == 0 && type != NM_TYPE_VPN_CONNECTION)
 			type = NM_TYPE_ACTIVE_CONNECTION;
+		else if (strcmp (ifname, NM_DBUS_INTERFACE_DEVICE_6LOWPAN) == 0)
+			type = NM_TYPE_DEVICE_6LOWPAN;
 		else if (strcmp (ifname, NM_DBUS_INTERFACE_DEVICE_ADSL) == 0)
 			type = NM_TYPE_DEVICE_ADSL;
 		else if (strcmp (ifname, NM_DBUS_INTERFACE_DEVICE_BOND) == 0)
@@ -2555,6 +2694,8 @@ obj_nm_for_gdbus_object (NMClient *self, GDBusObject *object, GDBusObjectManager
 			type = NM_TYPE_DEVICE_OVS_PORT;
 		else if (strcmp (ifname, NM_DBUS_INTERFACE_DEVICE_OVS_BRIDGE) == 0)
 			type = NM_TYPE_DEVICE_OVS_BRIDGE;
+		else if (strcmp (ifname, NM_DBUS_INTERFACE_DEVICE_WIFI_P2P) == 0)
+			type = NM_TYPE_DEVICE_WIFI_P2P;
 		else if (strcmp (ifname, NM_DBUS_INTERFACE_DEVICE_PPP) == 0)
 			type = NM_TYPE_DEVICE_PPP;
 		else if (strcmp (ifname, NM_DBUS_INTERFACE_DEVICE_TEAM) == 0)
@@ -2563,12 +2704,16 @@ obj_nm_for_gdbus_object (NMClient *self, GDBusObject *object, GDBusObjectManager
 			type = NM_TYPE_DEVICE_TUN;
 		else if (strcmp (ifname, NM_DBUS_INTERFACE_DEVICE_VLAN) == 0)
 			type = NM_TYPE_DEVICE_VLAN;
+		else if (strcmp (ifname, NM_DBUS_INTERFACE_DEVICE_WPAN) == 0)
+			type = NM_TYPE_DEVICE_WPAN;
 		else if (strcmp (ifname, NM_DBUS_INTERFACE_DEVICE_VXLAN) == 0)
 			type = NM_TYPE_DEVICE_VXLAN;
 		else if (strcmp (ifname, NM_DBUS_INTERFACE_DEVICE_WIRELESS) == 0)
 			type = NM_TYPE_DEVICE_WIFI;
 		else if (strcmp (ifname, NM_DBUS_INTERFACE_DEVICE_WIMAX) == 0)
 			type = NM_TYPE_DEVICE_WIMAX;
+		else if (strcmp (ifname, NM_DBUS_INTERFACE_DEVICE_WIREGUARD) == 0)
+			type = NM_TYPE_DEVICE_WIREGUARD;
 		else if (strcmp (ifname, NM_DBUS_INTERFACE_DHCP4_CONFIG) == 0)
 			type = NM_TYPE_DHCP4_CONFIG;
 		else if (strcmp (ifname, NM_DBUS_INTERFACE_DHCP6_CONFIG) == 0)
@@ -2577,6 +2722,8 @@ obj_nm_for_gdbus_object (NMClient *self, GDBusObject *object, GDBusObjectManager
 			type = NM_TYPE_IP4_CONFIG;
 		else if (strcmp (ifname, NM_DBUS_INTERFACE_IP6_CONFIG) == 0)
 			type = NM_TYPE_IP6_CONFIG;
+		else if (strcmp (ifname, NM_DBUS_INTERFACE_WIFI_P2P_PEER) == 0)
+			type = NM_TYPE_WIFI_P2P_PEER;
 		else if (strcmp (ifname, NM_DBUS_INTERFACE_SETTINGS_CONNECTION) == 0)
 			type = NM_TYPE_REMOTE_CONNECTION;
 		else if (strcmp (ifname, NM_DBUS_INTERFACE_SETTINGS) == 0)
@@ -3554,15 +3701,10 @@ nm_client_class_init (NMClientClass *client_class)
 		                      G_PARAM_STATIC_STRINGS));
 
 	/**
-	 * NMClient:dns-configuration: (type GPtrArray(GVariant))
+	 * NMClient:dns-configuration: (type GPtrArray(NMDnsEntry))
 	 *
-	 * The current DNS configuration represented as an array of
-	 * dictionaries.  Each dictionary has the "nameservers",
-	 * "priority" keys and, optionally, "interface" and "vpn".
-	 * "nameservers" is the list of DNS servers, "priority" their
-	 * relative priority, "interface" the interface on which these
-	 * servers are contacted, "vpn" a boolean telling whether the
-	 * configuration was obtained from a VPN connection.
+	 * The current DNS configuration, represented as an array
+	 * of #NMDnsEntry objects.
 	 *
 	 * Since: 1.6
 	 **/
@@ -3792,4 +3934,8 @@ NM_BACKPORT_SYMBOL (libnm_1_0_6, gboolean, nm_utils_enum_from_str,
                     (GType type, const char *str, int *out_value, char **err_token),
                     (type, str, out_value, err_token));
 
-NM_BACKPORT_SYMBOL (libnm_1_2_4, gint, nm_setting_ip_config_get_dns_priority, (NMSettingIPConfig *setting), (setting));
+NM_BACKPORT_SYMBOL (libnm_1_2_4, int, nm_setting_ip_config_get_dns_priority, (NMSettingIPConfig *setting), (setting));
+
+NM_BACKPORT_SYMBOL (libnm_1_10_14, NMSettingConnectionMdns, nm_setting_connection_get_mdns,
+                    (NMSettingConnection *setting), (setting));
+NM_BACKPORT_SYMBOL (libnm_1_10_14, GType, nm_setting_connection_mdns_get_type, (void), ());

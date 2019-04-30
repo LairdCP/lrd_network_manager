@@ -22,7 +22,6 @@
 #include <config.h>
 #define ___CONFIG_H__
 
-#include <string.h>
 #include <pppd/pppd.h>
 #include <pppd/fsm.h>
 #include <pppd/ipcp.h>
@@ -132,7 +131,7 @@ nm_phasechange (void *data, int arg)
 		                   NULL, NULL);
 	}
 
-	if (ppp_status == PHASE_RUNNING) {
+	if (ppp_status == NM_PPP_STATUS_RUNNING) {
 		index = if_nametoindex (ifname);
 		/* Make a sync call to ensure that when the call
 		 * terminates the interface already has its final
@@ -147,7 +146,7 @@ nm_phasechange (void *data, int arg)
 		if (   if_indextoname (index, new_name)
 		    && !nm_streq0 (ifname, new_name)) {
 			g_message ("nm-ppp-plugin: interface name changed from '%s' to '%s'", ifname, new_name);
-			strncpy (ifname, new_name, IF_NAMESIZE);
+			g_strlcpy (ifname, new_name, IF_NAMESIZE);
 		}
 	}
 }

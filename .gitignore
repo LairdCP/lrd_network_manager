@@ -8,7 +8,7 @@
 *.la
 *-*.gir
 *.typelib
-**.stamp
+*.stamp
 .dirstamp
 *-enum-types.[ch]
 *-glue.h
@@ -47,6 +47,7 @@ test-*.trs
 /autom4te.cache
 /build-aux
 /config.*
+/config-extra.h
 /configure
 /intltool-*
 
@@ -146,6 +147,7 @@ test-*.trs
 /examples/C/qt/change-ipv4-addresses
 
 /shared/nm-version-macros.h
+/shared/nm-utils/tests/test-shared-general
 
 /introspection/org.freedesktop.NetworkManager*.[ch]
 
@@ -251,6 +253,9 @@ test-*.trs
 /src/dhcp/tests/test-dhcp-options
 /src/dhcp/tests/test-dhcp-utils
 /src/dnsmasq/tests/test-dnsmasq-utils
+/src/initrd/nm-initrd-generator
+/src/initrd/tests/test-cmdline-reader
+/src/initrd/tests/test-ibft-reader
 /src/nm-iface-helper
 /src/ndisc/tests/test-ndisc-fake
 /src/ndisc/tests/test-ndisc-linux

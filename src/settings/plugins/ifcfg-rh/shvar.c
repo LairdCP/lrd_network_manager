@@ -27,11 +27,9 @@
 
 #include "shvar.h"
 
-#include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -39,6 +37,7 @@
 #include "nm-core-internal.h"
 #include "nm-core-utils.h"
 #include "nm-utils/nm-enum-utils.h"
+#include "nm-utils/nm-io-utils.h"
 #include "c-list/src/c-list.h"
 
 /*****************************************************************************/
@@ -90,8 +89,8 @@ struct _shvarFile {
  *
  * Returns: the parsed boolean value or @fallback.
  */
-gint
-svParseBoolean (const char *value, gint fallback)
+int
+svParseBoolean (const char *value, int fallback)
 {
 	if (!value)
 		return fallback;
@@ -148,8 +147,8 @@ static char *
 _escape_ansic (const char *source)
 {
 	const char *p;
-	gchar *dest;
-	gchar *q;
+	char *dest;
+	char *q;
 
 	nm_assert (source);
 
@@ -214,9 +213,9 @@ _escape_ansic (const char *source)
 
 /*****************************************************************************/
 
-#define _char_req_escape(ch)        NM_IN_SET (ch,      '\"', '\\',       '$', '`')
-#define _char_req_escape_old(ch)    NM_IN_SET (ch,      '\"', '\\', '\'', '$', '`', '~')
-#define _char_req_quotes(ch)        NM_IN_SET (ch, ' ',             '\'',           '~', '\t', '|', '&', ';', '(', ')', '<', '>')
+#define _char_req_escape(ch)        NM_IN_SET (ch,      '"', '\\',       '$', '`')
+#define _char_req_escape_old(ch)    NM_IN_SET (ch,      '"', '\\', '\'', '$', '`', '~')
+#define _char_req_quotes(ch)        NM_IN_SET (ch, ' ',            '\'',           '~', '\t', '|', '&', ';', '(', ')', '<', '>')
 
 const char *
 svEscape (const char *s, char **to_free)
@@ -329,7 +328,7 @@ _gstr_init (GString **str, const char *value, gsize i)
 		 * Unescaping usually does not extend the length of a string,
 		 * so we might be tempted to allocate a fixed buffer of length
 		 * (strlen(value)+CONST).
-		 * However, due to $'\Ux' escapes, the maxium length is some
+		 * However, due to $'\Ux' escapes, the maximum length is some
 		 * (FACTOR*strlen(value) + CONST), which is non trivial to get
 		 * right in all cases. Also, we would have to provision for the
 		 * very unlikely extreme case.
@@ -452,7 +451,7 @@ svUnescape (const char *value, char **to_free)
 					if (NM_IN_SET (value[i], '$', '`', '"', '\\')) {
 						/* Drop the backslash. */
 					} else if (NM_IN_SET (value[i], '\'', '~')) {
-						/* '\'' and '~' in double qoutes are not handled special by shell.
+						/* '\'' and '~' in double quotes are not handled special by shell.
 						 * However, old versions of svEscape() would wrongly use double-quoting
 						 * with backslash escaping for these characters (expecting svUnescape()
 						 * to remove the backslash).
@@ -648,7 +647,7 @@ void
 _nmtst_svFileSetName (shvarFile *s, const char *fileName)
 {
 	/* changing the file name is not supported for regular
-	 * operation. Only allowed to use in tests, othewise,
+	 * operation. Only allowed to use in tests, otherwise,
 	 * the filename is immutable. */
 	g_free (s->fileName);
 	s->fileName = g_strdup (fileName);
@@ -814,13 +813,14 @@ svOpenFileInternal (const char *name, gboolean create, GError **error)
 
 		g_set_error (error, G_FILE_ERROR, g_file_error_from_errno (errsv),
 		             "Could not read file '%s': %s",
-		             name, strerror (errsv));
+		             name, nm_strerror_native (errsv));
 		return NULL;
 	}
 
 	if (nm_utils_fd_get_contents (closefd ? nm_steal_fd (&fd) : fd,
 	                              closefd,
 	                              10 * 1024 * 1024,
+	                              NM_UTILS_FILE_GET_CONTENTS_FLAG_NONE,
 	                              &arena,
 	                              NULL,
 	                              &local) < 0) {
@@ -870,8 +870,61 @@ svCreateFile (const char *name)
 
 /*****************************************************************************/
 
+static gboolean
+_is_all_digits (const char *str)
+{
+	return    str[0]
+	       && NM_STRCHAR_ALL (str, ch, g_ascii_isdigit (ch));
+}
+
+#define IS_NUMBERED_TAG(key, tab_name) \
+	({ \
+		const char *_key = (key); \
+		\
+		(   (strncmp (_key, tab_name, NM_STRLEN (tab_name)) == 0) \
+		 && _is_all_digits (&_key[NM_STRLEN (tab_name)])); \
+	})
+
+static gboolean
+_svKeyMatchesType (const char *key, SvKeyType match_key_type)
+{
+	if (NM_FLAGS_HAS (match_key_type, SV_KEY_TYPE_ANY))
+		return TRUE;
+
+	if (NM_FLAGS_HAS (match_key_type, SV_KEY_TYPE_ROUTE_SVFORMAT)) {
+		if (   IS_NUMBERED_TAG (key, "ADDRESS")
+		    || IS_NUMBERED_TAG (key, "NETMASK")
+		    || IS_NUMBERED_TAG (key, "GATEWAY")
+		    || IS_NUMBERED_TAG (key, "METRIC")
+		    || IS_NUMBERED_TAG (key, "OPTIONS"))
+			return TRUE;
+	}
+	if (NM_FLAGS_HAS (match_key_type, SV_KEY_TYPE_IP4_ADDRESS)) {
+		if (   IS_NUMBERED_TAG (key, "IPADDR")
+		    || IS_NUMBERED_TAG (key, "PREFIX")
+		    || IS_NUMBERED_TAG (key, "NETMASK")
+		    || IS_NUMBERED_TAG (key, "GATEWAY"))
+			return TRUE;
+	}
+	if (NM_FLAGS_HAS (match_key_type, SV_KEY_TYPE_USER)) {
+		if (g_str_has_prefix (key, "NM_USER_"))
+			return TRUE;
+	}
+	if (NM_FLAGS_HAS (match_key_type, SV_KEY_TYPE_TC)) {
+		if (   IS_NUMBERED_TAG (key, "QDISC")
+		    || IS_NUMBERED_TAG (key, "FILTER"))
+			return TRUE;
+	}
+	if (NM_FLAGS_HAS (match_key_type, SV_KEY_TYPE_SRIOV_VF)) {
+		if (IS_NUMBERED_TAG (key, "SRIOV_VF"))
+			return TRUE;
+	}
+
+	return FALSE;
+}
+
 GHashTable *
-svGetKeys (shvarFile *s)
+svGetKeys (shvarFile *s, SvKeyType match_key_type)
 {
 	GHashTable *keys = NULL;
 	CList *current;
@@ -881,7 +934,9 @@ svGetKeys (shvarFile *s)
 
 	c_list_for_each (current, &s->lst_head) {
 		line = c_list_entry (current, shvarLine, lst);
-		if (line->key && line->line) {
+		if (   line->key
+		    && line->line
+		    && _svKeyMatchesType (line->key, match_key_type)) {
 			/* we don't clone the keys. The keys are only valid
 			 * until @s gets modified. */
 			if (!keys)
@@ -1044,8 +1099,8 @@ svGetValueStr_cp (shvarFile *s, const char *key)
  *
  * Returns: the parsed boolean value or @fallback.
  */
-gint
-svGetValueBoolean (shvarFile *s, const char *key, gint fallback)
+int
+svGetValueBoolean (shvarFile *s, const char *key, int fallback)
 {
 	gs_free char *to_free = NULL;
 	const char *value;
@@ -1120,21 +1175,6 @@ svGetValueEnum (shvarFile *s, const char *key,
 
 /*****************************************************************************/
 
-static gboolean
-_is_all_digits (const char *str)
-{
-	return    str[0]
-	       && NM_STRCHAR_ALL (str, ch, g_ascii_isdigit (ch));
-}
-
-#define IS_NUMBERED_TAG(key, tab_name) \
-	({ \
-		const char *_key = (key); \
-		\
-		(   (strncmp (_key, tab_name, NM_STRLEN (tab_name)) == 0) \
-		 && _is_all_digits (&_key[NM_STRLEN (tab_name)])); \
-	})
-
 gboolean
 svUnsetAll (shvarFile *s, SvKeyType match_key_type)
 {
@@ -1150,38 +1190,11 @@ svUnsetAll (shvarFile *s, SvKeyType match_key_type)
 		if (!line->key)
 			continue;
 
-		if (NM_FLAGS_HAS (match_key_type, SV_KEY_TYPE_ANY))
-			goto do_clear;
-		if (NM_FLAGS_HAS (match_key_type, SV_KEY_TYPE_ROUTE_SVFORMAT)) {
-			if (   IS_NUMBERED_TAG (line->key, "ADDRESS")
-			    || IS_NUMBERED_TAG (line->key, "NETMASK")
-			    || IS_NUMBERED_TAG (line->key, "GATEWAY")
-			    || IS_NUMBERED_TAG (line->key, "METRIC")
-			    || IS_NUMBERED_TAG (line->key, "OPTIONS"))
-				goto do_clear;
-		}
-		if (NM_FLAGS_HAS (match_key_type, SV_KEY_TYPE_IP4_ADDRESS)) {
-			if (   IS_NUMBERED_TAG (line->key, "IPADDR")
-			    || IS_NUMBERED_TAG (line->key, "PREFIX")
-			    || IS_NUMBERED_TAG (line->key, "NETMASK")
-			    || IS_NUMBERED_TAG (line->key, "GATEWAY"))
-				goto do_clear;
-		}
-		if (NM_FLAGS_HAS (match_key_type, SV_KEY_TYPE_USER)) {
-			if (g_str_has_prefix (line->key, "NM_USER_"))
-				goto do_clear;
-		}
-		if (NM_FLAGS_HAS (match_key_type, SV_KEY_TYPE_TC)) {
-			if (   IS_NUMBERED_TAG (line->key, "QDISC")
-			    || IS_NUMBERED_TAG (line->key, "FILTER"))
-				goto do_clear;
-		}
-
-		continue;
-do_clear:
-		if (nm_clear_g_free (&line->line)) {
-			ASSERT_shvarLine (line);
-			changed = TRUE;
+		if (_svKeyMatchesType (line->key, match_key_type)) {
+			if (nm_clear_g_free (&line->line)) {
+				ASSERT_shvarLine (line);
+				changed = TRUE;
+			}
 		}
 	}
 
@@ -1302,34 +1315,32 @@ svWriteFile (shvarFile *s, int mode, GError **error)
 	FILE *f;
 	int tmpfd;
 	CList *current;
+	int errsv;
 
 	if (s->modified) {
 		if (s->fd == -1)
 			s->fd = open (s->fileName, O_WRONLY | O_CREAT | O_CLOEXEC, mode);
 		if (s->fd == -1) {
-			int errsv = errno;
-
+			errsv = errno;
 			g_set_error (error, G_FILE_ERROR, g_file_error_from_errno (errsv),
 			             "Could not open file '%s' for writing: %s",
-			             s->fileName, strerror (errsv));
+			             s->fileName, nm_strerror_native (errsv));
 			return FALSE;
 		}
 		if (ftruncate (s->fd, 0) < 0) {
-			int errsv = errno;
-
+			errsv = errno;
 			g_set_error (error, G_FILE_ERROR, g_file_error_from_errno (errsv),
 			             "Could not overwrite file '%s': %s",
-			             s->fileName, strerror (errsv));
+			             s->fileName, nm_strerror_native (errsv));
 			return FALSE;
 		}
 
 		tmpfd = fcntl (s->fd, F_DUPFD_CLOEXEC, 0);
 		if (tmpfd == -1) {
-			int errsv = errno;
-
+			errsv = errno;
 			g_set_error (error, G_FILE_ERROR, g_file_error_from_errno (errsv),
 			             "Internal error writing file '%s': %s",
-			             s->fileName, strerror (errsv));
+			             s->fileName, nm_strerror_native (errsv));
 			return FALSE;
 		}
 		f = fdopen (tmpfd, "w");
