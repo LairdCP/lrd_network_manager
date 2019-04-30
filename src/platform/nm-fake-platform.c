@@ -22,10 +22,10 @@
 
 #include "nm-fake-platform.h"
 
-#include <errno.h>
 #include <unistd.h>
 #include <netinet/icmp6.h>
 #include <netinet/in.h>
+#include <linux/if.h>
 #include <linux/rtnetlink.h>
 
 #include "nm-utils.h"
@@ -194,7 +194,7 @@ link_add_prepare (NMPlatform *platform,
 {
 	gboolean connected;
 
-	/* we must clear the driver, because platform cache want's to set it */
+	/* we must clear the driver, because platform cache wants to set it */
 	g_assert (obj_tmp->link.driver == g_intern_string (obj_tmp->link.driver));
 	obj_tmp->link.driver = NULL;
 
@@ -282,7 +282,7 @@ link_add_pre (NMPlatform *platform,
 	return device;
 }
 
-static gboolean
+static int
 link_add (NMPlatform *platform,
           const char *name,
           NMLinkType type,
@@ -334,7 +334,7 @@ link_add (NMPlatform *platform,
 	if (veth_peer)
 		link_changed (platform, device_veth, cache_op_veth, NULL);
 
-	return TRUE;
+	return 0;
 }
 
 static NMFakePlatformLink *
@@ -562,7 +562,7 @@ link_set_noarp (NMPlatform *platform, int ifindex)
 	return TRUE;
 }
 
-static NMPlatformError
+static int
 link_set_address (NMPlatform *platform, int ifindex, gconstpointer addr, size_t len)
 {
 	NMFakePlatformLink *device = link_get (platform, ifindex);
@@ -571,10 +571,10 @@ link_set_address (NMPlatform *platform, int ifindex, gconstpointer addr, size_t 
 	if (   len == 0
 	    || len > NM_UTILS_HWADDR_LEN_MAX
 	    || !addr)
-		g_return_val_if_reached (NM_PLATFORM_ERROR_BUG);
+		g_return_val_if_reached (-NME_BUG);
 
 	if (!device)
-		return NM_PLATFORM_ERROR_EXISTS;
+		return -NME_PL_EXISTS;
 
 	obj_tmp = nmp_object_clone (device->obj, FALSE);
 	obj_tmp->link.addr.len = len;
@@ -582,10 +582,10 @@ link_set_address (NMPlatform *platform, int ifindex, gconstpointer addr, size_t 
 	memcpy (obj_tmp->link.addr.data, addr, len);
 
 	link_set_obj (platform, device, obj_tmp);
-	return NM_PLATFORM_ERROR_SUCCESS;
+	return 0;
 }
 
-static NMPlatformError
+static int
 link_set_mtu (NMPlatform *platform, int ifindex, guint32 mtu)
 {
 	NMFakePlatformLink *device = link_get (platform, ifindex);
@@ -593,19 +593,13 @@ link_set_mtu (NMPlatform *platform, int ifindex, guint32 mtu)
 
 	if (!device) {
 		_LOGE ("failure changing link: netlink error (No such device)");
-		return NM_PLATFORM_ERROR_EXISTS;
+		return -NME_PL_EXISTS;
 	}
 
 	obj_tmp = nmp_object_clone (device->obj, FALSE);
 	obj_tmp->link.mtu = mtu;
 	link_set_obj (platform, device, obj_tmp);
-	return NM_PLATFORM_ERROR_SUCCESS;
-}
-
-static gboolean
-link_set_sriov_num_vfs (NMPlatform *platform, int ifindex, guint num_vfs)
-{
-	return TRUE;
+	return 0;
 }
 
 static const char *
@@ -891,12 +885,6 @@ static gboolean
 wifi_get_bssid (NMPlatform *platform, int ifindex, guint8 *bssid)
 {
 	return FALSE;
-}
-
-static GByteArray *
-wifi_get_ssid (NMPlatform *platform, int ifindex)
-{
-	return NULL;
 }
 
 static guint32
@@ -1198,7 +1186,7 @@ object_delete (NMPlatform *platform, const NMPObject *obj)
 	return ipx_route_delete (platform, AF_UNSPEC, -1, obj);
 }
 
-static NMPlatformError
+static int
 ip_route_add (NMPlatform *platform,
               NMPNlmFlags flags,
               int addr_family,
@@ -1278,14 +1266,16 @@ ip_route_add (NMPlatform *platform,
 			}
 		}
 		if (!has_route_to_gw) {
+			char sbuf[NM_UTILS_INET_ADDRSTRLEN];
+
 			if (addr_family == AF_INET) {
 				nm_log_warn (LOGD_PLATFORM, "Fake platform: failure adding ip4-route '%d: %s/%d %d': Network Unreachable",
-				             r->ifindex, nm_utils_inet4_ntop (r4->network, NULL), r->plen, r->metric);
+				             r->ifindex, nm_utils_inet4_ntop (r4->network, sbuf), r->plen, r->metric);
 			} else {
 				nm_log_warn (LOGD_PLATFORM, "Fake platform: failure adding ip6-route '%d: %s/%d %d': Network Unreachable",
-				             r->ifindex, nm_utils_inet6_ntop (&r6->network, NULL), r->plen, r->metric);
+				             r->ifindex, nm_utils_inet6_ntop (&r6->network, sbuf), r->plen, r->metric);
 			}
-			return NM_PLATFORM_ERROR_UNSPECIFIED;
+			return -NME_UNSPEC;
 		}
 	}
 
@@ -1347,7 +1337,7 @@ ip_route_add (NMPlatform *platform,
 		}
 	}
 
-	return NM_PLATFORM_ERROR_SUCCESS;
+	return 0;
 }
 
 /*****************************************************************************/
@@ -1422,7 +1412,6 @@ nm_fake_platform_class_init (NMFakePlatformClass *klass)
 
 	platform_class->link_set_address = link_set_address;
 	platform_class->link_set_mtu = link_set_mtu;
-	platform_class->link_set_sriov_num_vfs = link_set_sriov_num_vfs;
 
 	platform_class->link_get_driver_info = link_get_driver_info;
 
@@ -1442,7 +1431,6 @@ nm_fake_platform_class_init (NMFakePlatformClass *klass)
 
 	platform_class->wifi_get_capabilities = wifi_get_capabilities;
 	platform_class->wifi_get_bssid = wifi_get_bssid;
-	platform_class->wifi_get_ssid = wifi_get_ssid;
 	platform_class->wifi_get_frequency = wifi_get_frequency;
 	platform_class->wifi_get_quality = wifi_get_quality;
 	platform_class->wifi_get_rate = wifi_get_rate;

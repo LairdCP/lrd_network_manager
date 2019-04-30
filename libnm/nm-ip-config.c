@@ -21,9 +21,8 @@
 
 #include "nm-default.h"
 
-#include <string.h>
-
 #include "nm-ip-config.h"
+
 #include "nm-ip4-config.h"
 #include "nm-ip6-config.h"
 #include "nm-setting-ip-config.h"
@@ -173,9 +172,11 @@ init_dbus (NMObject *object)
 		{ "address-data",            &priv->addresses, demarshal_ip_address_data },
 		{ NM_IP_CONFIG_ROUTES,       &priv->routes, demarshal_ip_routes },
 		{ "route-data",              &priv->routes, demarshal_ip_route_data },
+		/* Still use deprecated "Nameservers" property instead of "NameserverData" */
 		{ NM_IP_CONFIG_NAMESERVERS,  &priv->nameservers, demarshal_ip_array },
 		{ NM_IP_CONFIG_DOMAINS,      &priv->domains, },
 		{ NM_IP_CONFIG_SEARCHES,     &priv->searches, },
+		/* Still use deprecated "WinsServers" property instead of "WinsServerData" */
 		{ NM_IP_CONFIG_WINS_SERVERS, &priv->wins, demarshal_ip_array },
 		{ NULL },
 	};

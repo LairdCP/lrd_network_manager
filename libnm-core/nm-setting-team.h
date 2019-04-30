@@ -43,9 +43,9 @@ G_BEGIN_DECLS
  */
 typedef enum { /*< flags >*/
 	NM_TEAM_LINK_WATCHER_ARP_PING_FLAG_NONE              = 0, /*< skip >*/
-	NM_TEAM_LINK_WATCHER_ARP_PING_FLAG_VALIDATE_ACTIVE   = (1 << 1),
-	NM_TEAM_LINK_WATCHER_ARP_PING_FLAG_VALIDATE_INACTIVE = (1 << 2),
-	NM_TEAM_LINK_WATCHER_ARP_PING_FLAG_SEND_ALWAYS       = (1 << 3)
+	NM_TEAM_LINK_WATCHER_ARP_PING_FLAG_VALIDATE_ACTIVE   = 0x2,
+	NM_TEAM_LINK_WATCHER_ARP_PING_FLAG_VALIDATE_INACTIVE = 0x4,
+	NM_TEAM_LINK_WATCHER_ARP_PING_FLAG_SEND_ALWAYS       = 0x8,
 } NMTeamLinkWatcherArpPingFlags;
 
 #define NM_TEAM_LINK_WATCHER_ETHTOOL   "ethtool"
@@ -57,23 +57,32 @@ typedef struct NMTeamLinkWatcher NMTeamLinkWatcher;
 GType nm_team_link_watcher_get_type              (void);
 
 NM_AVAILABLE_IN_1_12
-NMTeamLinkWatcher *nm_team_link_watcher_new_ethtool (gint delay_up,
-                                                     gint delay_down,
+NMTeamLinkWatcher *nm_team_link_watcher_new_ethtool (int delay_up,
+                                                     int delay_down,
                                                      GError **error);
 NM_AVAILABLE_IN_1_12
-NMTeamLinkWatcher *nm_team_link_watcher_new_nsna_ping (gint init_wait,
-                                                       gint interval,
-                                                       gint missed_max,
+NMTeamLinkWatcher *nm_team_link_watcher_new_nsna_ping (int init_wait,
+                                                       int interval,
+                                                       int missed_max,
                                                        const char *target_host,
                                                        GError **error);
 NM_AVAILABLE_IN_1_12
-NMTeamLinkWatcher *nm_team_link_watcher_new_arp_ping (gint init_wait,
-                                                      gint interval,
-                                                      gint missed_max,
+NMTeamLinkWatcher *nm_team_link_watcher_new_arp_ping (int init_wait,
+                                                      int interval,
+                                                      int missed_max,
                                                       const char *target_host,
                                                       const char *source_host,
                                                       NMTeamLinkWatcherArpPingFlags flags,
                                                       GError **error);
+NM_AVAILABLE_IN_1_16
+NMTeamLinkWatcher *nm_team_link_watcher_new_arp_ping2 (int init_wait,
+                                                       int interval,
+                                                       int missed_max,
+                                                       int vlanid,
+                                                       const char *target_host,
+                                                       const char *source_host,
+                                                       NMTeamLinkWatcherArpPingFlags flags,
+                                                       GError **error);
 NM_AVAILABLE_IN_1_12
 void nm_team_link_watcher_ref                    (NMTeamLinkWatcher *watcher);
 NM_AVAILABLE_IN_1_12
@@ -100,6 +109,8 @@ NM_AVAILABLE_IN_1_12
 const char *nm_team_link_watcher_get_source_host (NMTeamLinkWatcher *watcher);
 NM_AVAILABLE_IN_1_12
 NMTeamLinkWatcherArpPingFlags nm_team_link_watcher_get_flags (NMTeamLinkWatcher *watcher);
+NM_AVAILABLE_IN_1_16
+int nm_team_link_watcher_get_vlanid              (NMTeamLinkWatcher *watcher);
 
 #define NM_TYPE_SETTING_TEAM            (nm_setting_team_get_type ())
 #define NM_SETTING_TEAM(obj)            (G_TYPE_CHECK_INSTANCE_CAST ((obj), NM_TYPE_SETTING_TEAM, NMSettingTeam))
@@ -174,13 +185,13 @@ NMSetting *  nm_setting_team_new                (void);
 
 const char * nm_setting_team_get_config (NMSettingTeam *setting);
 NM_AVAILABLE_IN_1_12
-gint nm_setting_team_get_notify_peers_count (NMSettingTeam *setting);
+int nm_setting_team_get_notify_peers_count (NMSettingTeam *setting);
 NM_AVAILABLE_IN_1_12
-gint nm_setting_team_get_notify_peers_interval (NMSettingTeam *setting);
+int nm_setting_team_get_notify_peers_interval (NMSettingTeam *setting);
 NM_AVAILABLE_IN_1_12
-gint nm_setting_team_get_mcast_rejoin_count (NMSettingTeam *setting);
+int nm_setting_team_get_mcast_rejoin_count (NMSettingTeam *setting);
 NM_AVAILABLE_IN_1_12
-gint nm_setting_team_get_mcast_rejoin_interval (NMSettingTeam *setting);
+int nm_setting_team_get_mcast_rejoin_interval (NMSettingTeam *setting);
 NM_AVAILABLE_IN_1_12
 const char * nm_setting_team_get_runner (NMSettingTeam *setting);
 NM_AVAILABLE_IN_1_12
@@ -188,15 +199,15 @@ const char * nm_setting_team_get_runner_hwaddr_policy (NMSettingTeam *setting);
 NM_AVAILABLE_IN_1_12
 const char * nm_setting_team_get_runner_tx_balancer (NMSettingTeam *setting);
 NM_AVAILABLE_IN_1_12
-gint nm_setting_team_get_runner_tx_balancer_interval (NMSettingTeam *setting);
+int nm_setting_team_get_runner_tx_balancer_interval (NMSettingTeam *setting);
 NM_AVAILABLE_IN_1_12
 gboolean nm_setting_team_get_runner_active (NMSettingTeam *setting);
 NM_AVAILABLE_IN_1_12
 gboolean nm_setting_team_get_runner_fast_rate (NMSettingTeam *setting);
 NM_AVAILABLE_IN_1_12
-gint nm_setting_team_get_runner_sys_prio (NMSettingTeam *setting);
+int nm_setting_team_get_runner_sys_prio (NMSettingTeam *setting);
 NM_AVAILABLE_IN_1_12
-gint nm_setting_team_get_runner_min_ports (NMSettingTeam *setting);
+int nm_setting_team_get_runner_min_ports (NMSettingTeam *setting);
 NM_AVAILABLE_IN_1_12
 const char * nm_setting_team_get_runner_agg_select_policy (NMSettingTeam *setting);
 NM_AVAILABLE_IN_1_12

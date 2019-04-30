@@ -23,13 +23,10 @@
 
 #include "nm-device-wifi.h"
 
-#include <string.h>
-
 #include "nm-setting-connection.h"
 #include "nm-setting-wireless.h"
 #include "nm-setting-wireless-security.h"
 #include "nm-utils.h"
-
 #include "nm-access-point.h"
 #include "nm-object-private.h"
 #include "nm-core-internal.h"
@@ -370,7 +367,7 @@ nm_device_wifi_request_scan (NMDeviceWifi *device,
  * after that for the scan to complete.
  * This is the same as @nm_device_wifi_request_scan except it accepts @options
  * for the scanning. The argument is the dictionary passed to RequestScan()
- * D-Bus call. Valid otions inside the dictionary are:
+ * D-Bus call. Valid options inside the dictionary are:
  * 'ssids' => array of SSIDs (saay)
  *
  * Returns: %TRUE on success, %FALSE on error, in which case @error will be
@@ -487,7 +484,7 @@ nm_device_wifi_request_scan_async (NMDeviceWifi *device,
  * that for the scan to complete.
  * This is the same as @nm_device_wifi_request_scan_async except it accepts @options
  * for the scanning. The argument is the dictionary passed to RequestScan()
- * D-Bus call. Valid otions inside the dictionary are:
+ * D-Bus call. Valid options inside the dictionary are:
  * 'ssids' => array of SSIDs (saay)
  *
  * Since: 1.2

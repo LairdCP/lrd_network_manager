@@ -34,9 +34,27 @@
  * necessary for connection to dummy devices
  **/
 
-G_DEFINE_TYPE_WITH_CODE (NMSettingDummy, nm_setting_dummy, NM_TYPE_SETTING,
-                         _nm_register_setting (DUMMY, NM_SETTING_PRIORITY_HW_BASE))
-NM_SETTING_REGISTER_TYPE (NM_TYPE_SETTING_DUMMY)
+/*****************************************************************************/
+
+G_DEFINE_TYPE (NMSettingDummy, nm_setting_dummy, NM_TYPE_SETTING)
+
+/*****************************************************************************/
+
+static gboolean
+verify (NMSetting *setting, NMConnection *connection, GError **error)
+{
+	if (!_nm_connection_verify_required_interface_name (connection, error))
+		return FALSE;
+
+	return TRUE;
+}
+
+/*****************************************************************************/
+
+static void
+nm_setting_dummy_init (NMSettingDummy *setting)
+{
+}
 
 /**
  * nm_setting_dummy_new:
@@ -53,24 +71,12 @@ nm_setting_dummy_new (void)
 	return (NMSetting *) g_object_new (NM_TYPE_SETTING_DUMMY, NULL);
 }
 
-static gboolean
-verify (NMSetting *setting, NMConnection *connection, GError **error)
-{
-	if (!_nm_connection_verify_required_interface_name (connection, error))
-		return FALSE;
-
-	return TRUE;
-}
-
 static void
-nm_setting_dummy_init (NMSettingDummy *setting)
+nm_setting_dummy_class_init (NMSettingDummyClass *klass)
 {
-}
+	NMSettingClass *setting_class = NM_SETTING_CLASS (klass);
 
-static void
-nm_setting_dummy_class_init (NMSettingDummyClass *setting_class)
-{
-	NMSettingClass *parent_class = NM_SETTING_CLASS (setting_class);
+	setting_class->verify = verify;
 
-	parent_class->verify           = verify;
+	_nm_setting_class_commit (setting_class, NM_META_SETTING_TYPE_DUMMY);
 }

@@ -35,7 +35,7 @@ typedef struct SDEventSource {
 } SDEventSource;
 
 static gboolean
-event_prepare (GSource *source, gint *timeout_)
+event_prepare (GSource *source, int *timeout_)
 {
 	return sd_event_prepare (((SDEventSource *) source)->event) > 0;
 }
@@ -133,9 +133,13 @@ nm_sd_event_attach_default (void)
 
 /*****************************************************************************/
 
+const bool mempool_use_allowed = true;
+
+/*****************************************************************************/
+
 /* ensure that defines in nm-sd.h correspond to the internal defines. */
 
-#include "nm-sd-adapt.h"
+#include "nm-sd-adapt-core.h"
 #include "dhcp-lease-internal.h"
 
 /*****************************************************************************/

@@ -1,12 +1,12 @@
 sources = files(
   'nm-device-team.c',
-  'nm-team-factory.c'
+  'nm-team-factory.c',
 )
 
 deps = [
   jansson_dep,
   libteamdctl_dep,
-  nm_dep
+  nm_dep,
 ]
 
 libnm_device_plugin_team = shared_module(
@@ -16,15 +16,15 @@ libnm_device_plugin_team = shared_module(
   link_args: ldflags_linker_script_devices,
   link_depends: linker_script_devices,
   install: true,
-  install_dir: nm_plugindir
+  install_dir: nm_plugindir,
 )
 
 core_plugins += libnm_device_plugin_team
 
-run_target(
+test(
   'check-local-devices-team',
-  command: [check_exports, libnm_device_plugin_team.full_path(), linker_script_devices],
-  depends: libnm_device_plugin_team
+  check_exports,
+  args: [libnm_device_plugin_team.full_path(), linker_script_devices],
 )
 
 # FIXME: check_so_symbols replacement

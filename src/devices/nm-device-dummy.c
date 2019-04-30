@@ -17,7 +17,6 @@
 #include "nm-device-dummy.h"
 
 #include <stdlib.h>
-#include <string.h>
 #include <sys/types.h>
 
 #include "nm-act-request.h"
@@ -98,36 +97,21 @@ create_and_realize (NMDevice *device,
                     GError **error)
 {
 	const char *iface = nm_device_get_iface (device);
-	NMPlatformError plerr;
 	NMSettingDummy *s_dummy;
+	int r;
 
 	s_dummy = nm_connection_get_setting_dummy (connection);
 	g_assert (s_dummy);
 
-	plerr = nm_platform_link_dummy_add (nm_device_get_platform (device), iface, out_plink);
-	if (plerr != NM_PLATFORM_ERROR_SUCCESS) {
+	r = nm_platform_link_dummy_add (nm_device_get_platform (device), iface, out_plink);
+	if (r < 0) {
 		g_set_error (error, NM_DEVICE_ERROR, NM_DEVICE_ERROR_CREATION_FAILED,
 		             "Failed to create dummy interface '%s' for '%s': %s",
 		             iface,
 		             nm_connection_get_id (connection),
-		             nm_platform_error_to_string_a (plerr));
+		             nm_strerror (r));
 		return FALSE;
 	}
-
-	return TRUE;
-}
-
-static gboolean
-check_connection_compatible (NMDevice *device, NMConnection *connection)
-{
-	NMSettingDummy *s_dummy;
-
-	if (!NM_DEVICE_CLASS (nm_device_dummy_parent_class)->check_connection_compatible (device, connection))
-		return FALSE;
-
-	s_dummy = nm_connection_get_setting_dummy (connection);
-	if (!s_dummy)
-		return FALSE;
 
 	return TRUE;
 }
@@ -173,13 +157,13 @@ nm_device_dummy_class_init (NMDeviceDummyClass *klass)
 	NMDBusObjectClass *dbus_object_class = NM_DBUS_OBJECT_CLASS (klass);
 	NMDeviceClass *device_class = NM_DEVICE_CLASS (klass);
 
-	NM_DEVICE_CLASS_DECLARE_TYPES (klass, NULL, NM_LINK_TYPE_DUMMY)
-
 	dbus_object_class->interface_infos = NM_DBUS_INTERFACE_INFOS (&interface_info_device_dummy);
 
-	device_class->connection_type = NM_SETTING_DUMMY_SETTING_NAME;
+	device_class->connection_type_supported = NM_SETTING_DUMMY_SETTING_NAME;
+	device_class->connection_type_check_compatible = NM_SETTING_DUMMY_SETTING_NAME;
+	device_class->link_types = NM_DEVICE_DEFINE_LINK_TYPES (NM_LINK_TYPE_DUMMY);
+
 	device_class->complete_connection = complete_connection;
-	device_class->check_connection_compatible = check_connection_compatible;
 	device_class->create_and_realize = create_and_realize;
 	device_class->get_generic_capabilities = get_generic_capabilities;
 	device_class->update_connection = update_connection;

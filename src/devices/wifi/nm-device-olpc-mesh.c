@@ -29,13 +29,11 @@
 #include "nm-device-olpc-mesh.h"
 
 #include <netinet/in.h>
-#include <string.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <signal.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
-#include <errno.h>
 
 #include "devices/nm-device.h"
 #include "nm-device-wifi.h"
@@ -80,31 +78,21 @@ G_DEFINE_TYPE (NMDeviceOlpcMesh, nm_device_olpc_mesh, NM_TYPE_DEVICE)
 /*****************************************************************************/
 
 static gboolean
-check_connection_compatible (NMDevice *device, NMConnection *connection)
+get_autoconnect_allowed (NMDevice *device)
 {
-	NMSettingConnection *s_con;
-	NMSettingOlpcMesh *s_mesh;
+	NMDeviceOlpcMesh *self = NM_DEVICE_OLPC_MESH (device);
+	NMDeviceOlpcMeshPrivate *priv = NM_DEVICE_OLPC_MESH_GET_PRIVATE (self);
 
-	if (!NM_DEVICE_CLASS (nm_device_olpc_mesh_parent_class)->check_connection_compatible (device, connection))
-		return FALSE;
+	/* We shall always have a companion if we're >= DISCONENCTED, and this
+	 * ought not be called until then. */
+	g_return_val_if_fail (priv->companion, FALSE);
 
-	s_con = nm_connection_get_setting_connection (connection);
-	g_assert (s_con);
-
-	if (strcmp (nm_setting_connection_get_connection_type (s_con), NM_SETTING_OLPC_MESH_SETTING_NAME))
-		return FALSE;
-
-	s_mesh = nm_connection_get_setting_olpc_mesh (connection);
-	if (!s_mesh)
+	/* We must not attempt to autoconnect when the companion is connected or
+	 * connecting, * because we'd tear down its connection. */
+	if (nm_device_get_state (priv->companion) > NM_DEVICE_STATE_DISCONNECTED)
 		return FALSE;
 
 	return TRUE;
-}
-
-static gboolean
-get_autoconnect_allowed (NMDevice *device)
-{
-	return FALSE;
 }
 
 #define DEFAULT_SSID "olpc-mesh"
@@ -117,7 +105,6 @@ complete_connection (NMDevice *device,
                      GError **error)
 {
 	NMSettingOlpcMesh *s_mesh;
-	GByteArray *tmp;
 
 	s_mesh = nm_connection_get_setting_olpc_mesh (connection);
 	if (!s_mesh) {
@@ -126,10 +113,10 @@ complete_connection (NMDevice *device,
 	}
 
 	if (!nm_setting_olpc_mesh_get_ssid (s_mesh)) {
-		tmp = g_byte_array_sized_new (strlen (DEFAULT_SSID));
-		g_byte_array_append (tmp, (const guint8 *) DEFAULT_SSID, strlen (DEFAULT_SSID));
-		g_object_set (G_OBJECT (s_mesh), NM_SETTING_OLPC_MESH_SSID, tmp, NULL);
-		g_byte_array_free (tmp, TRUE);
+		gs_unref_bytes GBytes *ssid = NULL;
+
+		ssid = g_bytes_new_static (DEFAULT_SSID, NM_STRLEN (DEFAULT_SSID));
+		g_object_set (G_OBJECT (s_mesh), NM_SETTING_OLPC_MESH_SSID, ssid, NULL);
 	}
 
 	if (!nm_setting_olpc_mesh_get_dhcp_anycast_address (s_mesh)) {
@@ -177,7 +164,7 @@ act_stage1_prepare (NMDevice *device, NMDeviceStateReason *out_failure_reason)
 		       nm_device_get_iface (priv->companion));
 	}
 
-	/* wait with continuing configuration untill the companion device is done scanning */
+	/* wait with continuing configuration until the companion device is done scanning */
 	g_object_get (priv->companion, NM_DEVICE_WIFI_SCANNING, &scanning, NULL);
 	if (scanning) {
 		priv->stage1_waiting = TRUE;
@@ -204,16 +191,13 @@ static NMActStageReturn
 act_stage2_config (NMDevice *device, NMDeviceStateReason *out_failure_reason)
 {
 	NMDeviceOlpcMesh *self = NM_DEVICE_OLPC_MESH (device);
-	NMConnection *connection;
 	NMSettingOlpcMesh *s_mesh;
 	guint32 channel;
 	GBytes *ssid;
 	const char *anycast_addr;
 
-	connection = nm_device_get_applied_connection (device);
-	g_return_val_if_fail (connection, NM_ACT_STAGE_RETURN_FAILURE);
+	s_mesh = nm_device_get_applied_setting (device, NM_TYPE_SETTING_OLPC_MESH);
 
-	s_mesh = nm_connection_get_setting_olpc_mesh (connection);
 	g_return_val_if_fail (s_mesh, NM_ACT_STAGE_RETURN_FAILURE);
 
 	channel = nm_setting_olpc_mesh_get_channel (s_mesh);
@@ -288,6 +272,11 @@ companion_state_changed_cb (NMDeviceWifi *companion,
 	NMDeviceOlpcMesh *self = NM_DEVICE_OLPC_MESH (user_data);
 	NMDeviceState self_state = nm_device_get_state (NM_DEVICE (self));
 
+	if (   old_state > NM_DEVICE_STATE_DISCONNECTED
+	    && state <= NM_DEVICE_STATE_DISCONNECTED) {
+		nm_device_emit_recheck_auto_activate (NM_DEVICE (self));
+	}
+
 	if (   self_state < NM_DEVICE_STATE_PREPARE
 	    || self_state > NM_DEVICE_STATE_ACTIVATED
 	    || state < NM_DEVICE_STATE_PREPARE
@@ -302,7 +291,7 @@ companion_state_changed_cb (NMDeviceWifi *companion,
 }
 
 static gboolean
-companion_scan_prohibited_cb (NMDeviceWifi *companion, gpointer user_data)
+companion_scan_prohibited_cb (NMDeviceWifi *companion, gboolean periodic, gpointer user_data)
 {
 	NMDeviceOlpcMesh *self = NM_DEVICE_OLPC_MESH (user_data);
 	NMDeviceState state = nm_device_get_state (NM_DEVICE (self));
@@ -339,7 +328,7 @@ check_companion (NMDeviceOlpcMesh *self, NMDevice *other)
 	g_assert (priv->companion == NULL);
 	priv->companion = g_object_ref (other);
 
-	_LOGI (LOGD_OLPC, "found companion WiFi device %s",
+	_LOGI (LOGD_OLPC, "found companion Wi-Fi device %s",
 	       nm_device_get_iface (other));
 
 	g_signal_connect (G_OBJECT (other), NM_DEVICE_STATE_CHANGED,
@@ -369,7 +358,7 @@ device_added_cb (NMManager *manager, NMDevice *other, gpointer user_data)
 		nm_device_queue_recheck_available (NM_DEVICE (self),
 		                                   NM_DEVICE_STATE_REASON_NONE,
 		                                   NM_DEVICE_STATE_REASON_NONE);
-		nm_device_remove_pending_action (NM_DEVICE (self), NM_PENDING_ACTION_WAITING_FOR_COMPANION, TRUE);
+		nm_device_remove_pending_action (NM_DEVICE (self), NM_PENDING_ACTION_WAITING_FOR_COMPANION, FALSE);
 	}
 }
 
@@ -515,9 +504,7 @@ nm_device_olpc_mesh_class_init (NMDeviceOlpcMeshClass *klass)
 {
 	GObjectClass *object_class = G_OBJECT_CLASS (klass);
 	NMDBusObjectClass *dbus_object_class = NM_DBUS_OBJECT_CLASS (klass);
-	NMDeviceClass *parent_class = NM_DEVICE_CLASS (klass);
-
-	NM_DEVICE_CLASS_DECLARE_TYPES (klass, NM_SETTING_OLPC_MESH_SETTING_NAME, NM_LINK_TYPE_OLPC_MESH)
+	NMDeviceClass *device_class = NM_DEVICE_CLASS (klass);
 
 	object_class->constructed = constructed;
 	object_class->get_property = get_property;
@@ -525,14 +512,17 @@ nm_device_olpc_mesh_class_init (NMDeviceOlpcMeshClass *klass)
 
 	dbus_object_class->interface_infos = NM_DBUS_INTERFACE_INFOS (&interface_info_device_olpc_mesh);
 
-	parent_class->check_connection_compatible = check_connection_compatible;
-	parent_class->get_autoconnect_allowed = get_autoconnect_allowed;
-	parent_class->complete_connection = complete_connection;
-	parent_class->is_available = is_available;
-	parent_class->act_stage1_prepare = act_stage1_prepare;
-	parent_class->act_stage2_config = act_stage2_config;
-	parent_class->state_changed = state_changed;
-	parent_class->get_dhcp_timeout = get_dhcp_timeout;
+	device_class->connection_type_supported = NM_SETTING_OLPC_MESH_SETTING_NAME;
+	device_class->connection_type_check_compatible = NM_SETTING_OLPC_MESH_SETTING_NAME;
+	device_class->link_types = NM_DEVICE_DEFINE_LINK_TYPES (NM_LINK_TYPE_OLPC_MESH);
+
+	device_class->get_autoconnect_allowed = get_autoconnect_allowed;
+	device_class->complete_connection = complete_connection;
+	device_class->is_available = is_available;
+	device_class->act_stage1_prepare = act_stage1_prepare;
+	device_class->act_stage2_config = act_stage2_config;
+	device_class->state_changed = state_changed;
+	device_class->get_dhcp_timeout = get_dhcp_timeout;
 
 	obj_properties[PROP_COMPANION] =
 	     g_param_spec_string (NM_DEVICE_OLPC_MESH_COMPANION, "", "",

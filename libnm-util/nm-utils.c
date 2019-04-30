@@ -103,7 +103,7 @@ static const struct IsoLangToEncodings isoLangEntries2[] =
 	{ "bg",         {"windows-1251","koi8-r",               "iso-8859-5"} },        /* Bulgarian */
 	{ "mk",         {"koi8-r",      "windows-1251", "iso-8859-5"} },        /* Macedonian */
 	{ "sr",         {"koi8-r",      "windows-1251", "iso-8859-5"} },        /* Serbian */
-	{ "uk",         {"koi8-u",      "koi8-r",                       "windows-1251"} },      /* Ukranian */
+	{ "uk",         {"koi8-u",      "koi8-r",                       "windows-1251"} },      /* Ukrainian */
 
 	/* Arabic */
 	{ "ar",         {"iso-8859-6",  "windows-1256", NULL} },
@@ -295,8 +295,8 @@ nm_utils_ssid_to_utf8 (const GByteArray *ssid)
 
 	g_return_val_if_fail (ssid != NULL, NULL);
 
-	if (g_utf8_validate ((const gchar *) ssid->data, ssid->len, NULL))
-		return g_strndup ((const gchar *) ssid->data, ssid->len);
+	if (g_utf8_validate ((const char *) ssid->data, ssid->len, NULL))
+		return g_strndup ((const char *) ssid->data, ssid->len);
 
 	/* LANG may be a good encoding hint */
 	g_get_charset ((const char **)(&e1));
@@ -311,15 +311,15 @@ nm_utils_ssid_to_utf8 (const GByteArray *ssid)
 		g_free (lang);
 	}
 
-	converted = g_convert ((const gchar *) ssid->data, ssid->len, "UTF-8", e1, NULL, NULL, NULL);
+	converted = g_convert ((const char *) ssid->data, ssid->len, "UTF-8", e1, NULL, NULL, NULL);
 	if (!converted && e2)
-		converted = g_convert ((const gchar *) ssid->data, ssid->len, "UTF-8", e2, NULL, NULL, NULL);
+		converted = g_convert ((const char *) ssid->data, ssid->len, "UTF-8", e2, NULL, NULL, NULL);
 
 	if (!converted && e3)
-		converted = g_convert ((const gchar *) ssid->data, ssid->len, "UTF-8", e3, NULL, NULL, NULL);
+		converted = g_convert ((const char *) ssid->data, ssid->len, "UTF-8", e3, NULL, NULL, NULL);
 
 	if (!converted) {
-		converted = g_convert_with_fallback ((const gchar *) ssid->data, ssid->len,
+		converted = g_convert_with_fallback ((const char *) ssid->data, ssid->len,
 		                                     "UTF-8", e1, "?", NULL, NULL, NULL);
 	}
 
@@ -330,11 +330,11 @@ nm_utils_ssid_to_utf8 (const GByteArray *ssid)
 		 */
 
 		/* Use the printable range of 0x20-0x7E */
-		gchar *valid_chars = " !\"#$%&'()*+,-./0123456789:;<=>?@"
+		char *valid_chars = " !\"#$%&'()*+,-./0123456789:;<=>?@"
 		                     "ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`"
 		                     "abcdefghijklmnopqrstuvwxyz{|}~";
 
-		converted = g_strndup ((const gchar *)ssid->data, ssid->len);
+		converted = g_strndup ((const char *)ssid->data, ssid->len);
 		g_strcanon (converted, valid_chars, '?');
 	}
 
@@ -491,7 +491,7 @@ nm_utils_gvalue_hash_dup (GHashTable *hash)
 	g_return_val_if_fail (hash != NULL, NULL);
 
 	table = g_hash_table_new_full (g_str_hash, g_str_equal,
-	                               (GDestroyNotify) g_free,
+	                               g_free,
 	                               value_destroy);
 
 	g_hash_table_foreach (hash, value_dup, table);
@@ -600,7 +600,7 @@ device_supports_ap_ciphers (guint32 dev_caps,
 
 /**
  * nm_utils_ap_mode_security_valid:
- * @type: the security type to check device capabilties against,
+ * @type: the security type to check device capabilities against,
  * e.g. #NMU_SEC_STATIC_WEP
  * @wifi_caps: bitfield of the capabilities of the specific Wi-Fi device, e.g.
  * #NM_WIFI_DEVICE_CAP_CIPHER_WEP40
@@ -638,16 +638,16 @@ nm_utils_ap_mode_security_valid (NMUtilsSecurityType type,
 
 /**
  * nm_utils_security_valid:
- * @type: the security type to check AP flags and device capabilties against,
+ * @type: the security type to check AP flags and device capabilities against,
  * e.g. #NMU_SEC_STATIC_WEP
  * @wifi_caps: bitfield of the capabilities of the specific Wi-Fi device, e.g.
  * #NM_WIFI_DEVICE_CAP_CIPHER_WEP40
  * @have_ap: whether the @ap_flags, @ap_wpa, and @ap_rsn arguments are valid
  * @adhoc: whether the capabilities being tested are from an Ad-Hoc AP (IBSS)
  * @ap_flags: bitfield of AP capabilities, e.g. #NM_802_11_AP_FLAGS_PRIVACY
- * @ap_wpa: bitfield of AP capabilties derived from the AP's WPA beacon,
+ * @ap_wpa: bitfield of AP capabilities derived from the AP's WPA beacon,
  * e.g. (#NM_802_11_AP_SEC_PAIR_TKIP | #NM_802_11_AP_SEC_KEY_MGMT_PSK)
- * @ap_rsn: bitfield of AP capabilties derived from the AP's RSN/WPA2 beacon,
+ * @ap_rsn: bitfield of AP capabilities derived from the AP's RSN/WPA2 beacon,
  * e.g. (#NM_802_11_AP_SEC_PAIR_CCMP | #NM_802_11_AP_SEC_PAIR_TKIP)
  *
  * Given a set of device capabilities, and a desired security type to check
@@ -657,7 +657,7 @@ nm_utils_ap_mode_security_valid (NMUtilsSecurityType type,
  * NOTE: this function cannot handle checking security for AP/Hotspot mode;
  * use nm_utils_ap_mode_security_valid() instead.
  *
- * Returns: %TRUE if the device capabilities and AP capabilties intersect and are
+ * Returns: %TRUE if the device capabilities and AP capabilities intersect and are
  * compatible with the desired @type, %FALSE if they are not
  **/
 gboolean
@@ -1736,7 +1736,7 @@ nm_utils_file_is_pkcs12 (const char *filename)
  * @predicate: (scope call): if given, pass the file name to this function
  *   for additional checks. This check is performed after the check for
  *   @file_test_flags. You cannot omit both @file_test_flags and @predicate.
- * @user_data: (closure): (allow-none): user data for @predicate function.
+ * @user_data: (closure) (allow-none): user data for @predicate function.
  * @error: (allow-none): on failure, set a "not found" error %G_IO_ERROR %G_IO_ERROR_NOT_FOUND.
  *
  * Searches for a @progname file in a list of search @paths.

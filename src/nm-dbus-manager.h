@@ -51,6 +51,8 @@ typedef void (*NMDBusManagerSetPropertyHandler) (NMDBusObject *obj,
 
 gboolean nm_dbus_manager_acquire_bus (NMDBusManager *self);
 
+GDBusConnection *nm_dbus_manager_get_dbus_connection (NMDBusManager *self);
+
 void nm_dbus_manager_start (NMDBusManager *self,
                             NMDBusManagerSetPropertyHandler set_property_handler,
                             gpointer set_property_handler_data);
@@ -61,7 +63,7 @@ gboolean nm_dbus_manager_is_stopping (NMDBusManager *self);
 
 GDBusConnection *nm_dbus_manager_get_connection (NMDBusManager *self);
 
-NMDBusObject *nm_dbus_manager_lookup_object (NMDBusManager *self, const char *path);
+gpointer nm_dbus_manager_lookup_object (NMDBusManager *self, const char *path);
 
 void _nm_dbus_manager_obj_export (NMDBusObject *obj);
 void _nm_dbus_manager_obj_unexport (NMDBusObject *obj);

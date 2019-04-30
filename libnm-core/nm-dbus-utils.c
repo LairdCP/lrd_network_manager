@@ -20,8 +20,6 @@
 
 #include "nm-default.h"
 
-#include <string.h>
-
 #include "nm-core-internal.h"
 
 typedef struct {
@@ -117,7 +115,7 @@ dbus_signal_meta_marshal (GClosure     *closure,
  *
  * The argument types in @c_handler correspond to the types output by
  * g_dbus_gvariant_to_gvalue(), except for 'ay' and 'aay'. In particular:
- * - both 16-bit and 32-bit integers are passed as #gint/#guint
+ * - both 16-bit and 32-bit integers are passed as #int/#guint
  * - 'as' values are passed as #GStrv (char **)
  * - all other array, tuple, and dict types are passed as #GVariant
  *
@@ -174,23 +172,35 @@ _nm_dbus_signal_connect_data (GDBusProxy *proxy,
  * Returns: the signal handler ID, as with _nm_signal_connect_data().
  */
 
-static void
-typecheck_response (GVariant **response,
-                    const GVariantType *reply_type,
-                    GError **error)
+/**
+ * _nm_dbus_typecheck_response:
+ * @response: the #GVariant response to check.
+ * @reply_type: the expected reply type. It may be %NULL to perform no
+ *   checking.
+ * @error: (allow-none): the error in case the @reply_type does not match.
+ *
+ * Returns: %TRUE, if @response is of the expected @reply_type.
+ */
+gboolean
+_nm_dbus_typecheck_response (GVariant *response,
+                             const GVariantType *reply_type,
+                             GError **error)
 {
-	if (   *response
-	    && reply_type
-	    && !g_variant_is_of_type (*response, reply_type)) {
-		/* This is the same error code that g_dbus_connection_call() returns if
-		 * @reply_type doesn't match.
-		 */
-		g_set_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
-		             _("Method returned type '%s', but expected '%s'"),
-		             g_variant_get_type_string (*response),
-		             g_variant_type_peek_string (reply_type));
-		g_clear_pointer (response, g_variant_unref);
-	}
+	g_return_val_if_fail (response, FALSE);
+
+	if (!reply_type)
+		return TRUE;
+	if (g_variant_is_of_type (response, reply_type))
+		return TRUE;
+
+	/* This is the same error code that g_dbus_connection_call() returns if
+	 * @reply_type doesn't match.
+	 */
+	g_set_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
+	             _("Method returned type '%s', but expected '%s'"),
+	             g_variant_get_type_string (response),
+	             g_variant_type_peek_string (reply_type));
+	return FALSE;
 }
 
 /**
@@ -215,11 +225,15 @@ _nm_dbus_proxy_call_finish (GDBusProxy          *proxy,
                             const GVariantType  *reply_type,
                             GError             **error)
 {
-	GVariant *ret;
+	GVariant *variant;
 
-	ret = g_dbus_proxy_call_finish (proxy, res, error);
-	typecheck_response (&ret, reply_type, error);
-	return ret;
+	variant = g_dbus_proxy_call_finish (proxy,
+	                                    res,
+	                                    error);
+	if (   variant
+	    && !_nm_dbus_typecheck_response (variant, reply_type, error))
+		nm_clear_pointer (&variant, g_variant_unref);
+	return variant;
 }
 
 /**
@@ -245,21 +259,42 @@ _nm_dbus_proxy_call_finish (GDBusProxy          *proxy,
  */
 GVariant *
 _nm_dbus_proxy_call_sync (GDBusProxy          *proxy,
-                          const gchar         *method_name,
+                          const char          *method_name,
                           GVariant            *parameters,
                           const GVariantType  *reply_type,
                           GDBusCallFlags       flags,
-                          gint                 timeout_msec,
+                          int                  timeout_msec,
                           GCancellable        *cancellable,
                           GError             **error)
 {
-	GVariant *ret;
+	GVariant *variant;
 
-	ret = g_dbus_proxy_call_sync (proxy, method_name, parameters,
-	                              flags, timeout_msec,
-	                              cancellable, error);
-	typecheck_response (&ret, reply_type, error);
-	return ret;
+	variant = g_dbus_proxy_call_sync (proxy,
+	                                  method_name,
+	                                  parameters,
+	                                  flags,
+	                                  timeout_msec,
+	                                  cancellable,
+	                                  error);
+	if (   variant
+	    && !_nm_dbus_typecheck_response (variant, reply_type, error))
+		nm_clear_pointer (&variant, g_variant_unref);
+	return variant;
+}
+
+GVariant *
+_nm_dbus_connection_call_finish (GDBusConnection *dbus_connection,
+                                 GAsyncResult *result,
+                                 const GVariantType *reply_type,
+                                 GError **error)
+{
+	GVariant *variant;
+
+	variant = g_dbus_connection_call_finish (dbus_connection, result, error);
+	if (   variant
+	    && !_nm_dbus_typecheck_response (variant, reply_type, error))
+		nm_clear_pointer (&variant, g_variant_unref);
+	return variant;
 }
 
 /**

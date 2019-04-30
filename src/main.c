@@ -23,15 +23,12 @@
 
 #include <getopt.h>
 #include <locale.h>
-#include <errno.h>
 #include <stdlib.h>
 #include <signal.h>
-#include <pthread.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <string.h>
 #include <sys/resource.h>
 
 #include "main-utils.h"
@@ -59,7 +56,6 @@
 #endif
 
 #define NM_DEFAULT_PID_FILE          NMRUNDIR "/NetworkManager.pid"
-#define NM_DEFAULT_SYSTEM_STATE_FILE NMSTATEDIR "/NetworkManager.state"
 
 #define CONFIG_ATOMIC_SECTION_PREFIXES ((char **) NULL)
 
@@ -156,7 +152,7 @@ nm_main_config_reload (int signal)
 	 *
 	 * Hence, a NMConfig singleton instance must always be
 	 * available. */
-	nm_config_reload (nm_config_get (), reload_flags);
+	nm_config_reload (nm_config_get (), reload_flags, TRUE);
 }
 
 static void
@@ -233,6 +229,8 @@ main (int argc, char *argv[])
 	NMConfigCmdLineOptions *config_cli;
 	guint sd_id = 0;
 	GError *error_invalid_logging_config = NULL;
+	const char *const *warnings;
+	int errsv;
 
 	/* Known to cause a possible deadlock upon GDBus initialization:
 	 * https://bugzilla.gnome.org/show_bug.cgi?id=674885 */
@@ -334,12 +332,10 @@ main (int argc, char *argv[])
 
 	if (global_opt.become_daemon && !nm_config_get_is_debug (config)) {
 		if (daemon (0, 0) < 0) {
-			int saved_errno;
-
-			saved_errno = errno;
+			errsv = errno;
 			fprintf (stderr, _("Could not daemonize: %s [error %u]\n"),
-			         g_strerror (saved_errno),
-			         saved_errno);
+			         nm_strerror_native (errsv),
+			         errsv);
 			exit (1);
 		}
 		wrote_pidfile = nm_main_utils_write_pidfile (global_opt.pidfile);
@@ -355,7 +351,7 @@ main (int argc, char *argv[])
 		                              NM_CONFIG_KEYFILE_GROUP_LOGGING,
 		                              NM_CONFIG_KEYFILE_KEY_LOGGING_BACKEND,
 		                              NM_CONFIG_GET_VALUE_STRIP | NM_CONFIG_GET_VALUE_NO_EMPTY);
-		nm_logging_syslog_openlog (v, nm_config_get_is_debug (config));
+		nm_logging_init (v, nm_config_get_is_debug (config));
 	}
 
 	nm_log_info (LOGD_CORE, "NetworkManager (version " NM_DIST_VERSION ") is starting... (%s)",
@@ -376,6 +372,11 @@ main (int argc, char *argv[])
 		               : "command line");
 		nm_clear_g_free (&bad_domains);
 	}
+
+	warnings = nm_config_get_warnings (config);
+	for ( ; warnings && *warnings; warnings++)
+		nm_log_warn (LOGD_CORE, "config: %s", *warnings);
+	nm_config_clear_warnings (config);
 
 	/* the first access to State causes the file to be read (and possibly print a warning) */
 	nm_config_state_get (config);
@@ -398,8 +399,13 @@ main (int argc, char *argv[])
 	                                                         NM_CONFIG_KEYFILE_KEY_MAIN_AUTH_POLKIT,
 	                                                         NM_CONFIG_DEFAULT_MAIN_AUTH_POLKIT_BOOL));
 
-	if (!nm_dbus_manager_acquire_bus (nm_dbus_manager_get ()))
-		goto done_no_manager;
+	if (!nm_config_get_configure_and_quit (config)) {
+		/* D-Bus is useless in configure and quit mode -- we're eventually dropping
+		 * off and potential clients would have no way of knowing whether we're
+		 * finished already or didn't start yet. */
+		if (!nm_dbus_manager_acquire_bus (nm_dbus_manager_get ()))
+			goto done_no_manager;
+	}
 
 	manager = nm_manager_setup ();
 	nm_dbus_manager_start (nm_dbus_manager_get(),
@@ -444,7 +450,7 @@ done:
 	 * state here. We don't bother updating the state as devices
 	 * change during regular operation. If NM is killed with SIGKILL,
 	 * it misses to update the state. */
-	nm_manager_write_device_state (manager);
+	nm_manager_write_device_state_all (manager);
 
 	nm_manager_stop (manager);
 

@@ -20,13 +20,11 @@
 
 #include "nm-default.h"
 
-#include <string.h>
+#include "nm-wimax-nsp.h"
 
 #include "nm-connection.h"
 #include "nm-setting-connection.h"
 #include "nm-setting-wimax.h"
-
-#include "nm-wimax-nsp.h"
 #include "nm-dbus-interface.h"
 #include "nm-object-private.h"
 #include "nm-enum-types.h"
@@ -151,7 +149,7 @@ nm_wimax_nsp_connection_valid (NMWimaxNsp *nsp, NMConnection *connection)
  * return connections which may be activated with the NSP.  Any returned
  * connections will match the @nsp's network name and other attributes.
  *
- * Returns: (transfer container) (element-type NMConnection): an array of
+ * Returns: (transfer full) (element-type NMConnection): an array of
  * #NMConnections that could be activated with the given @nsp.  The array should
  * be freed with g_ptr_array_unref() when it is no longer required.
  **/

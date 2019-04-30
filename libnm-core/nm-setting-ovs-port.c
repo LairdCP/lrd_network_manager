@@ -34,16 +34,16 @@
  * necessary for Open vSwitch ports.
  **/
 
-enum {
-	PROP_0,
+/*****************************************************************************/
+
+NM_GOBJECT_PROPERTIES_DEFINE_BASE (
 	PROP_VLAN_MODE,
 	PROP_TAG,
 	PROP_LACP,
 	PROP_BOND_MODE,
 	PROP_BOND_UPDELAY,
 	PROP_BOND_DOWNDELAY,
-	LAST_PROP
-};
+);
 
 /**
  * NMSettingOvsPort:
@@ -65,9 +65,7 @@ struct _NMSettingOvsPortClass {
 	NMSettingClass parent;
 };
 
-G_DEFINE_TYPE_WITH_CODE (NMSettingOvsPort, nm_setting_ovs_port, NM_TYPE_SETTING,
-                         _nm_register_setting (OVS_PORT, NM_SETTING_PRIORITY_HW_BASE))
-NM_SETTING_REGISTER_TYPE (NM_TYPE_SETTING_OVS_PORT)
+G_DEFINE_TYPE (NMSettingOvsPort, nm_setting_ovs_port, NM_TYPE_SETTING)
 
 /*****************************************************************************/
 
@@ -361,15 +359,16 @@ finalize (GObject *object)
 }
 
 static void
-nm_setting_ovs_port_class_init (NMSettingOvsPortClass *setting_class)
+nm_setting_ovs_port_class_init (NMSettingOvsPortClass *klass)
 {
-	GObjectClass *object_class = G_OBJECT_CLASS (setting_class);
-	NMSettingClass *parent_class = NM_SETTING_CLASS (setting_class);
+	GObjectClass *object_class = G_OBJECT_CLASS (klass);
+	NMSettingClass *setting_class = NM_SETTING_CLASS (klass);
 
-	object_class->set_property = set_property;
 	object_class->get_property = get_property;
-	object_class->finalize = finalize;
-	parent_class->verify = verify;
+	object_class->set_property = set_property;
+	object_class->finalize     = finalize;
+
+	setting_class->verify = verify;
 
 	/**
 	 * NMSettingOvsPort:vlan-mode:
@@ -379,14 +378,13 @@ nm_setting_ovs_port_class_init (NMSettingOvsPortClass *setting_class)
 	 *
 	 * Since: 1.10
 	 **/
-	g_object_class_install_property
-	        (object_class, PROP_VLAN_MODE,
-	         g_param_spec_string (NM_SETTING_OVS_PORT_VLAN_MODE, "", "",
-	                              NULL,
-	                              G_PARAM_READWRITE |
-	                              G_PARAM_CONSTRUCT |
-	                              NM_SETTING_PARAM_INFERRABLE |
-	                              G_PARAM_STATIC_STRINGS));
+	obj_properties[PROP_VLAN_MODE] =
+	    g_param_spec_string (NM_SETTING_OVS_PORT_VLAN_MODE, "", "",
+	                         NULL,
+	                         G_PARAM_READWRITE |
+	                         G_PARAM_CONSTRUCT |
+	                         NM_SETTING_PARAM_INFERRABLE |
+	                         G_PARAM_STATIC_STRINGS);
 
 	/**
 	 * NMSettingOvsPort:tag:
@@ -395,14 +393,13 @@ nm_setting_ovs_port_class_init (NMSettingOvsPortClass *setting_class)
 	 *
 	 * Since: 1.10
 	 **/
-	g_object_class_install_property
-	        (object_class, PROP_TAG,
-	         g_param_spec_uint (NM_SETTING_OVS_PORT_TAG, "", "",
-	                            0, 4095, 0,
-	                            G_PARAM_READWRITE |
-	                            G_PARAM_CONSTRUCT |
-	                            NM_SETTING_PARAM_INFERRABLE |
-	                            G_PARAM_STATIC_STRINGS));
+	obj_properties[PROP_TAG] =
+	    g_param_spec_uint (NM_SETTING_OVS_PORT_TAG, "", "",
+	                       0, 4095, 0,
+	                       G_PARAM_READWRITE |
+	                       G_PARAM_CONSTRUCT |
+	                       NM_SETTING_PARAM_INFERRABLE |
+	                       G_PARAM_STATIC_STRINGS);
 
 	/**
 	 * NMSettingOvsPort:lacp:
@@ -411,14 +408,13 @@ nm_setting_ovs_port_class_init (NMSettingOvsPortClass *setting_class)
 	 *
 	 * Since: 1.10
 	 **/
-	g_object_class_install_property
-	        (object_class, PROP_LACP,
-	         g_param_spec_string (NM_SETTING_OVS_PORT_LACP, "", "",
-	                              NULL,
-	                              G_PARAM_READWRITE |
-	                              G_PARAM_CONSTRUCT |
-	                              NM_SETTING_PARAM_INFERRABLE |
-	                              G_PARAM_STATIC_STRINGS));
+	obj_properties[PROP_LACP] =
+	    g_param_spec_string (NM_SETTING_OVS_PORT_LACP, "", "",
+	                         NULL,
+	                         G_PARAM_READWRITE |
+	                         G_PARAM_CONSTRUCT |
+	                         NM_SETTING_PARAM_INFERRABLE |
+	                         G_PARAM_STATIC_STRINGS);
 
 	/**
 	 * NMSettingOvsPort:bond-mode:
@@ -427,14 +423,13 @@ nm_setting_ovs_port_class_init (NMSettingOvsPortClass *setting_class)
 	 *
 	 * Since: 1.10
 	 **/
-	g_object_class_install_property
-	        (object_class, PROP_BOND_MODE,
-	         g_param_spec_string (NM_SETTING_OVS_PORT_BOND_MODE, "", "",
-	                              NULL,
-	                              G_PARAM_READWRITE |
-	                              G_PARAM_CONSTRUCT |
-	                              NM_SETTING_PARAM_INFERRABLE |
-	                              G_PARAM_STATIC_STRINGS));
+	obj_properties[PROP_BOND_MODE] =
+	    g_param_spec_string (NM_SETTING_OVS_PORT_BOND_MODE, "", "",
+	                         NULL,
+	                         G_PARAM_READWRITE |
+	                         G_PARAM_CONSTRUCT |
+	                         NM_SETTING_PARAM_INFERRABLE |
+	                         G_PARAM_STATIC_STRINGS);
 
 	/**
 	 * NMSettingOvsPort:bond-updelay:
@@ -443,14 +438,13 @@ nm_setting_ovs_port_class_init (NMSettingOvsPortClass *setting_class)
 	 *
 	 * Since: 1.10
 	 **/
-	g_object_class_install_property
-	        (object_class, PROP_BOND_UPDELAY,
-	         g_param_spec_uint (NM_SETTING_OVS_PORT_BOND_UPDELAY, "", "",
-	                            0, G_MAXUINT, 0,
-	                            G_PARAM_READWRITE |
-	                            G_PARAM_CONSTRUCT |
-	                            NM_SETTING_PARAM_INFERRABLE |
-	                            G_PARAM_STATIC_STRINGS));
+	obj_properties[PROP_BOND_UPDELAY] =
+	    g_param_spec_uint (NM_SETTING_OVS_PORT_BOND_UPDELAY, "", "",
+	                       0, G_MAXUINT, 0,
+	                       G_PARAM_READWRITE |
+	                       G_PARAM_CONSTRUCT |
+	                       NM_SETTING_PARAM_INFERRABLE |
+	                       G_PARAM_STATIC_STRINGS);
 
 	/**
 	 * NMSettingOvsPort:bond-downdelay:
@@ -459,12 +453,15 @@ nm_setting_ovs_port_class_init (NMSettingOvsPortClass *setting_class)
 	 *
 	 * Since: 1.10
 	 **/
-	g_object_class_install_property
-	        (object_class, PROP_BOND_DOWNDELAY,
-	         g_param_spec_uint (NM_SETTING_OVS_PORT_BOND_DOWNDELAY, "", "",
-	                            0, G_MAXUINT, 0,
-	                            G_PARAM_READWRITE |
-	                            G_PARAM_CONSTRUCT |
-	                            NM_SETTING_PARAM_INFERRABLE |
-	                            G_PARAM_STATIC_STRINGS));
+	obj_properties[PROP_BOND_DOWNDELAY] =
+	    g_param_spec_uint (NM_SETTING_OVS_PORT_BOND_DOWNDELAY, "", "",
+	                       0, G_MAXUINT, 0,
+	                       G_PARAM_READWRITE |
+	                       G_PARAM_CONSTRUCT |
+	                       NM_SETTING_PARAM_INFERRABLE |
+	                       G_PARAM_STATIC_STRINGS);
+
+	g_object_class_install_properties (object_class, _PROPERTY_ENUMS_LAST, obj_properties);
+
+	_nm_setting_class_commit (setting_class, NM_META_SETTING_TYPE_OVS_PORT);
 }

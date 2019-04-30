@@ -19,8 +19,10 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <syslog.h>
-#include <string.h>
 #include <arpa/inet.h>
+#include <linux/if.h>
+#include <linux/if_link.h>
+#include <linux/ip6_tunnel.h>
 
 #include "platform/nm-platform.h"
 #include "platform/nmp-object.h"
@@ -80,7 +82,7 @@ typedef struct {
 	gulong handler_id;
 	const char *name;
 	NMPlatformSignalChangeType change_type;
-	gint received_count;
+	int received_count;
 	GMainLoop *loop;
 	int ifindex;
 	const char *ifname;
@@ -297,6 +299,10 @@ const NMPlatformLink *nmtstp_link_ip6tnl_add (NMPlatform *platform,
                                               gboolean external_command,
                                               const char *name,
                                               const NMPlatformLnkIp6Tnl *lnk);
+const NMPlatformLink *nmtstp_link_ip6gre_add (NMPlatform *platform,
+                                              gboolean external_command,
+                                              const char *name,
+                                              const NMPlatformLnkIp6Tnl *lnk);
 const NMPlatformLink *nmtstp_link_ipip_add (NMPlatform *platform,
                                             gboolean external_command,
                                             const char *name,
@@ -320,10 +326,11 @@ const NMPlatformLink *nmtstp_link_vxlan_add (NMPlatform *platform,
                                              const char *name,
                                              const NMPlatformLnkVxlan *lnk);
 
-void nmtstp_link_del (NMPlatform *platform,
-                      gboolean external_command,
-                      int ifindex,
-                      const char *name);
+void nmtstp_link_delete (NMPlatform *platform,
+                         gboolean external_command,
+                         int ifindex,
+                         const char *name,
+                         gboolean require_exist);
 
 /*****************************************************************************/
 
@@ -342,9 +349,9 @@ _nmtstp_env1_wrapper_setup (const NmtstTestData *test_data)
 
 	_LOGT ("TEST[%s]: setup", test_data->testpath);
 
-	nm_platform_link_delete (NM_PLATFORM_GET, nm_platform_link_get_ifindex (NM_PLATFORM_GET, DEVICE_NAME));
-	g_assert (!nm_platform_link_get_by_ifname (NM_PLATFORM_GET, DEVICE_NAME));
-	g_assert_cmpint (nm_platform_link_dummy_add (NM_PLATFORM_GET, DEVICE_NAME, NULL), ==, NM_PLATFORM_ERROR_SUCCESS);
+	nmtstp_link_delete (NM_PLATFORM_GET, -1, -1, DEVICE_NAME, FALSE);
+
+	g_assert (NMTST_NM_ERR_SUCCESS (nm_platform_link_dummy_add (NM_PLATFORM_GET, DEVICE_NAME, NULL)));
 
 	*p_ifindex = nm_platform_link_get_ifindex (NM_PLATFORM_GET, DEVICE_NAME);
 	g_assert_cmpint (*p_ifindex, >, 0);

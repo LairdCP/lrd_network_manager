@@ -23,8 +23,6 @@
 
 #include "nm-supplicant-manager.h"
 
-#include <string.h>
-
 #include "nm-supplicant-interface.h"
 #include "nm-supplicant-types.h"
 #include "nm-core-internal.h"
@@ -42,6 +40,8 @@ typedef struct {
 	NMSupplicantFeature pmf_support;
 	NMSupplicantFeature laird_support;
 	NMSupplicantFeature fils_support;
+	NMSupplicantFeature p2p_support;
+	NMSupplicantFeature wfd_support;
 	guint             die_count_reset_id;
 	guint             die_count;
 } NMSupplicantManagerPrivate;
@@ -70,7 +70,7 @@ NM_CACHED_QUARK_FCN ("nm-supplicant-error-quark", nm_supplicant_error_quark)
 
 /*****************************************************************************/
 
-static inline gboolean
+static gboolean
 die_count_exceeded (guint32 count)
 {
 	return count > 2;
@@ -124,6 +124,72 @@ _sup_iface_last_ref (gpointer data,
 	g_object_remove_toggle_ref ((GObject *) sup_iface, _sup_iface_last_ref, self);
 }
 
+static void
+on_supplicant_wfd_ies_set (GObject *source_object,
+                           GAsyncResult *res,
+                           gpointer user_data)
+{
+	gs_unref_variant GVariant *result = NULL;
+	gs_free_error GError *error = NULL;
+
+	result = g_dbus_connection_call_finish (G_DBUS_CONNECTION (source_object), res, &error);
+
+	if (!result)
+		_LOGW ("failed to set WFD IEs on wpa_supplicant: %s", error->message);
+}
+
+/**
+ * nm_supplicant_manager_set_wfd_ies:
+ * @self: the #NMSupplicantManager
+ * @wfd_ies: a #GBytes with the WFD IEs or %NULL
+ *
+ * This function sets the global WFD IEs on wpa_supplicant. Note that
+ * it would make more sense if this was per-device, but wpa_supplicant
+ * simply does not work that way.
+ * */
+void
+nm_supplicant_manager_set_wfd_ies (NMSupplicantManager *self,
+                                   GBytes *wfd_ies)
+{
+	NMSupplicantManagerPrivate *priv;
+	GVariantBuilder params;
+	GVariant *val;
+
+	g_return_if_fail (NM_IS_SUPPLICANT_MANAGER (self));
+
+	priv = NM_SUPPLICANT_MANAGER_GET_PRIVATE (self);
+
+	_LOGD ("setting WFD IEs for P2P operation");
+
+	if (wfd_ies)
+		val = g_variant_new_fixed_array (G_VARIANT_TYPE_BYTE,
+		                                 g_bytes_get_data (wfd_ies, NULL),
+		                                 g_bytes_get_size (wfd_ies),
+		                                 sizeof (guint8));
+	else
+		val = g_variant_new_fixed_array (G_VARIANT_TYPE_BYTE,
+		                                 NULL, 0, sizeof (guint8));
+
+	g_variant_builder_init (&params, G_VARIANT_TYPE ("(ssv)"));
+
+	g_variant_builder_add (&params, "s", g_dbus_proxy_get_interface_name (priv->proxy));
+	g_variant_builder_add (&params, "s", "WFDIEs");
+	g_variant_builder_add_value (&params, g_variant_new_variant (val));
+
+	g_dbus_connection_call (g_dbus_proxy_get_connection (priv->proxy),
+	                        g_dbus_proxy_get_name (priv->proxy),
+	                        g_dbus_proxy_get_object_path (priv->proxy),
+	                        "org.freedesktop.DBus.Properties",
+	                        "Set",
+	                        g_variant_builder_end (&params),
+	                        G_VARIANT_TYPE_UNIT,
+	                        G_DBUS_CALL_FLAGS_NO_AUTO_START,
+	                        1000,
+	                        NULL,
+	                        on_supplicant_wfd_ies_set,
+	                        NULL);
+}
+
 /**
  * nm_supplicant_manager_create_interface:
  * @self: the #NMSupplicantManager
@@ -160,15 +226,75 @@ nm_supplicant_manager_create_interface (NMSupplicantManager *self,
 	}
 
 	iface = nm_supplicant_interface_new (ifname,
+	                                     NULL,
 	                                     driver,
 	                                     priv->fast_support,
 	                                     priv->ap_support,
 	                                     priv->pmf_support,
-	                                     priv->fils_support);
+	                                     priv->fils_support,
+	                                     priv->p2p_support,
+	                                     priv->wfd_support);
 
 	if (iface) {
 		nm_supplicant_interface_set_laird_support(iface, priv->laird_support);
 	}
+
+	priv->ifaces = g_slist_prepend (priv->ifaces, iface);
+	g_object_add_toggle_ref ((GObject *) iface, _sup_iface_last_ref, self);
+
+	/* If we're making the supplicant take a time out for a bit, don't
+	 * let the supplicant interface start immediately, just let it hang
+	 * around in INIT state until we're ready to talk to the supplicant
+	 * again.
+	 */
+	if (is_available (self))
+		nm_supplicant_interface_set_supplicant_available (iface, TRUE);
+
+	return iface;
+}
+
+/**
+ * nm_supplicant_manager_create_interface_from_path:
+ * @self: the #NMSupplicantManager
+ * @object_path: the DBus object path for which to obtain the supplicant interface
+ *
+ * Note: the manager owns a reference to the instance and the only way to
+ *   get the manager to release it, is by dropping all other references
+ *   to the supplicant-interface (or destroying the manager).
+ *
+ * Returns: (transfer full): returns a #NMSupplicantInterface or %NULL.
+ *   Must be unrefed at the end.
+ * */
+NMSupplicantInterface *
+nm_supplicant_manager_create_interface_from_path (NMSupplicantManager *self,
+                                                  const char *object_path)
+{
+	NMSupplicantManagerPrivate *priv;
+	NMSupplicantInterface *iface;
+	GSList *ifaces;
+
+	g_return_val_if_fail (NM_IS_SUPPLICANT_MANAGER (self), NULL);
+	g_return_val_if_fail (object_path != NULL, NULL);
+
+	priv = NM_SUPPLICANT_MANAGER_GET_PRIVATE (self);
+
+	_LOGD ("creating new supplicant interface for dbus path %s", object_path);
+
+	/* assert against not requesting duplicate interfaces. */
+	for (ifaces = priv->ifaces; ifaces; ifaces = ifaces->next) {
+		if (g_strcmp0 (nm_supplicant_interface_get_object_path (ifaces->data), object_path) == 0)
+			g_return_val_if_reached (NULL);
+	}
+
+	iface = nm_supplicant_interface_new (NULL,
+	                                     object_path,
+	                                     NM_SUPPLICANT_DRIVER_WIRELESS,
+	                                     priv->fast_support,
+	                                     priv->ap_support,
+	                                     priv->pmf_support,
+	                                     priv->fils_support,
+	                                     priv->p2p_support,
+	                                     priv->wfd_support);
 
 	priv->ifaces = g_slist_prepend (priv->ifaces, iface);
 	g_object_add_toggle_ref ((GObject *) iface, _sup_iface_last_ref, self);
@@ -205,6 +331,8 @@ update_capabilities (NMSupplicantManager *self)
 	priv->pmf_support = NM_SUPPLICANT_FEATURE_UNKNOWN;
 	priv->laird_support = NM_SUPPLICANT_FEATURE_UNKNOWN;
 	priv->fils_support = NM_SUPPLICANT_FEATURE_UNKNOWN;
+	/* P2P support is newer than the capabilities property */
+	priv->p2p_support = NM_SUPPLICANT_FEATURE_NO;
 
 	value = g_dbus_proxy_get_cached_property (priv->proxy, "Capabilities");
 	if (value) {
@@ -214,6 +342,7 @@ update_capabilities (NMSupplicantManager *self)
 			priv->pmf_support = NM_SUPPLICANT_FEATURE_NO;
 			priv->laird_support = NM_SUPPLICANT_FEATURE_NO;
 			priv->fils_support = NM_SUPPLICANT_FEATURE_NO;
+			priv->p2p_support = NM_SUPPLICANT_FEATURE_NO;
 			if (array) {
 				if (g_strv_contains (array, "ap"))
 					priv->ap_support = NM_SUPPLICANT_FEATURE_YES;
@@ -223,6 +352,8 @@ update_capabilities (NMSupplicantManager *self)
 					priv->laird_support = NM_SUPPLICANT_FEATURE_YES;
 				if (g_strv_contains (array, "fils"))
 					priv->fils_support = NM_SUPPLICANT_FEATURE_YES;
+				if (g_strv_contains (array, "p2p"))
+					priv->p2p_support = NM_SUPPLICANT_FEATURE_YES;
 				g_free (array);
 			}
 		}
@@ -230,12 +361,13 @@ update_capabilities (NMSupplicantManager *self)
 	}
 
 	/* Tell all interfaces about results of the Laird features check */
-	/* Tell all interfaces about results of the AP/PMF/FILS check */
+	/* Tell all interfaces about results of the AP/PMF/FILS/P2P check */
 	for (ifaces = priv->ifaces; ifaces; ifaces = ifaces->next) {
 		nm_supplicant_interface_set_laird_support (ifaces->data, priv->laird_support);
 		nm_supplicant_interface_set_ap_support (ifaces->data, priv->ap_support);
 		nm_supplicant_interface_set_pmf_support (ifaces->data, priv->pmf_support);
 		nm_supplicant_interface_set_fils_support (ifaces->data, priv->fils_support);
+		nm_supplicant_interface_set_p2p_support (ifaces->data, priv->p2p_support);
 	}
 
 	_LOGD ("AP mode is %ssupported",
@@ -247,7 +379,9 @@ update_capabilities (NMSupplicantManager *self)
 	_LOGD ("FILS is %ssupported",
 	       (priv->fils_support == NM_SUPPLICANT_FEATURE_YES) ? "" :
 	           (priv->fils_support == NM_SUPPLICANT_FEATURE_NO) ? "not " : "possibly ");
-
+	_LOGD ("P2P is %ssupported",
+	       (priv->p2p_support == NM_SUPPLICANT_FEATURE_YES) ? "" :
+	           (priv->p2p_support == NM_SUPPLICANT_FEATURE_NO) ? "not " : "possibly ");
 	_LOGD ("Laird features are %ssupported",
 	       (priv->laird_support == NM_SUPPLICANT_FEATURE_YES) ? "" :
 	           (priv->laird_support == NM_SUPPLICANT_FEATURE_NO) ? "not " : "possibly ");
@@ -279,6 +413,20 @@ update_capabilities (NMSupplicantManager *self)
 	_LOGD ("EAP-FAST is %ssupported",
 	       (priv->fast_support == NM_SUPPLICANT_FEATURE_YES) ? "" :
 	           (priv->fast_support == NM_SUPPLICANT_FEATURE_NO) ? "not " : "possibly ");
+
+	priv->wfd_support = NM_SUPPLICANT_FEATURE_NO;
+	value = g_dbus_proxy_get_cached_property (priv->proxy, "WFDIEs");
+	if (value) {
+		priv->wfd_support = NM_SUPPLICANT_FEATURE_YES;
+		g_variant_unref (value);
+	}
+
+	for (ifaces = priv->ifaces; ifaces; ifaces = ifaces->next)
+		nm_supplicant_interface_set_wfd_support (ifaces->data, priv->fast_support);
+
+	_LOGD ("WFD is %ssupported",
+	       (priv->wfd_support == NM_SUPPLICANT_FEATURE_YES) ? "" :
+	           (priv->wfd_support == NM_SUPPLICANT_FEATURE_NO) ? "not " : "possibly ");
 }
 
 static void

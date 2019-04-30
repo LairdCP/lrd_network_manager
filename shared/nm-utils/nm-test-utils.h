@@ -30,6 +30,9 @@
  *
  * Our tests (make check) include this header-only file nm-test-utils.h.
  *
+ * You should always include this header *as last*. Reason is, that depending on
+ * previous includes, functionality will be enabled.
+ *
  * Logging:
  *   In tests, nm-logging redirects to glib logging. By default, glib suppresses all debug
  *   messages unless you set G_MESSAGES_DEBUG. To enable debug logging, you can explicitly set
@@ -43,9 +46,10 @@
  *   and g_test_assert_expected_messages() will not fail.
  *
  * NMTST_SEED_RAND environment variable:
- *   Tests that use random numbers from nmtst_get_rand() get seeded randomly at each start.
- *   You can specify the seed by setting NMTST_SEED_RAND. Also, tests will print the seed
- *   to stdout, so that you know the chosen seed.
+ *   Tests that use random numbers from nmtst_get_rand() get seeded at each start.
+ *   You can specify the seed by setting NMTST_SEED_RAND to a particular number or empty ("")
+ *   for a random one. If NMTST_SEED_RAND is not set (default) a stable seed gets chosen.
+ *   Tests will print the seed to stdout, so that you know which one was chosen or generated.
  *
  *
  * NMTST_DEBUG environment variable:
@@ -109,7 +113,9 @@
 #include <string.h>
 #include <errno.h>
 
+#ifndef NM_TEST_UTILS_NO_LIBNM
 #include "nm-utils.h"
+#endif
 
 /*****************************************************************************/
 
@@ -187,6 +193,25 @@
 		g_assert (error); \
 		g_assert (!(success)); \
 	} G_STMT_END
+
+/*****************************************************************************/
+
+/* Our nm-error error numbers use negative values to signal failure.
+ * A non-negative value signals success. Hence, the correct way for checking
+ * is always (r < 0) vs. (r >= 0). Never (r == 0).
+ *
+ * For assertions in tests, we also want to assert that no positive values
+ * are returned. For a lot of functions, positive return values are unexpected
+ * and a bug. This macro evaluates @r to success or failure, while asserting
+ * that @r is not positive. */
+#define NMTST_NM_ERR_SUCCESS(r) \
+	({ \
+		const int _r = (r); \
+		\
+		if (_r >= 0) \
+			g_assert_cmpint (_r, ==, 0); \
+		(_r >= 0); \
+	})
 
 /*****************************************************************************/
 
@@ -299,9 +324,9 @@ nmtst_free (void)
 }
 
 static inline void
-_nmtst_log_handler (const gchar   *log_domain,
+_nmtst_log_handler (const char    *log_domain,
                     GLogLevelFlags log_level,
-                    const gchar   *message,
+                    const char    *message,
                     gpointer       user_data)
 {
 	g_print ("%s\n", message);
@@ -343,6 +368,8 @@ __nmtst_init (int *argc, char ***argv, gboolean assert_logging, const char *log_
 		__nmtst_internal.orig_argv = g_strdupv (*argv);
 
 	__nmtst_internal.assert_logging = !!assert_logging;
+
+	nm_g_type_init ();
 
 	is_debug = g_test_verbose ();
 
@@ -550,8 +577,13 @@ __nmtst_init (int *argc, char ***argv, gboolean assert_logging, const char *log_
 		*out_set_logging = TRUE;
 #endif
 		g_assert (success);
+#if GLIB_CHECK_VERSION(2,34,0)
 		if (__nmtst_internal.no_expect_message)
 			g_log_set_always_fatal (G_LOG_FATAL_MASK);
+#else
+		/* g_test_expect_message() is a NOP, so allow any messages */
+		g_log_set_always_fatal (G_LOG_FATAL_MASK);
+#endif
 	} else if (__nmtst_internal.no_expect_message) {
 		/* We have a test that would be assert_logging, but the user specified no_expect_message.
 		 * This transforms g_test_expect_message() into a NOP, but we also have to relax
@@ -571,9 +603,15 @@ __nmtst_init (int *argc, char ***argv, gboolean assert_logging, const char *log_
 		}
 #endif
 	} else {
+#if GLIB_CHECK_VERSION(2,34,0)
 		/* We were called not to set logging levels. This means, that the user
-		 * expects to assert against (all) messages. Any uncought message is fatal. */
-		g_log_set_always_fatal (G_LOG_LEVEL_MASK);
+		 * expects to assert against (all) messages.
+		 * Any uncaught message on >debug level is fatal. */
+		g_log_set_always_fatal (G_LOG_LEVEL_MASK & ~G_LOG_LEVEL_DEBUG);
+#else
+		/* g_test_expect_message() is a NOP, so allow any messages */
+		g_log_set_always_fatal (G_LOG_FATAL_MASK);
+#endif
 	}
 
 	if ((!__nmtst_internal.assert_logging || (__nmtst_internal.assert_logging && __nmtst_internal.no_expect_message)) &&
@@ -640,6 +678,7 @@ nmtst_test_quick (void)
 	return __nmtst_internal.test_quick;
 }
 
+#if GLIB_CHECK_VERSION(2,34,0)
 #undef g_test_expect_message
 #define g_test_expect_message(...) \
 	G_STMT_START { \
@@ -647,7 +686,9 @@ nmtst_test_quick (void)
 		if (__nmtst_internal.assert_logging && __nmtst_internal.no_expect_message) { \
 			g_debug ("nmtst: assert-logging: g_test_expect_message %s", G_STRINGIFY ((__VA_ARGS__))); \
 		} else { \
+			G_GNUC_BEGIN_IGNORE_DEPRECATIONS \
 			g_test_expect_message (__VA_ARGS__); \
+			G_GNUC_END_IGNORE_DEPRECATIONS \
 		} \
 	} G_STMT_END
 #undef g_test_assert_expected_messages_internal
@@ -661,8 +702,11 @@ nmtst_test_quick (void)
 		if (__nmtst_internal.assert_logging && __nmtst_internal.no_expect_message) \
 			g_debug ("nmtst: assert-logging: g_test_assert_expected_messages(%s, %s:%d, %s)", _domain?:"", _file?:"", _line, _func?:""); \
 		\
+		G_GNUC_BEGIN_IGNORE_DEPRECATIONS \
 		g_test_assert_expected_messages_internal (_domain, _file, _line, _func); \
+		G_GNUC_END_IGNORE_DEPRECATIONS \
 	} G_STMT_END
+#endif
 
 #define NMTST_EXPECT(domain, level, msg)        g_test_expect_message (domain, level, msg)
 
@@ -675,6 +719,7 @@ nmtst_test_quick (void)
 #else
 #define NMTST_EXPECT_LIBNM(level, msg)          NMTST_EXPECT ("libnm", level, msg)
 
+#define NMTST_EXPECT_LIBNM_WARNING(msg)         NMTST_EXPECT_LIBNM (G_LOG_LEVEL_WARNING, msg)
 #define NMTST_EXPECT_LIBNM_CRITICAL(msg)        NMTST_EXPECT_LIBNM (G_LOG_LEVEL_CRITICAL, msg)
 #endif
 
@@ -790,10 +835,21 @@ nmtst_get_rand (void)
 
 	if (G_UNLIKELY (!__nmtst_internal.rand)) {
 		guint32 seed;
-		const char *str;
+		const char *str = g_getenv ("NMTST_SEED_RAND");
 
-		if ((str = g_getenv ("NMTST_SEED_RAND"))) {
-			gchar *s;
+		if (!str) {
+			/* No NMTST_SEED_RAND. Pick a stable one. */
+			seed = 0;
+			__nmtst_internal.rand = g_rand_new_with_seed (seed);
+		} else if (str[0] == '\0') {
+			/* NMTST_SEED_RAND is set but empty. Pick a random one. */
+			__nmtst_internal.rand = g_rand_new ();
+
+			seed = g_rand_int (__nmtst_internal.rand);
+			g_rand_set_seed (__nmtst_internal.rand, seed);
+		} else {
+			/* NMTST_SEED_RAND is set. Use it as a seed. */
+			char *s;
 			gint64 i;
 
 			i = g_ascii_strtoll (str, &s, 0);
@@ -801,11 +857,6 @@ nmtst_get_rand (void)
 
 			seed = i;
 			__nmtst_internal.rand = g_rand_new_with_seed (seed);
-		} else {
-			__nmtst_internal.rand = g_rand_new ();
-
-			seed = g_rand_int (__nmtst_internal.rand);
-			g_rand_set_seed (__nmtst_internal.rand, seed);
 		}
 		__nmtst_internal.rand_seed = seed;
 
@@ -853,6 +904,16 @@ nmtst_rand_buf (GRand *rand, gpointer buffer, gsize buffer_length)
 	}
 	return buffer;
 }
+
+#define _nmtst_rand_select(uniq, v0, ...) \
+	({ \
+		typeof (v0) NM_UNIQ_T (UNIQ, uniq)[1 + NM_NARG (__VA_ARGS__)] = { (v0), __VA_ARGS__ }; \
+		\
+		NM_UNIQ_T (UNIQ, uniq)[nmtst_get_rand_int () % G_N_ELEMENTS (NM_UNIQ_T (UNIQ, uniq))]; \
+	})
+
+#define nmtst_rand_select(...) \
+	_nmtst_rand_select (NM_UNIQ, __VA_ARGS__)
 
 static inline void *
 nmtst_rand_perm (GRand *rand, void *dst, const void *src, gsize elmt_size, gsize n_elmt)
@@ -999,7 +1060,7 @@ nmtst_reexec_sudo (void)
 	execvp (__nmtst_internal.sudo_cmd, argv);
 
 	errsv = errno;
-	g_error (">> exec %s failed: %d - %s", __nmtst_internal.sudo_cmd, errsv, strerror (errsv));
+	g_error (">> exec %s failed: %d - %s", __nmtst_internal.sudo_cmd, errsv, nm_strerror_native (errsv));
 }
 
 /*****************************************************************************/
@@ -1063,6 +1124,8 @@ __define_nmtst_static(02, 1024)
 __define_nmtst_static(03, 1024)
 #undef __define_nmtst_static
 
+#if defined (__NM_UTILS_H__) || defined (NM_UTILS_H)
+
 #define NMTST_UUID_INIT(uuid) \
 	gs_free char *_nmtst_hidden_##uuid = nm_utils_uuid_generate (); \
 	const char *const uuid = _nmtst_hidden_##uuid
@@ -1078,6 +1141,8 @@ nmtst_uuid_generate (void)
 	memcpy (u, m, sizeof (u));
 	return u;
 }
+
+#endif
 
 #define NMTST_SWAP(x,y) \
 	G_STMT_START { \
@@ -1130,6 +1195,48 @@ nmtst_inet6_from_string (const char *str)
 	return &addr;
 }
 
+static inline gconstpointer
+nmtst_inet_from_string (int addr_family, const char *str)
+{
+	if (addr_family == AF_INET) {
+		static in_addr_t a;
+
+		a = nmtst_inet4_from_string (str);
+		return &a;
+	}
+	if (addr_family == AF_INET6)
+		return nmtst_inet6_from_string (str);
+
+	g_assert_not_reached ();
+	return NULL;
+}
+
+static inline const char *
+nmtst_inet_to_string (int addr_family, gconstpointer addr)
+{
+	static char buf[NM_CONST_MAX (INET6_ADDRSTRLEN, INET_ADDRSTRLEN)];
+
+	g_assert (NM_IN_SET (addr_family, AF_INET, AF_INET6));
+	g_assert (addr);
+
+	if (inet_ntop (addr_family, addr, buf, sizeof (buf)) != buf)
+		g_assert_not_reached ();
+
+	return buf;
+}
+
+static inline const char *
+nmtst_inet4_to_string (in_addr_t addr)
+{
+	return nmtst_inet_to_string (AF_INET, &addr);
+}
+
+static inline const char *
+nmtst_inet6_to_string (const struct in6_addr *addr)
+{
+	return nmtst_inet_to_string (AF_INET6, addr);
+}
+
 static inline void
 _nmtst_assert_ip4_address (const char *file, int line, in_addr_t addr, const char *str_expected)
 {
@@ -1163,12 +1270,12 @@ _nmtst_assert_ip6_address (const char *file, int line, const struct in6_addr *ad
 
 #define nmtst_spawn_sync(working_directory, standard_out, standard_err, assert_exit_status, ...) \
 	__nmtst_spawn_sync (working_directory, standard_out, standard_err, assert_exit_status, ##__VA_ARGS__, NULL)
-static inline gint
+static inline int
 __nmtst_spawn_sync (const char *working_directory, char **standard_out, char **standard_err, int assert_exit_status, ...) G_GNUC_NULL_TERMINATED;
-static inline gint
+static inline int
 __nmtst_spawn_sync (const char *working_directory, char **standard_out, char **standard_err, int assert_exit_status, ...)
 {
-	gint exit_status = 0;
+	int exit_status = 0;
 	GError *error = NULL;
 	char *arg;
 	va_list va_args;
@@ -1263,7 +1370,7 @@ nmtst_file_unlink_if_exists (const char *name)
 	if (unlink (name) != 0) {
 		errsv = errno;
 		if (errsv != ENOENT)
-			g_error ("nmtst_file_unlink_if_exists(%s): failed with %s", name, strerror (errsv));
+			g_error ("nmtst_file_unlink_if_exists(%s): failed with %s", name, nm_strerror_native (errsv));
 	}
 }
 
@@ -1276,7 +1383,7 @@ nmtst_file_unlink (const char *name)
 
 	if (unlink (name) != 0) {
 		errsv = errno;
-		g_error ("nmtst_file_unlink(%s): failed with %s", name, strerror (errsv));
+		g_error ("nmtst_file_unlink(%s): failed with %s", name, nm_strerror_native (errsv));
 	}
 }
 
@@ -1308,6 +1415,42 @@ _nmtst_assert_resolve_relative_path_equals (const char *f1, const char *f2, cons
 		g_error ("%s:%d : filenames don't match \"%s\" vs. \"%s\" // \"%s\" - \"%s\"", file, line, f1, f2, p1, p2);
 }
 #define nmtst_assert_resolve_relative_path_equals(f1, f2) _nmtst_assert_resolve_relative_path_equals (f1, f2, __FILE__, __LINE__);
+
+/*****************************************************************************/
+
+#ifdef __NETWORKMANAGER_LOGGING_H__
+static inline gpointer
+nmtst_logging_disable (gboolean always)
+{
+	gpointer p;
+
+	g_assert (nmtst_initialized ());
+	if (!always && __nmtst_internal.no_expect_message) {
+		/* The caller does not want to @always suppress logging. Instead,
+		 * the caller wants to suppress unexpected log messages that would
+		 * fail assertions (since we possibly assert against all unexpected
+		 * log messages).
+		 *
+		 * If the test is run with no-expect-message, then don't suppress
+		 * the loggings, because they also wouldn't fail assertions. */
+		return NULL;
+	}
+
+	p = g_memdup (_nm_logging_enabled_state, sizeof (_nm_logging_enabled_state));
+	memset (_nm_logging_enabled_state, 0, sizeof (_nm_logging_enabled_state));
+	return p;
+}
+
+static inline void
+nmtst_logging_reenable (gpointer old_state)
+{
+	g_assert (nmtst_initialized ());
+	if (old_state) {
+		memcpy (_nm_logging_enabled_state, old_state, sizeof (_nm_logging_enabled_state));
+		g_free (old_state);
+	}
+}
+#endif
 
 /*****************************************************************************/
 
@@ -1651,7 +1794,7 @@ nmtst_assert_connection_verifies_and_normalizable (NMConnection *con)
 static inline void
 nmtst_assert_connection_verifies_after_normalization (NMConnection *con,
                                                       GQuark expect_error_domain,
-                                                      gint expect_error_code)
+                                                      int expect_error_code)
 {
 	/* assert that the connection does not verify, but normalization does fix it */
 	GError *error = NULL;
@@ -1678,7 +1821,7 @@ nmtst_assert_connection_verifies_after_normalization (NMConnection *con,
 static inline void
 nmtst_assert_connection_unnormalizable (NMConnection *con,
                                         GQuark expect_error_domain,
-                                        gint expect_error_code)
+                                        int expect_error_code)
 {
 	/* assert that the connection does not verify, and it cannot be fixed by normalization */
 
@@ -1735,7 +1878,7 @@ _nmtst_assert_connection_has_settings (NMConnection *connection, gboolean has_at
 
 	va_start (ap, has_at_most);
 	while ((name = va_arg (ap, const char *))) {
-		if (!g_hash_table_add (names, (gpointer) name))
+		if (!nm_g_hash_table_add (names, (gpointer) name))
 			g_assert_not_reached ();
 		g_ptr_array_add (names_arr, (gpointer) name);
 	}
@@ -1776,7 +1919,7 @@ _nmtst_assert_connection_has_settings (NMConnection *connection, gboolean has_at
 static inline void
 nmtst_assert_setting_verify_fails (NMSetting *setting,
                                    GQuark expect_error_domain,
-                                   gint expect_error_code)
+                                   int expect_error_code)
 {
 	/* assert that the setting verification fails */
 
@@ -1831,25 +1974,27 @@ nmtst_assert_hwaddr_equals (gconstpointer hwaddr1, gssize hwaddr1_len, const cha
 #if defined(__NM_SIMPLE_CONNECTION_H__) && defined(__NM_SETTING_CONNECTION_H__) && defined(__NM_KEYFILE_INTERNAL_H__)
 
 static inline NMConnection *
-nmtst_create_connection_from_keyfile (const char *keyfile_str, const char *keyfile_name, const char *base_dir)
+nmtst_create_connection_from_keyfile (const char *keyfile_str, const char *full_filename)
 {
-	GKeyFile *keyfile;
-	GError *error = NULL;
+	gs_unref_keyfile GKeyFile *keyfile = NULL;
+	gs_free_error GError *error = NULL;
 	gboolean success;
 	NMConnection *con;
+	gs_free char *filename = g_path_get_basename (full_filename);
+	gs_free char *base_dir = g_path_get_dirname (full_filename);
 
 	g_assert (keyfile_str);
+	g_assert (full_filename && full_filename[0] == '/');
 
 	keyfile =  g_key_file_new ();
 	success = g_key_file_load_from_data (keyfile, keyfile_str, strlen (keyfile_str), G_KEY_FILE_NONE, &error);
-	g_assert_no_error (error);
-	g_assert (success);
+	nmtst_assert_success (success, error);
 
-	con = nm_keyfile_read (keyfile, keyfile_name, base_dir, NULL, NULL, &error);
-	g_assert_no_error (error);
-	g_assert (NM_IS_CONNECTION (con));
+	con = nm_keyfile_read (keyfile, base_dir, NULL, NULL, &error);
+	nmtst_assert_success (NM_IS_CONNECTION (con), error);
 
-	g_key_file_unref (keyfile);
+	nm_keyfile_read_ensure_id (con, filename);
+	nm_keyfile_read_ensure_uuid (con, full_filename);
 
 	nmtst_connection_normalize (con);
 
@@ -2001,5 +2146,51 @@ typedef enum {
 	} G_STMT_END
 
 #endif /* __NM_CONNECTION_H__ */
+
+/*****************************************************************************/
+
+static inline void
+nmtst_keyfile_assert_data (GKeyFile *kf, const char *data, gssize data_len)
+{
+	gs_unref_keyfile GKeyFile *kf2 = NULL;
+	gs_free_error GError *error = NULL;
+	gs_free char *d1 = NULL;
+	gs_free char *d2 = NULL;
+	gboolean success;
+	gsize d1_len;
+	gsize d2_len;
+
+	g_assert (kf);
+	g_assert (data || data_len == 0);
+	g_assert (data_len >= -1);
+
+	d1 = g_key_file_to_data (kf, &d1_len, &error);
+	nmtst_assert_success (d1, error);
+
+	if (data_len == -1) {
+		g_assert_cmpint (strlen (d1), ==, d1_len);
+		data_len = strlen (data);
+		g_assert_cmpstr (d1, ==, data);
+	}
+
+	g_assert_cmpmem (d1, d1_len, data, (gsize) data_len);
+
+	/* also check that we can re-generate the same keyfile from the data. */
+
+	kf2 = g_key_file_new ();
+	success = g_key_file_load_from_data (kf2,
+	                                     d1,
+	                                     d1_len,
+	                                     G_KEY_FILE_NONE,
+	                                     &error);
+	nmtst_assert_success (success, error);
+
+	d2 = g_key_file_to_data (kf2, &d2_len, &error);
+	nmtst_assert_success (d2, error);
+
+	g_assert_cmpmem (d2, d2_len, d1, d1_len);
+}
+
+/*****************************************************************************/
 
 #endif /* __NM_TEST_UTILS_H__ */

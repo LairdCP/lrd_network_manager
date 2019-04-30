@@ -23,8 +23,6 @@
 
 #include "nm-access-point.h"
 
-#include <string.h>
-
 #include "nm-connection.h"
 #include "nm-setting-connection.h"
 #include "nm-setting-wireless.h"
@@ -48,7 +46,7 @@ typedef struct {
 	NM80211Mode mode;
 	guint32 max_bitrate;
 	guint8 strength;
-	gint last_seen;
+	int last_seen;
 } NMAccessPointPrivate;
 
 enum {
@@ -233,14 +231,14 @@ nm_access_point_get_strength (NMAccessPoint *ap)
  *
  * Since: 1.2
  **/
-gint
+int
 nm_access_point_get_last_seen (NMAccessPoint *ap)
 {
 	g_return_val_if_fail (NM_IS_ACCESS_POINT (ap), -1);
 
 	return NM_ACCESS_POINT_GET_PRIVATE (ap)->last_seen;
 }
-NM_BACKPORT_SYMBOL (libnm_1_0_6, gint, nm_access_point_get_last_seen, (NMAccessPoint *ap), (ap));
+NM_BACKPORT_SYMBOL (libnm_1_0_6, int, nm_access_point_get_last_seen, (NMAccessPoint *ap), (ap));
 
 /**
  * nm_access_point_connection_valid:
@@ -367,7 +365,7 @@ nm_access_point_connection_valid (NMAccessPoint *ap, NMConnection *connection)
  * #NMDevice using nm_device_filter_connections() and finally filter that list
  * with this function.
  *
- * Returns: (transfer container) (element-type NMConnection): an array of
+ * Returns: (transfer full) (element-type NMConnection): an array of
  * #NMConnections that could be activated with the given @ap.  The array should
  * be freed with g_ptr_array_unref() when it is no longer required.
  **/

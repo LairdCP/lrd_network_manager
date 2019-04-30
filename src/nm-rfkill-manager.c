@@ -22,7 +22,6 @@
 
 #include "nm-rfkill-manager.h"
 
-#include <string.h>
 #include <libudev.h>
 
 #include "nm-utils/nm-udev-utils.h"
@@ -65,7 +64,7 @@ typedef struct {
 	char *path;
 	char *driver;
 	RfKillType rtype;
-	gint state;
+	int state;
 	gboolean platform;
 } Killswitch;
 
@@ -82,7 +81,7 @@ static const char *
 rfkill_type_to_desc (RfKillType rtype)
 {
 	if (rtype == 0)
-		return "WiFi";
+		return "Wi-Fi";
 	else if (rtype == 1)
 		return "WWAN";
 	else if (rtype == 2)
@@ -158,7 +157,7 @@ killswitch_destroy (Killswitch *ks)
 }
 
 static RfKillState
-sysfs_state_to_nm_state (gint sysfs_state)
+sysfs_state_to_nm_state (int sysfs_state)
 {
 	switch (sysfs_state) {
 	case 0:

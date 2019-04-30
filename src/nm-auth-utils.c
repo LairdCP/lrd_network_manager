@@ -22,10 +22,7 @@
 
 #include "nm-auth-utils.h"
 
-#include <string.h>
-
 #include "nm-utils/nm-c-list.h"
-
 #include "nm-setting-connection.h"
 #include "nm-auth-subject.h"
 #include "nm-auth-manager.h"
@@ -139,7 +136,7 @@ nm_auth_chain_get_data (NMAuthChain *self, const char *tag)
  * @self: A #NMAuthChain.
  * @tag: A "tag" uniquely identifying the data to steal.
  *
- * Removes the datum assocated with @tag from the chain's data associations,
+ * Removes the datum associated with @tag from the chain's data associations,
  * without invoking the association's destroy handler.  The caller assumes
  * ownership over the returned value.
  *

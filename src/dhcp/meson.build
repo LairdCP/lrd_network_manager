@@ -3,7 +3,6 @@ name = 'nm-dhcp-helper'
 cflags = [
   '-DG_LOG_DOMAIN="@0@"'.format(name),
   '-DNETWORKMANAGER_COMPILATION=NM_NETWORKMANAGER_COMPILATION_GLIB',
-  '-DNMRUNDIR="@0@"'.format(nm_pkgrundir),
 ]
 
 executable(
@@ -14,7 +13,7 @@ executable(
   link_args: ldflags_linker_script_binary,
   link_depends: linker_script_binary,
   install: true,
-  install_dir: nm_libexecdir
+  install_dir: nm_libexecdir,
 )
 
 if enable_tests

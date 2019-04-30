@@ -41,6 +41,18 @@ struct _NMVariantAttributeSpec {
 gboolean    _nm_utils_string_slist_validate (GSList *list,
                                              const char **valid_values);
 
+gboolean _nm_utils_secret_flags_validate (NMSettingSecretFlags secret_flags,
+                                          const char *setting_name,
+                                          const char *property_name,
+                                          NMSettingSecretFlags disallowed_flags,
+                                          GError **error);
+
+gboolean _nm_utils_wps_method_validate (NMSettingWirelessSecurityWpsMethod wps_method,
+                                        const char *setting_name,
+                                        const char *property_name,
+                                        gboolean wps_required,
+                                        GError **error);
+
 /* D-Bus transform funcs */
 
 GVariant   *_nm_utils_hwaddr_cloned_get (NMSetting     *setting,
@@ -56,9 +68,11 @@ gboolean    _nm_utils_hwaddr_cloned_not_set (NMSetting *setting,
                                              const char    *property,
                                              NMSettingParseFlags parse_flags,
                                              GError       **error);
-GVariant *  _nm_utils_hwaddr_cloned_data_synth (NMSetting *setting,
+GVariant *  _nm_utils_hwaddr_cloned_data_synth (const NMSettInfoSetting *sett_info,
+                                                guint property_idx,
                                                 NMConnection *connection,
-                                                const char *property);
+                                                NMSetting *setting,
+                                                NMConnectionSerializationFlags flags);
 gboolean    _nm_utils_hwaddr_cloned_data_set (NMSetting *setting,
                                               GVariant *connection_dict,
                                               const char *property,
@@ -74,7 +88,6 @@ GVariant *  _nm_utils_strdict_to_dbus   (const GValue *prop_value);
 void        _nm_utils_strdict_from_dbus (GVariant *dbus_value,
                                          GValue *prop_value);
 
-GVariant *  _nm_utils_bytes_to_dbus     (const GValue *prop_value);
 void        _nm_utils_bytes_from_dbus   (GVariant *dbus_value,
                                          GValue *prop_value);
 
@@ -82,6 +95,13 @@ char *      _nm_utils_hwaddr_canonical_or_invalid (const char *mac, gssize lengt
 
 GPtrArray * _nm_utils_team_link_watchers_from_variant (GVariant *value);
 GVariant *  _nm_utils_team_link_watchers_to_variant (GPtrArray *link_watchers);
+
+void        _nm_utils_format_variant_attributes_full (GString *str,
+                                                      const NMUtilsNamedValue *values,
+                                                      guint num_values,
+                                                      char attr_separator,
+                                                      char key_value_separator);
+gboolean    _nm_sriov_vf_parse_vlans (NMSriovVF *vf, const char *str, GError **error);
 
 /* JSON to GValue conversion macros */
 

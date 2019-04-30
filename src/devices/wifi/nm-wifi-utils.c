@@ -22,7 +22,6 @@
 
 #include "nm-wifi-utils.h"
 
-#include <string.h>
 #include <stdlib.h>
 
 #include "nm-utils.h"
@@ -579,7 +578,7 @@ verify_adhoc (NMSettingWirelessSecurity *s_wsec,
 }
 
 gboolean
-nm_wifi_utils_complete_connection (const GByteArray *ap_ssid,
+nm_wifi_utils_complete_connection (GBytes *ap_ssid,
                                    const char *bssid,
                                    NM80211Mode ap_mode,
                                    guint32 ap_flags,
@@ -592,7 +591,7 @@ nm_wifi_utils_complete_connection (const GByteArray *ap_ssid,
 	NMSettingWireless *s_wifi;
 	NMSettingWirelessSecurity *s_wsec;
 	NMSetting8021x *s_8021x;
-	GBytes *ssid, *ap_ssid_bytes;
+	GBytes *ssid;
 	const char *mode, *key_mgmt, *auth_alg, *leap_username;
 	gboolean adhoc = FALSE;
 
@@ -602,20 +601,17 @@ nm_wifi_utils_complete_connection (const GByteArray *ap_ssid,
 	s_8021x = nm_connection_get_setting_802_1x (connection);
 
 	/* Fill in missing SSID */
-	ap_ssid_bytes = ap_ssid ? g_bytes_new (ap_ssid->data, ap_ssid->len) : NULL;
 	ssid = nm_setting_wireless_get_ssid (s_wifi);
 	if (!ssid)
-		g_object_set (G_OBJECT (s_wifi), NM_SETTING_WIRELESS_SSID, ap_ssid_bytes, NULL);
-	else if (!ap_ssid_bytes || !g_bytes_equal (ssid, ap_ssid_bytes)) {
+		g_object_set (G_OBJECT (s_wifi), NM_SETTING_WIRELESS_SSID, ap_ssid, NULL);
+	else if (!ap_ssid || !g_bytes_equal (ssid, ap_ssid)) {
 		g_set_error_literal (error,
 		                     NM_CONNECTION_ERROR,
 		                     NM_CONNECTION_ERROR_INVALID_PROPERTY,
 		                     _("connection does not match access point"));
 		g_prefix_error (error, "%s.%s: ", NM_SETTING_WIRELESS_SETTING_NAME, NM_SETTING_WIRELESS_SSID);
-		g_bytes_unref (ap_ssid_bytes);
 		return FALSE;
 	}
-	g_bytes_unref (ap_ssid_bytes);
 
 	if (lock_bssid && !nm_setting_wireless_get_bssid (s_wifi))
 		g_object_set (G_OBJECT (s_wifi), NM_SETTING_WIRELESS_BSSID, bssid, NULL);
@@ -796,6 +792,12 @@ nm_wifi_utils_complete_connection (const GByteArray *ap_ssid,
 		 * setting.  Since there's so much configuration required for it, there's
 		 * no way it can be automatically completed.
 		 */
+	} else if (   (key_mgmt && !strcmp (key_mgmt, "sae"))
+	           || (ap_rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_SAE)) {
+		g_object_set (s_wsec,
+		              NM_SETTING_WIRELESS_SECURITY_KEY_MGMT, "sae",
+		              NM_SETTING_WIRELESS_SECURITY_AUTH_ALG, "open",
+		              NULL);
 	} else if (   (key_mgmt && !strcmp (key_mgmt, "wpa-psk"))
 	           || (ap_wpa_flags & NM_802_11_AP_SEC_KEY_MGMT_PSK)
 	           || (ap_rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_PSK)) {
@@ -818,7 +820,7 @@ nm_wifi_utils_complete_connection (const GByteArray *ap_ssid,
 }
 
 guint32
-nm_wifi_utils_level_to_quality (gint val)
+nm_wifi_utils_level_to_quality (int val)
 {
 	if (val < 0) {
 		/* Assume dBm already; rough conversion: best = -40, worst = -100 */
@@ -837,8 +839,10 @@ nm_wifi_utils_level_to_quality (gint val)
 }
 
 gboolean
-nm_wifi_utils_is_manf_default_ssid (const GByteArray *ssid)
+nm_wifi_utils_is_manf_default_ssid (GBytes *ssid)
 {
+	const guint8 *ssid_p;
+	gsize ssid_l;
 	int i;
 	/*
 	 * List of manufacturer default SSIDs that are often unchanged by users.
@@ -860,11 +864,46 @@ nm_wifi_utils_is_manf_default_ssid (const GByteArray *ssid)
 		"TURBONETT",
 	};
 
+	ssid_p = g_bytes_get_data (ssid, &ssid_l);
+
 	for (i = 0; i < G_N_ELEMENTS (manf_defaults); i++) {
-		if (ssid->len == strlen (manf_defaults[i])) {
-			if (memcmp (manf_defaults[i], ssid->data, ssid->len) == 0)
+		if (ssid_l == strlen (manf_defaults[i])) {
+			if (memcmp (manf_defaults[i], ssid_p, ssid_l) == 0)
 				return TRUE;
 		}
 	}
 	return FALSE;
+}
+
+NMIwdNetworkSecurity
+nm_wifi_connection_get_iwd_security (NMConnection *connection,
+                                     gboolean *mapped)
+{
+	NMSettingWirelessSecurity *s_wireless_sec;
+	const char *key_mgmt = NULL;
+
+	if (!nm_connection_get_setting_wireless (connection))
+		goto error;
+
+	NM_SET_OUT (mapped, TRUE);
+
+	s_wireless_sec = nm_connection_get_setting_wireless_security (connection);
+	if (!s_wireless_sec)
+		return NM_IWD_NETWORK_SECURITY_NONE;
+
+	key_mgmt = nm_setting_wireless_security_get_key_mgmt (s_wireless_sec);
+	nm_assert (key_mgmt);
+
+	if (NM_IN_STRSET (key_mgmt, "none", "ieee8021x"))
+		return NM_IWD_NETWORK_SECURITY_WEP;
+
+	if (nm_streq (key_mgmt, "wpa-psk"))
+		return NM_IWD_NETWORK_SECURITY_PSK;
+
+	if (nm_streq (key_mgmt, "wpa-eap"))
+		return NM_IWD_NETWORK_SECURITY_8021X;
+
+error:
+	NM_SET_OUT (mapped, FALSE);
+	return NM_IWD_NETWORK_SECURITY_NONE;
 }

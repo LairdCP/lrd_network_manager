@@ -22,6 +22,7 @@
 
 #include "nm-utils/nm-obj.h"
 #include "nm-meta-setting.h"
+#include "nm-ethtool-utils.h"
 
 struct _NMDevice;
 
@@ -147,6 +148,11 @@ typedef enum {
 typedef enum {
 	NM_META_ACCESSOR_GET_OUT_FLAGS_NONE                                     = 0,
 	NM_META_ACCESSOR_GET_OUT_FLAGS_STRV                                     = (1LL <<  0),
+
+	/* the property allows to be hidden, if and only if, it's value is set to the
+	 * default. This should only be set by new properties, to preserve behavior
+	 * of old properties, which were always printed. */
+	NM_META_ACCESSOR_GET_OUT_FLAGS_HIDE                                     = (1LL <<  1),
 } NMMetaAccessorGetOutFlags;
 
 typedef enum {
@@ -163,6 +169,7 @@ typedef enum {
 	NM_META_PROPERTY_TYPE_MAC_MODE_DEFAULT,
 	NM_META_PROPERTY_TYPE_MAC_MODE_CLONED,
 	NM_META_PROPERTY_TYPE_MAC_MODE_INFINIBAND,
+	NM_META_PROPERTY_TYPE_MAC_MODE_WPAN,
 } NMMetaPropertyTypeMacMode;
 
 typedef struct _NMMetaEnvironment           NMMetaEnvironment;
@@ -225,9 +232,14 @@ struct _NMMetaPropertyType {
 
 struct _NMUtilsEnumValueInfo;
 
+typedef union {
+	gint64  i64;
+	guint64 u64;
+} NMMetaSignUnsignInt64;
+
 typedef struct {
 	const char *nick;
-	gint64 value;
+	NMMetaSignUnsignInt64 value;
 } NMMetaUtilsIntValueInfo;
 
 struct _NMMetaPropertyTypData {
@@ -248,8 +260,8 @@ struct _NMMetaPropertyTypData {
 			                        int value);
 		} gobject_enum;
 		struct {
-			gint64 min;
-			gint64 max;
+			NMMetaSignUnsignInt64 min;
+			NMMetaSignUnsignInt64 max;
 			guint base;
 			const NMMetaUtilsIntValueInfo *value_infos;
 		} gobject_int;
@@ -257,11 +269,17 @@ struct _NMMetaPropertyTypData {
 			const char *(*validate_fcn) (const char *value, char **out_to_free, GError **error);
 		} gobject_string;
 		struct {
+			bool legacy_format:1;
+		} gobject_bytes;
+		struct {
 			guint32 (*get_fcn) (NMSetting *setting);
 		} mtu;
 		struct {
 			NMMetaPropertyTypeMacMode mode;
 		} mac;
+		struct {
+			NMEthtoolID ethtool_id;
+		} ethtool;
 	} subtype;
 	const char *const*values_static;
 	const NMMetaPropertyTypDataNested *nested;
@@ -358,6 +376,7 @@ struct _NMMetaType {
 	                          const NMMetaEnvironment *environment,
 	                          gpointer environment_user_data,
 	                          gpointer target,
+	                          gpointer target_data,
 	                          NMMetaAccessorGetType get_type,
 	                          NMMetaAccessorGetFlags get_flags,
 	                          NMMetaAccessorGetOutFlags *out_flags,
@@ -396,7 +415,7 @@ typedef enum {
 
 /* the settings-meta data is supposed to be independent of an actual client
  * implementation. Hence, there is a need for hooks to the meta-data.
- * The meta-data handlers may call back to the enviroment with certain
+ * The meta-data handlers may call back to the environment with certain
  * actions. */
 struct _NMMetaEnvironment {
 

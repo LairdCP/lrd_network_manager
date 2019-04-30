@@ -42,17 +42,14 @@
 #define NETLINK_EXT_ACK         11
 #endif
 
-#define NL_MSG_CRED_PRESENT 1
-
 struct nl_msg {
 	int                     nm_protocol;
-	int                     nm_flags;
 	struct sockaddr_nl      nm_src;
 	struct sockaddr_nl      nm_dst;
 	struct ucred            nm_creds;
 	struct nlmsghdr *       nm_nlh;
 	size_t                  nm_size;
-	int                     nm_refcnt;
+	bool                    nm_creds_has:1;
 };
 
 struct nl_sock {
@@ -65,38 +62,6 @@ struct nl_sock {
 	int                     s_flags;
 	size_t                  s_bufsize;
 };
-
-/*****************************************************************************/
-
-NM_UTILS_LOOKUP_STR_DEFINE_STATIC (_geterror, int,
-	NM_UTILS_LOOKUP_DEFAULT (NULL),
-	NM_UTILS_LOOKUP_ITEM (NLE_UNSPEC,          "NLE_UNSPEC"),
-	NM_UTILS_LOOKUP_ITEM (NLE_BUG,             "NLE_BUG"),
-	NM_UTILS_LOOKUP_ITEM (NLE_NATIVE_ERRNO,    "NLE_NATIVE_ERRNO"),
-
-	NM_UTILS_LOOKUP_ITEM (NLE_ATTRSIZE,        "NLE_ATTRSIZE"),
-	NM_UTILS_LOOKUP_ITEM (NLE_BAD_SOCK,        "NLE_BAD_SOCK"),
-	NM_UTILS_LOOKUP_ITEM (NLE_DUMP_INTR,       "NLE_DUMP_INTR"),
-	NM_UTILS_LOOKUP_ITEM (NLE_MSG_OVERFLOW,    "NLE_MSG_OVERFLOW"),
-	NM_UTILS_LOOKUP_ITEM (NLE_MSG_TOOSHORT,    "NLE_MSG_TOOSHORT"),
-	NM_UTILS_LOOKUP_ITEM (NLE_MSG_TRUNC,       "NLE_MSG_TRUNC"),
-	NM_UTILS_LOOKUP_ITEM (NLE_SEQ_MISMATCH,    "NLE_SEQ_MISMATCH"),
-)
-
-const char *
-nl_geterror (int err)
-{
-	const char *s;
-
-	err = nl_errno (err);
-
-	if (err >= _NLE_BASE) {
-		s = _geterror (err);
-		if (s)
-			return s;
-	}
-	return g_strerror (err);
-}
 
 /*****************************************************************************/
 
@@ -137,21 +102,30 @@ nl_nlmsghdr_to_str (const struct nlmsghdr *hdr, char *buf, gsize len)
 	b = buf;
 
 	switch (hdr->nlmsg_type) {
-	case RTM_NEWLINK:    s = "RTM_NEWLINK";  break;
-	case RTM_DELLINK:    s = "RTM_DELLINK";  break;
-	case RTM_NEWADDR:    s = "RTM_NEWADDR";  break;
-	case RTM_DELADDR:    s = "RTM_DELADDR";  break;
-	case RTM_NEWROUTE:   s = "RTM_NEWROUTE"; break;
-	case RTM_DELROUTE:   s = "RTM_DELROUTE"; break;
-	case RTM_NEWQDISC:   s = "RTM_NEWQDISC"; break;
-	case RTM_DELQDISC:   s = "RTM_DELQDISC"; break;
-	case RTM_NEWTFILTER: s = "RTM_NEWTFILTER"; break;
-	case RTM_DELTFILTER: s = "RTM_DELTFILTER"; break;
-	case NLMSG_NOOP:     s = "NLMSG_NOOP"; break;
-	case NLMSG_ERROR:    s = "NLMSG_ERROR"; break;
-	case NLMSG_DONE:     s = "NLMSG_DONE"; break;
-	case NLMSG_OVERRUN:  s = "NLMSG_OVERRUN"; break;
-	default:             s = NULL;       break;
+	case RTM_GETLINK:    s = "RTM_GETLINK";     break;
+	case RTM_NEWLINK:    s = "RTM_NEWLINK";     break;
+	case RTM_DELLINK:    s = "RTM_DELLINK";     break;
+	case RTM_SETLINK:    s = "RTM_SETLINK";     break;
+	case RTM_GETADDR:    s = "RTM_GETADDR";     break;
+	case RTM_NEWADDR:    s = "RTM_NEWADDR";     break;
+	case RTM_DELADDR:    s = "RTM_DELADDR";     break;
+	case RTM_GETROUTE:   s = "RTM_GETROUTE";    break;
+	case RTM_NEWROUTE:   s = "RTM_NEWROUTE";    break;
+	case RTM_DELROUTE:   s = "RTM_DELROUTE";    break;
+	case RTM_GETRULE:    s = "RTM_GETRULE";     break;
+	case RTM_NEWRULE:    s = "RTM_NEWRULE";     break;
+	case RTM_DELRULE:    s = "RTM_DELRULE";     break;
+	case RTM_GETQDISC:   s = "RTM_GETQDISC";    break;
+	case RTM_NEWQDISC:   s = "RTM_NEWQDISC";    break;
+	case RTM_DELQDISC:   s = "RTM_DELQDISC";    break;
+	case RTM_GETTFILTER: s = "RTM_GETTFILTER";  break;
+	case RTM_NEWTFILTER: s = "RTM_NEWTFILTER";  break;
+	case RTM_DELTFILTER: s = "RTM_DELTFILTER";  break;
+	case NLMSG_NOOP:     s = "NLMSG_NOOP";      break;
+	case NLMSG_ERROR:    s = "NLMSG_ERROR";     break;
+	case NLMSG_DONE:     s = "NLMSG_DONE";      break;
+	case NLMSG_OVERRUN:  s = "NLMSG_OVERRUN";   break;
+	default:             s = NULL;              break;
 	}
 
 	if (s)
@@ -240,6 +214,8 @@ nlmsg_reserve (struct nl_msg *n, size_t len, int pad)
 	size_t nlmsg_len = n->nm_nlh->nlmsg_len;
 	size_t tlen;
 
+	nm_assert (pad >= 0);
+
 	if (len > n->nm_size)
 		return NULL;
 
@@ -252,26 +228,12 @@ nlmsg_reserve (struct nl_msg *n, size_t len, int pad)
 	n->nm_nlh->nlmsg_len += tlen;
 
 	if (tlen > len)
-		memset(buf + len, 0, tlen - len);
+		memset (buf + len, 0, tlen - len);
 
 	return buf;
 }
 
 /*****************************************************************************/
-
-static int
- get_default_page_size (void)
-{
-	static int val = 0;
-	int v;
-
-	if (G_UNLIKELY (val == 0)) {
-		v = getpagesize ();
-		g_assert (v > 0);
-		val = v;
-	}
-	return val;
-}
 
 struct nlattr *
 nla_reserve (struct nl_msg *msg, int attrtype, int attrlen)
@@ -282,21 +244,23 @@ nla_reserve (struct nl_msg *msg, int attrtype, int attrlen)
 	if (attrlen < 0)
 		return NULL;
 
-	tlen = NLMSG_ALIGN(msg->nm_nlh->nlmsg_len) + nla_total_size(attrlen);
+	tlen = NLMSG_ALIGN (msg->nm_nlh->nlmsg_len) + nla_total_size (attrlen);
 
 	if (tlen > msg->nm_size)
 		return NULL;
 
-	nla = (struct nlattr *) nlmsg_tail(msg->nm_nlh);
+	nla = (struct nlattr *) nlmsg_tail (msg->nm_nlh);
 	nla->nla_type = attrtype;
-	nla->nla_len = nla_attr_size(attrlen);
+	nla->nla_len = nla_attr_size (attrlen);
 
 	if (attrlen)
-		memset((unsigned char *) nla + nla->nla_len, 0, nla_padlen(attrlen));
+		memset ((unsigned char *) nla + nla->nla_len, 0, nla_padlen (attrlen));
 	msg->nm_nlh->nlmsg_len = tlen;
 
 	return nla;
 }
+
+/*****************************************************************************/
 
 struct nl_msg *
 nlmsg_alloc_size (size_t len)
@@ -306,12 +270,12 @@ nlmsg_alloc_size (size_t len)
 	if (len < sizeof (struct nlmsghdr))
 		len = sizeof (struct nlmsghdr);
 
-	nm = g_slice_new0 (struct nl_msg);
-
-	nm->nm_refcnt = 1;
-	nm->nm_protocol = -1;
-	nm->nm_size = len;
-	nm->nm_nlh = g_malloc0 (len);
+	nm = g_slice_new (struct nl_msg);
+	*nm = (struct nl_msg) {
+		.nm_protocol = -1,
+		.nm_size = len,
+		.nm_nlh = g_malloc0 (len),
+	};
 	nm->nm_nlh->nlmsg_len = nlmsg_total_size (0);
 	return nm;
 }
@@ -328,28 +292,7 @@ nlmsg_alloc_size (size_t len)
 struct nl_msg *
 nlmsg_alloc (void)
 {
-	return nlmsg_alloc_size (get_default_page_size ());
-}
-
-/**
- * Allocate a new netlink message with maximum payload size specified.
- */
-struct nl_msg *
-nlmsg_alloc_inherit (struct nlmsghdr *hdr)
-{
-	struct nl_msg *nm;
-
-	nm = nlmsg_alloc ();
-	if (hdr) {
-		struct nlmsghdr *new = nm->nm_nlh;
-
-		new->nlmsg_type = hdr->nlmsg_type;
-		new->nlmsg_flags = hdr->nlmsg_flags;
-		new->nlmsg_seq = hdr->nlmsg_seq;
-		new->nlmsg_pid = hdr->nlmsg_pid;
-	}
-
-	return nm;
+	return nlmsg_alloc_size (nm_utils_getpagesize ());
 }
 
 struct nl_msg *
@@ -358,43 +301,66 @@ nlmsg_alloc_convert (struct nlmsghdr *hdr)
 	struct nl_msg *nm;
 
 	nm = nlmsg_alloc_size (NLMSG_ALIGN (hdr->nlmsg_len));
-	memcpy(nm->nm_nlh, hdr, hdr->nlmsg_len);
+	memcpy (nm->nm_nlh, hdr, hdr->nlmsg_len);
 	return nm;
 }
 
 struct nl_msg *
 nlmsg_alloc_simple (int nlmsgtype, int flags)
 {
-	struct nlmsghdr nlh = {
-		.nlmsg_type = nlmsgtype,
-		.nlmsg_flags = flags,
-	};
+	struct nl_msg *nm;
+	struct nlmsghdr *new;
 
-	return nlmsg_alloc_inherit (&nlh);
+	nm = nlmsg_alloc ();
+	new = nm->nm_nlh;
+	new->nlmsg_type = nlmsgtype;
+	new->nlmsg_flags = flags;
+	return nm;
 }
 
+void nlmsg_free (struct nl_msg *msg)
+{
+	if (!msg)
+		return;
+
+	g_free (msg->nm_nlh);
+	g_slice_free (struct nl_msg, msg);
+}
+
+/*****************************************************************************/
+
 int
-nlmsg_append (struct nl_msg *n, void *data, size_t len, int pad)
+nlmsg_append (struct nl_msg *n,
+              const void *data,
+              size_t len,
+              int pad)
 {
 	void *tmp;
+
+	nm_assert (n);
+	nm_assert (data);
+	nm_assert (len > 0);
+	nm_assert (pad >= 0);
 
 	tmp = nlmsg_reserve (n, len, pad);
 	if (tmp == NULL)
 		return -ENOMEM;
 
-	memcpy(tmp, data, len);
+	memcpy (tmp, data, len);
 	return 0;
 }
+
+/*****************************************************************************/
 
 int
 nlmsg_parse (struct nlmsghdr *nlh, int hdrlen, struct nlattr *tb[],
              int maxtype, const struct nla_policy *policy)
 {
-	if (!nlmsg_valid_hdr(nlh, hdrlen))
-		return -NLE_MSG_TOOSHORT;
+	if (!nlmsg_valid_hdr (nlh, hdrlen))
+		return -NME_NL_MSG_TOOSHORT;
 
-	return nla_parse (tb, maxtype, nlmsg_attrdata(nlh, hdrlen),
-	                  nlmsg_attrlen(nlh, hdrlen), policy);
+	return nla_parse (tb, maxtype, nlmsg_attrdata (nlh, hdrlen),
+	                  nlmsg_attrlen (nlh, hdrlen), policy);
 }
 
 struct nlmsghdr *
@@ -412,55 +378,84 @@ nlmsg_put (struct nl_msg *n, uint32_t pid, uint32_t seq,
 	nlh->nlmsg_pid = pid;
 	nlh->nlmsg_seq = seq;
 
-	if (payload > 0 &&
-	    nlmsg_reserve(n, payload, NLMSG_ALIGNTO) == NULL)
+	if (   payload > 0
+	    && nlmsg_reserve (n, payload, NLMSG_ALIGNTO) == NULL)
 		return NULL;
 
 	return nlh;
 }
 
-uint64_t
-nla_get_u64 (const struct nlattr *nla)
+size_t
+nla_strlcpy (char *dst,
+             const struct nlattr *nla,
+             size_t dstsize)
 {
-	uint64_t tmp = 0;
+	const char *src;
+	size_t srclen;
+	size_t len;
 
-	if (nla && nla_len(nla) >= sizeof (tmp))
-		memcpy(&tmp, nla_data(nla), sizeof (tmp));
+	/* - Always writes @dstsize bytes to @dst
+	 * - Copies the first non-NUL characters to @dst.
+	 *   Any characters after the first NUL bytes in @nla are ignored.
+	 * - If the string @nla is longer than @dstsize, the string
+	 *   gets truncated. @dst will always be NUL terminated. */
 
-	return tmp;
+	if (G_UNLIKELY (dstsize <= 1)) {
+		if (dstsize == 1)
+			dst[0] = '\0';
+		if (   nla
+		    && (srclen = nla_len (nla)) > 0)
+			return strnlen (nla_data (nla), srclen);
+		return 0;
+	}
+
+	nm_assert (dst);
+
+	if (nla) {
+		srclen = nla_len (nla);
+		if (srclen > 0) {
+			src = nla_data (nla);
+			srclen = strnlen (src, srclen);
+			if (srclen > 0) {
+				len = NM_MIN (dstsize - 1, srclen);
+				memcpy (dst, src, len);
+				memset (&dst[len], 0, dstsize - len);
+				return srclen;
+			}
+		}
+	}
+
+	memset (dst, 0, dstsize);
+	return 0;
 }
 
 size_t
-nla_strlcpy (char *dst, const struct nlattr *nla, size_t dstsize)
+nla_memcpy (void *dst, const struct nlattr *nla, size_t dstsize)
 {
-	size_t srclen = nla_len(nla);
-	const char *src = nla_data(nla);
+	size_t len;
+	int srclen;
 
-	if (srclen > 0 && src[srclen - 1] == '\0')
-		srclen--;
+	if (!nla)
+		return 0;
 
-	if (dstsize > 0) {
-		size_t len = (srclen >= dstsize) ? dstsize - 1 : srclen;
+	srclen = nla_len (nla);
 
-		memset(dst, 0, dstsize);
-		memcpy(dst, src, len);
+	if (srclen <= 0) {
+		nm_assert (srclen == 0);
+		return 0;
+	}
+
+	len = NM_MIN ((size_t) srclen, dstsize);
+	if (len > 0) {
+		/* there is a crucial difference between nla_strlcpy() and nla_memcpy().
+		 * The former always write @dstsize bytes (akin to strncpy()), here, we only
+		 * write the bytes that we actually have (leaving the remainder undefined). */
+		memcpy (dst,
+		        nla_data (nla),
+		        len);
 	}
 
 	return srclen;
-}
-
-int
-nla_memcpy (void *dest, const struct nlattr *src, int count)
-{
-	int minlen;
-
-	if (!src)
-		return 0;
-
-	minlen = NM_MIN (count, (int) nla_len (src));
-	memcpy(dest, nla_data(src), minlen);
-
-	return minlen;
 }
 
 int
@@ -468,16 +463,16 @@ nla_put (struct nl_msg *msg, int attrtype, int datalen, const void *data)
 {
 	struct nlattr *nla;
 
-	nla = nla_reserve(msg, attrtype, datalen);
+	nla = nla_reserve (msg, attrtype, datalen);
 	if (!nla) {
 		if (datalen < 0)
-			g_return_val_if_reached (-NLE_BUG);
+			g_return_val_if_reached (-NME_BUG);
 
 		return -ENOMEM;
 	}
 
 	if (datalen > 0)
-		memcpy (nla_data(nla), data, datalen);
+		memcpy (nla_data (nla), data, datalen);
 
 	return 0;
 }
@@ -501,21 +496,21 @@ nla_nest_cancel (struct nl_msg *msg, const struct nlattr *attr)
 {
 	ssize_t len;
 
-	len = (char *) nlmsg_tail(msg->nm_nlh) - (char *) attr;
+	len = (char *) nlmsg_tail (msg->nm_nlh) - (char *) attr;
 	if (len < 0)
 		g_return_if_reached ();
 	else if (len > 0) {
 		msg->nm_nlh->nlmsg_len -= len;
-		memset(nlmsg_tail(msg->nm_nlh), 0, len);
+		memset (nlmsg_tail (msg->nm_nlh), 0, len);
 	}
 }
 
 struct nlattr *
 nla_nest_start (struct nl_msg *msg, int attrtype)
 {
-	struct nlattr *start = (struct nlattr *) nlmsg_tail(msg->nm_nlh);
+	struct nlattr *start = (struct nlattr *) nlmsg_tail (msg->nm_nlh);
 
-	if (nla_put(msg, attrtype, 0, NULL) < 0)
+	if (nla_put (msg, attrtype, 0, NULL) < 0)
 		return NULL;
 
 	return start;
@@ -526,7 +521,7 @@ _nest_end (struct nl_msg *msg, struct nlattr *start, int keep_empty)
 {
 	size_t pad, len;
 
-	len = (char *) nlmsg_tail(msg->nm_nlh) - (char *) start;
+	len = (char *) nlmsg_tail (msg->nm_nlh) - (char *) start;
 
 	if (   len > USHRT_MAX
 	    || (!keep_empty && len == NLA_HDRLEN)) {
@@ -534,24 +529,24 @@ _nest_end (struct nl_msg *msg, struct nlattr *start, int keep_empty)
 		 * Max nlattr size exceeded or empty nested attribute, trim the
 		 * attribute header again
 		 */
-		nla_nest_cancel(msg, start);
+		nla_nest_cancel (msg, start);
 
 		/* Return error only if nlattr size was exceeded */
-		return (len == NLA_HDRLEN) ? 0 : -NLE_ATTRSIZE;
+		return (len == NLA_HDRLEN) ? 0 : -NME_NL_ATTRSIZE;
 	}
 
 	start->nla_len = len;
 
-	pad = NLMSG_ALIGN(msg->nm_nlh->nlmsg_len) - msg->nm_nlh->nlmsg_len;
+	pad = NLMSG_ALIGN (msg->nm_nlh->nlmsg_len) - msg->nm_nlh->nlmsg_len;
 	if (pad > 0) {
 		/*
-		 * Data inside attribute does not end at a alignment boundry.
+		 * Data inside attribute does not end at a alignment boundary.
 		 * Pad accordingly and accoun for the additional space in
 		 * the message. nlmsg_reserve() may never fail in this situation,
 		 * the allocate message buffer must be a multiple of NLMSG_ALIGNTO.
 		 */
-		if (!nlmsg_reserve(msg, pad, 0))
-			g_return_val_if_reached (-NLE_BUG);
+		if (!nlmsg_reserve (msg, pad, 0))
+			g_return_val_if_reached (-NME_BUG);
 	}
 
 	return 0;
@@ -578,7 +573,7 @@ validate_nla (const struct nlattr *nla, int maxtype,
 {
 	const struct nla_policy *pt;
 	unsigned int minlen = 0;
-	int type = nla_type(nla);
+	int type = nla_type (nla);
 
 	if (type < 0 || type > maxtype)
 		return 0;
@@ -586,23 +581,27 @@ validate_nla (const struct nlattr *nla, int maxtype,
 	pt = &policy[type];
 
 	if (pt->type > NLA_TYPE_MAX)
-		g_return_val_if_reached (-NLE_BUG);
+		g_return_val_if_reached (-NME_BUG);
 
 	if (pt->minlen)
 		minlen = pt->minlen;
 	else if (pt->type != NLA_UNSPEC)
 		minlen = nla_attr_minlen[pt->type];
 
-	if (nla_len(nla) < minlen)
-		return -NLE_UNSPEC;
+	if (nla_len (nla) < minlen)
+		return -NME_UNSPEC;
 
-	if (pt->maxlen && nla_len(nla) > pt->maxlen)
-		return -NLE_UNSPEC;
+	if (pt->maxlen && nla_len (nla) > pt->maxlen)
+		return -NME_UNSPEC;
 
 	if (pt->type == NLA_STRING) {
-		const char *data = nla_data(nla);
-		if (data[nla_len(nla) - 1] != '\0')
-			return -NLE_UNSPEC;
+		const char *data;
+
+		nm_assert (minlen > 0);
+
+		data = nla_data (nla);
+		if (data[nla_len (nla) - 1] != '\0')
+			return -NME_UNSPEC;
 	}
 
 	return 0;
@@ -613,47 +612,29 @@ nla_parse (struct nlattr *tb[], int maxtype, struct nlattr *head, int len,
            const struct nla_policy *policy)
 {
 	struct nlattr *nla;
-	int rem, err;
+	int rem, nmerr;
 
-	memset(tb, 0, sizeof (struct nlattr *) * (maxtype + 1));
+	memset (tb, 0, sizeof (struct nlattr *) * (maxtype + 1));
 
-	nla_for_each_attr(nla, head, len, rem) {
-		int type = nla_type(nla);
+	nla_for_each_attr (nla, head, len, rem) {
+		int type = nla_type (nla);
 
 		if (type > maxtype)
 			continue;
 
 		if (policy) {
-			err = validate_nla(nla, maxtype, policy);
-			if (err < 0)
-				goto errout;
+			nmerr = validate_nla (nla, maxtype, policy);
+			if (nmerr < 0)
+				return nmerr;
 		}
 
 		tb[type] = nla;
 	}
 
-	err = 0;
-errout:
-	return err;
+	return 0;
 }
 
 /*****************************************************************************/
-
-void nlmsg_free (struct nl_msg *msg)
-{
-	if (!msg)
-		return;
-
-	if (msg->nm_refcnt < 1)
-		g_return_if_reached ();
-
-	msg->nm_refcnt--;
-
-	if (msg->nm_refcnt <= 0) {
-		g_free (msg->nm_nlh);
-		g_slice_free (struct nl_msg, msg);
-	}
-}
 
 int
 nlmsg_get_proto (struct nl_msg *msg)
@@ -676,7 +657,7 @@ nlmsg_set_src (struct nl_msg *msg, struct sockaddr_nl *addr)
 struct ucred *
 nlmsg_get_creds (struct nl_msg *msg)
 {
-	if (msg->nm_flags & NL_MSG_CRED_PRESENT)
+	if (msg->nm_creds_has)
 		return &msg->nm_creds;
 	return NULL;
 }
@@ -684,8 +665,11 @@ nlmsg_get_creds (struct nl_msg *msg)
 void
 nlmsg_set_creds (struct nl_msg *msg, struct ucred *creds)
 {
-	memcpy (&msg->nm_creds, creds, sizeof (*creds));
-	msg->nm_flags |= NL_MSG_CRED_PRESENT;
+	if (creds) {
+		memcpy (&msg->nm_creds, creds, sizeof (*creds));
+		msg->nm_creds_has = TRUE;
+	} else
+		msg->nm_creds_has = FALSE;
 }
 
 /*****************************************************************************/
@@ -776,7 +760,7 @@ genlmsg_parse (struct nlmsghdr *nlh, int hdrlen, struct nlattr *tb[],
 	struct genlmsghdr *ghdr;
 
 	if (!genlmsg_valid_hdr (nlh, hdrlen))
-		return -NLE_MSG_TOOSHORT;
+		return -NME_NL_MSG_TOOSHORT;
 
 	ghdr = nlmsg_data (nlh);
 	return nla_parse (tb, maxtype, genlmsg_attrdata (ghdr, hdrlen),
@@ -786,21 +770,21 @@ genlmsg_parse (struct nlmsghdr *nlh, int hdrlen, struct nlattr *tb[],
 static int
 _genl_parse_getfamily (struct nl_msg *msg, void *arg)
 {
-	static const struct nla_policy ctrl_policy[CTRL_ATTR_MAX+1] = {
+	static const struct nla_policy ctrl_policy[] = {
 		[CTRL_ATTR_FAMILY_ID]    = { .type = NLA_U16 },
 		[CTRL_ATTR_FAMILY_NAME]  = { .type = NLA_STRING,
-		                            .maxlen = GENL_NAMSIZ },
+		                             .maxlen = GENL_NAMSIZ },
 		[CTRL_ATTR_VERSION]      = { .type = NLA_U32 },
 		[CTRL_ATTR_HDRSIZE]      = { .type = NLA_U32 },
 		[CTRL_ATTR_MAXATTR]      = { .type = NLA_U32 },
 		[CTRL_ATTR_OPS]          = { .type = NLA_NESTED },
 		[CTRL_ATTR_MCAST_GROUPS] = { .type = NLA_NESTED },
 	};
-	struct nlattr *tb[CTRL_ATTR_MAX+1];
+	struct nlattr *tb[G_N_ELEMENTS (ctrl_policy)];
 	struct nlmsghdr *nlh = nlmsg_hdr (msg);
 	gint32 *response_data = arg;
 
-	if (genlmsg_parse (nlh, 0, tb, CTRL_ATTR_MAX, ctrl_policy))
+	if (genlmsg_parse_arr (nlh, 0, tb, ctrl_policy) < 0)
 		return NL_SKIP;
 
 	if (tb[CTRL_ATTR_FAMILY_ID])
@@ -813,7 +797,7 @@ int
 genl_ctrl_resolve (struct nl_sock *sk, const char *name)
 {
 	nm_auto_nlmsg struct nl_msg *msg = NULL;
-	int result = -ENOMEM;
+	int nmerr;
 	gint32 response_data = -1;
 	const struct nl_cb cb = {
 		.valid_cb = _genl_parse_getfamily,
@@ -824,31 +808,29 @@ genl_ctrl_resolve (struct nl_sock *sk, const char *name)
 
 	if (!genlmsg_put (msg, NL_AUTO_PORT, NL_AUTO_SEQ, GENL_ID_CTRL,
 	                  0, 0, CTRL_CMD_GETFAMILY, 1))
-		goto out;
+		return -ENOMEM;
 
-	if (nla_put_string (msg, CTRL_ATTR_FAMILY_NAME, name) < 0)
-		goto out;
+	nmerr = nla_put_string (msg, CTRL_ATTR_FAMILY_NAME, name);
+	if (nmerr < 0)
+		return nmerr;
 
-	result = nl_send_auto (sk, msg);
-	if (result < 0)
-		goto out;
+	nmerr = nl_send_auto (sk, msg);
+	if (nmerr < 0)
+		return nmerr;
 
-	result = nl_recvmsgs (sk, &cb);
-	if (result < 0)
-		goto out;
+	nmerr = nl_recvmsgs (sk, &cb);
+	if (nmerr < 0)
+		return nmerr;
 
 	/* If search was successful, request may be ACKed after data */
-	result = nl_wait_for_ack (sk, NULL);
-	if (result < 0)
-		goto out;
+	nmerr = nl_wait_for_ack (sk, NULL);
+	if (nmerr < 0)
+		return nmerr;
 
-	if (response_data > 0)
-		result = response_data;
-	else
-		result = -ENOENT;
+	if (response_data < 0)
+		return -NME_UNSPEC;
 
-out:
-	return result;
+	return response_data;
 }
 
 /*****************************************************************************/
@@ -863,7 +845,7 @@ nl_socket_alloc (void)
 	sk->s_fd = -1;
 	sk->s_local.nl_family = AF_NETLINK;
 	sk->s_peer.nl_family = AF_NETLINK;
-	sk->s_seq_expect = sk->s_seq_next = time(NULL);
+	sk->s_seq_expect = sk->s_seq_next = time (NULL);
 
 	return sk;
 }
@@ -903,12 +885,12 @@ nl_socket_set_passcred (struct nl_sock *sk, int state)
 	int err;
 
 	if (sk->s_fd == -1)
-		return -NLE_BAD_SOCK;
+		return -NME_NL_BAD_SOCK;
 
 	err = setsockopt (sk->s_fd, SOL_SOCKET, SO_PASSCRED,
 	                  &state, sizeof (state));
 	if (err < 0)
-		return -nl_syserr2nlerr (errno);
+		return -nm_errno_from_native (errno);
 
 	if (state)
 		sk->s_flags |= NL_SOCK_PASSCRED;
@@ -936,10 +918,10 @@ int
 nl_socket_set_nonblocking (const struct nl_sock *sk)
 {
 	if (sk->s_fd == -1)
-		return -NLE_BAD_SOCK;
+		return -NME_NL_BAD_SOCK;
 
-	if (fcntl(sk->s_fd, F_SETFL, O_NONBLOCK) < 0)
-		return -nl_syserr2nlerr (errno);
+	if (fcntl (sk->s_fd, F_SETFL, O_NONBLOCK) < 0)
+		return -nm_errno_from_native (errno);
 
 	return 0;
 }
@@ -956,18 +938,18 @@ nl_socket_set_buffer_size (struct nl_sock *sk, int rxbuf, int txbuf)
 		txbuf = 32768;
 
 	if (sk->s_fd == -1)
-		return -NLE_BAD_SOCK;
+		return -NME_NL_BAD_SOCK;
 
 	err = setsockopt (sk->s_fd, SOL_SOCKET, SO_SNDBUF,
 	                  &txbuf, sizeof (txbuf));
 	if (err < 0) {
-		return -nl_syserr2nlerr (errno);
+		return -nm_errno_from_native (errno);
 	}
 
 	err = setsockopt (sk->s_fd, SOL_SOCKET, SO_RCVBUF,
 	                  &rxbuf, sizeof (rxbuf));
 	if (err < 0) {
-		return -nl_syserr2nlerr (errno);
+		return -nm_errno_from_native (errno);
 	}
 
 	return 0;
@@ -980,27 +962,29 @@ nl_socket_add_memberships (struct nl_sock *sk, int group, ...)
 	va_list ap;
 
 	if (sk->s_fd == -1)
-		return -NLE_BAD_SOCK;
+		return -NME_NL_BAD_SOCK;
 
-	va_start(ap, group);
+	va_start (ap, group);
 
 	while (group != 0) {
 		if (group < 0) {
-			va_end(ap);
-			g_return_val_if_reached (-NLE_BUG);
+			va_end (ap);
+			g_return_val_if_reached (-NME_BUG);
 		}
 
 		err = setsockopt (sk->s_fd, SOL_NETLINK, NETLINK_ADD_MEMBERSHIP,
 		                  &group, sizeof (group));
 		if (err < 0) {
-			va_end(ap);
-			return -nl_syserr2nlerr (errno);
+			int errsv = errno;
+
+			va_end (ap);
+			return -nm_errno_from_native (errsv);
 		}
 
-		group = va_arg(ap, int);
+		group = va_arg (ap, int);
 	}
 
-	va_end(ap);
+	va_end (ap);
 
 	return 0;
 }
@@ -1011,12 +995,12 @@ nl_socket_set_ext_ack (struct nl_sock *sk, gboolean enable)
 	int err, val;
 
 	if (sk->s_fd == -1)
-		return -NLE_BAD_SOCK;
+		return -NME_NL_BAD_SOCK;
 
 	val = !!enable;
 	err = setsockopt (sk->s_fd, SOL_NETLINK, NETLINK_EXT_ACK, &val, sizeof (val));
 	if (err < 0)
-		return -nl_syserr2nlerr (errno);
+		return -nm_errno_from_native (errno);
 
 	return 0;
 }
@@ -1030,21 +1014,21 @@ void nl_socket_disable_msg_peek (struct nl_sock *sk)
 int
 nl_connect (struct nl_sock *sk, int protocol)
 {
-	int err;
+	int err, nmerr;
 	socklen_t addrlen;
 	struct sockaddr_nl local = { 0 };
 
 	if (sk->s_fd != -1)
-		return -NLE_BAD_SOCK;
+		return -NME_NL_BAD_SOCK;
 
 	sk->s_fd = socket (AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, protocol);
 	if (sk->s_fd < 0) {
-		err = -nl_syserr2nlerr (errno);
+		nmerr = -nm_errno_from_native (errno);
 		goto errout;
 	}
 
-	err = nl_socket_set_buffer_size(sk, 0, 0);
-	if (err < 0)
+	nmerr = nl_socket_set_buffer_size (sk, 0, 0);
+	if (nmerr < 0)
 		goto errout;
 
 	nm_assert (sk->s_local.nl_pid == 0);
@@ -1052,7 +1036,7 @@ nl_connect (struct nl_sock *sk, int protocol)
 	err = bind (sk->s_fd, (struct sockaddr*) &sk->s_local,
 	            sizeof (sk->s_local));
 	if (err != 0) {
-		err = -nl_syserr2nlerr (errno);
+		nmerr = -nm_errno_from_native (errno);
 		goto errout;
 	}
 
@@ -1060,17 +1044,17 @@ nl_connect (struct nl_sock *sk, int protocol)
 	err = getsockname (sk->s_fd, (struct sockaddr *) &local,
 	                   &addrlen);
 	if (err < 0) {
-		err = -nl_syserr2nlerr (errno);
+		nmerr = -nm_errno_from_native (errno);
 		goto errout;
 	}
 
 	if (addrlen != sizeof (local)) {
-		err = -NLE_UNSPEC;
+		nmerr = -NME_UNSPEC;
 		goto errout;
 	}
 
 	if (local.nl_family != AF_NETLINK) {
-		err = -NLE_UNSPEC;
+		nmerr = -NME_UNSPEC;
 		goto errout;
 	}
 
@@ -1081,10 +1065,10 @@ nl_connect (struct nl_sock *sk, int protocol)
 
 errout:
 	if (sk->s_fd != -1) {
-		close(sk->s_fd);
+		close (sk->s_fd);
 		sk->s_fd = -1;
 	}
-	return err;
+	return nmerr;
 }
 
 /*****************************************************************************/
@@ -1100,7 +1084,7 @@ _cb_init (struct nl_cb *dst, const struct nl_cb *src)
 		memset (dst, 0, sizeof (*dst));
 }
 
-static int ack_wait_handler(struct nl_msg *msg, void *arg)
+static int ack_wait_handler (struct nl_msg *msg, void *arg)
 {
 	return NL_STOP;
 }
@@ -1120,17 +1104,23 @@ nl_wait_for_ack (struct nl_sock *sk,
 do { \
 	const struct nl_cb *_cb = (cb); \
 	\
-	if (_cb->type##_cb) { \
-		err = _cb->type##_cb ((msg), _cb->type##_arg); \
-		switch (err) { \
+	if (_cb && _cb->type##_cb) { \
+		/* the returned value here must be either a negative
+		 * netlink error number, or one of NL_SKIP, NL_STOP, NL_OK. */ \
+		nmerr = _cb->type##_cb ((msg), _cb->type##_arg); \
+		switch (nmerr) { \
 		case NL_OK: \
-			err = 0; \
+			nm_assert (nmerr == 0); \
 			break; \
 		case NL_SKIP: \
 			goto skip; \
 		case NL_STOP: \
 			goto stop; \
 		default: \
+			if (nmerr >= 0) { \
+				nm_assert_not_reached (); \
+				nmerr = -NME_BUG; \
+			} \
 			goto out; \
 		} \
 	} \
@@ -1139,14 +1129,15 @@ do { \
 int
 nl_recvmsgs (struct nl_sock *sk, const struct nl_cb *cb)
 {
-	int n, err = 0, multipart = 0, interrupted = 0, nrecv = 0;
+	int n, nmerr = 0, multipart = 0, interrupted = 0, nrecv = 0;
 	gs_free unsigned char *buf = NULL;
 	struct nlmsghdr *hdr;
 	struct sockaddr_nl nla = { 0 };
-	gs_free struct ucred *creds = NULL;
+	struct ucred creds;
+	gboolean creds_has;
 
 continue_reading:
-	n = nl_recv (sk, &nla, &buf, &creds);
+	n = nl_recv (sk, &nla, &buf, &creds, &creds_has);
 	if (n <= 0)
 		return n;
 
@@ -1158,15 +1149,14 @@ continue_reading:
 
 		nlmsg_set_proto (msg, sk->s_proto);
 		nlmsg_set_src (msg, &nla);
-		if (creds)
-			nlmsg_set_creds (msg, creds);
+		nlmsg_set_creds (msg, creds_has ? &creds : NULL);
 
 		nrecv++;
 
 		/* Only do sequence checking if auto-ack mode is enabled */
-		if (!(sk->s_flags & NL_NO_AUTO_ACK)) {
+		if (! (sk->s_flags & NL_NO_AUTO_ACK)) {
 			if (hdr->nlmsg_seq != sk->s_seq_expect) {
-				err = -NLE_SEQ_MISMATCH;
+				nmerr = -NME_NL_SEQ_MISMATCH;
 				goto out;
 			}
 		}
@@ -1198,7 +1188,7 @@ continue_reading:
 		 * this action by skipping this packet. */
 		if (hdr->nlmsg_type == NLMSG_DONE) {
 			multipart = 0;
-			NL_CB_CALL(cb, finish, msg);
+			NL_CB_CALL (cb, finish, msg);
 		}
 
 		/* Message to be ignored, the default action is to
@@ -1212,68 +1202,72 @@ continue_reading:
 		 * quit parsing. The user may overrule this action by retuning
 		 * NL_SKIP or NL_PROCEED (dangerous) */
 		else if (hdr->nlmsg_type == NLMSG_OVERRUN) {
-			err = -NLE_MSG_OVERFLOW;
+			nmerr = -NME_NL_MSG_OVERFLOW;
 			goto out;
 		}
 
 		/* Message carries a nlmsgerr */
 		else if (hdr->nlmsg_type == NLMSG_ERROR) {
-			struct nlmsgerr *e = nlmsg_data(hdr);
+			struct nlmsgerr *e = nlmsg_data (hdr);
 
-			if (hdr->nlmsg_len < nlmsg_size(sizeof (*e))) {
+			if (hdr->nlmsg_len < nlmsg_size (sizeof (*e))) {
 				/* Truncated error message, the default action
 				 * is to stop parsing. The user may overrule
 				 * this action by returning NL_SKIP or
 				 * NL_PROCEED (dangerous) */
-				err = -NLE_MSG_TRUNC;
+				nmerr = -NME_NL_MSG_TRUNC;
 				goto out;
 			}
 			if (e->error) {
 				/* Error message reported back from kernel. */
-				if (cb->err_cb) {
-					err = cb->err_cb (&nla, e,
-					                  cb->err_arg);
-					if (err < 0)
+				if (cb && cb->err_cb) {
+					/* the returned value here must be either a negative
+					 * netlink error number, or one of NL_SKIP, NL_STOP, NL_OK. */
+					nmerr = cb->err_cb (&nla, e,
+					                    cb->err_arg);
+					if (nmerr < 0)
 						goto out;
-					else if (err == NL_SKIP)
+					else if (nmerr == NL_SKIP)
 						goto skip;
-					else if (err == NL_STOP) {
-						err = -e->error;
+					else if (nmerr == NL_STOP) {
+						nmerr = -nm_errno_from_native (e->error);
 						goto out;
 					}
+					nm_assert (nmerr == NL_OK);
 				} else {
-					err = -e->error;
+					nmerr = -nm_errno_from_native (e->error);
 					goto out;
 				}
 			} else
-				NL_CB_CALL(cb, ack, msg);
+				NL_CB_CALL (cb, ack, msg);
 		} else {
 			/* Valid message (not checking for MULTIPART bit to
 			 * get along with broken kernels. NL_SKIP has no
 			 * effect on this.  */
-			NL_CB_CALL(cb, valid, msg);
+			NL_CB_CALL (cb, valid, msg);
 		}
 skip:
-		err = 0;
-		hdr = nlmsg_next(hdr, &n);
+		nmerr = 0;
+		hdr = nlmsg_next (hdr, &n);
 	}
 
 	if (multipart) {
 		/* Multipart message not yet complete, continue reading */
-		nm_clear_g_free (&creds);
 		nm_clear_g_free (&buf);
 
+		nmerr = 0;
 		goto continue_reading;
 	}
 
 stop:
-	err = 0;
+	nmerr = 0;
 
 out:
 	if (interrupted)
-		err = -NLE_DUMP_INTR;
+		nmerr = -NME_NL_DUMP_INTR;
 
-	return err ?: nrecv;
+	nm_assert (nmerr <= 0);
+	return nmerr ?: nrecv;
 }
 
 int
@@ -1282,13 +1276,13 @@ nl_sendmsg (struct nl_sock *sk, struct nl_msg *msg, struct msghdr *hdr)
 	int ret;
 
 	if (sk->s_fd < 0)
-		return -NLE_BAD_SOCK;
+		return -NME_NL_BAD_SOCK;
 
 	nlmsg_set_src (msg, &sk->s_local);
 
-	ret = sendmsg(sk->s_fd, hdr, 0);
+	ret = sendmsg (sk->s_fd, hdr, 0);
 	if (ret < 0)
-		return -nl_syserr2nlerr (errno);
+		return -nm_errno_from_native (errno);
 
 	return ret;
 }
@@ -1304,31 +1298,31 @@ nl_send_iovec (struct nl_sock *sk, struct nl_msg *msg, struct iovec *iov, unsign
 		.msg_iov = iov,
 		.msg_iovlen = iovlen,
 	};
-	char buf[CMSG_SPACE(sizeof (struct ucred))];
+	char buf[CMSG_SPACE (sizeof (struct ucred))];
 
 	/* Overwrite destination if specified in the message itself, defaults
 	 * to the peer address of the socket.
 	 */
-	dst = nlmsg_get_dst(msg);
+	dst = nlmsg_get_dst (msg);
 	if (dst->nl_family == AF_NETLINK)
 		hdr.msg_name = dst;
 
 	/* Add credentials if present. */
-	creds = nlmsg_get_creds(msg);
+	creds = nlmsg_get_creds (msg);
 	if (creds != NULL) {
 		struct cmsghdr *cmsg;
 
 		hdr.msg_control = buf;
 		hdr.msg_controllen = sizeof (buf);
 
-		cmsg = CMSG_FIRSTHDR(&hdr);
+		cmsg = CMSG_FIRSTHDR (&hdr);
 		cmsg->cmsg_level = SOL_SOCKET;
 		cmsg->cmsg_type = SCM_CREDENTIALS;
-		cmsg->cmsg_len = CMSG_LEN(sizeof (struct ucred));
-		memcpy(CMSG_DATA(cmsg), creds, sizeof (struct ucred));
+		cmsg->cmsg_len = CMSG_LEN (sizeof (struct ucred));
+		memcpy (CMSG_DATA (cmsg), creds, sizeof (struct ucred));
 	}
 
-	return nl_sendmsg(sk, msg, &hdr);
+	return nl_sendmsg (sk, msg, &hdr);
 }
 
 void
@@ -1336,9 +1330,9 @@ nl_complete_msg (struct nl_sock *sk, struct nl_msg *msg)
 {
 	struct nlmsghdr *nlh;
 
-	nlh = nlmsg_hdr(msg);
+	nlh = nlmsg_hdr (msg);
 	if (nlh->nlmsg_pid == NL_AUTO_PORT)
-		nlh->nlmsg_pid = nl_socket_get_local_port(sk);
+		nlh->nlmsg_pid = nl_socket_get_local_port (sk);
 
 	if (nlh->nlmsg_seq == NL_AUTO_SEQ)
 		nlh->nlmsg_seq = sk->s_seq_next++;
@@ -1356,27 +1350,29 @@ int
 nl_send (struct nl_sock *sk, struct nl_msg *msg)
 {
 	struct iovec iov = {
-		.iov_base = (void *) nlmsg_hdr(msg),
-		.iov_len = nlmsg_hdr(msg)->nlmsg_len,
+		.iov_base = (void *) nlmsg_hdr (msg),
+		.iov_len = nlmsg_hdr (msg)->nlmsg_len,
 	};
 
-	return nl_send_iovec(sk, msg, &iov, 1);
+	return nl_send_iovec (sk, msg, &iov, 1);
 }
 
-int nl_send_auto(struct nl_sock *sk, struct nl_msg *msg)
+int nl_send_auto (struct nl_sock *sk, struct nl_msg *msg)
 {
-	nl_complete_msg(sk, msg);
+	nl_complete_msg (sk, msg);
 
-	return nl_send(sk, msg);
+	return nl_send (sk, msg);
 }
 
 int
-nl_recv (struct nl_sock *sk, struct sockaddr_nl *nla,
-         unsigned char **buf, struct ucred **creds)
+nl_recv (struct nl_sock *sk,
+         struct sockaddr_nl *nla,
+         unsigned char **buf,
+         struct ucred *out_creds,
+         gboolean *out_creds_has)
 {
 	ssize_t n;
 	int flags = 0;
-	static int page_size = 0;
 	struct iovec iov;
 	struct msghdr msg = {
 		.msg_name = (void *) nla,
@@ -1384,48 +1380,48 @@ nl_recv (struct nl_sock *sk, struct sockaddr_nl *nla,
 		.msg_iov = &iov,
 		.msg_iovlen = 1,
 	};
-	gs_free struct ucred* tmpcreds = NULL;
+	struct ucred tmpcreds;
+	gboolean tmpcreds_has = FALSE;
 	int retval;
+	int errsv;
 
 	nm_assert (nla);
 	nm_assert (buf && !*buf);
-	nm_assert (!creds || !*creds);
+	nm_assert (!out_creds_has == !out_creds);
 
 	if (   (sk->s_flags & NL_MSG_PEEK)
 	    || (   !(sk->s_flags & NL_MSG_PEEK_EXPLICIT)
 	        && sk->s_bufsize == 0))
 		flags |= MSG_PEEK | MSG_TRUNC;
 
-	if (page_size == 0)
-		page_size = getpagesize() * 4;
-
-	iov.iov_len = sk->s_bufsize ? : page_size;
+	iov.iov_len =    sk->s_bufsize
+	              ?: (((size_t) nm_utils_getpagesize ()) * 4u);
 	iov.iov_base = g_malloc (iov.iov_len);
 
-	if (   creds
+	if (   out_creds
 	    && (sk->s_flags & NL_SOCK_PASSCRED)) {
 		msg.msg_controllen = CMSG_SPACE (sizeof (struct ucred));
 		msg.msg_control = g_malloc (msg.msg_controllen);
 	}
 
 retry:
-	n = recvmsg(sk->s_fd, &msg, flags);
+	n = recvmsg (sk->s_fd, &msg, flags);
 	if (!n) {
 		retval = 0;
 		goto abort;
 	}
 
 	if (n < 0) {
-		if (errno == EINTR)
+		errsv = errno;
+		if (errsv == EINTR)
 			goto retry;
-
-		retval = -nl_syserr2nlerr (errno);
+		retval = -nm_errno_from_native (errsv);
 		goto abort;
 	}
 
 	if (msg.msg_flags & MSG_CTRUNC) {
 		if (msg.msg_controllen == 0) {
-			retval = -NLE_MSG_TRUNC;
+			retval = -NME_NL_MSG_TRUNC;
 			goto abort;
 		}
 
@@ -1438,7 +1434,7 @@ retry:
 	    || (msg.msg_flags & MSG_TRUNC)) {
 		/* respond with error to an incomplete message */
 		if (flags == 0) {
-			retval = -NLE_MSG_TRUNC;
+			retval = -NME_NL_MSG_TRUNC;
 			goto abort;
 		}
 
@@ -1458,19 +1454,20 @@ retry:
 	}
 
 	if (msg.msg_namelen != sizeof (struct sockaddr_nl)) {
-		retval =  -NLE_UNSPEC;
+		retval =  -NME_UNSPEC;
 		goto abort;
 	}
 
-	if (creds && (sk->s_flags & NL_SOCK_PASSCRED)) {
+	if (out_creds && (sk->s_flags & NL_SOCK_PASSCRED)) {
 		struct cmsghdr *cmsg;
 
-		for (cmsg = CMSG_FIRSTHDR(&msg); cmsg; cmsg = CMSG_NXTHDR(&msg, cmsg)) {
+		for (cmsg = CMSG_FIRSTHDR (&msg); cmsg; cmsg = CMSG_NXTHDR (&msg, cmsg)) {
 			if (cmsg->cmsg_level != SOL_SOCKET)
 				continue;
 			if (cmsg->cmsg_type != SCM_CREDENTIALS)
 				continue;
-			tmpcreds = g_memdup (CMSG_DATA(cmsg), sizeof (*tmpcreds));
+			memcpy (&tmpcreds, CMSG_DATA (cmsg), sizeof (tmpcreds));
+			tmpcreds_has = TRUE;
 			break;
 		}
 	}
@@ -1486,6 +1483,8 @@ abort:
 	}
 
 	*buf = iov.iov_base;
-	NM_SET_OUT (creds, g_steal_pointer (&tmpcreds));
+	if (out_creds && tmpcreds_has)
+		*out_creds = tmpcreds;
+	NM_SET_OUT (out_creds_has, tmpcreds_has);
 	return retval;
 }

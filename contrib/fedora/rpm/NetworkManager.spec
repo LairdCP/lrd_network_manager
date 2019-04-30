@@ -32,10 +32,10 @@
 
 %global _hardened_build 1
 
-%if x%{?snapshot} != x
+%if "x%{?snapshot}" != x
 %global snapshot_dot .%{snapshot}
 %endif
-%if x%{?git_sha} != x
+%if "x%{?git_sha}" != x
 %global git_sha_dot .%{git_sha}
 %endif
 
@@ -43,10 +43,9 @@
 
 %global real_version_major %(printf '%s' '%{real_version}' | sed -n 's/^\\([1-9][0-9]*\\.[1-9][0-9]*\\)\\.[1-9][0-9]*$/\\1/p')
 
-%global is_devel_build %(printf '%s' '%{real_version}' | sed -n 's/^1\\.\\([0-9]*[13579]\\)\\..*/1/p')
-
 ###############################################################################
 
+%bcond_with meson
 %bcond_without adsl
 %bcond_without bluetooth
 %bcond_without wwan
@@ -57,12 +56,9 @@
 %bcond_without ppp
 %bcond_without nmtui
 %bcond_without regen_docs
-%if 0%{is_devel_build}
-%bcond_without debug
-%else
 %bcond_with    debug
-%endif
-%bcond_without test
+%bcond_with    test
+%bcond_with    lto
 %bcond_with    sanitizer
 %if 0%{?fedora} > 28 || 0%{?rhel} > 7
 %bcond_with libnm_glib
@@ -73,6 +69,11 @@
 %bcond_without connectivity_fedora
 %else
 %bcond_with connectivity_fedora
+%endif
+%if 0%{?rhel} && 0%{?rhel} > 7
+%bcond_without connectivity_redhat
+%else
+%bcond_with connectivity_redhat
 %endif
 %if 0%{?fedora} > 28 || 0%{?rhel} > 7
 %bcond_without crypto_gnutls
@@ -96,6 +97,12 @@
 %global with_modem_manager_1 0
 %endif
 
+%if 0%{?fedora} || 0%{?rhel} <= 7
+%global dhcp_default dhclient
+%else
+%global dhcp_default internal
+%endif
+
 ###############################################################################
 
 Name: NetworkManager
@@ -111,7 +118,8 @@ URL: http://www.gnome.org/projects/NetworkManager/
 Source: __SOURCE1__
 Source1: NetworkManager.conf
 Source2: 00-server.conf
-Source3: 20-connectivity-fedora.conf
+Source4: 20-connectivity-fedora.conf
+Source5: 20-connectivity-redhat.conf
 
 #Patch1: 0001-some.patch
 
@@ -135,6 +143,18 @@ Conflicts: NetworkManager-pptp < 1:0.7.0.99-1
 Conflicts: NetworkManager-openconnect < 0:0.7.0.99-1
 Conflicts: kde-plasma-networkmanagement < 1:0.9-0.49.20110527git.nm09
 
+BuildRequires: gcc
+BuildRequires: libtool
+BuildRequires: pkgconfig
+%if %{with meson}
+BuildRequires: meson
+%else
+BuildRequires: automake
+BuildRequires: autoconf
+%endif
+BuildRequires: intltool
+BuildRequires: gettext-devel
+
 BuildRequires: dbus-devel >= %{dbus_version}
 BuildRequires: dbus-glib-devel >= %{dbus_glib_version}
 %if 0%{?fedora}
@@ -142,9 +162,6 @@ BuildRequires: wireless-tools-devel >= %{wireless_tools_version}
 %endif
 BuildRequires: glib2-devel >= 2.40.0
 BuildRequires: gobject-introspection-devel >= 0.10.3
-BuildRequires: gettext-devel
-BuildRequires: pkgconfig
-BuildRequires: automake autoconf intltool libtool
 %if %{with ppp}
 BuildRequires: ppp-devel >= 2.4.5
 %endif
@@ -161,7 +178,7 @@ BuildRequires: gtk-doc
 %endif
 BuildRequires: libudev-devel
 BuildRequires: libuuid-devel
-BuildRequires: vala-tools
+BuildRequires: /usr/bin/valac
 BuildRequires: iptables
 BuildRequires: libxslt
 %if %{with bluetooth}
@@ -198,6 +215,18 @@ BuildRequires: libasan
 BuildRequires: libubsan
 %endif
 %endif
+
+# NetworkManager uses various parts of systemd-networkd internally, including
+# DHCP client, IPv4 Link-Local address negotiation or LLDP support.
+# This provide is essentially here so that NetworkManager shows on Security
+# Response Team's radar in case a flaw is found. The code is frequently
+# synchronized and thus it's not easy to establish a good version number
+# here. The version of zero is there just to have something conservative so
+# that the scripts that would parse the SPEC file naively would be unlikely
+# to fail. Refer to git log for the real date and commit number of last
+# synchronization:
+# https://gitlab.freedesktop.org/NetworkManager/NetworkManager/commits/master/src/systemd
+Provides: bundled(systemd) = 0
 
 
 %description
@@ -292,7 +321,9 @@ devices.
 Summary: Open vSwitch device plugin for NetworkManager
 Group: System Environment/Base
 Requires: %{name}%{?_isa} = %{epoch}:%{version}-%{release}
+%if 0%{?rhel} == 0
 Requires: openvswitch
+%endif
 
 %description ovs
 This package contains NetworkManager support for Open vSwitch bridges.
@@ -373,11 +404,26 @@ is the new NetworkManager API. See also NetworkManager-glib-devel.
 Summary: NetworkManager config file for connectivity checking via Fedora servers
 Group: System Environment/Base
 BuildArch: noarch
+Provides: NetworkManager-config-connectivity = %{epoch}:%{version}-%{release}
 
 %description config-connectivity-fedora
 This adds a NetworkManager configuration file to enable connectivity checking
 via Fedora infrastructure.
 %endif
+
+
+%if %{with connectivity_redhat}
+%package config-connectivity-redhat
+Summary: NetworkManager config file for connectivity checking via Red Hat servers
+Group: System Environment/Base
+BuildArch: noarch
+Provides: NetworkManager-config-connectivity = %{epoch}:%{version}-%{release}
+
+%description config-connectivity-redhat
+This adds a NetworkManager configuration file to enable connectivity checking
+via Red Hat infrastructure.
+%endif
+
 
 %package config-server
 Summary: NetworkManager config file for "server-like" defaults
@@ -394,6 +440,7 @@ ethernet devices with no carrier.
 This package is intended to be installed by default for server
 deployments.
 
+
 %package dispatcher-routing-rules
 Summary: NetworkManager dispatcher file for advanced routing rules
 Group: System Environment/Base
@@ -405,6 +452,7 @@ Obsoletes: %{name}-config-routing-rules < %{epoch}:%{version}-%{release}
 This adds a NetworkManager dispatcher file to support networking
 configurations using "/etc/sysconfig/network-scripts/rule-NAME" files
 (eg, to do policy-based routing).
+
 
 %if 0%{with_nmtui}
 %package tui
@@ -419,12 +467,116 @@ NetworkManager, to allow performing some of the operations supported
 by nm-connection-editor and nm-applet in a non-graphical environment.
 %endif
 
-%prep
-%setup -q -n NetworkManager-%{real_version}
 
-#%patch1 -p1
+%prep
+%autosetup -p1 -n NetworkManager-%{real_version}
+
 
 %build
+%if %{with meson}
+%meson \
+	--warnlevel 2 \
+%if %{with test}
+	--werror \
+%endif
+	-Ddhcpcanon=no \
+	-Ddhcpcd=no \
+	-Dconfig_dhcp_default=%{dhcp_default} \
+%if %{with crypto_gnutls}
+	-Dcrypto=gnutls \
+%else
+	-Dcrypto=nss \
+%endif
+%if %{with debug}
+	-Dmore_logging=true \
+	-Dmore_asserts=10000 \
+%else
+	-Dmore_logging=false \
+	-Dmore_asserts=0 \
+%endif
+	-Dld_gc=true \
+%if %{with lto}
+	-D b_lto=true \
+%else
+	-D b_lto=false \
+%endif
+	-Dlibaudit=yes-disabled-by-default \
+%if 0%{?with_modem_manager_1}
+	-Dmodem_manager=true \
+%else
+	-Dmodem_manager=false \
+%endif
+%if %{with wifi}
+	-Dwifi=true \
+%if 0%{?fedora}
+	-Dwext=true \
+%else
+	-Dwext=false \
+%endif
+%else
+	-Dwifi=false \
+%endif
+%if %{with iwd}
+	-Diwd=true \
+%else
+	-Diwd=false \
+%endif
+	-Dvapi=true \
+	-Dintrospection=true \
+%if %{with regen_docs}
+	-Ddocs=true \
+%else
+	-Ddocs=false \
+%endif
+%if %{with team}
+	-Dteamdctl=true \
+%else
+	-Dteamdctl=false \
+%endif
+%if %{with ovs}
+	-Dovs=true \
+%else
+	-Dovs=false \
+%endif
+	-Dselinux=true \
+	-Dpolkit=true  \
+	-Dpolkit_agent=true \
+	-Dmodify_system=true \
+	-Dconcheck=true \
+%if 0%{?fedora}
+	-Dlibpsl=true \
+	-Debpf=true \
+%else
+	-Dlibpsl=false \
+	-Debpf=false \
+%endif
+	-Dsession_tracking=systemd \
+	-Dsuspend_resume=systemd \
+	-Dsystemdsystemunitdir=%{systemd_dir} \
+	-Dsystem_ca_path=/etc/pki/tls/cert.pem \
+	-Ddbus_conf_dir=%{dbus_sys_dir} \
+	-Dtests=yes \
+	-Dvalgrind=no \
+	-Difcfg_rh=true \
+%if %{with ppp}
+	-Dpppd_plugin_dir=%{_libdir}/pppd/%{ppp_version} \
+	-Dppp=true \
+%endif
+	-Ddist_version=%{version}-%{release} \
+	-Dconfig_plugins_default='ifcfg-rh' \
+	-Dconfig_dns_rc_manager_default=symlink \
+	-Dconfig_logging_backend_default=journal \
+	-Djson_validation=true \
+%if %{with libnm_glib}
+	-Dlibnm_glib=true
+%else
+	-Dlibnm_glib=false
+%endif
+
+%meson_build
+
+%else
+# autotools
 %if %{with regen_docs}
 gtkdocize
 %endif
@@ -436,7 +588,7 @@ intltoolize --automake --copy --force
 	--with-dhclient=yes \
 	--with-dhcpcd=no \
 	--with-dhcpcanon=no \
-	--with-config-dhcp-default=dhclient \
+	--with-config-dhcp-default=%{dhcp_default} \
 %if %{with crypto_gnutls}
 	--with-crypto=gnutls \
 %else
@@ -459,6 +611,11 @@ intltoolize --automake --copy --force
 	--without-more-asserts \
 %endif
 	--enable-ld-gc \
+%if %{with lto}
+	--enable-lto \
+%else
+	--disable-lto \
+%endif
 	--with-libaudit=yes-disabled-by-default \
 %if 0%{?with_modem_manager_1}
 	--with-modem-manager-1=yes \
@@ -504,19 +661,21 @@ intltoolize --automake --copy --force
 	--enable-concheck \
 %if 0%{?fedora}
 	--with-libpsl \
+	--with-ebpf \
 %else
 	--without-libpsl \
+	--without-ebpf \
 %endif
 	--with-session-tracking=systemd \
 	--with-suspend-resume=systemd \
 	--with-systemdsystemunitdir=%{systemd_dir} \
 	--with-system-ca-path=/etc/pki/tls/cert.pem \
 	--with-dbus-sys-dir=%{dbus_sys_dir} \
-%if %{with test}
 	--with-tests=yes \
+%if %{with test}
+	--enable-more-warnings=error \
 %else
 	--enable-more-warnings=yes \
-	--with-tests=no \
 %endif
 	--with-valgrind=no \
 	--enable-ifcfg-rh=yes \
@@ -525,7 +684,7 @@ intltoolize --automake --copy --force
 	--enable-ppp=yes \
 %endif
 	--with-dist-version=%{version}-%{release} \
-	--with-config-plugins-default='ifcfg-rh,ibft' \
+	--with-config-plugins-default='ifcfg-rh' \
 	--with-config-dns-rc-manager-default=symlink \
 	--with-config-logging-backend-default=journal \
 	--enable-json-validation \
@@ -537,16 +696,25 @@ intltoolize --automake --copy --force
 
 make %{?_smp_mflags}
 
+%endif # end autotools
+
 %install
-# install NM
+%if %{with meson}
+%meson_install
+%else
 make install DESTDIR=%{buildroot}
+%endif
 
 cp %{SOURCE1} %{buildroot}%{_sysconfdir}/%{name}/
 
 cp %{SOURCE2} %{buildroot}%{nmlibdir}/conf.d/
 
 %if %{with connectivity_fedora}
-cp %{SOURCE3} %{buildroot}%{nmlibdir}/conf.d/
+cp %{SOURCE4} %{buildroot}%{nmlibdir}/conf.d/
+%endif
+
+%if %{with connectivity_redhat}
+cp %{SOURCE5} %{buildroot}%{nmlibdir}/conf.d/
 %endif
 
 cp examples/dispatcher/10-ifcfg-rh-routes.sh %{buildroot}%{_sysconfdir}/%{name}/dispatcher.d/
@@ -571,9 +739,20 @@ touch %{buildroot}%{_sbindir}/ifup %{buildroot}%{_sbindir}/ifdown
 
 
 %check
+%if %{with meson}
 %if %{with test}
-make %{?_smp_mflags} check
+%meson_test
+%else
+%ninja_test -C %{_vpath_builddir} || :
 %endif
+%else
+# autotools
+%if %{with test}
+make -k %{?_smp_mflags} check
+%else
+make -k %{?_smp_mflags} check || :
+%endif
+%endif # end autotools
 
 
 %pre
@@ -601,6 +780,7 @@ else
         --slave %{_sbindir}/ifdown ifdown %{_libexecdir}/nm-ifdown
 fi
 
+
 %preun
 if [ $1 -eq 0 ]; then
     # Package removal, not upgrade
@@ -613,6 +793,7 @@ if [ $1 -eq 0 ]; then
 fi
 %systemd_preun NetworkManager-wait-online.service NetworkManager-dispatcher.service
 
+
 %postun
 /usr/bin/udevadm control --reload-rules || :
 /usr/bin/udevadm trigger --subsystem-match=net || :
@@ -620,11 +801,13 @@ fi
 %systemd_postun
 
 
+%if 0%{?fedora} < 28
 %post   glib -p /sbin/ldconfig
 %postun glib -p /sbin/ldconfig
 
 %post   libnm -p /sbin/ldconfig
 %postun libnm -p /sbin/ldconfig
+%endif
 
 
 %files
@@ -644,12 +827,13 @@ fi
 %config(noreplace) %{_sysconfdir}/%{name}/NetworkManager.conf
 %{_bindir}/nm-online
 %{_libexecdir}/nm-ifup
-%ghost %{_sbindir}/ifup
+%ghost %attr(755, root, root) %{_sbindir}/ifup
 %{_libexecdir}/nm-ifdown
-%ghost %{_sbindir}/ifdown
+%ghost %attr(755, root, root) %{_sbindir}/ifdown
 %{_libexecdir}/nm-dhcp-helper
 %{_libexecdir}/nm-dispatcher
 %{_libexecdir}/nm-iface-helper
+%{_libexecdir}/nm-initrd-generator
 %dir %{_libdir}/%{name}
 %dir %{nmplugindir}
 %{nmplugindir}/libnm-settings-plugin*.so
@@ -667,7 +851,7 @@ fi
 %{_mandir}/man8/*
 %dir %{_localstatedir}/lib/NetworkManager
 %dir %{_sysconfdir}/NetworkManager/system-connections
-%{_datadir}/dbus-1/system-services/org.freedesktop.NetworkManager.service
+%dir %{_sysconfdir}/sysconfig/network-scripts
 %{_datadir}/dbus-1/system-services/org.freedesktop.nm_dispatcher.service
 %{_datadir}/polkit-1/actions/*.policy
 %{_prefix}/lib/udev/rules.d/*.rules
@@ -680,6 +864,7 @@ fi
 %doc NEWS AUTHORS README CONTRIBUTING TODO
 %license COPYING
 
+
 %if %{with adsl}
 %files adsl
 %{nmplugindir}/libnm-device-plugin-adsl.so
@@ -687,26 +872,31 @@ fi
 %exclude %{nmplugindir}/libnm-device-plugin-adsl.so
 %endif
 
+
 %if %{with bluetooth}
 %files bluetooth
 %{nmplugindir}/libnm-device-plugin-bluetooth.so
 %endif
+
 
 %if %{with team}
 %files team
 %{nmplugindir}/libnm-device-plugin-team.so
 %endif
 
+
 %if %{with wifi}
 %files wifi
 %{nmplugindir}/libnm-device-plugin-wifi.so
 %endif
+
 
 %if %{with wwan}
 %files wwan
 %{nmplugindir}/libnm-device-plugin-wwan.so
 %{nmplugindir}/libnm-wwan.so
 %endif
+
 
 %if %{with ovs}
 %files ovs
@@ -715,11 +905,13 @@ fi
 %{_mandir}/man7/nm-openvswitch.7*
 %endif
 
+
 %if %{with ppp}
 %files ppp
 %{_libdir}/pppd/%{ppp_version}/nm-pppd-plugin.so
 %{nmplugindir}/libnm-ppp-plugin.so
 %endif
+
 
 %if %{with libnm_glib}
 %files glib -f %{name}.lang
@@ -730,9 +922,9 @@ fi
 %{_libdir}/girepository-1.0/NMClient-1.0.typelib
 %endif
 
+
 %if %{with libnm_glib}
 %files glib-devel
-%doc docs/api/html/*
 %dir %{_includedir}/libnm-glib
 %dir %{_includedir}/%{name}
 %{_includedir}/libnm-glib/*.h
@@ -761,12 +953,13 @@ fi
 %{_datadir}/vala/vapi/libnm-*.vapi
 %endif
 
+
 %files libnm -f %{name}.lang
 %{_libdir}/libnm.so.*
 %{_libdir}/girepository-1.0/NM-1.0.typelib
 
+
 %files libnm-devel
-%doc docs/api/html/*
 %dir %{_includedir}/libnm
 %{_includedir}/libnm/*.h
 %{_libdir}/pkgconfig/libnm.pc
@@ -780,6 +973,7 @@ fi
 %{_datadir}/vala/vapi/libnm.vapi
 %{_datadir}/dbus-1/interfaces/*.xml
 
+
 %if %{with connectivity_fedora}
 %files config-connectivity-fedora
 %dir %{nmlibdir}
@@ -787,15 +981,26 @@ fi
 %{nmlibdir}/conf.d/20-connectivity-fedora.conf
 %endif
 
+
+%if %{with connectivity_redhat}
+%files config-connectivity-redhat
+%dir %{nmlibdir}
+%dir %{nmlibdir}/conf.d
+%{nmlibdir}/conf.d/20-connectivity-redhat.conf
+%endif
+
+
 %files config-server
 %dir %{nmlibdir}
 %dir %{nmlibdir}/conf.d
 %{nmlibdir}/conf.d/00-server.conf
 
+
 %files dispatcher-routing-rules
 %{_sysconfdir}/%{name}/dispatcher.d/10-ifcfg-rh-routes.sh
 %{_sysconfdir}/%{name}/dispatcher.d/no-wait.d/10-ifcfg-rh-routes.sh
 %{_sysconfdir}/%{name}/dispatcher.d/pre-up.d/10-ifcfg-rh-routes.sh
+
 
 %if %{with nmtui}
 %files tui
@@ -805,6 +1010,7 @@ fi
 %{_bindir}/nmtui-hostname
 %{_mandir}/man1/nmtui*
 %endif
+
 
 %changelog
 __CHANGELOG__

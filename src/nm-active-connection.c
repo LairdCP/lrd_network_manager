@@ -30,6 +30,7 @@
 #include "nm-auth-utils.h"
 #include "nm-auth-manager.h"
 #include "nm-auth-subject.h"
+#include "nm-keep-alive.h"
 #include "NetworkManagerUtils.h"
 #include "nm-core-internal.h"
 
@@ -75,6 +76,7 @@ typedef struct _NMActiveConnectionPrivate {
 		gpointer user_data;
 	} auth;
 
+	NMKeepAlive *keep_alive;
 } NMActiveConnectionPrivate;
 
 NM_GOBJECT_PROPERTIES_DEFINE (NMActiveConnection,
@@ -159,22 +161,27 @@ NM_UTILS_LOOKUP_STR_DEFINE_STATIC (_state_to_string, NMActiveConnectionState,
 	NM_UTILS_LOOKUP_STR_ITEM (NM_ACTIVE_CONNECTION_STATE_DEACTIVATING, "deactivating"),
 	NM_UTILS_LOOKUP_STR_ITEM (NM_ACTIVE_CONNECTION_STATE_DEACTIVATED,  "deactivated"),
 );
-#define state_to_string(state) NM_UTILS_LOOKUP_STR (_state_to_string, state)
+
+#define state_to_string_a(state) NM_UTILS_LOOKUP_STR_A (_state_to_string, state)
+
+/* the maximum required buffer size for _state_flags_to_string(). */
+#define _NM_ACTIVATION_STATE_FLAG_TO_STRING_BUFSIZE (255)
 
 NM_UTILS_FLAGS2STR_DEFINE_STATIC (_state_flags_to_string, NMActivationStateFlags,
-	NM_UTILS_FLAGS2STR (NM_ACTIVATION_STATE_FLAG_NONE,                 "none"),
-	NM_UTILS_FLAGS2STR (NM_ACTIVATION_STATE_FLAG_IS_MASTER,            "is-master"),
-	NM_UTILS_FLAGS2STR (NM_ACTIVATION_STATE_FLAG_IS_SLAVE,             "is-slave"),
-	NM_UTILS_FLAGS2STR (NM_ACTIVATION_STATE_FLAG_LAYER2_READY,         "layer2-ready"),
-	NM_UTILS_FLAGS2STR (NM_ACTIVATION_STATE_FLAG_IP4_READY,            "ip4-ready"),
-	NM_UTILS_FLAGS2STR (NM_ACTIVATION_STATE_FLAG_IP6_READY,            "ip6-ready"),
-	NM_UTILS_FLAGS2STR (NM_ACTIVATION_STATE_FLAG_MASTER_HAS_SLAVES,    "master-has-slaves"),
+	NM_UTILS_FLAGS2STR (NM_ACTIVATION_STATE_FLAG_NONE,                                 "none"),
+	NM_UTILS_FLAGS2STR (NM_ACTIVATION_STATE_FLAG_IS_MASTER,                            "is-master"),
+	NM_UTILS_FLAGS2STR (NM_ACTIVATION_STATE_FLAG_IS_SLAVE,                             "is-slave"),
+	NM_UTILS_FLAGS2STR (NM_ACTIVATION_STATE_FLAG_LAYER2_READY,                         "layer2-ready"),
+	NM_UTILS_FLAGS2STR (NM_ACTIVATION_STATE_FLAG_IP4_READY,                            "ip4-ready"),
+	NM_UTILS_FLAGS2STR (NM_ACTIVATION_STATE_FLAG_IP6_READY,                            "ip6-ready"),
+	NM_UTILS_FLAGS2STR (NM_ACTIVATION_STATE_FLAG_MASTER_HAS_SLAVES,                    "master-has-slaves"),
+	NM_UTILS_FLAGS2STR (NM_ACTIVATION_STATE_FLAG_LIFETIME_BOUND_TO_PROFILE_VISIBILITY, "lifetime-bound-to-profile-visibility"),
 );
 
 /*****************************************************************************/
 
 static void
-_settings_connection_updated (NMSettingsConnection *connection,
+_settings_connection_updated (NMSettingsConnection *sett_conn,
                               gboolean by_user,
                               gpointer user_data)
 {
@@ -196,24 +203,24 @@ _settings_connection_updated (NMSettingsConnection *connection,
 }
 
 static void
-_set_settings_connection (NMActiveConnection *self, NMSettingsConnection *connection)
+_set_settings_connection (NMActiveConnection *self, NMSettingsConnection *sett_conn)
 {
 	NMActiveConnectionPrivate *priv = NM_ACTIVE_CONNECTION_GET_PRIVATE (self);
 
-	if (priv->settings_connection.obj == connection)
+	if (priv->settings_connection.obj == sett_conn)
 		return;
 
 	if (priv->settings_connection.obj) {
 		g_signal_handlers_disconnect_by_func (priv->settings_connection.obj, _settings_connection_updated, self);
 		g_signal_handlers_disconnect_by_func (priv->settings_connection.obj, _settings_connection_flags_changed, self);
 	}
-	if (connection) {
-		g_signal_connect (connection, NM_SETTINGS_CONNECTION_UPDATED_INTERNAL, (GCallback) _settings_connection_updated, self);
+	if (sett_conn) {
+		g_signal_connect (sett_conn, NM_SETTINGS_CONNECTION_UPDATED_INTERNAL, (GCallback) _settings_connection_updated, self);
 		if (nm_active_connection_get_activation_type (self) == NM_ACTIVATION_TYPE_EXTERNAL)
-			g_signal_connect (connection, NM_SETTINGS_CONNECTION_FLAGS_CHANGED, (GCallback) _settings_connection_flags_changed, self);
+			g_signal_connect (sett_conn, NM_SETTINGS_CONNECTION_FLAGS_CHANGED, (GCallback) _settings_connection_flags_changed, self);
 	}
 
-	nm_dbus_track_obj_path_set (&priv->settings_connection, connection, TRUE);
+	nm_dbus_track_obj_path_set (&priv->settings_connection, sett_conn, TRUE);
 }
 
 NMActiveConnectionState
@@ -250,8 +257,14 @@ nm_active_connection_set_state (NMActiveConnection *self,
 		return;
 
 	_LOGD ("set state %s (was %s)",
-	       state_to_string (new_state),
-	       state_to_string (priv->state));
+	       state_to_string_a (new_state),
+	       state_to_string_a (priv->state));
+
+	if (new_state > NM_ACTIVE_CONNECTION_STATE_ACTIVATED) {
+		/* once we are about to deactivate, we don't need the keep-alive instance
+		 * anymore. Freeze/disarm it. */
+		nm_keep_alive_disarm (priv->keep_alive);
+	}
 
 	if (   new_state == NM_ACTIVE_CONNECTION_STATE_ACTIVATED
 	    && priv->activation_type == NM_ACTIVATION_TYPE_ASSUME) {
@@ -353,27 +366,33 @@ nm_active_connection_set_state_flags_full (NMActiveConnection *self,
 
 	f = (priv->state_flags & ~mask) | (state_flags & mask);
 	if (f != priv->state_flags) {
-		char buf1[G_N_ELEMENTS (_nm_utils_to_string_buffer)];
-		char buf2[G_N_ELEMENTS (_nm_utils_to_string_buffer)];
+		char buf1[_NM_ACTIVATION_STATE_FLAG_TO_STRING_BUFSIZE];
+		char buf2[_NM_ACTIVATION_STATE_FLAG_TO_STRING_BUFSIZE];
 
 		_LOGD ("set state-flags %s (was %s)",
 		       _state_flags_to_string (f, buf1, sizeof (buf1)),
 		       _state_flags_to_string (priv->state_flags, buf2, sizeof (buf2)));
 		priv->state_flags = f;
 		_notify (self, PROP_STATE_FLAGS);
+
+		nm_keep_alive_set_settings_connection_watch_visible (priv->keep_alive,
+		                                                       NM_FLAGS_HAS (priv->state_flags,
+		                                                                     NM_ACTIVATION_STATE_FLAG_LIFETIME_BOUND_TO_PROFILE_VISIBILITY)
+		                                                     ? priv->settings_connection.obj
+		                                                     : NULL);
 	}
 }
 
 const char *
 nm_active_connection_get_settings_connection_id (NMActiveConnection *self)
 {
-	NMSettingsConnection *con;
+	NMSettingsConnection *sett_conn;
 
 	g_return_val_if_fail (NM_IS_ACTIVE_CONNECTION (self), NULL);
 
-	con = NM_ACTIVE_CONNECTION_GET_PRIVATE (self)->settings_connection.obj;
-	return con
-	       ? nm_connection_get_id (NM_CONNECTION (con))
+	sett_conn = NM_ACTIVE_CONNECTION_GET_PRIVATE (self)->settings_connection.obj;
+	return sett_conn
+	       ? nm_settings_connection_get_id (sett_conn)
 	       : NULL;
 }
 
@@ -388,31 +407,31 @@ _nm_active_connection_get_settings_connection (NMActiveConnection *self)
 NMSettingsConnection *
 nm_active_connection_get_settings_connection (NMActiveConnection *self)
 {
-	NMSettingsConnection *con;
+	NMSettingsConnection *sett_conn;
 
-	con = _nm_active_connection_get_settings_connection (self);
+	sett_conn = _nm_active_connection_get_settings_connection (self);
 
 	/* Only call this function on an active-connection that is already
 	 * fully set-up (i.e. that has a settings-connection). Other uses
 	 * indicate a bug. */
-	g_return_val_if_fail (con, NULL);
-	return con;
+	g_return_val_if_fail (sett_conn, NULL);
+	return sett_conn;
 }
 
 NMConnection *
 nm_active_connection_get_applied_connection (NMActiveConnection *self)
 {
-	NMConnection *con;
+	NMConnection *connection;
 
 	g_return_val_if_fail (NM_IS_ACTIVE_CONNECTION (self), NULL);
 
-	con = NM_ACTIVE_CONNECTION_GET_PRIVATE (self)->applied_connection;
+	connection = NM_ACTIVE_CONNECTION_GET_PRIVATE (self)->applied_connection;
 
 	/* Only call this function on an active-connection that is already
 	 * fully set-up (i.e. that has a settings-connection). Other uses
 	 * indicate a bug. */
-	g_return_val_if_fail (con, NULL);
-	return con;
+	g_return_val_if_fail (connection, NULL);
+	return connection;
 }
 
 static void
@@ -447,7 +466,7 @@ _set_applied_connection_take (NMActiveConnection *self,
 
 void
 nm_active_connection_set_settings_connection (NMActiveConnection *self,
-                                              NMSettingsConnection *connection)
+                                              NMSettingsConnection *sett_conn)
 {
 	NMActiveConnectionPrivate *priv;
 
@@ -455,7 +474,7 @@ nm_active_connection_set_settings_connection (NMActiveConnection *self,
 
 	priv = NM_ACTIVE_CONNECTION_GET_PRIVATE (self);
 
-	g_return_if_fail (NM_IS_SETTINGS_CONNECTION (connection));
+	g_return_if_fail (NM_IS_SETTINGS_CONNECTION (sett_conn));
 	g_return_if_fail (!priv->settings_connection.obj);
 	g_return_if_fail (!priv->applied_connection);
 
@@ -468,10 +487,10 @@ nm_active_connection_set_settings_connection (NMActiveConnection *self,
 	 * For example, we'd have to cancel all pending seret requests. */
 	g_return_if_fail (!nm_dbus_object_is_exported (NM_DBUS_OBJECT (self)));
 
-	_set_settings_connection (self, connection);
+	_set_settings_connection (self, sett_conn);
 
 	_set_applied_connection_take (self,
-	                              nm_simple_connection_new_clone (NM_CONNECTION (priv->settings_connection.obj)));
+	                              nm_simple_connection_new_clone (nm_settings_connection_get_connection (priv->settings_connection.obj)));
 }
 
 gboolean
@@ -503,8 +522,10 @@ nm_active_connection_clear_secrets (NMActiveConnection *self)
 
 	if (nm_settings_connection_has_unmodified_applied_connection (priv->settings_connection.obj,
 	                                                              priv->applied_connection,
-	                                                              NM_SETTING_COMPARE_FLAG_NONE))
-		nm_connection_clear_secrets ((NMConnection *) priv->settings_connection.obj);
+	                                                              NM_SETTING_COMPARE_FLAG_NONE)) {
+		/* FIXME(copy-on-write-connection): avoid modifying NMConnection instances and share them via copy-on-write. */
+		nm_connection_clear_secrets (nm_settings_connection_get_connection (priv->settings_connection.obj));
+	}
 	nm_connection_clear_secrets (priv->applied_connection);
 }
 
@@ -766,11 +787,11 @@ check_master_ready (NMActiveConnection *self)
 	       signalling
 	           ? "signal"
 	           : (priv->master_ready ? "already signalled" : "not signalling"),
-	       state_to_string (priv->state),
+	       state_to_string_a (priv->state),
 	       priv->master
 	           ? nm_sprintf_bufa (128, "master %p is in state %s",
 	                              priv->master,
-	                              state_to_string (nm_active_connection_get_state (priv->master)))
+	                              state_to_string_a (nm_active_connection_get_state (priv->master)))
 	           : "no master");
 
 	if (signalling) {
@@ -834,7 +855,7 @@ nm_active_connection_set_master (NMActiveConnection *self, NMActiveConnection *m
 	_LOGD ("set master %p, %s, state %s",
 	       master,
 	       nm_active_connection_get_settings_connection_id (master),
-	       state_to_string (nm_active_connection_get_state (master)));
+	       state_to_string_a (nm_active_connection_get_state (master)));
 
 	priv->master = g_object_ref (master);
 	g_signal_connect (priv->master,
@@ -904,6 +925,32 @@ nm_active_connection_get_activation_reason (NMActiveConnection *self)
 
 /*****************************************************************************/
 
+/**
+ * nm_active_connection_get_keep_alive:
+ * @self: the #NMActiveConnection instance
+ *
+ * Gives the #NMKeepAlive instance of the active connection. Note that
+ * @self is guaranteed not to swap the keep-alive instance, so it is
+ * in particular safe to assume that the keep-alive instance is alive
+ * as long as @self, and that nm_active_connection_get_keep_alive()
+ * will return always the same instance.
+ *
+ * In particular this means, that it is safe and encouraged, that you
+ * register to the notify:alive property changed signal of the returned
+ * instance.
+ *
+ * Returns: the #NMKeepAlive instance.
+ */
+NMKeepAlive *
+nm_active_connection_get_keep_alive (NMActiveConnection *self)
+{
+	g_return_val_if_fail (NM_IS_ACTIVE_CONNECTION (self), NULL);
+
+	return NM_ACTIVE_CONNECTION_GET_PRIVATE (self)->keep_alive;
+}
+
+/*****************************************************************************/
+
 static void
 _settings_connection_flags_changed (NMSettingsConnection *settings_connection,
                                     NMActiveConnection *self)
@@ -921,7 +968,7 @@ _settings_connection_flags_changed (NMSettingsConnection *settings_connection,
 
 	_set_activation_type_managed (self);
 	if (!nm_device_reapply (nm_active_connection_get_device (self),
-	                        NM_CONNECTION (nm_active_connection_get_settings_connection (self)),
+	                        nm_settings_connection_get_connection ((nm_active_connection_get_settings_connection (self))),
 	                        &error)) {
 		_LOGW ("failed to reapply new device settings on previously externally managed device: %s",
 		       error->message);
@@ -1112,7 +1159,7 @@ nm_active_connection_authorize (NMActiveConnection *self,
 {
 	NMActiveConnectionPrivate *priv = NM_ACTIVE_CONNECTION_GET_PRIVATE (self);
 	const char *wifi_permission = NULL;
-	NMConnection *con;
+	NMConnection *connection;
 
 	g_return_if_fail (result_func);
 	g_return_if_fail (!priv->auth.call_id_network_control);
@@ -1122,11 +1169,11 @@ nm_active_connection_authorize (NMActiveConnection *self,
 		g_return_if_fail (NM_IS_CONNECTION (initial_connection));
 		g_return_if_fail (!priv->settings_connection.obj);
 		g_return_if_fail (!priv->applied_connection);
-		con = initial_connection;
+		connection = initial_connection;
 	} else {
 		g_return_if_fail (NM_IS_SETTINGS_CONNECTION (priv->settings_connection.obj));
 		g_return_if_fail (NM_IS_CONNECTION (priv->applied_connection));
-		con = priv->applied_connection;
+		connection = priv->applied_connection;
 	}
 
 	priv->auth.call_id_network_control = nm_auth_manager_check_authorization (nm_auth_manager_get (),
@@ -1137,7 +1184,7 @@ nm_active_connection_authorize (NMActiveConnection *self,
 	                                                                          self);
 
 	/* Shared wifi connections require special permissions too */
-	wifi_permission = nm_utils_get_shared_wifi_permission (con);
+	wifi_permission = nm_utils_get_shared_wifi_permission (connection);
 	if (wifi_permission) {
 		priv->auth.call_id_wifi_shared_permission = nm_auth_manager_check_authorization (nm_auth_manager_get (),
 		                                                                                 priv->subject,
@@ -1227,13 +1274,13 @@ get_property (GObject *object, guint prop_id,
 		g_value_set_string (value, nm_dbus_track_obj_path_get (&priv->settings_connection));
 		break;
 	case PROP_ID:
-		g_value_set_string (value, nm_connection_get_id (NM_CONNECTION (priv->settings_connection.obj)));
+		g_value_set_string (value, nm_settings_connection_get_id (priv->settings_connection.obj));
 		break;
 	case PROP_UUID:
-		g_value_set_string (value, nm_connection_get_uuid (NM_CONNECTION (priv->settings_connection.obj)));
+		g_value_set_string (value, nm_settings_connection_get_uuid (priv->settings_connection.obj));
 		break;
 	case PROP_TYPE:
-		g_value_set_string (value, nm_connection_get_connection_type (NM_CONNECTION (priv->settings_connection.obj)));
+		g_value_set_string (value, nm_settings_connection_get_connection_type (priv->settings_connection.obj));
 		break;
 
 	case PROP_SPECIFIC_OBJECT:
@@ -1304,16 +1351,16 @@ set_property (GObject *object, guint prop_id,
 	NMActiveConnection *self = (NMActiveConnection *) object;
 	NMActiveConnectionPrivate *priv = NM_ACTIVE_CONNECTION_GET_PRIVATE (self);
 	const char *tmp;
-	NMSettingsConnection *con;
+	NMSettingsConnection *sett_conn;
 	NMConnection *acon;
 	int i;
 
 	switch (prop_id) {
 	case PROP_INT_SETTINGS_CONNECTION:
 		/* construct-only */
-		con = g_value_get_object (value);
-		if (con)
-			_set_settings_connection (self, con);
+		sett_conn = g_value_get_object (value);
+		if (sett_conn)
+			_set_settings_connection (self, sett_conn);
 		break;
 	case PROP_INT_APPLIED_CONNECTION:
 		/* construct-only */
@@ -1347,6 +1394,12 @@ set_property (GObject *object, guint prop_id,
 		                   NM_ACTIVATION_TYPE_EXTERNAL))
 			g_return_if_reached ();
 		_set_activation_type (self, (NMActivationType) i);
+		break;
+	case PROP_STATE_FLAGS:
+		/* construct-only */
+		priv->state_flags = g_value_get_uint (value);
+		nm_assert ((guint) priv->state_flags == g_value_get_uint (value));
+		nm_assert (!NM_FLAGS_ANY (priv->state_flags, ~NM_ACTIVATION_STATE_FLAG_LIFETIME_BOUND_TO_PROFILE_VISIBILITY));
 		break;
 	case PROP_INT_ACTIVATION_REASON:
 		/* construct-only */
@@ -1398,6 +1451,10 @@ nm_active_connection_init (NMActiveConnection *self)
 
 	priv->activation_type = NM_ACTIVATION_TYPE_MANAGED;
 	priv->version_id = _version_id_new ();
+
+	/* the keep-alive instance must never change. Callers rely on that. */
+	priv->keep_alive = nm_keep_alive_new ();
+	_nm_keep_alive_set_owner (priv->keep_alive, G_OBJECT (self));
 }
 
 static void
@@ -1410,7 +1467,7 @@ constructed (GObject *object)
 
 	if (   !priv->applied_connection
 	    && priv->settings_connection.obj)
-		priv->applied_connection = nm_simple_connection_new_clone (NM_CONNECTION (priv->settings_connection.obj));
+		priv->applied_connection = nm_simple_connection_new_clone (nm_settings_connection_get_connection (priv->settings_connection.obj));
 
 	_LOGD ("constructed (%s, version-id %llu, type %s)",
 	       G_OBJECT_TYPE_NAME (self),
@@ -1426,6 +1483,10 @@ constructed (GObject *object)
 		_set_applied_connection_take (self,
 		                              g_steal_pointer (&priv->applied_connection));
 	}
+
+	if (NM_FLAGS_HAS (priv->state_flags,
+	                  NM_ACTIVATION_STATE_FLAG_LIFETIME_BOUND_TO_PROFILE_VISIBILITY))
+		nm_keep_alive_set_settings_connection_watch_visible (priv->keep_alive, priv->settings_connection.obj);
 
 	g_return_if_fail (priv->subject);
 	g_return_if_fail (priv->activation_reason != NM_ACTIVATION_REASON_UNSET);
@@ -1472,6 +1533,9 @@ finalize (GObject *object)
 	NMActiveConnectionPrivate *priv = NM_ACTIVE_CONNECTION_GET_PRIVATE (self);
 
 	nm_dbus_track_obj_path_set (&priv->settings_connection, NULL, FALSE);
+
+	_nm_keep_alive_set_owner (priv->keep_alive, NULL);
+	g_clear_object (&priv->keep_alive);
 
 	G_OBJECT_CLASS (nm_active_connection_parent_class)->finalize (object);
 }
@@ -1577,7 +1641,7 @@ nm_active_connection_class_init (NMActiveConnectionClass *ac_class)
 	obj_properties[PROP_STATE_FLAGS] =
 	     g_param_spec_uint (NM_ACTIVE_CONNECTION_STATE_FLAGS, "", "",
 	                        0, G_MAXUINT32, NM_ACTIVATION_STATE_FLAG_NONE,
-	                        G_PARAM_READABLE |
+	                        G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY |
 	                        G_PARAM_STATIC_STRINGS);
 
 	obj_properties[PROP_DEFAULT] =

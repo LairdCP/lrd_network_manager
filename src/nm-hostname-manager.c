@@ -23,8 +23,6 @@
 #include "nm-hostname-manager.h"
 
 #include <sys/stat.h>
-#include <errno.h>
-#include <string.h>
 
 #if HAVE_SELINUX
 #include <selinux/selinux.h>
@@ -48,8 +46,7 @@
 #define HOSTNAME_FILE_UCASE_HOSTNAME "/etc/HOSTNAME"
 #define HOSTNAME_FILE_GENTOO         "/etc/conf.d/hostname"
 
-#define IFCFG_DIR                    SYSCONFDIR "/sysconfig/network"
-#define CONF_DHCP                    IFCFG_DIR "/dhcp"
+#define CONF_DHCP                    SYSCONFDIR "/sysconfig/network/dhcp"
 
 #if (defined(HOSTNAME_PERSIST_SUSE) + defined(HOSTNAME_PERSIST_SLACKWARE) + defined(HOSTNAME_PERSIST_GENTOO)) > 1
 #error "Can only define one of HOSTNAME_PERSIST_*"
@@ -103,7 +100,7 @@ NM_DEFINE_SINGLETON_GETTER (NMHostnameManager, nm_hostname_manager_get, NM_TYPE_
 /*****************************************************************************/
 
 #if defined(HOSTNAME_PERSIST_GENTOO)
-static gchar *
+static char *
 read_hostname_gentoo (const char *path)
 {
 	gs_free char *contents = NULL;
@@ -129,7 +126,7 @@ read_hostname_gentoo (const char *path)
 #endif
 
 #if defined(HOSTNAME_PERSIST_SLACKWARE)
-static gchar *
+static char *
 read_hostname_slackware (const char *path)
 {
 	gs_free char *contents = NULL;

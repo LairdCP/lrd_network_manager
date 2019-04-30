@@ -15,17 +15,96 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
- * Copyright (C) 2015 - 2017 Red Hat, Inc.
+ * Copyright (C) 2015 - 2018 Red Hat, Inc.
  */
 
 #ifndef __NMP_OBJECT_H__
 #define __NMP_OBJECT_H__
+
+#include <netinet/in.h>
 
 #include "nm-utils/nm-obj.h"
 #include "nm-utils/nm-dedup-multi.h"
 #include "nm-platform.h"
 
 struct udev_device;
+
+/*****************************************************************************/
+
+/* "struct __kernel_timespec" uses "long long", but we use gint64. In practice,
+ * these are the same types. */
+G_STATIC_ASSERT (sizeof (long long) == sizeof (gint64));
+
+typedef struct {
+	/* like "struct __kernel_timespec". */
+	gint64 tv_sec;
+	gint64 tv_nsec;
+} NMPTimespec64;
+
+/*****************************************************************************/
+
+typedef union {
+	struct sockaddr     sa;
+	struct sockaddr_in  in;
+	struct sockaddr_in6 in6;
+} NMSockAddrUnion;
+
+#define NM_SOCK_ADDR_UNION_INIT_UNSPEC \
+	{ \
+		.sa = { \
+			.sa_family = AF_UNSPEC, \
+		}, \
+	}
+
+int nm_sock_addr_union_cmp (const NMSockAddrUnion *a,
+                            const NMSockAddrUnion *b);
+
+void nm_sock_addr_union_hash_update (const NMSockAddrUnion *a,
+                                     NMHashState *h);
+
+void nm_sock_addr_union_cpy (NMSockAddrUnion *dst,
+                             gconstpointer src /* unaligned (const NMSockAddrUnion *) */);
+
+void nm_sock_addr_union_cpy_untrusted (NMSockAddrUnion *dst,
+                                       gconstpointer src /* unaligned (const NMSockAddrUnion *) */,
+                                       gsize src_len);
+
+const char *nm_sock_addr_union_to_string (const NMSockAddrUnion *sa,
+                                          char *buf,
+                                          gsize len);
+
+/*****************************************************************************/
+
+typedef struct {
+	NMIPAddr addr;
+	guint8 family;
+	guint8 mask;
+} NMPWireGuardAllowedIP;
+
+typedef struct _NMPWireGuardPeer {
+	NMSockAddrUnion endpoint;
+
+	NMPTimespec64 last_handshake_time;
+
+	guint64 rx_bytes;
+	guint64 tx_bytes;
+
+	union {
+		const NMPWireGuardAllowedIP *allowed_ips;
+		guint _construct_idx_start;
+	};
+	union {
+		guint allowed_ips_len;
+		guint _construct_idx_end;
+	};
+
+	guint16 persistent_keepalive_interval;
+
+	guint8 public_key[NMP_WIREGUARD_PUBLIC_KEY_LEN];
+	guint8 preshared_key[NMP_WIREGUARD_SYMMETRIC_KEY_LEN];
+} NMPWireGuardPeer;
+
+/*****************************************************************************/
 
 typedef enum { /*< skip >*/
 	NMP_OBJECT_TO_STRING_ID,
@@ -70,14 +149,14 @@ typedef enum { /*< skip >*/
 	 *
 	 * Also, note that links may be considered invisible. This index type
 	 * expose all links, even invisible ones. For addresses/routes, this
-	 * distiction doesn't exist, as all addresses/routes that are alive
+	 * distinction doesn't exist, as all addresses/routes that are alive
 	 * are visible as well. */
 	NMP_CACHE_ID_TYPE_OBJECT_TYPE,
 
 	/* index for the link objects by ifname. */
 	NMP_CACHE_ID_TYPE_LINK_BY_IFNAME,
 
-	/* indeces for the visible default-routes, ignoring ifindex.
+	/* indices for the visible default-routes, ignoring ifindex.
 	 * This index only contains two partitions: all visible default-routes,
 	 * separate for IPv4 and IPv6. */
 	NMP_CACHE_ID_TYPE_DEFAULT_ROUTES,
@@ -164,6 +243,14 @@ typedef struct {
 		 */
 		struct udev_device *device;
 	} udev;
+
+	/* Auxiliary data object for Wi-Fi and WPAN */
+	GObject *ext_data;
+
+	/* FIXME: not every NMPObjectLink should pay the price for tracking
+	 * the wireguard family id. This should be tracked via ext_data, which
+	 * would be exactly the right place. */
+	int wireguard_family_id;
 } NMPObjectLink;
 
 typedef struct {
@@ -212,6 +299,14 @@ typedef struct {
 typedef struct {
 	NMPlatformLnkVxlan _public;
 } NMPObjectLnkVxlan;
+
+typedef struct {
+	NMPlatformLnkWireGuard _public;
+	const NMPWireGuardPeer *peers;
+	const NMPWireGuardAllowedIP *_allowed_ips_buf;
+	guint peers_len;
+	guint _allowed_ips_buf_len;
+} NMPObjectLnkWireGuard;
 
 typedef struct {
 	NMPlatformIP4Address _public;
@@ -277,6 +372,9 @@ struct _NMPObject {
 
 		NMPlatformLnkVxlan      lnk_vxlan;
 		NMPObjectLnkVxlan       _lnk_vxlan;
+
+		NMPlatformLnkWireGuard  lnk_wireguard;
+		NMPObjectLnkWireGuard   _lnk_wireguard;
 
 		NMPlatformIPAddress     ip_address;
 		NMPlatformIPXAddress    ipx_address;
@@ -455,7 +553,7 @@ nmp_object_ref (const NMPObject *obj)
 	}
 
 	/* ref and unref accept const pointers. NMPObject is supposed to be shared
-	 * and kept immutable. Disallowing to take/retrun a reference to a const
+	 * and kept immutable. Disallowing to take/return a reference to a const
 	 * NMPObject is cumbersome, because callers are precisely expected to
 	 * keep a ref on the otherwise immutable object. */
 	g_return_val_if_fail (NMP_OBJECT_IS_VALID (obj), NULL);
@@ -686,7 +784,8 @@ NMPCacheOpsType nmp_cache_update_link_master_connected (NMPCache *cache,
                                                         const NMPObject **out_obj_old,
                                                         const NMPObject **out_obj_new);
 
-void nmp_cache_dirty_set_all (NMPCache *cache, NMPObjectType obj_type);
+void nmp_cache_dirty_set_all (NMPCache *cache,
+                              const NMPLookup *lookup);
 
 NMPCache *nmp_cache_new (NMDedupMultiIndex *multi_idx, gboolean use_udev);
 void nmp_cache_free (NMPCache *cache);
