@@ -40,7 +40,7 @@ typedef struct _NMSupplicantConfigClass NMSupplicantConfigClass;
 
 GType nm_supplicant_config_get_type (void);
 
-NMSupplicantConfig *nm_supplicant_config_new (gboolean support_pmf, gboolean support_fils);
+NMSupplicantConfig *nm_supplicant_config_new (gboolean support_pmf, gboolean support_fils, gboolean support_ft);
 
 guint32 nm_supplicant_config_get_ap_scan (NMSupplicantConfig *self);
 
@@ -76,6 +76,7 @@ gboolean nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig 
                                                              guint32 mtu,
                                                              NMSettingWirelessSecurityPmf pmf,
                                                              NMSettingWirelessSecurityFils fils,
+                                                             NMSettingWirelessSecurityFt ft,
                                                              GError **error);
 
 gboolean nm_supplicant_config_add_no_security (NMSupplicantConfig *self,

@@ -418,11 +418,15 @@ security_from_vardict (GVariant *security)
 
 	if (   g_variant_lookup (security, "KeyMgmt", "^a&s", &array)
 	    && array) {
-		if (g_strv_contains (array, "wpa-psk"))
+		// TBD: need to add "wpa-ft-psk"?
+		if (g_strv_contains (array, "wpa-psk") ||
+			g_strv_contains (array, "wpa-ft-psk"))
 			flags |= NM_802_11_AP_SEC_KEY_MGMT_PSK;
 		if (g_strv_contains (array, "cckm"))
 			flags |= NM_802_11_AP_SEC_KEY_MGMT_CCKM;
+		// TBD: need to add "wpa-ft-eap"?
 		if (g_strv_contains (array, "wpa-eap") ||
+		    g_strv_contains (array, "wpa-ft-eap") ||
 		    g_strv_contains (array, "wpa-fils-sha256") ||
 		    g_strv_contains (array, "wpa-fils-sha384"))
 			flags |= NM_802_11_AP_SEC_KEY_MGMT_802_1X;
