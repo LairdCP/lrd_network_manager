@@ -3722,6 +3722,13 @@ make_wpa_setting (shvarFile *ifcfg,
 		return NULL;
 	g_object_set (wsec, NM_SETTING_WIRELESS_SECURITY_FILS, i_val, NULL);
 
+	i_val = NM_SETTING_WIRELESS_SECURITY_FT_DEFAULT;
+	if (!svGetValueEnum (ifcfg, "FT",
+	                     nm_setting_wireless_security_ft_get_type (),
+	                     &i_val, error))
+		return NULL;
+	g_object_set (wsec, NM_SETTING_WIRELESS_SECURITY_FT, i_val, NULL);
+
 	nm_clear_g_free (&value);
 	v = svGetValueStr (ifcfg, "SECURITYMODE", &value);
 	if (NM_IN_STRSET (v, NULL, "open"))

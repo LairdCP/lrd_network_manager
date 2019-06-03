@@ -51,6 +51,7 @@ typedef struct {
 	gboolean   dispose_has_run;
 	gboolean   support_pmf;
 	gboolean   support_fils;
+	gboolean   support_ft;
 
 	guint32    scan_delay;
 	guint32    scan_dwell;
@@ -78,7 +79,8 @@ G_DEFINE_TYPE (NMSupplicantConfig, nm_supplicant_config, G_TYPE_OBJECT)
 /*****************************************************************************/
 
 NMSupplicantConfig *
-nm_supplicant_config_new (gboolean support_pmf, gboolean support_fils)
+nm_supplicant_config_new (gboolean support_pmf, gboolean support_fils,
+	gboolean support_ft)
 {
 	NMSupplicantConfigPrivate *priv;
 	NMSupplicantConfig *self;
@@ -88,6 +90,7 @@ nm_supplicant_config_new (gboolean support_pmf, gboolean support_fils)
 
 	priv->support_pmf = support_pmf;
 	priv->support_fils = support_fils;
+	priv->support_ft = support_ft;
 
 	return self;
 }
@@ -916,10 +919,15 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
                                                     guint32 mtu,
                                                     NMSettingWirelessSecurityPmf pmf,
                                                     NMSettingWirelessSecurityFils fils,
+                                                    NMSettingWirelessSecurityFt ft,
                                                     GError **error)
 {
 	NMSupplicantConfigPrivate *priv = NM_SUPPLICANT_CONFIG_GET_PRIVATE (self);
 	const char *key_mgmt, *key_mgmt_conf, *auth_alg;
+	char key_mgmt_buf[256]; // buffer to assemble optional key_mgmt
+	const char *key_mgmt_conf_fils = NULL;
+	const char *key_mgmt_conf_ft = NULL;
+	const char *key_mgmt_conf_pmf = NULL;
 	const char *psk;
 	gboolean set_pmf;
 
@@ -938,27 +946,62 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
 			fils = NM_SETTING_WIRELESS_SECURITY_FILS_DISABLE;
 	}
 
-	key_mgmt = key_mgmt_conf = nm_setting_wireless_security_get_key_mgmt (setting);
-	if (nm_streq (key_mgmt, "wpa-psk")) {
-		if (priv->support_pmf)
-			key_mgmt_conf = "wpa-psk wpa-psk-sha256";
-	} else if (nm_streq (key_mgmt, "wpa-eap")) {
-		switch (fils) {
-		case NM_SETTING_WIRELESS_SECURITY_FILS_OPTIONAL:
-			key_mgmt_conf = priv->support_pmf
-				? "wpa-eap wpa-eap-sha256 fils-sha256 fils-sha384"
-				: "wpa-eap fils-sha256 fils-sha384";
-			break;
-		case NM_SETTING_WIRELESS_SECURITY_FILS_REQUIRED:
-			key_mgmt_conf = "fils-sha256 fils-sha384";
-			break;
-		default:
-			if (priv->support_pmf)
-				key_mgmt_conf = "wpa-eap wpa-eap-sha256";
-			break;
-		}
+	/* Check if we actually support FT */
+	if (!priv->support_ft) {
+		if (ft == NM_SETTING_WIRELESS_SECURITY_FT_REQUIRED) {
+			g_set_error_literal (error, NM_SUPPLICANT_ERROR, NM_SUPPLICANT_ERROR_CONFIG,
+			                     "Supplicant does not support FT");
+			return FALSE;
+		} else if (ft == NM_SETTING_WIRELESS_SECURITY_FT_OPTIONAL)
+			ft = NM_SETTING_WIRELESS_SECURITY_FT_DISABLE;
 	}
 
+	// TBD: much more work for FT here
+	key_mgmt = key_mgmt_conf = nm_setting_wireless_security_get_key_mgmt (setting);
+	if (nm_streq (key_mgmt, "wpa-psk")) {
+		switch (ft) {
+		case NM_SETTING_WIRELESS_SECURITY_FT_REQUIRED:
+			key_mgmt_conf = "ft-psk";
+			break;
+		case NM_SETTING_WIRELESS_SECURITY_FT_OPTIONAL:
+			key_mgmt_conf_ft = " ft-psk";
+			break;
+		default:
+			break;
+		}
+		if (priv->support_pmf)
+			key_mgmt_conf_pmf = " wpa-psk-sha256";
+	} else if (nm_streq (key_mgmt, "wpa-eap")) {
+		if (ft == NM_SETTING_WIRELESS_SECURITY_FT_REQUIRED &&
+			fils == NM_SETTING_WIRELESS_SECURITY_FILS_REQUIRED)
+		{
+			key_mgmt_conf = "ft-eap fils-sha256 fils-sha384";
+		} else if (ft == NM_SETTING_WIRELESS_SECURITY_FT_REQUIRED) {
+			key_mgmt_conf = "ft-eap";
+		} else if (fils == NM_SETTING_WIRELESS_SECURITY_FILS_REQUIRED) {
+			key_mgmt_conf = "fils-sha256 fils-sha384";
+		} else {
+			if (ft == NM_SETTING_WIRELESS_SECURITY_FT_OPTIONAL)
+				key_mgmt_conf_ft = " ft-eap";
+			if (fils == NM_SETTING_WIRELESS_SECURITY_FILS_OPTIONAL)
+				key_mgmt_conf_fils = " fils-sha256 fils-sha384";
+			if (ft == NM_SETTING_WIRELESS_SECURITY_FT_OPTIONAL)
+				key_mgmt_conf_ft = " ft-eap";
+			if (priv->support_pmf)
+				key_mgmt_conf_pmf = " wpa-eap-sha256";
+		}
+	}
+	if (key_mgmt == key_mgmt_conf) {
+		// create list in key_mgmt_buf
+		snprintf(key_mgmt_buf, sizeof(key_mgmt_buf),
+				 "%s%s%s%s", key_mgmt,
+				 key_mgmt_conf_ft ? key_mgmt_conf_ft : "",
+				 key_mgmt_conf_fils ? key_mgmt_conf_fils : "",
+				 key_mgmt_conf_pmf ? key_mgmt_conf_pmf : "");
+		key_mgmt_conf = key_mgmt_buf;
+	}
+
+	// TBD: can key_mgmt_conf be an allocated string
 	if (!add_string_val (self, key_mgmt_conf, "key_mgmt", TRUE, NULL, error))
 		return FALSE;
 

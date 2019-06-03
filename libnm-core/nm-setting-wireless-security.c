@@ -76,6 +76,7 @@ NM_GOBJECT_PROPERTIES_DEFINE (NMSettingWirelessSecurity,
 	PROP_WPS_METHOD,
 	PROP_FILS,
 	PROP_PROACTIVE_KEY_CACHING,
+	PROP_FT,
 );
 
 typedef struct {
@@ -111,6 +112,9 @@ typedef struct {
 	NMSettingWirelessSecurityFils fils;
 
 	char *proactive_key_caching;
+
+	/* FT */
+	NMSettingWirelessSecurityFt ft;
 } NMSettingWirelessSecurityPrivate;
 
 G_DEFINE_TYPE (NMSettingWirelessSecurity, nm_setting_wireless_security, NM_TYPE_SETTING)
@@ -836,6 +840,22 @@ nm_setting_wireless_security_get_proactive_key_caching (NMSettingWirelessSecurit
 	return NM_SETTING_WIRELESS_SECURITY_GET_PRIVATE (setting)->proactive_key_caching;
 }
 
+/*
+ * nm_setting_wireless_security_get_ft:
+ * @setting: the #NMSettingWirelessSecurity
+ *
+ * Returns: the #NMSettingWirelessSecurity:ft property of the setting
+ *
+ * Since: 1.16
+ **/
+NMSettingWirelessSecurityFt
+nm_setting_wireless_security_get_ft (NMSettingWirelessSecurity *setting)
+{
+	g_return_val_if_fail (NM_IS_SETTING_WIRELESS_SECURITY (setting), 0);
+
+	return NM_SETTING_WIRELESS_SECURITY_GET_PRIVATE (setting)->ft;
+}
+
 static GPtrArray *
 need_secrets (NMSetting *setting)
 {
@@ -1310,9 +1330,12 @@ get_property (GObject *object, guint prop_id,
 	case PROP_FILS:
 		g_value_set_int (value, nm_setting_wireless_security_get_fils (setting));
 		break;
-  	case PROP_PROACTIVE_KEY_CACHING:
+	case PROP_PROACTIVE_KEY_CACHING:
   		g_value_set_string (value, priv->proactive_key_caching);
   		break;
+		break;
+	case PROP_FT:
+		g_value_set_int (value, nm_setting_wireless_security_get_ft (setting));
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -1407,6 +1430,9 @@ set_property (GObject *object, guint prop_id,
 		g_free (priv->proactive_key_caching);
 		str = g_value_get_string (value);
 		priv->proactive_key_caching = str ? g_ascii_strdown (str, -1) : NULL;
+		break;
+	case PROP_FT:
+		priv->ft = g_value_get_int (value);
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -1950,6 +1976,36 @@ nm_setting_wireless_security_class_init (NMSettingWirelessSecurityClass *klass)
 		                      G_PARAM_READWRITE |
 		                      NM_SETTING_PARAM_REQUIRED |
 		                      G_PARAM_STATIC_STRINGS);
+
+	/**
+	 * NMSettingWirelessSecurity:ft:
+	 *
+	 * Indicates whether Fast Transition (802.11r) must be enabled for
+	 * the connection.  One of %NM_SETTING_WIRELESS_SECURITY_FT_DEFAULT (use
+	 * global default value), %NM_SETTING_WIRELESS_SECURITY_FT_DISABLE
+	 * (disable FT), %NM_SETTING_WIRELESS_SECURITY_FT_OPTIONAL (enable FT
+	 * if the supplicant and the access point support it) or
+	 * %NM_SETTING_WIRELESS_SECURITY_FT_REQUIRED (enable FT and fail if not
+	 * supported).  When set to %NM_SETTING_WIRELESS_SECURITY_FT_DEFAULT and
+	 * no global default is set, FT will be disabled.
+	 *
+	 * Since: 1.16
+	 **/
+	/* ---ifcfg-rh---
+	 * property: ft
+	 * variable: FT(+)
+	 * values: default, disable, optional, required
+	 * description: Enables or disables FT (802.11r)
+	 * example: FT=required
+	 * ---end---
+	 */
+	obj_properties[PROP_FT] =
+	    g_param_spec_int (NM_SETTING_WIRELESS_SECURITY_FT, "", "",
+	                      G_MININT32, G_MAXINT32, 0,
+	                      G_PARAM_READWRITE |
+	                      G_PARAM_CONSTRUCT |
+	                      NM_SETTING_PARAM_FUZZY_IGNORE |
+	                      G_PARAM_STATIC_STRINGS);
 
 	g_object_class_install_properties (object_class, _PROPERTY_ENUMS_LAST, obj_properties);
 

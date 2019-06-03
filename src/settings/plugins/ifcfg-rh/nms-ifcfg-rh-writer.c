@@ -796,6 +796,13 @@ write_wireless_security_setting (NMConnection *connection,
 		                nm_setting_wireless_security_get_fils (s_wsec));
 	}
 
+	if (nm_setting_wireless_security_get_ft (s_wsec) == NM_SETTING_WIRELESS_SECURITY_FT_DEFAULT)
+		svUnsetValue (ifcfg, "FT");
+	else {
+		svSetValueEnum (ifcfg, "FT", nm_setting_wireless_security_ft_get_type (),
+		                nm_setting_wireless_security_get_ft (s_wsec));
+	}
+
 	return TRUE;
 }
 

@@ -1544,4 +1544,6 @@ global:
 	nm_wireguard_peer_set_preshared_key_flags;
 	nm_wireguard_peer_set_public_key;
 	nm_wireguard_peer_unref;
+	nm_setting_wireless_security_get_ft;
+	nm_setting_wireless_security_ft_get_type;
 } libnm_1_14_0;

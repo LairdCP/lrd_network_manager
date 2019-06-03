@@ -134,6 +134,28 @@ typedef enum {
 	NM_SETTING_WIRELESS_SECURITY_FILS_LAST          =  _NM_SETTING_WIRELESS_SECURITY_FILS_NUM - 1, /*< skip >*/
 } NMSettingWirelessSecurityFils;
 
+/**
+ * NMSettingWirelessSecurityFt:
+ * @NM_SETTING_WIRELESS_SECURITY_FT_DEFAULT: use the default value
+ * @NM_SETTING_WIRELESS_SECURITY_FT_DISABLE: disable FT
+ * @NM_SETTING_WIRELESS_SECURITY_FT_OPTIONAL: enable FT if the supplicant and the AP support it
+ * @NM_SETTING_WIRELESS_SECURITY_FT_REQUIRED: require FT and fail if not available
+ * @_NM_SETTING_WIRELESS_SECURITY_FT_NUM: placeholder value for bounds-checking
+ * @NM_SETTING_WIRELESS_SECURITY_FT_LAST: placeholder value for bounds-checking
+ *
+ * These flags indicate whether FT must be enabled.
+ *
+ * Since: 1.12
+ **/
+typedef enum {
+	NM_SETTING_WIRELESS_SECURITY_FT_DEFAULT       = 0,
+	NM_SETTING_WIRELESS_SECURITY_FT_DISABLE       = 1,
+	NM_SETTING_WIRELESS_SECURITY_FT_OPTIONAL      = 2,
+	NM_SETTING_WIRELESS_SECURITY_FT_REQUIRED      = 3,
+	_NM_SETTING_WIRELESS_SECURITY_FT_NUM, /*< skip >*/
+	NM_SETTING_WIRELESS_SECURITY_FT_LAST          =  _NM_SETTING_WIRELESS_SECURITY_FT_NUM - 1, /*< skip >*/
+} NMSettingWirelessSecurityFt;
+
 #define NM_SETTING_WIRELESS_SECURITY_KEY_MGMT "key-mgmt"
 #define NM_SETTING_WIRELESS_SECURITY_WEP_TX_KEYIDX "wep-tx-keyidx"
 #define NM_SETTING_WIRELESS_SECURITY_AUTH_ALG "auth-alg"
@@ -155,6 +177,7 @@ typedef enum {
 #define NM_SETTING_WIRELESS_SECURITY_WPS_METHOD "wps-method"
 #define NM_SETTING_WIRELESS_SECURITY_FILS "fils"
 #define NM_SETTING_WIRELESS_SECURITY_PROACTIVE_KEY_CACHING "proactive-key-caching"
+#define NM_SETTING_WIRELESS_SECURITY_FT "ft"
 
 /**
  * NMSettingWirelessSecurity:
@@ -224,6 +247,9 @@ NM_AVAILABLE_IN_1_12
 NMSettingWirelessSecurityFils nm_setting_wireless_security_get_fils (NMSettingWirelessSecurity *setting);
 
 const char *nm_setting_wireless_security_get_proactive_key_caching	(NMSettingWirelessSecurity *setting);
+
+NM_AVAILABLE_IN_1_16
+NMSettingWirelessSecurityFt nm_setting_wireless_security_get_ft (NMSettingWirelessSecurity *setting);
 
 G_END_DECLS
 

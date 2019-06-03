@@ -72,6 +72,7 @@ const char * key_mgmt_allowed[] = { "WPA-PSK", "WPA-PSK-SHA256",
                                     "CCKM",
                                     "FILS-SHA256", "FILS-SHA384",
                                     "IEEE8021X", "WPA-NONE", "SAE",
+									"FT-PSK", "FT-EAP",
                                     "NONE", NULL };
 const char * auth_alg_allowed[] = { "OPEN", "SHARED", "LEAP", NULL };
 const char * eap_allowed[] =      { "LEAP", "MD5", "TLS", "PEAP", "TTLS", "SIM",

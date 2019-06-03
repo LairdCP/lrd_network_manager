@@ -2705,6 +2705,7 @@ build_supplicant_config (NMDeviceWifi *self,
 	NMSettingWirelessSecurity *s_wireless_sec;
 	NMSettingWirelessSecurityPmf pmf;
 	NMSettingWirelessSecurityFils fils;
+	NMSettingWirelessSecurityFt ft;
 
 	g_return_val_if_fail (priv->sup_iface, NULL);
 
@@ -2713,7 +2714,8 @@ build_supplicant_config (NMDeviceWifi *self,
 
 	config = nm_supplicant_config_new (
 		nm_supplicant_interface_get_pmf_support (priv->sup_iface) == NM_SUPPLICANT_FEATURE_YES,
-		nm_supplicant_interface_get_fils_support (priv->sup_iface) == NM_SUPPLICANT_FEATURE_YES);
+		nm_supplicant_interface_get_fils_support (priv->sup_iface) == NM_SUPPLICANT_FEATURE_YES,
+		nm_supplicant_interface_get_ft_support (priv->sup_iface) == NM_SUPPLICANT_FEATURE_YES);
 
 	/* Warn if AP mode may not be supported */
 	if (   g_strcmp0 (nm_setting_wireless_get_mode (s_wireless), NM_SETTING_WIRELESS_MODE_AP) == 0
@@ -2781,6 +2783,17 @@ build_supplicant_config (NMDeviceWifi *self,
 			                                                    NM_SETTING_WIRELESS_SECURITY_FILS_OPTIONAL);
 		}
 
+		/* Configure FT (802.11r) */
+		ft = nm_setting_wireless_security_get_ft (s_wireless_sec);
+		if (ft == NM_SETTING_WIRELESS_SECURITY_FT_DEFAULT) {
+			ft = nm_config_data_get_connection_default_int64 (NM_CONFIG_GET_DATA,
+			                                                    "wifi-sec.ft",
+			                                                    NM_DEVICE (self),
+			                                                    NM_SETTING_WIRELESS_SECURITY_FT_DISABLE,
+			                                                    NM_SETTING_WIRELESS_SECURITY_FT_REQUIRED,
+			                                                    NM_SETTING_WIRELESS_SECURITY_FT_DISABLE);
+		}
+
 		s_8021x = nm_connection_get_setting_802_1x (connection);
 		if (!nm_supplicant_config_add_setting_wireless_security (config,
 		                                                         s_wireless_sec,
@@ -2789,6 +2802,7 @@ build_supplicant_config (NMDeviceWifi *self,
 		                                                         mtu,
 		                                                         pmf,
 		                                                         fils,
+																 ft,
 		                                                         error)) {
 			g_prefix_error (error, "802-11-wireless-security: ");
 			goto error;
