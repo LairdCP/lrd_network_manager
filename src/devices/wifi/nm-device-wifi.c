@@ -1934,7 +1934,8 @@ wifi_secrets_cb (NMActRequest *req,
 	g_return_if_fail (nm_device_get_state (device) == NM_DEVICE_STATE_NEED_AUTH);
 	g_return_if_fail (nm_act_request_get_settings_connection (req) == connection);
 
-	if (error) {
+	//Don't stop trying on error secrets. Let auth-retries define the retry times.
+	if (0) {
 		_LOGW (LOGD_WIFI, "no secrets: %s", error->message);
 
 		/* Even if WPS is still pending, let's abort the activation when the secret
