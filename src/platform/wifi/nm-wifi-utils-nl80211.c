@@ -309,6 +309,12 @@ nl80211_get_wake_on_wlan_handler (struct nl_msg *msg, void *arg)
 		*wowl |= NM_SETTING_WIRELESS_WAKE_ON_WLAN_RFKILL_RELEASE;
 	if (trig[NL80211_WOWLAN_TRIG_TCP_CONNECTION])
 		*wowl |= NM_SETTING_WIRELESS_WAKE_ON_WLAN_TCP;
+	//Bug 14753
+	//NM may not be able to implement this but it still needs to be aware
+	//of this trigger
+	//Look at /src/nm-manager.c "do_sleep_wake" for more info
+	if (trig[NL80211_WOWLAN_TRIG_NET_DETECT])
+		*wowl |= NM_SETTING_WIRELESS_WAKE_ON_NET_DETECT;
 
 	return NL_SKIP;
 }
