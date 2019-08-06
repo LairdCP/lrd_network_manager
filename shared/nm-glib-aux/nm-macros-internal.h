@@ -1526,12 +1526,16 @@ nm_memdup (gconstpointer data, gsize size)
 static inline char *
 _nm_strndup_a_step (char *s, const char *str, gsize len)
 {
+#if __GNUC__ >= 8
 	NM_PRAGMA_WARNING_DISABLE ("-Wstringop-truncation");
+#endif
 	if (len > 0)
 		strncpy (s, str, len);
 	s[len] = '\0';
 	return s;
+#if __GNUC__ >= 8
 	NM_PRAGMA_WARNING_REENABLE;
+#endif
 }
 
 /* Similar to g_strndup(), however, if the string (including the terminating
