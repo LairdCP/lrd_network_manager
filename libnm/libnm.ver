@@ -845,6 +845,8 @@ global:
 	nm_setting_wireless_get_frequency_list;
 	nm_setting_wireless_get_bgscan;
 	nm_setting_wireless_get_dms;
+	nm_setting_802_1x_get_pac_file_password;
+	nm_setting_802_1x_get_tls_disable_time_checks;
 local:
 	*;
 };
