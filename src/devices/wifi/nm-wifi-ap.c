@@ -1,4 +1,3 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
 /* NetworkManager -- Network link manager
  *
  * This program is free software; you can redistribute it and/or modify
@@ -260,7 +259,8 @@ nm_wifi_ap_set_mode (NMWifiAP *ap, const NM80211Mode mode)
 
 	g_return_val_if_fail (NM_IS_WIFI_AP (ap), FALSE);
 	g_return_val_if_fail (   mode == NM_802_11_MODE_ADHOC
-	                     || mode == NM_802_11_MODE_INFRA, FALSE);
+	                      || mode == NM_802_11_MODE_INFRA
+	                      || mode == NM_802_11_MODE_MESH, FALSE);
 
 	priv = NM_WIFI_AP_GET_PRIVATE (ap);
 
@@ -823,6 +823,8 @@ nm_wifi_ap_update_from_properties (NMWifiAP *ap,
 			changed |= nm_wifi_ap_set_mode (ap, NM_802_11_MODE_INFRA);
 		else if (!g_strcmp0 (s, "ad-hoc"))
 			changed |= nm_wifi_ap_set_mode (ap, NM_802_11_MODE_ADHOC);
+		else if (!g_strcmp0 (s, "mesh"))
+			changed |= nm_wifi_ap_set_mode (ap, NM_802_11_MODE_MESH);
 	}
 
 	if (g_variant_lookup (properties, "Signal", "n", &i16))
@@ -1015,7 +1017,9 @@ nm_wifi_ap_to_string (const NMWifiAP *self,
 	                        ? '#'
 	                        : (priv->fake
 	                               ? 'f'
-	                               : 'a'))),
+	                               : (priv->mode == NM_802_11_MODE_MESH
+	                                      ? 'm'
+	                                      : 'a')))),
 	            chan,
 	            priv->strength,
 	            priv->flags & NM_802_11_AP_FLAGS_PRIVACY ? 'P' : '_',
@@ -1080,6 +1084,8 @@ nm_wifi_ap_check_compatible (NMWifiAP *self,
 		if (   !strcmp (mode, "ap")
 		    && (priv->mode != NM_802_11_MODE_INFRA || priv->hotspot != TRUE))
 			return FALSE;
+		if (!strcmp (mode, "mesh") && (priv->mode != NM_802_11_MODE_MESH))
+			return FALSE;
 	}
 
 	band = nm_setting_wireless_get_band (s_wireless);
@@ -1123,6 +1129,7 @@ nm_wifi_ap_complete_connection (NMWifiAP *self,
 	return nm_wifi_utils_complete_connection (priv->ssid,
 	                                          priv->address,
 	                                          priv->mode,
+	                                          priv->freq,
 	                                          priv->flags,
 	                                          priv->wpa_flags,
 	                                          priv->rsn_flags,
@@ -1253,6 +1260,8 @@ nm_wifi_ap_new_fake_from_connection (NMConnection *connection)
 			nm_wifi_ap_set_mode (ap, NM_802_11_MODE_INFRA);
 		else if (!strcmp (mode, "adhoc"))
 			nm_wifi_ap_set_mode (ap, NM_802_11_MODE_ADHOC);
+		else if (!strcmp (mode, "mesh"))
+			nm_wifi_ap_set_mode (ap, NM_802_11_MODE_MESH);
 		else if (!strcmp (mode, "ap")) {
 			nm_wifi_ap_set_mode (ap, NM_802_11_MODE_INFRA);
 			NM_WIFI_AP_GET_PRIVATE (ap)->hotspot = TRUE;

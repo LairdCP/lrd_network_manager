@@ -1,4 +1,3 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
 /* NetworkManager -- Network link manager
  *
  * This program is free software; you can redistribute it and/or modify
@@ -52,6 +51,7 @@ typedef struct {
 	gboolean   support_pmf;
 	gboolean   support_fils;
 	gboolean   support_ft;
+	gboolean   support_sha384;
 
 	guint32    scan_delay;
 	guint32    scan_dwell;
@@ -80,7 +80,7 @@ G_DEFINE_TYPE (NMSupplicantConfig, nm_supplicant_config, G_TYPE_OBJECT)
 
 NMSupplicantConfig *
 nm_supplicant_config_new (gboolean support_pmf, gboolean support_fils,
-	gboolean support_ft)
+                          gboolean support_ft, gboolean support_sha384)
 {
 	NMSupplicantConfigPrivate *priv;
 	NMSupplicantConfig *self;
@@ -91,6 +91,7 @@ nm_supplicant_config_new (gboolean support_pmf, gboolean support_fils,
 	priv->support_pmf = support_pmf;
 	priv->support_fils = support_fils;
 	priv->support_ft = support_ft;
+	priv->support_sha384 = support_sha384;
 
 	return self;
 }
@@ -148,11 +149,17 @@ nm_supplicant_config_add_option_with_type (NMSupplicantConfig *self,
 	else {
 		type = nm_supplicant_settings_verify_setting (key, value, len);
 		if (type == TYPE_INVALID) {
-			char buf[255];
-			memset (&buf[0], 0, sizeof (buf));
-			memcpy (&buf[0], value, len > 254 ? 254 : len);
+			gs_free char *str_free = NULL;
+			const char *str;
+
+			str = nm_utils_buf_utf8safe_escape (value, len, NM_UTILS_STR_UTF8_SAFE_FLAG_ESCAPE_CTRL, &str_free);
+
+			str = nm_strquote_a (255, str);
+
 			g_set_error (error, NM_SUPPLICANT_ERROR, NM_SUPPLICANT_ERROR_CONFIG,
-			             "key '%s' and/or value '%s' invalid", key, hidden ?: buf);
+			             "key '%s' and/or value %s invalid",
+			             key,
+			             hidden ?: str);
 			return FALSE;
 		}
 	}
@@ -532,7 +539,7 @@ nm_supplicant_config_add_setting_wireless (NMSupplicantConfig * self,
                                            GError **error)
 {
 	NMSupplicantConfigPrivate *priv;
-	gboolean is_adhoc, is_ap;
+	gboolean is_adhoc, is_ap, is_mesh;
 	const char *mode, *band;
 	guint32 channel;
 	const char *frequency_list;
@@ -549,6 +556,7 @@ nm_supplicant_config_add_setting_wireless (NMSupplicantConfig * self,
 	mode = nm_setting_wireless_get_mode (setting);
 	is_adhoc = (mode && !strcmp (mode, "adhoc")) ? TRUE : FALSE;
 	is_ap = (mode && !strcmp (mode, "ap")) ? TRUE : FALSE;
+	is_mesh = (mode && !strcmp (mode, "mesh")) ? TRUE : FALSE;
 	if (is_adhoc || is_ap)
 		priv->ap_scan = 2;
 	else
@@ -588,7 +596,12 @@ nm_supplicant_config_add_setting_wireless (NMSupplicantConfig * self,
 			return FALSE;
 	}
 
-	if ((is_adhoc || is_ap) && fixed_freq) {
+	if (is_mesh) {
+		if (!nm_supplicant_config_add_option (self, "mode", "5", -1, NULL, error))
+			return FALSE;
+	}
+
+	if ((is_adhoc || is_ap || is_mesh) && fixed_freq) {
 		gs_free char *str_freq = NULL;
 
 		str_freq = g_strdup_printf ("%u", fixed_freq);
@@ -596,10 +609,10 @@ nm_supplicant_config_add_setting_wireless (NMSupplicantConfig * self,
 			return FALSE;
 	}
 
-	/* Except for Ad-Hoc and Hotspot, request that the driver probe for the
+	/* Except for Ad-Hoc, Hotspot and Mesh, request that the driver probe for the
 	 * specific SSID we want to associate with.
 	 */
-	if (!(is_adhoc || is_ap)) {
+	if (!(is_adhoc || is_ap || is_mesh)) {
 		if (!nm_supplicant_config_add_option (self, "scan_ssid", "1", -1, NULL, error))
 			return FALSE;
 	}
@@ -923,11 +936,8 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
                                                     GError **error)
 {
 	NMSupplicantConfigPrivate *priv = NM_SUPPLICANT_CONFIG_GET_PRIVATE (self);
-	const char *key_mgmt, *key_mgmt_conf, *auth_alg;
-	char key_mgmt_buf[256]; // buffer to assemble optional key_mgmt
-	const char *key_mgmt_conf_fils = NULL;
-	const char *key_mgmt_conf_ft = NULL;
-	const char *key_mgmt_conf_pmf = NULL;
+	nm_auto_free_gstring GString *key_mgmt_conf = NULL;
+	const char *key_mgmt, *auth_alg;
 	const char *psk;
 	gboolean set_pmf;
 
@@ -946,6 +956,29 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
 			fils = NM_SETTING_WIRELESS_SECURITY_FILS_DISABLE;
 	}
 
+	key_mgmt = nm_setting_wireless_security_get_key_mgmt (setting);
+	key_mgmt_conf = g_string_new (key_mgmt);
+	if (nm_streq (key_mgmt, "wpa-psk")) {
+		if (priv->support_pmf)
+			g_string_append (key_mgmt_conf, " wpa-psk-sha256");
+	} else if (nm_streq (key_mgmt, "wpa-eap")) {
+		if (priv->support_pmf)
+			g_string_append (key_mgmt_conf, " wpa-eap-sha256");
+		switch (fils) {
+		case NM_SETTING_WIRELESS_SECURITY_FILS_REQUIRED:
+			g_string_truncate (key_mgmt_conf, 0);
+			if (!priv->support_pmf)
+				g_string_assign (key_mgmt_conf, "fils-sha256 fils-sha384");
+			/* fall-through */
+		case NM_SETTING_WIRELESS_SECURITY_FILS_OPTIONAL:
+			if (priv->support_pmf)
+				g_string_append (key_mgmt_conf, " fils-sha256 fils-sha384");
+			break;
+		default:
+			break;
+		}
+	}
+
 	/* Check if we actually support FT */
 	if (!priv->support_ft) {
 		if (ft == NM_SETTING_WIRELESS_SECURITY_FT_REQUIRED) {
@@ -956,53 +989,39 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
 			ft = NM_SETTING_WIRELESS_SECURITY_FT_DISABLE;
 	}
 
-	// TBD: much more work for FT here
-	key_mgmt = key_mgmt_conf = nm_setting_wireless_security_get_key_mgmt (setting);
-	if (nm_streq (key_mgmt, "wpa-psk")) {
-		switch (ft) {
-		case NM_SETTING_WIRELESS_SECURITY_FT_REQUIRED:
-			key_mgmt_conf = "ft-psk";
-			break;
-		case NM_SETTING_WIRELESS_SECURITY_FT_OPTIONAL:
-			key_mgmt_conf_ft = " ft-psk";
-			break;
-		default:
-			break;
+	// FT handling logic
+	if (ft != NM_SETTING_WIRELESS_SECURITY_FT_DISABLE) {
+		// Only FT modes should present when in required state
+		if (ft == NM_SETTING_WIRELESS_SECURITY_FT_REQUIRED)
+			g_string_truncate (key_mgmt_conf, 0);
+
+		if (nm_streq (key_mgmt, "wpa-psk")) {
+			g_string_append (key_mgmt_conf, " ft-psk");
+		} else if (nm_streq (key_mgmt, "wpa-eap")) {
+			switch (fils) {
+			case NM_SETTING_WIRELESS_SECURITY_FILS_REQUIRED:
+				// Only FILS modes should present when in required state
+				g_string_append (key_mgmt_conf, " ft-fils-sha256");
+				if (priv->support_sha384)
+					g_string_append (key_mgmt_conf, " ft-fils-sha384");
+				break;
+			case NM_SETTING_WIRELESS_SECURITY_FILS_OPTIONAL:
+				g_string_append (key_mgmt_conf, " ft-eap");
+				if (priv->support_pmf)
+					g_string_append (key_mgmt_conf, " ft-fils-sha256");
+				if (priv->support_pmf && priv->support_sha384)
+					g_string_append (key_mgmt_conf, " ft-fils-sha384");
+				break;
+			default:
+				g_string_append (key_mgmt_conf, " ft-eap");
+				break;
+			}
+		} else if (nm_streq (key_mgmt, "sae")) {
+			g_string_append (key_mgmt_conf, " ft-sae");
 		}
-		if (priv->support_pmf)
-			key_mgmt_conf_pmf = " wpa-psk-sha256";
-	} else if (nm_streq (key_mgmt, "wpa-eap")) {
-		if (ft == NM_SETTING_WIRELESS_SECURITY_FT_REQUIRED &&
-			fils == NM_SETTING_WIRELESS_SECURITY_FILS_REQUIRED)
-		{
-			key_mgmt_conf = "ft-eap fils-sha256 fils-sha384";
-		} else if (ft == NM_SETTING_WIRELESS_SECURITY_FT_REQUIRED) {
-			key_mgmt_conf = "ft-eap";
-		} else if (fils == NM_SETTING_WIRELESS_SECURITY_FILS_REQUIRED) {
-			key_mgmt_conf = "fils-sha256 fils-sha384";
-		} else {
-			if (ft == NM_SETTING_WIRELESS_SECURITY_FT_OPTIONAL)
-				key_mgmt_conf_ft = " ft-eap";
-			if (fils == NM_SETTING_WIRELESS_SECURITY_FILS_OPTIONAL)
-				key_mgmt_conf_fils = " fils-sha256 fils-sha384";
-			if (ft == NM_SETTING_WIRELESS_SECURITY_FT_OPTIONAL)
-				key_mgmt_conf_ft = " ft-eap";
-			if (priv->support_pmf)
-				key_mgmt_conf_pmf = " wpa-eap-sha256";
-		}
-	}
-	if (key_mgmt == key_mgmt_conf) {
-		// create list in key_mgmt_buf
-		snprintf(key_mgmt_buf, sizeof(key_mgmt_buf),
-				 "%s%s%s%s", key_mgmt,
-				 key_mgmt_conf_ft ? key_mgmt_conf_ft : "",
-				 key_mgmt_conf_fils ? key_mgmt_conf_fils : "",
-				 key_mgmt_conf_pmf ? key_mgmt_conf_pmf : "");
-		key_mgmt_conf = key_mgmt_buf;
 	}
 
-	// TBD: can key_mgmt_conf be an allocated string
-	if (!add_string_val (self, key_mgmt_conf, "key_mgmt", TRUE, NULL, error))
+	if (!add_string_val (self, key_mgmt_conf->str, "key_mgmt", TRUE, NULL, error))
 		return FALSE;
 
 	auth_alg = nm_setting_wireless_security_get_auth_alg (setting);
@@ -1077,7 +1096,7 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
 	    || !strcmp (key_mgmt, "wpa-eap")
 	    || !strcmp (key_mgmt, "cckm")
 	    || !strcmp (key_mgmt, "sae")) {
-		if (!ADD_STRING_LIST_VAL (self, setting, wireless_security, proto, protos, "proto", ' ', TRUE, FALSE, error))
+		if (!ADD_STRING_LIST_VAL (self, setting, wireless_security, proto, protos, "proto", ' ', TRUE, NULL, error))
 			return FALSE;
 		if (!ADD_STRING_LIST_VAL (self, setting, wireless_security, pairwise, pairwise, "pairwise", ' ', TRUE, NULL, error))
 			return FALSE;
@@ -1366,7 +1385,6 @@ nm_supplicant_config_add_setting_8021x (NMSupplicantConfig *self,
 			return FALSE;
 		}
 	}
-
 	g_string_free (phase1, TRUE);
 
 	phase2 = g_string_new (NULL);
@@ -1394,7 +1412,6 @@ nm_supplicant_config_add_setting_8021x (NMSupplicantConfig *self,
 			return FALSE;
 		}
 	}
-
 	g_string_free (phase2, TRUE);
 
 	/* PAC file */
