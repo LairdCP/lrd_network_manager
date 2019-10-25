@@ -24,6 +24,7 @@
 
 #include <sys/stat.h>
 #include <unistd.h>
+#include <glob.h>
 #include <sys/types.h>
 #include <sys/time.h>
 
@@ -1022,8 +1023,19 @@ delete_connection (NMSettingsPlugin *plugin,
 			                          previous_filename);
 		} else
 			operation_message = "does not exist on disk";
-	} else
+	} else {
+		char *lease_path = g_strdup_printf (NMSTATEDIR "/*-%s-*.lease", uuid);
+		glob_t globbuf;
+		size_t i;
+
+		if (!glob (lease_path, GLOB_NOSORT, NULL, &globbuf)) {
+			for (i = 0; i < globbuf.gl_pathc; ++i)
+				unlink (globbuf.gl_pathv[i]);
+			globfree (&globbuf);
+		}
+		g_free (lease_path);
 		operation_message = "deleted from disk";
+	}
 
 	_LOGT ("commit: deleted \"%s\", %s %s (%s%s%s%s)",
 	       previous_filename,
