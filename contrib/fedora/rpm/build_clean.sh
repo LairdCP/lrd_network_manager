@@ -12,7 +12,7 @@ usage() {
     echo "Does all the steps from a clean git working directory to an RPM of NetworkManager"
     echo
     echo "This is also the preferred way to create a distribution tarball for release:"
-    echo "  $ $0 -c -S"
+    echo "  $ $0 -r"
     echo
     echo "Options:"
     echo "  -f|--force: force build, even if working directory is not clean and has local modifications"
@@ -148,10 +148,8 @@ if [[ $NO_DIST != 1 ]]; then
         --disable-dependency-tracking \
         --enable-gtk-doc \
         --enable-introspection \
-        --with-libnm-glib \
         --enable-ifcfg-rh \
         --enable-ifupdown \
-        --enable-config-plugin-ibft \
         --with-config-logging-backend-default=syslog \
         --with-libaudit=yes-disabled-by-default \
         --enable-polkit=yes \

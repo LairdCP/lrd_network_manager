@@ -1,4 +1,3 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
 /* NetworkManager -- Network link manager
  *
  * This program is free software; you can redistribute it and/or modify
@@ -173,9 +172,10 @@ _new_unix_process (GDBusMethodInvocation *context,
                    GDBusMessage *message)
 {
 	NMAuthSubject *self;
-	gboolean success = FALSE;
-	gulong pid = 0, uid = 0;
-	gs_free char *dbus_sender = NULL;
+	const char *dbus_sender = NULL;
+	gulong uid = 0;
+	gulong pid = 0;
+	gboolean success;
 
 	g_return_val_if_fail (context || (connection && message), NULL);
 

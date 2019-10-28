@@ -23,9 +23,9 @@ libnm_systemd_core = static_library(
     'src/libsystemd/sd-event/sd-event.c',
     'src/libsystemd/sd-id128/id128-util.c',
     'src/libsystemd/sd-id128/sd-id128.c',
-    'src/shared/dns-domain.c',
     'nm-sd.c',
     'nm-sd-utils-core.c',
+    'nm-sd-utils-dhcp.c',
   ),
   include_directories: [
     src_inc,
@@ -33,12 +33,11 @@ libnm_systemd_core = static_library(
       'sd-adapt-core',
       'src/libsystemd-network',
       'src/libsystemd/sd-event',
-      'src/shared',
       'src/systemd',
     )
   ],
   dependencies: [
-    nm_core_dep,
+    libnm_core_dep,
   ],
   c_args: [
     '-DNETWORKMANAGER_COMPILATION=NM_NETWORKMANAGER_COMPILATION_SYSTEMD',

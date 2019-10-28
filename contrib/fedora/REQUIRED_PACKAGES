@@ -28,13 +28,13 @@ install \
     bzip2 \
     cscope \
     dbus-devel \
-    dbus-glib-devel \
     dbus-python \
     dbus-x11 \
     dhclient \
     gcc-c++ \
     gettext-devel \
     git \
+    glib2-doc \
     gnutls-devel \
     gobject-introspection-devel \
     gtk-doc \
@@ -52,8 +52,10 @@ install \
     newt-devel \
     nss-devel \
     polkit-devel \
+    ppp \
     ppp-devel \
     pygobject3-base \
+    python-gobject-base \
     python3-dbus \
     python3-gobject \
     qt-devel \

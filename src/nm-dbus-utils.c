@@ -1,4 +1,3 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
 /* NetworkManager -- Network link manager
  *
  * This program is free software; you can redistribute it and/or modify
@@ -154,7 +153,7 @@ nm_dbus_utils_g_value_set_object_path_from_hash (GValue *value,
 	while (g_hash_table_iter_next (&iter, (gpointer *) &obj, NULL)) {
 		const char *path;
 
-		path = nm_dbus_object_get_path (obj);
+		path = nm_dbus_object_get_path_still_exported (obj);
 		if (!path) {
 			nm_assert (!expect_all_exported);
 			continue;

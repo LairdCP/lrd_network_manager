@@ -6,10 +6,13 @@
 #include "nm-sd-adapt-core.h"
 
 #include <arpa/inet.h>
+#include <errno.h>
 #include <stdio.h>
-#include <stdio_ext.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 #include "sd-dhcp-lease.h"
 
@@ -332,7 +335,7 @@ static int lease_parse_string(const uint8_t *option, size_t len, char **ret) {
                 if (memchr(option, 0, len - 1))
                         return -EINVAL;
 
-                string = strndup((const char *) option, len);
+                string = memdup_suffix0((const char *) option, len);
                 if (!string)
                         return -ENOMEM;
 
@@ -830,7 +833,6 @@ int dhcp_lease_save(sd_dhcp_lease *lease, const char *lease_file) {
         if (r < 0)
                 goto fail;
 
-        (void) __fsetlocking(f, FSETLOCKING_BYCALLER);
         (void) fchmod(fileno(f), 0644);
 
         fprintf(f,

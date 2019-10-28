@@ -1,4 +1,3 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
 /* NetworkManager -- Network link manager
  *
  * This program is free software; you can redistribute it and/or modify
@@ -49,9 +48,12 @@ typedef void (*NMDBusManagerSetPropertyHandler) (NMDBusObject *obj,
                                                  GVariant *value,
                                                  gpointer user_data);
 
-gboolean nm_dbus_manager_acquire_bus (NMDBusManager *self);
+gboolean nm_dbus_manager_acquire_bus (NMDBusManager *self,
+                                      gboolean request_name);
 
 GDBusConnection *nm_dbus_manager_get_dbus_connection (NMDBusManager *self);
+
+#define NM_MAIN_DBUS_CONNECTION_GET (nm_dbus_manager_get_dbus_connection (nm_dbus_manager_get ()))
 
 void nm_dbus_manager_start (NMDBusManager *self,
                             NMDBusManagerSetPropertyHandler set_property_handler,
@@ -60,8 +62,6 @@ void nm_dbus_manager_start (NMDBusManager *self,
 void nm_dbus_manager_stop (NMDBusManager *self);
 
 gboolean nm_dbus_manager_is_stopping (NMDBusManager *self);
-
-GDBusConnection *nm_dbus_manager_get_connection (NMDBusManager *self);
 
 gpointer nm_dbus_manager_lookup_object (NMDBusManager *self, const char *path);
 
@@ -77,7 +77,7 @@ void _nm_dbus_manager_obj_emit_signal (NMDBusObject *obj,
 
 gboolean nm_dbus_manager_get_caller_info (NMDBusManager *self,
                                           GDBusMethodInvocation *context,
-                                          char **out_sender,
+                                          const char **out_sender,
                                           gulong *out_uid,
                                           gulong *out_pid);
 
@@ -97,7 +97,7 @@ gboolean nm_dbus_manager_get_unix_user (NMDBusManager *self,
 gboolean nm_dbus_manager_get_caller_info_from_message (NMDBusManager *self,
                                                        GDBusConnection *connection,
                                                        GDBusMessage *message,
-                                                       char **out_sender,
+                                                       const char **out_sender,
                                                        gulong *out_uid,
                                                        gulong *out_pid);
 

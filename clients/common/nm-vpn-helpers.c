@@ -1,4 +1,3 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
 /*
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -30,8 +29,8 @@
 
 #include "nm-client-utils.h"
 #include "nm-utils.h"
-#include "nm-utils/nm-io-utils.h"
-#include "nm-utils/nm-secret-utils.h"
+#include "nm-glib-aux/nm-io-utils.h"
+#include "nm-glib-aux/nm-secret-utils.h"
 
 /*****************************************************************************/
 
@@ -181,18 +180,17 @@ _extract_variable_value (char *line, const char *tag, char **value)
 {
 	char *p1, *p2;
 
-	if (g_str_has_prefix (line, tag)) {
-		p1 = line + strlen (tag);
-		p2 = line + strlen (line) - 1;
-		if ((*p1 == '\'' || *p1 == '"') && (*p1 == *p2)) {
-			p1++;
-			*p2 = '\0';
-		}
-		if (value)
-			*value = g_strdup (p1);
-		return TRUE;
+	if (!g_str_has_prefix (line, tag))
+		return FALSE;
+
+	p1 = line + strlen (tag);
+	p2 = line + strlen (line) - 1;
+	if ((*p1 == '\'' || *p1 == '"') && (*p1 == *p2)) {
+		p1++;
+		*p2 = '\0';
 	}
-	return FALSE;
+	NM_SET_OUT (value, g_strdup (p1));
+	return TRUE;
 }
 
 gboolean
@@ -203,10 +201,9 @@ nm_vpn_openconnect_authenticate_helper (const char *host,
                                         int *status,
                                         GError **error)
 {
-	char *output = NULL;
-	gboolean ret;
-	char **strv = NULL, **iter;
-	char *argv[4];
+	gs_free char *output = NULL;
+	gs_free const char **output_v = NULL;
+	const char *const*iter;
 	const char *path;
 	const char *const DEFAULT_PATHS[] = {
 		"/sbin/",
@@ -223,17 +220,17 @@ nm_vpn_openconnect_authenticate_helper (const char *host,
 	if (!path)
 		return FALSE;
 
-	argv[0] = (char *) path;
-	argv[1] = "--authenticate";
-	argv[2] = (char *) host;
-	argv[3] = NULL;
-
-	ret = g_spawn_sync (NULL, argv, NULL,
-	                    G_SPAWN_SEARCH_PATH | G_SPAWN_CHILD_INHERITS_STDIN,
-	                    NULL, NULL,  &output, NULL,
-	                    status, error);
-
-	if (!ret)
+	if (!g_spawn_sync (NULL,
+	                   (char **) NM_MAKE_STRV (path, "--authenticate", host),
+	                   NULL,
+	                     G_SPAWN_SEARCH_PATH
+	                   | G_SPAWN_CHILD_INHERITS_STDIN,
+	                   NULL,
+	                   NULL,
+	                   &output,
+	                   NULL,
+	                   status,
+	                   error))
 		return FALSE;
 
 	/* Parse output and set cookie, gateway and gwcert
@@ -242,13 +239,14 @@ nm_vpn_openconnect_authenticate_helper (const char *host,
 	 * HOST='1.2.3.4'
 	 * FINGERPRINT='sha1:32bac90cf09a722e10ecc1942c67fe2ac8c21e2e'
 	 */
-	strv = g_strsplit_set (output ?: "", "\r\n", 0);
-	for (iter = strv; iter && *iter; iter++) {
-		_extract_variable_value (*iter, "COOKIE=", cookie);
-		_extract_variable_value (*iter, "HOST=", gateway);
-		_extract_variable_value (*iter, "FINGERPRINT=", gwcert);
+	output_v = nm_utils_strsplit_set_with_empty (output, "\r\n");
+	for (iter = output_v; iter && *iter; iter++) {
+		char *s_mutable = (char *) *iter;
+
+		_extract_variable_value (s_mutable, "COOKIE=", cookie);
+		_extract_variable_value (s_mutable, "HOST=", gateway);
+		_extract_variable_value (s_mutable, "FINGERPRINT=", gwcert);
 	}
-	g_strfreev (strv);
 
 	return TRUE;
 }
@@ -738,7 +736,7 @@ fail_invalid_secret:
 	}
 
 	for (is_v4 = 0; is_v4 < 2; is_v4++) {
-		const char *method_disabled = is_v4 ? NM_SETTING_IP4_CONFIG_METHOD_DISABLED : NM_SETTING_IP6_CONFIG_METHOD_IGNORE;
+		const char *method_disabled = is_v4 ? NM_SETTING_IP4_CONFIG_METHOD_DISABLED : NM_SETTING_IP6_CONFIG_METHOD_DISABLED;
 		const char *method_manual   = is_v4 ? NM_SETTING_IP4_CONFIG_METHOD_MANUAL   : NM_SETTING_IP6_CONFIG_METHOD_MANUAL;
 		NMSettingIPConfig *s_ip     = is_v4 ? s_ip4                                 : s_ip6;
 		GPtrArray *data_dns         = is_v4 ? data_dns_v4                           : data_dns_v6;

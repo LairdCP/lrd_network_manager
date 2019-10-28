@@ -1,4 +1,3 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
 /* nm-platform.c - Handle runtime kernel networking configuration
  *
  * This program is free software; you can redistribute it and/or modify
@@ -23,7 +22,7 @@
 
 #include "nm-platform.h"
 #include "nm-setting-wired.h"
-#include "nm-ethtool-utils.h"
+#include "nm-libnm-core-intern/nm-ethtool-utils.h"
 
 /*****************************************************************************/
 

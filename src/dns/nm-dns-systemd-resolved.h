@@ -1,4 +1,3 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
 /* This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2, or (at your option)
@@ -35,5 +34,7 @@ typedef struct _NMDnsSystemdResolvedClass NMDnsSystemdResolvedClass;
 GType nm_dns_systemd_resolved_get_type (void);
 
 NMDnsPlugin *nm_dns_systemd_resolved_new (void);
+
+gboolean nm_dns_systemd_resolved_is_running (NMDnsSystemdResolved *self);
 
 #endif /* __NETWORKMANAGER_DNS_SYSTEMD_RESOLVED_H__ */

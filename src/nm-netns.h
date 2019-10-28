@@ -1,4 +1,3 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
 /* NetworkManager -- Network link manager
  *
  * This program is free software; you can redistribute it and/or modify
@@ -39,6 +38,8 @@ NMNetns *nm_netns_new (NMPlatform *platform);
 
 NMPlatform *nm_netns_get_platform (NMNetns *self);
 NMPNetns *nm_netns_get_platform_netns (NMNetns *self);
+
+struct _NMPRulesManager *nm_netns_get_rules_manager (NMNetns *self);
 
 struct _NMDedupMultiIndex *nm_netns_get_multi_idx (NMNetns *self);
 

@@ -27,7 +27,7 @@ sources = files('nm-dispatcher-utils.c')
 
 deps = [
   libnm_dep,
-  nm_core_dep,
+  libnm_core_dep,
 ]
 
 cflags = [
@@ -44,7 +44,7 @@ libnm_dispatcher_core = static_library(
 
 sources = files('nm-dispatcher.c')
 
-sources += gnome.gdbus_codegen(
+nmdbus_dispatcher_sources = gnome.gdbus_codegen(
   'nmdbus-dispatcher',
   name + '.xml',
   interface_prefix: 'org.freedesktop',

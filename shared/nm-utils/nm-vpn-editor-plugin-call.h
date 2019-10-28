@@ -1,4 +1,3 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
 /* NetworkManager -- Network link manager
  *
  * This program is free software; you can redistribute it and/or modify
@@ -32,7 +31,7 @@
 #include <NetworkManager.h>
 
 /* we make use of other internal header files, you need those too. */
-#include "nm-macros-internal.h"
+#include "nm-glib-aux/nm-macros-internal.h"
 
 /*****************************************************************************/
 

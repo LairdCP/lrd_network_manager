@@ -20,9 +20,9 @@
 #ifndef __NM_META_SETTING_DESC_H__
 #define __NM_META_SETTING_DESC_H__
 
-#include "nm-utils/nm-obj.h"
+#include "nm-glib-aux/nm-obj.h"
 #include "nm-meta-setting.h"
-#include "nm-ethtool-utils.h"
+#include "nm-libnm-core-intern/nm-ethtool-utils.h"
 
 struct _NMDevice;
 
@@ -62,7 +62,8 @@ struct _NMDevice;
 #define NM_META_TEXT_WORD_INFRA  "infrastructure"
 #define NM_META_TEXT_WORD_AP     "ap"
 #define NM_META_TEXT_WORD_ADHOC  "adhoc"
-#define NM_META_TEXT_PROMPT_WIFI_MODE_CHOICES "(" NM_META_TEXT_WORD_INFRA "/" NM_META_TEXT_WORD_AP "/" NM_META_TEXT_WORD_ADHOC ") [" NM_META_TEXT_WORD_INFRA "]"
+#define NM_META_TEXT_WORD_MESH   "mesh"
+#define NM_META_TEXT_PROMPT_WIFI_MODE_CHOICES "(" NM_META_TEXT_WORD_INFRA "/" NM_META_TEXT_WORD_AP "/" NM_META_TEXT_WORD_ADHOC "/" NM_META_TEXT_WORD_MESH ") [" NM_META_TEXT_WORD_INFRA "]"
 
 #define NM_META_TEXT_PROMPT_TUN_MODE N_("Tun mode")
 #define NM_META_TEXT_WORD_TUN  "tun"
@@ -209,15 +210,9 @@ struct _NMMetaPropertyType {
 	                     const NMMetaEnvironment *environment,
 	                     gpointer environment_user_data,
 	                     NMSetting *setting,
+	                     char modifier,
 	                     const char *value,
 	                     GError **error);
-	gboolean (*remove_fcn) (const NMMetaPropertyInfo *property_info,
-	                        const NMMetaEnvironment *environment,
-	                        gpointer environment_user_data,
-	                        NMSetting *setting,
-	                        const char *option,
-	                        guint32 idx,
-	                        GError **error);
 
 	const char *const*(*values_fcn) (const NMMetaPropertyInfo *property_info,
 	                                 char ***out_to_free);
@@ -227,7 +222,12 @@ struct _NMMetaPropertyType {
 	                                   gpointer environment_user_data,
 	                                   const NMMetaOperationContext *operation_context,
 	                                   const char *text,
+	                                   gboolean *out_complete_filename,
 	                                   char ***out_to_free);
+
+	/* Whether set_fcn() supports the '-' modifier. That is, whether the property
+	 * is a list type. */
+	bool set_supports_remove:1;
 };
 
 struct _NMUtilsEnumValueInfo;
@@ -244,9 +244,6 @@ typedef struct {
 
 struct _NMMetaPropertyTypData {
 	union {
-		struct {
-			gboolean (*fcn) (NMSetting *setting);
-		} get_with_default;
 		struct {
 			GType (*get_gtype) (void);
 			int min;
@@ -272,15 +269,84 @@ struct _NMMetaPropertyTypData {
 			bool legacy_format:1;
 		} gobject_bytes;
 		struct {
+			guint32 (*get_num_fcn_u32) (NMSetting *setting);
+			guint (*get_num_fcn_u) (NMSetting *setting);
+			void (*clear_all_fcn) (NMSetting *setting);
+
+			/* some multilist properties distinguish between an empty list and
+			 * and unset. If this function pointer is set, certain behaviors come
+			 * into action to handle that. */
+			void (*clear_emptyunset_fcn) (NMSetting *setting,
+			                              gboolean is_set /* or else set default */);
+
+			gboolean (*add_fcn) (NMSetting *setting,
+			                     const char *item);
+			void (*add2_fcn) (NMSetting *setting,
+			                  const char *item);
+			const char *(*validate_fcn) (const char *item, GError **error);
+			const char *(*validate2_fcn) (NMSetting *setting, const char *item, GError **error);
+			void (*remove_by_idx_fcn_u32) (NMSetting *setting, guint32 idx);
+			void (*remove_by_idx_fcn_u) (NMSetting *setting, guint idx);
+			void (*remove_by_idx_fcn_s) (NMSetting *setting, int idx);
+			gboolean (*remove_by_value_fcn) (NMSetting *setting, const char *item);
+			bool strsplit_plain:1;
+			bool strsplit_with_spaces:1;
+		} multilist;
+		struct {
+			guint (*get_num_fcn) (NMSetting *setting);
+			void (*obj_to_str_fcn) (NMMetaAccessorGetType get_type,
+			                        NMSetting *setting,
+			                        guint idx,
+			                        GString *str);
+			gboolean (*set_fcn) (NMSetting *setting,
+			                     gboolean do_add /* or else remove. */,
+			                     const char *value,
+			                     GError **error);
+			void (*clear_all_fcn) (NMSetting *setting);
+			void (*remove_by_idx_fcn_u) (NMSetting *setting, guint idx);
+			void (*remove_by_idx_fcn_s) (NMSetting *setting, int idx);
+			bool delimit_pretty_with_semicolon:1;
+			bool strsplit_plain:1;
+		} objlist;
+		struct {
+			gboolean (*set_fcn) (NMSetting *setting,
+			                     const char *option,
+			                     const char *value,
+			                     GError **error);
+			bool no_empty_value:1;
+		} optionlist;
+		struct {
 			guint32 (*get_fcn) (NMSetting *setting);
 		} mtu;
+		struct {
+			NMSetting8021xSchemeType scheme_type;
+		} cert_8021x;
 		struct {
 			NMMetaPropertyTypeMacMode mode;
 		} mac;
 		struct {
+			guint (*get_fcn) (NMSettingDcb *setting,
+			                  guint user_priority);
+			void (*set_fcn) (NMSettingDcb *setting,
+			                 guint id,
+			                 guint value);
+			guint max;
+			guint other;
+			bool is_percent:1;
+		} dcb;
+		struct {
+			gboolean (*get_fcn) (NMSettingDcb *s_dcb,
+			                     guint priority);
+			void (*set_fcn) (NMSettingDcb *setting,
+			                 guint user_priority,
+			                 gboolean enabled);
+			bool with_flow_control_flags:1;
+		} dcb_bool;
+		struct {
 			NMEthtoolID ethtool_id;
 		} ethtool;
 	} subtype;
+	gboolean (*is_default_fcn) (NMSetting *setting);
 	const char *const*values_static;
 	const NMMetaPropertyTypDataNested *nested;
 	NMMetaPropertyTypFlags typ_flags;
@@ -380,13 +446,14 @@ struct _NMMetaType {
 	                          NMMetaAccessorGetType get_type,
 	                          NMMetaAccessorGetFlags get_flags,
 	                          NMMetaAccessorGetOutFlags *out_flags,
-	                          gboolean *out_is_defalt,
+	                          gboolean *out_is_default,
 	                          gpointer *out_to_free);
 	const char *const*(*complete_fcn) (const NMMetaAbstractInfo *info,
 	                                   const NMMetaEnvironment *environment,
 	                                   gpointer environment_user_data,
 	                                   const NMMetaOperationContext *operation_context,
 	                                   const char *text,
+	                                   gboolean *out_complete_filename,
 	                                   char ***out_to_free);
 };
 

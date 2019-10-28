@@ -1,5 +1,3 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
-
 /* NetworkManager system settings service (ifupdown)
  *
  * Alexander Sack <asac@ubuntu.com>
@@ -419,17 +417,15 @@ update_wired_setting_from_if_block (NMConnection *connection,
 static void
 ifupdown_ip4_add_dns (NMSettingIPConfig *s_ip4, const char *dns)
 {
+	gs_free const char **list = NULL;
+	const char **iter;
 	guint32 addr;
-	gs_strfreev char **list = NULL;
-	char **iter;
 
 	if (dns == NULL)
 		return;
 
-	list = g_strsplit_set (dns, " \t", -1);
+	list = nm_utils_strsplit_set (dns, " \t");
 	for (iter = list; iter && *iter; iter++) {
-		if ((*iter)[0] == '\0')
-			continue;
 		if (!inet_pton (AF_INET, *iter, &addr)) {
 			_LOGW ("    ignoring invalid nameserver '%s'", *iter);
 			continue;
@@ -524,13 +520,11 @@ update_ip4_setting_from_if_block (NMConnection *connection,
 		/* DNS searches */
 		search_v = ifparser_getkey (block, "dns-search");
 		if (search_v) {
-			gs_strfreev char **list = NULL;
-			char **iter;
+			gs_free const char **list = NULL;
+			const char **iter;
 
-			list = g_strsplit_set (search_v, " \t", -1);
+			list = nm_utils_strsplit_set (search_v, " \t");
 			for (iter = list; iter && *iter; iter++) {
-				if ((*iter)[0] == '\0')
-					continue;
 				if (!nm_setting_ip_config_add_dns_search (s_ip4, *iter))
 					_LOGW ("    duplicate DNS domain '%s'", *iter);
 			}
@@ -546,17 +540,15 @@ update_ip4_setting_from_if_block (NMConnection *connection,
 static void
 ifupdown_ip6_add_dns (NMSettingIPConfig *s_ip6, const char *dns)
 {
+	gs_free const char **list = NULL;
+	const char **iter;
 	struct in6_addr addr;
-	gs_strfreev char **list = NULL;
-	char **iter;
 
 	if (dns == NULL)
 		return;
 
-	list = g_strsplit_set (dns, " \t", -1);
+	list = nm_utils_strsplit_set (dns, " \t");
 	for (iter = list; iter && *iter; iter++) {
-		if ((*iter)[0] == '\0')
-			continue;
 		if (!inet_pton (AF_INET6, *iter, &addr)) {
 			_LOGW ("    ignoring invalid nameserver '%s'", *iter);
 			continue;
@@ -640,13 +632,11 @@ update_ip6_setting_from_if_block (NMConnection *connection,
 		/* DNS searches */
 		search_v = ifparser_getkey (block, "dns-search");
 		if (search_v) {
-			gs_strfreev char **list = NULL;
-			char **iter;
+			gs_free const char **list = NULL;
+			const char **iter;
 
-			list = g_strsplit_set (search_v, " \t", -1);
+			list = nm_utils_strsplit_set (search_v, " \t");
 			for (iter = list; iter && *iter; iter++) {
-				if ((*iter)[0] == '\0')
-					continue;
 				if (!nm_setting_ip_config_add_dns_search (s_ip6, *iter))
 					_LOGW ("    duplicate DNS domain '%s'", *iter);
 			}
@@ -661,22 +651,21 @@ update_ip6_setting_from_if_block (NMConnection *connection,
 	return TRUE;
 }
 
-gboolean
-ifupdown_update_connection_from_if_block (NMConnection *connection,
-                                          if_block *block,
-                                          GError **error)
+NMConnection *
+ifupdown_new_connection_from_if_block (if_block *block,
+                                       gboolean autoconnect,
+                                       GError **error)
 {
+	gs_unref_object NMConnection *connection = NULL;
 	const char *type;
 	gs_free char *idstr = NULL;
 	gs_free char *uuid = NULL;
 	NMSettingConnection *s_con;
-	gboolean success = FALSE;
 
-	s_con = nm_connection_get_setting_connection (connection);
-	if (!s_con) {
-		s_con = NM_SETTING_CONNECTION (nm_setting_connection_new ());
-		nm_connection_add_setting (connection, NM_SETTING (s_con));
-	}
+	connection = nm_simple_connection_new ();
+
+	s_con = NM_SETTING_CONNECTION (nm_setting_connection_new ());
+	nm_connection_add_setting (connection, NM_SETTING (s_con));
 
 	type = _ifupdownplugin_guess_connection_type (block);
 	idstr = g_strconcat ("Ifupdown (", block->name, ")", NULL);
@@ -687,11 +676,10 @@ ifupdown_update_connection_from_if_block (NMConnection *connection,
 	              NM_SETTING_CONNECTION_INTERFACE_NAME, block->name,
 	              NM_SETTING_CONNECTION_ID, idstr,
 	              NM_SETTING_CONNECTION_UUID, uuid,
-	              NM_SETTING_CONNECTION_READ_ONLY, TRUE,
-	              NM_SETTING_CONNECTION_AUTOCONNECT, FALSE,
+	              NM_SETTING_CONNECTION_AUTOCONNECT, (gboolean) (!!autoconnect),
 	              NULL);
 
-	_LOGI ("update_connection_setting_from_if_block: name:%s, type:%s, id:%s, uuid: %s",
+	_LOGD ("update_connection_setting_from_if_block: name:%s, type:%s, id:%s, uuid: %s",
 	       block->name, type, idstr, nm_setting_connection_get_uuid (s_con));
 
 	if (nm_streq (type, NM_SETTING_WIRED_SETTING_NAME))
@@ -701,13 +689,16 @@ ifupdown_update_connection_from_if_block (NMConnection *connection,
 		update_wireless_security_setting_from_if_block (connection, block);
 	}
 
-	if (ifparser_haskey (block, "inet6"))
-		success = update_ip6_setting_from_if_block (connection, block, error);
-	else
-		success = update_ip4_setting_from_if_block (connection, block, error);
+	if (ifparser_haskey (block, "inet6")) {
+		if (!update_ip6_setting_from_if_block (connection, block, error))
+			return FALSE;
+	} else {
+		if (!update_ip4_setting_from_if_block (connection, block, error))
+			return FALSE;
+	}
 
-	if (success == TRUE)
-		success = nm_connection_verify (connection, error);
+	if (!nm_connection_normalize (connection, NULL, NULL, error))
+		return NULL;
 
-	return success;
+	return g_steal_pointer (&connection);
 }

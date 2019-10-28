@@ -13,7 +13,7 @@ nm_cflags = ['-DNETWORKMANAGER_COMPILATION=NM_NETWORKMANAGER_COMPILATION_DAEMON'
 
 nm_dep = declare_dependency(
   include_directories: src_inc,
-  dependencies: nm_core_dep,
+  dependencies: libnm_core_dep,
   compile_args: nm_cflags,
 )
 
@@ -22,8 +22,10 @@ cflags = nm_cflags
 sources = files(
   'dhcp/nm-dhcp-client.c',
   'dhcp/nm-dhcp-manager.c',
+  'dhcp/nm-dhcp-nettools.c',
   'dhcp/nm-dhcp-systemd.c',
   'dhcp/nm-dhcp-utils.c',
+  'dhcp/nm-dhcp-options.c',
   'ndisc/nm-lndp-ndisc.c',
   'ndisc/nm-ndisc.c',
   'platform/nm-netlink.c',
@@ -35,6 +37,7 @@ sources = files(
   'platform/nm-platform-utils.c',
   'platform/nmp-netns.c',
   'platform/nmp-object.c',
+  'platform/nmp-rules-manager.c',
   'main-utils.c',
   'NetworkManagerUtils.c',
   'nm-core-utils.c',
@@ -48,7 +51,8 @@ sources = files(
 deps = [
   libsystemd_dep,
   libudev_dep,
-  nm_core_dep,
+  libnm_core_dep,
+  shared_n_dhcp4_dep,
 ]
 
 if enable_wext
@@ -99,7 +103,7 @@ sources = files(
   'dnsmasq/nm-dnsmasq-manager.c',
   'dnsmasq/nm-dnsmasq-utils.c',
   'ppp/nm-ppp-manager-call.c',
-  'settings/plugins/keyfile/nms-keyfile-connection.c',
+  'settings/plugins/keyfile/nms-keyfile-storage.c',
   'settings/plugins/keyfile/nms-keyfile-plugin.c',
   'settings/plugins/keyfile/nms-keyfile-reader.c',
   'settings/plugins/keyfile/nms-keyfile-utils.c',
@@ -109,6 +113,8 @@ sources = files(
   'settings/nm-settings.c',
   'settings/nm-settings-connection.c',
   'settings/nm-settings-plugin.c',
+  'settings/nm-settings-storage.c',
+  'settings/nm-settings-utils.c',
   'supplicant/nm-supplicant-config.c',
   'supplicant/nm-supplicant-interface.c',
   'supplicant/nm-supplicant-manager.c',
@@ -148,7 +154,7 @@ nm_deps = [
   dl_dep,
   libndp_dep,
   libudev_dep,
-  nm_core_dep,
+  libnm_core_dep,
   shared_n_acd_dep,
   logind_dep,
 ]
@@ -185,7 +191,7 @@ deps = [
   dl_dep,
   libndp_dep,
   libudev_dep,
-  nm_core_dep,
+  libnm_core_dep,
 ]
 
 name = 'nm-iface-helper'
@@ -215,7 +221,7 @@ if enable_tests
 
   deps = [
     libudev_dep,
-    nm_core_dep,
+    libnm_core_dep,
   ]
 
   test_cflags = ['-DNETWORKMANAGER_COMPILATION_TEST']

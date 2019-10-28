@@ -23,7 +23,7 @@
 
 #include <stdlib.h>
 
-#include "nm-common-macros.h"
+#include "nm-libnm-core-intern/nm-common-macros.h"
 
 #include "nm-client-utils.h"
 
@@ -683,7 +683,7 @@ do_general_logging (NmCli *nmc, int argc, char **argv)
 
 		do {
 			if (argc == 1 && nmc->complete)
-				nmc_complete_strings (*argv, "level", "domains", NULL);
+				nmc_complete_strings (*argv, "level", "domains");
 
 			if (matches (*argv, "level")) {
 				argc--;
@@ -878,7 +878,7 @@ do_networking_connectivity (NmCli *nmc, int argc, char **argv)
 	next_arg (nmc, &argc, &argv, NULL);
 	if (nmc->complete) {
 		if (argc == 1)
-			nmc_complete_strings (*argv, "check", NULL);
+			nmc_complete_strings (*argv, "check");
 		return nmc->return_value;
 	}
 
@@ -1350,7 +1350,7 @@ do_overview (NmCli *nmc, int argc, char **argv)
 	g_print (_("Use \"nmcli device show\" to get complete information about known devices and\n"
 	           "\"nmcli connection show\" to get an overview on active connection profiles.\n"
 	           "\n"
-	           "Consult nmcli(1) and nmcli-examples(5) manual pages for complete usage details.\n"));
+	           "Consult nmcli(1) and nmcli-examples(7) manual pages for complete usage details.\n"));
 
 	return NMC_RESULT_SUCCESS;
 }

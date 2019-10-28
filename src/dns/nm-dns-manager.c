@@ -1,4 +1,3 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
 /* NetworkManager -- Network link manager
  *
  * This program is free software; you can redistribute it and/or modify
@@ -347,13 +346,20 @@ gboolean
 nm_dns_manager_has_systemd_resolved (NMDnsManager *self)
 {
 	NMDnsManagerPrivate *priv;
+	NMDnsSystemdResolved *plugin = NULL;
 
 	g_return_val_if_fail (NM_IS_DNS_MANAGER (self), FALSE);
 
 	priv = NM_DNS_MANAGER_GET_PRIVATE (self);
 
-	return    priv->sd_resolve_plugin
-	       || NM_IS_DNS_SYSTEMD_RESOLVED (priv->plugin);
+	if (priv->sd_resolve_plugin) {
+		nm_assert (!NM_IS_DNS_SYSTEMD_RESOLVED (priv->plugin));
+		plugin = NM_DNS_SYSTEMD_RESOLVED (priv->sd_resolve_plugin);
+	} else if (NM_IS_DNS_SYSTEMD_RESOLVED (priv->plugin))
+		plugin = NM_DNS_SYSTEMD_RESOLVED (priv->plugin);
+
+	return    plugin
+	       && nm_dns_systemd_resolved_is_running (plugin);
 }
 
 /*****************************************************************************/

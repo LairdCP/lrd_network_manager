@@ -1,4 +1,3 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
 /* NetworkManager -- Network link manager
  *
  * This program is free software; you can redistribute it and/or modify
@@ -31,7 +30,7 @@
 #include <signal.h>
 #include <linux/rtnetlink.h>
 
-#include "nm-utils/nm-c-list.h"
+#include "nm-glib-aux/nm-c-list.h"
 
 #include "main-utils.h"
 #include "NetworkManagerUtils.h"
@@ -186,8 +185,7 @@ ndisc_config_changed (NMNDisc *ndisc, const NMNDiscData *rdata, guint changed_in
 		 * addresses as /128. The reason for the /128 is to prevent the kernel
 		 * from adding a prefix route for this address. */
 		ifa_flags = 0;
-		if (nm_platform_check_kernel_support (NM_PLATFORM_GET,
-		                                      NM_PLATFORM_KERNEL_SUPPORT_EXTENDED_IFA_FLAGS)) {
+		if (nm_platform_kernel_support_get (NM_PLATFORM_KERNEL_SUPPORT_TYPE_EXTENDED_IFA_FLAGS)) {
 			ifa_flags |= IFA_F_NOPREFIXROUTE;
 			if (NM_IN_SET (global_opt.tempaddr, NM_SETTING_IP6_CONFIG_PRIVACY_PREFER_TEMP_ADDR,
 			                                    NM_SETTING_IP6_CONFIG_PRIVACY_PREFER_PUBLIC_ADDR))
@@ -212,8 +210,7 @@ ndisc_config_changed (NMNDisc *ndisc, const NMNDiscData *rdata, guint changed_in
 		                                  rdata->routes_n,
 		                                  RT_TABLE_MAIN,
 		                                  global_opt.priority_v6,
-		                                  nm_platform_check_kernel_support (NM_PLATFORM_GET,
-		                                                                    NM_PLATFORM_KERNEL_SUPPORT_RTA_PREF));
+		                                  nm_platform_kernel_support_get (NM_PLATFORM_KERNEL_SUPPORT_TYPE_RTA_PREF));
 	}
 
 	if (changed & NM_NDISC_CONFIG_DHCP_LEVEL) {
@@ -384,8 +381,10 @@ main (int argc, char *argv[])
 	gs_unref_object NMDhcpClient *dhcp4_client = NULL;
 	gs_unref_object NMNDisc *ndisc = NULL;
 	gs_unref_bytes GBytes *hwaddr = NULL;
+	gs_unref_bytes GBytes *bcast_hwaddr = NULL;
 	gs_unref_bytes GBytes *client_id = NULL;
 	gs_free NMUtilsIPv6IfaceId *iid = NULL;
+	const NMPlatformLink *pllink;
 	guint sd_id;
 	int errsv;
 
@@ -472,7 +471,11 @@ main (int argc, char *argv[])
 	/* Set up platform interaction layer */
 	nm_linux_platform_setup ();
 
-	hwaddr = nm_platform_link_get_address_as_bytes (NM_PLATFORM_GET, gl.ifindex);
+	pllink = nm_platform_link_get (NM_PLATFORM_GET, gl.ifindex);
+	if (pllink) {
+		hwaddr = nmp_link_address_get_as_bytes (&pllink->l_address);
+		bcast_hwaddr = nmp_link_address_get_as_bytes (&pllink->l_broadcast);
+	}
 
 	if (global_opt.iid_str) {
 		GBytes *bytes;
@@ -508,6 +511,7 @@ main (int argc, char *argv[])
 		                                          global_opt.ifname,
 		                                          gl.ifindex,
 		                                          hwaddr,
+		                                          bcast_hwaddr,
 		                                          global_opt.uuid,
 		                                          RT_TABLE_MAIN,
 		                                          global_opt.priority_v4,
@@ -592,8 +596,9 @@ main (int argc, char *argv[])
 
 /*****************************************************************************/
 
-const NMDhcpClientFactory *const _nm_dhcp_manager_factories[4] = {
+const NMDhcpClientFactory *const _nm_dhcp_manager_factories[5] = {
 	&_nm_dhcp_client_factory_internal,
+	&_nm_dhcp_client_factory_nettools,
 };
 
 /*****************************************************************************/

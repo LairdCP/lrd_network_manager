@@ -1,4 +1,3 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
 /*
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -25,7 +24,7 @@
 
 #include "nm-utils.h"
 #include "nm-checkpoint.h"
-#include "nm-common-macros.h"
+#include "nm-libnm-core-intern/nm-common-macros.h"
 #include "nm-device-ethernet.h"
 #include "nm-device-wifi.h"
 #include "nm-core-internal.h"
@@ -604,6 +603,12 @@ nm_manager_connectivity_check_set_enabled (NMManager *manager, gboolean enabled)
 	                         NM_DBUS_INTERFACE,
 	                         "ConnectivityCheckEnabled",
 	                         "b", enabled);
+}
+
+const char *
+nm_manager_connectivity_check_get_uri (NMManager *manager)
+{
+	return nmdbus_manager_get_connectivity_check_uri (NM_MANAGER_GET_PRIVATE (manager)->proxy);
 }
 
 gboolean

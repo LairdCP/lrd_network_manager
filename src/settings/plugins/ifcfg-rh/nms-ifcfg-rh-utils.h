@@ -1,4 +1,3 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
 /* NetworkManager system settings service
  *
  * This program is free software; you can redistribute it and/or modify
@@ -22,9 +21,13 @@
 #define _UTILS_H_
 
 #include "nm-connection.h"
-#include "nm-ethtool-utils.h"
+#include "nm-libnm-core-intern/nm-ethtool-utils.h"
 
 #include "shvar.h"
+
+gboolean nms_ifcfg_rh_util_parse_unhandled_spec (const char *unhandled_spec,
+                                                 const char **out_unmanaged_spec,
+                                                 const char **out_unrecognized_spec);
 
 #define NM_IFCFG_CONNECTION_LOG_PATH(path)  ((path) ?: "in-memory")
 #define NM_IFCFG_CONNECTION_LOG_FMT         "%s (%s,\"%s\")"

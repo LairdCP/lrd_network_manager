@@ -1,4 +1,3 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
 /* nm-platform-fake.c - Fake platform interaction code for testing NetworkManager
  *
  * This program is free software; you can redistribute it and/or modify
@@ -154,10 +153,17 @@ static char *
 sysctl_get (NMPlatform *platform, const char *pathid, int dirfd, const char *path)
 {
 	NMFakePlatformPrivate *priv = NM_FAKE_PLATFORM_GET_PRIVATE ((NMFakePlatform *) platform);
+	const char *v;
 
 	ASSERT_SYSCTL_ARGS (pathid, dirfd, path);
 
-	return g_strdup (g_hash_table_lookup (priv->options, path));
+	v = g_hash_table_lookup (priv->options, path);
+	if (!v) {
+		errno = ENOENT;
+		return NULL;
+	}
+
+	return g_strdup (v);
 }
 
 static NMFakePlatformLink *
@@ -269,9 +275,9 @@ link_add_pre (NMPlatform *platform,
 	o->_link.netlink.is_in_netlink = TRUE;
 
 	if (address) {
-		g_assert (address_len > 0 && address_len <= sizeof (link->addr.data));
-		memcpy (link->addr.data, address, address_len);
-		link->addr.len = address_len;
+		g_assert (address_len > 0 && address_len <= sizeof (link->l_address.data));
+		memcpy (link->l_address.data, address, address_len);
+		link->l_address.len = address_len;
 	} else
 		g_assert (address_len == 0);
 
@@ -577,9 +583,9 @@ link_set_address (NMPlatform *platform, int ifindex, gconstpointer addr, size_t 
 		return -NME_PL_EXISTS;
 
 	obj_tmp = nmp_object_clone (device->obj, FALSE);
-	obj_tmp->link.addr.len = len;
-	memset (obj_tmp->link.addr.data, 0, sizeof (obj_tmp->link.addr.data));
-	memcpy (obj_tmp->link.addr.data, addr, len);
+	obj_tmp->link.l_address.len = len;
+	memset (obj_tmp->link.l_address.data, 0, sizeof (obj_tmp->link.l_address.data));
+	memcpy (obj_tmp->link.l_address.data, addr, len);
 
 	link_set_obj (platform, device, obj_tmp);
 	return 0;
@@ -1119,7 +1125,7 @@ ipx_route_delete (NMPlatform *platform,
 		g_assert (NM_IN_SET (NMP_OBJECT_GET_TYPE (obj), NMP_OBJECT_TYPE_IP4_ROUTE,
 		                                                NMP_OBJECT_TYPE_IP6_ROUTE));
 		g_assert (ifindex == -1);
-		ifindex = obj->object.ifindex;
+		ifindex = NMP_OBJECT_CAST_IP_ROUTE (obj)->ifindex;
 		obj_type = NMP_OBJECT_GET_TYPE (obj);
 	} else {
 		g_assert (NM_IN_SET (addr_family, AF_INET, AF_INET6));
@@ -1394,6 +1400,10 @@ nm_fake_platform_class_init (NMFakePlatformClass *klass)
 {
 	GObjectClass *object_class = G_OBJECT_CLASS (klass);
 	NMPlatformClass *platform_class = NM_PLATFORM_CLASS (klass);
+	NMPlatformKernelSupportType kernel_support;
+
+	for (kernel_support = 0; kernel_support < _NM_PLATFORM_KERNEL_SUPPORT_NUM; kernel_support++)
+		_nm_platform_kernel_support_init (kernel_support, -1);
 
 	object_class->finalize = finalize;
 

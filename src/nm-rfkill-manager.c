@@ -1,4 +1,3 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
 /* NetworkManager -- Network link manager
  *
  * This program is free software; you can redistribute it and/or modify
@@ -24,7 +23,7 @@
 
 #include <libudev.h>
 
-#include "nm-utils/nm-udev-utils.h"
+#include "nm-udev-aux/nm-udev-utils.h"
 
 /*****************************************************************************/
 

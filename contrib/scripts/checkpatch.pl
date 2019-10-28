@@ -101,12 +101,18 @@ sub complain
 sub check_commit
 {
 	my $commit = shift;
-	$commit =~ /^([0-9a-f]{5,})/;
-	my $commit_id = $1;
+	my $required = shift;
+	my $commit_id;
 	my $commit_message;
 
+	if ($commit =~ /^([0-9a-f]{5,})\b/) {
+		$commit_id = $1;
+	} else {
+		return unless $required;
+	}
+
 	if ($commit_id and not system 'git rev-parse --git-dir >/dev/null 2>/dev/null') {
-		$commit_message = `git log --abbrev=12 --pretty=format:"%h ('%s')" -1 $commit_id 2>/dev/null`;
+		$commit_message = `git log --abbrev=12 --pretty=format:"%h ('%s')" -1 "$commit_id" 2>/dev/null`;
 		complain "Commit '$commit_id' does not seem to exist" unless $commit_message;
 	}
 
@@ -141,10 +147,10 @@ if ($is_patch) {
 	$check_line = 1;
 	$line = $_;
 	/^---$/ and $is_commit_message = 0;
-	/^Fixes: *(.*)/ and check_commit ($1);
+	/^Fixes: *(.*)/ and check_commit ($1, 1);
 	/This reverts commit/ and next;
 	/cherry picked from/ and next;
-	/\bcommit (.*)/ and check_commit ($1);
+	/\bcommit (.*)/ and check_commit ($1, 0);
 	next;
 } else {
 	# We don't handle these yet
@@ -175,7 +181,7 @@ next if $filename =~ /\/nm-[^\/]+-enum-types\.[ch]$/;
 next if $filename =~ /\bsrc\/systemd\//
 	and not $filename =~ /\/sd-adapt\//
 	and not $filename =~ /\/nm-/;
-next if $filename =~ /\/(n-acd|c-list|c-siphash)\//;
+next if $filename =~ /\/(n-acd|c-list|c-siphash|n-dhcp4)\//;
 
 complain ('Tabs are only allowed at the beginning of a line') if $line =~ /[^\t]\t/;
 complain ('Trailing whitespace') if $line =~ /[ \t]$/;
@@ -187,6 +193,7 @@ complain ("Don't use space inside elvis operator ?:") if $line =~ /\?[\t ]+:/;
 complain ("Don't add Emacs editor formatting hints to source files") if $line_no == 1 and $line =~ /-\*-.+-\*-/;
 complain ("XXX marker are reserved for development while work-in-progress. Use TODO or FIXME comment instead?") if $line =~ /\bXXX\b/;
 complain ("This gtk-doc annotation looks wrong") if $line =~ /\*.*\( *(transfer-(none|container|full)|allow none) *\) *(:|\()/;
+complain ("Prefer nm_assert() or g_return*() to g_assert*()") if $line =~ /g_assert/ and not $filename =~ /\/tests\//;
 
 new_hunk if $_ eq '';
 my ($this_indent) = /^(\s*)/;
@@ -197,9 +204,9 @@ if (defined $indent) {
 	complain ("Bad indentation")
 		if $this_indent =~ /^$indent\t+ +/
 		or (defined $tabs_before_spaces and defined $this_tabs_before_spaces
-			and $this_tabs_before_spaces < $tabs_before_spaces);
+			and $this_tabs_before_spaces != $tabs_before_spaces);
 }
-$indent = $this_indent;
+$indent = $this_indent if $_ ne '';
 
 # Further on we process stuff without comments.
 $_ = $line;

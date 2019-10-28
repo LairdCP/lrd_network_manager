@@ -324,7 +324,7 @@ class NMStubServer:
             nmobj = self._conn_get_main_object(self._conn)
             if nmobj is not None:
                 break
-            if (NM.utils_get_timestamp_msec() - start) >= 2000:
+            if (NM.utils_get_timestamp_msec() - start) >= 4000:
                 p.stdin.close()
                 p.kill()
                 Util.popen_wait(p, 1000)
@@ -589,6 +589,7 @@ class TestNmcli(NmTestBase):
         env['LIBNM_USE_SESSION_BUS'] = '1'
         env['LIBNM_USE_NO_UDEV'] = '1'
         env['TERM'] = 'linux'
+        env['ASAN_OPTIONS'] = 'detect_leaks=0'
         env['XDG_CONFIG_HOME'] = PathConfiguration.srcdir()
         if fatal_warnings is _DEFAULT_ARG or fatal_warnings:
             env['G_DEBUG'] = 'fatal-warnings'
@@ -888,7 +889,7 @@ class TestNmcli(NmTestBase):
 
         replace_stdout.append((Util.memoize_nullary(lambda: self.srv.findConnectionUuid('con-gsm1')), 'UUID-con-gsm1-REPLACED-REPLACED-REPL'))
 
-        self.call_nmcli(['connection', 'add', 'type', 'gsm', 'autoconnect', 'no', 'con-name', 'con-gsm1', 'ifname', '*', 'apn', 'xyz.con-gsm1', 'serial.baud', '5', 'serial.send-delay', '100', 'serial.pari', '1'],
+        self.call_nmcli(['connection', 'add', 'type', 'gsm', 'autoconnect', 'no', 'con-name', 'con-gsm1', 'ifname', '*', 'apn', 'xyz.con-gsm1', 'serial.baud', '5', 'serial.send-delay', '100', 'serial.pari', '1', 'ipv4.dns-options', ' '],
                         replace_stdout = replace_stdout)
 
         replace_stdout.append((Util.memoize_nullary(lambda: self.srv.findConnectionUuid('ethernet')), 'UUID-ethernet-REPLACED-REPLACED-REPL'))
@@ -1095,6 +1096,9 @@ class TestNmcli(NmTestBase):
             self.call_nmcli_l(mode + ['-f', 'COMMON', 'device', 'show', 'wlan0' ],
                               replace_stdout = replace_stdout)
             self.call_nmcli_l(mode + ['-f', 'GENERAL,CAPABILITIES,WIFI-PROPERTIES,AP,WIRED-PROPERTIES,WIMAX-PROPERTIES,NSP,IP4,DHCP4,IP6,DHCP6,BOND,TEAM,BRIDGE,VLAN,BLUETOOTH,CONNECTIONS', 'device', 'show', 'wlan0' ],
+                              replace_stdout = replace_stdout)
+
+            self.call_nmcli_l(mode + ['dev', 'lldp', 'list', 'ifname', 'eth0'],
                               replace_stdout = replace_stdout)
 
 ###############################################################################

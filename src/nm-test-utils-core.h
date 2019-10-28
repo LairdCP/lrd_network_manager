@@ -1,4 +1,3 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
 /*
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -310,7 +309,7 @@ nmtst_platform_ip6_routes_equal_aptr (const NMPObject *const*a, const NMPlatform
 
 #ifdef __NETWORKMANAGER_IP4_CONFIG_H__
 
-#include "nm-utils/nm-dedup-multi.h"
+#include "nm-glib-aux/nm-dedup-multi.h"
 
 static inline NMIP4Config *
 nmtst_ip4_config_new (int ifindex)
@@ -324,7 +323,7 @@ nmtst_ip4_config_new (int ifindex)
 
 #ifdef __NETWORKMANAGER_IP6_CONFIG_H__
 
-#include "nm-utils/nm-dedup-multi.h"
+#include "nm-glib-aux/nm-dedup-multi.h"
 
 static inline NMIP6Config *
 nmtst_ip6_config_new (int ifindex)

@@ -1,4 +1,3 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
 /*
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -25,7 +24,7 @@
 
 #include <stdlib.h>
 
-#include "nm-utils/nm-secret-utils.h"
+#include "nm-glib-aux/nm-secret-utils.h"
 #include "nm-utils.h"
 #include "nm-utils-private.h"
 #include "nm-setting-private.h"
@@ -173,10 +172,8 @@ nm_setting_vpn_add_data_item (NMSettingVpn *setting,
                               const char *item)
 {
 	g_return_if_fail (NM_IS_SETTING_VPN (setting));
-	g_return_if_fail (key != NULL);
-	g_return_if_fail (strlen (key) > 0);
-	g_return_if_fail (item != NULL);
-	g_return_if_fail (strlen (item) > 0);
+	g_return_if_fail (key && key[0]);
+	g_return_if_fail (item && item[0]);
 
 	g_hash_table_insert (NM_SETTING_VPN_GET_PRIVATE (setting)->data,
 	                     g_strdup (key), g_strdup (item));
@@ -242,6 +239,7 @@ nm_setting_vpn_remove_data_item (NMSettingVpn *setting, const char *key)
 	gboolean found;
 
 	g_return_val_if_fail (NM_IS_SETTING_VPN (setting), FALSE);
+	g_return_val_if_fail (key, FALSE);
 
 	found = g_hash_table_remove (NM_SETTING_VPN_GET_PRIVATE (setting)->data, key);
 	if (found)
@@ -279,7 +277,7 @@ foreach_item_helper (NMSettingVpn *self,
 	}
 
 	for (i = 0; i < len; i++) {
-		nm_assert (keys[i]);
+		nm_assert (keys && keys[i]);
 		keys[i] = g_strdup (keys[i]);
 	}
 	nm_assert (!keys[i]);
@@ -350,10 +348,8 @@ nm_setting_vpn_add_secret (NMSettingVpn *setting,
                            const char *secret)
 {
 	g_return_if_fail (NM_IS_SETTING_VPN (setting));
-	g_return_if_fail (key != NULL);
-	g_return_if_fail (strlen (key) > 0);
-	g_return_if_fail (secret != NULL);
-	g_return_if_fail (strlen (secret) > 0);
+	g_return_if_fail (key && key[0]);
+	g_return_if_fail (secret && secret[0]);
 
 	g_hash_table_insert (NM_SETTING_VPN_GET_PRIVATE (setting)->secrets,
 	                     g_strdup (key), g_strdup (secret));
@@ -419,6 +415,7 @@ nm_setting_vpn_remove_secret (NMSettingVpn *setting, const char *key)
 	gboolean found;
 
 	g_return_val_if_fail (NM_IS_SETTING_VPN (setting), FALSE);
+	g_return_val_if_fail (key, FALSE);
 
 	found = g_hash_table_remove (NM_SETTING_VPN_GET_PRIVATE (setting)->secrets, key);
 	if (found)
@@ -841,20 +838,24 @@ compare_property_secrets (NMSettingVpn *a,
 static NMTernary
 compare_property (const NMSettInfoSetting *sett_info,
                   guint property_idx,
-                  NMSetting *setting,
-                  NMSetting *other,
+                  NMConnection *con_a,
+                  NMSetting *set_a,
+                  NMConnection *con_b,
+                  NMSetting *set_b,
                   NMSettingCompareFlags flags)
 {
 	if (nm_streq (sett_info->property_infos[property_idx].name, NM_SETTING_VPN_SECRETS)) {
 		if (NM_FLAGS_HAS (flags, NM_SETTING_COMPARE_FLAG_INFERRABLE))
 			return NM_TERNARY_DEFAULT;
-		return compare_property_secrets (NM_SETTING_VPN (setting), NM_SETTING_VPN (other), flags);
+		return compare_property_secrets (NM_SETTING_VPN (set_a), NM_SETTING_VPN (set_b), flags);
 	}
 
 	return NM_SETTING_CLASS (nm_setting_vpn_parent_class)->compare_property (sett_info,
 	                                                                         property_idx,
-	                                                                         setting,
-	                                                                         other,
+	                                                                         con_a,
+	                                                                         set_a,
+	                                                                         con_b,
+	                                                                         set_b,
 	                                                                         flags);
 }
 

@@ -39,6 +39,8 @@ const NMMetaPropertyInfo *nm_meta_property_info_find_by_name (const char *settin
 const NMMetaPropertyInfo *nm_meta_property_info_find_by_setting (NMSetting *setting,
                                                                  const char *property_name);
 
+gboolean nm_meta_setting_info_editor_has_secrets (const NMMetaSettingInfoEditor *setting_info);
+
 /*****************************************************************************/
 
 const NMMetaSettingInfoEditor *const*nm_meta_setting_infos_editor_p (void);
@@ -67,6 +69,7 @@ const char *const*nm_meta_abstract_info_complete (const NMMetaAbstractInfo *abst
                                                   gpointer environment_user_data,
                                                   const NMMetaOperationContext *operation_context,
                                                   const char *text,
+                                                  gboolean *out_complete_filename,
                                                   char ***out_to_free);
 
 /*****************************************************************************/

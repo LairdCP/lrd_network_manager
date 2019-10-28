@@ -1,4 +1,3 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
 /*
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -26,6 +25,7 @@
 #endif
 
 #include "nm-setting.h"
+#include "nm-setting-bridge.h"
 #include "nm-connection.h"
 #include "nm-core-enum-types.h"
 
@@ -87,7 +87,8 @@ GVariant *_nm_setting_get_deprecated_virtual_interface_name (const NMSettInfoSet
                                                              guint property_idx,
                                                              NMConnection *connection,
                                                              NMSetting *setting,
-                                                             NMConnectionSerializationFlags flags);
+                                                             NMConnectionSerializationFlags flags,
+                                                             const NMConnectionSerializationOptions *options);
 
 NMSettingVerifyResult _nm_setting_verify (NMSetting *setting,
                                           NMConnection *connection,
@@ -106,7 +107,8 @@ gboolean _nm_setting_slave_type_is_valid (const char *slave_type, const char **o
 
 GVariant   *_nm_setting_to_dbus       (NMSetting *setting,
                                        NMConnection *connection,
-                                       NMConnectionSerializationFlags flags);
+                                       NMConnectionSerializationFlags flags,
+                                       const NMConnectionSerializationOptions *options);
 
 NMSetting  *_nm_setting_new_from_dbus (GType setting_type,
                                        GVariant *setting_dict,
@@ -174,21 +176,21 @@ void _properties_override_add__helper (GArray *properties_override,
 void _properties_override_add_dbus_only (GArray *properties_override,
                                          const char *property_name,
                                          const GVariantType *dbus_type,
-                                         NMSettingPropertySynthFunc synth_func,
-                                         NMSettingPropertySetFunc set_func);
+                                         NMSettInfoPropToDBusFcn to_dbus_fcn,
+                                         NMSettInfoPropFromDBusFcn from_dbus_fcn);
 
 void _properties_override_add_override (GArray *properties_override,
                                         GParamSpec *param_spec,
                                         const GVariantType *dbus_type,
-                                        NMSettingPropertyGetFunc get_func,
-                                        NMSettingPropertySetFunc set_func,
-                                        NMSettingPropertyNotSetFunc not_set_func);
+                                        NMSettInfoPropToDBusFcn to_dbus_fcn,
+                                        NMSettInfoPropFromDBusFcn from_dbus_fcn,
+                                        NMSettInfoPropMissingFromDBusFcn missing_from_dbus_fcn);
 
 void _properties_override_add_transform (GArray *properties_override,
                                          GParamSpec *param_spec,
                                          const GVariantType *dbus_type,
-                                         NMSettingPropertyTransformToFunc to_dbus,
-                                         NMSettingPropertyTransformFromFunc from_dbus);
+                                         NMSettInfoPropGPropToDBusFcn gprop_to_dbus_fcn,
+                                         NMSettInfoPropGPropFromDBusFcn gprop_from_dbus_fcn);
 
 /*****************************************************************************/
 
@@ -203,6 +205,9 @@ gboolean _nm_setting_should_compare_secret_property (NMSetting *setting,
                                                      NMSetting *other,
                                                      const char *secret_name,
                                                      NMSettingCompareFlags flags);
+
+NMBridgeVlan *_nm_bridge_vlan_dup (const NMBridgeVlan *vlan);
+NMBridgeVlan *_nm_bridge_vlan_dup_and_seal (const NMBridgeVlan *vlan);
 
 /*****************************************************************************/
 

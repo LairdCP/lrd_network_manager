@@ -1,4 +1,3 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
 /*
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -157,7 +156,7 @@ test_sd_event (void)
 
 		g_assert_cmpint (sd_event_default (NULL), ==, 0);
 
-		for (i = 0, n = (nmtst_get_rand_int () % (G_N_ELEMENTS (other_events) + 1)); i < n; i++) {
+		for (i = 0, n = (nmtst_get_rand_uint32 () % (G_N_ELEMENTS (other_events) + 1)); i < n; i++) {
 			r = sd_event_default (&other_events[i]);
 			g_assert (r >= 0 && other_events[i]);
 		}
@@ -177,7 +176,7 @@ test_sd_event (void)
 		g_assert (!user_data.event_source);
 
 		event = sd_event_unref (event);
-		for (i = 0, n = (nmtst_get_rand_int () % (G_N_ELEMENTS (other_events) + 1)); i < n; i++)
+		for (i = 0, n = (nmtst_get_rand_uint32 () % (G_N_ELEMENTS (other_events) + 1)); i < n; i++)
 			other_events[i] = sd_event_unref (other_events[i]);
 		nm_clear_g_source (&sd_id);
 		for (i = 0, n = G_N_ELEMENTS (other_events); i < n; i++)
@@ -269,12 +268,12 @@ _test_unbase64mem_mem (const char *base64, const guint8 *expected_arr, gsize exp
 	for (i = 0; expected_base64[i]; i++)
 		_test_unbase64char (expected_base64[i], FALSE);
 
-	r = nm_sd_utils_unbase64mem (expected_base64, strlen (expected_base64), &exp2_arr, &exp2_len);
+	r = nm_sd_utils_unbase64mem (expected_base64, strlen (expected_base64), TRUE, &exp2_arr, &exp2_len);
 	g_assert_cmpint (r, ==, 0);
 	g_assert_cmpmem (expected_arr, expected_len, exp2_arr, exp2_len);
 
 	if (!nm_streq (base64, expected_base64)) {
-		r = nm_sd_utils_unbase64mem (base64, strlen (base64), &exp3_arr, &exp3_len);
+		r = nm_sd_utils_unbase64mem (base64, strlen (base64), TRUE, &exp3_arr, &exp3_len);
 		g_assert_cmpint (r, ==, 0);
 		g_assert_cmpmem (expected_arr, expected_len, exp3_arr, exp3_len);
 	}
@@ -289,7 +288,7 @@ _test_unbase64mem_inval (const char *base64)
 	gsize exp_len = 0;
 	int r;
 
-	r = nm_sd_utils_unbase64mem (base64, strlen (base64), &exp_arr, &exp_len);
+	r = nm_sd_utils_unbase64mem (base64, strlen (base64), TRUE, &exp_arr, &exp_len);
 	g_assert_cmpint (r, <, 0);
 	g_assert (!exp_arr);
 	g_assert (exp_len == 0);
@@ -311,15 +310,15 @@ test_nm_sd_utils_unbase64mem (void)
 	_test_unbase64mem ("YQ==", "a");
 	_test_unbase64mem_inval ("YQ==a");
 
-	rnd_len = nmtst_get_rand_int () % sizeof (rnd_buf);
+	rnd_len = nmtst_get_rand_uint32 () % sizeof (rnd_buf);
 	for (i = 0; i < rnd_len; i++)
-		rnd_buf[i] = nmtst_get_rand_int () % 256;
+		rnd_buf[i] = nmtst_get_rand_uint32 () % 256;
 	rnd_base64 = g_base64_encode (rnd_buf, rnd_len);
 	_test_unbase64mem_mem (rnd_base64, rnd_buf, rnd_len);
 
 	_test_unbase64char ('=', FALSE);
 	for (i = 0; i < 10; i++) {
-		char ch = nmtst_get_rand_int () % 256;
+		char ch = nmtst_get_rand_uint32 () % 256;
 
 		if (ch != '=')
 			_test_unbase64char (ch, TRUE);

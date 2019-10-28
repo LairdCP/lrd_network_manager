@@ -189,10 +189,10 @@ next_arg (NmCli *nmc, int *argc, char ***argv, ...)
 
 		if (nmc && nmc->complete && *argc == 1) {
 			while ((cmd_option = va_arg (args, const char *)))
-				nmc_complete_strings (**argv, cmd_option, NULL);
+				nmc_complete_strings (**argv, cmd_option);
 
 			if (***argv == '-')
-				nmc_complete_strings (**argv, "--ask", "--show-secrets", NULL);
+				nmc_complete_strings (**argv, "--ask", "--show-secrets");
 
 			va_end (args);
 			return 0;
@@ -508,7 +508,8 @@ nmc_string_to_arg_array (const char *line, const char *delim, gboolean unquote,
 	gs_free const char **arr0 = NULL;
 	char **arr;
 
-	arr0 = nm_utils_strsplit_set (line ?: "", delim ?: " \t", FALSE);
+	arr0 = nm_utils_strsplit_set (line ?: "",
+	                              delim ?: " \t");
 	if (!arr0)
 		arr = g_new0 (char *, 1);
 	else

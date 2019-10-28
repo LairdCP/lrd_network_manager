@@ -19,7 +19,7 @@
 
 #include "nm-default.h"
 
-#include "nm-utils/nm-logging-fwd.h"
+#include "nm-glib-aux/nm-logging-fwd.h"
 
 /*****************************************************************************/
 
@@ -43,5 +43,12 @@ _nm_log_impl (const char *file,
               const char *con_uuid,
               const char *fmt,
               ...)
+{
+}
+
+void
+_nm_utils_monotonic_timestamp_initialized (const struct timespec *tp,
+                                           gint64 offset_sec,
+                                           gboolean is_boottime)
 {
 }

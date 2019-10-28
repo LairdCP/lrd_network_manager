@@ -1,4 +1,3 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
 /* nm-platform.c - Handle runtime kernel networking configuration
  *
  * This program is free software; you can redistribute it and/or modify
@@ -25,7 +24,7 @@
 #include <linux/rtnetlink.h>
 #include <linux/genetlink.h>
 
-#include "nm-utils/unaligned.h"
+#include "nm-std-aux/unaligned.h"
 
 /*****************************************************************************/
 

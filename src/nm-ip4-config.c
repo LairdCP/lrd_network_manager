@@ -1,4 +1,3 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
 /* NetworkManager
  *
  * This program is free software; you can redistribute it and/or modify
@@ -27,7 +26,7 @@
 #include <resolv.h>
 #include <linux/rtnetlink.h>
 
-#include "nm-utils/nm-dedup-multi.h"
+#include "nm-glib-aux/nm-dedup-multi.h"
 
 #include "nm-utils.h"
 #include "platform/nmp-object.h"
@@ -115,13 +114,13 @@ _nm_ip_config_add_obj (NMDedupMultiIndex *multi_idx,
 	if (!obj_new) {
 		nm_assert (pl_new);
 		obj_new = nmp_object_stackinit (&obj_new_stackinit, idx_type->obj_type, pl_new);
-		obj_new_stackinit.object.ifindex = ifindex;
+		NMP_OBJECT_CAST_OBJ_WITH_IFINDEX (&obj_new_stackinit)->ifindex = ifindex;
 	} else {
 		nm_assert (!pl_new);
 		nm_assert (NMP_OBJECT_GET_TYPE (obj_new) == idx_type->obj_type);
-		if (obj_new->object.ifindex != ifindex) {
+		if (NMP_OBJECT_CAST_OBJ_WITH_IFINDEX (obj_new)->ifindex != ifindex) {
 			obj_new = nmp_object_stackinit_obj (&obj_new_stackinit, obj_new);
-			obj_new_stackinit.object.ifindex = ifindex;
+			NMP_OBJECT_CAST_OBJ_WITH_IFINDEX (&obj_new_stackinit)->ifindex = ifindex;
 		}
 	}
 	nm_assert (NMP_OBJECT_GET_TYPE (obj_new) == idx_type->obj_type);
@@ -545,6 +544,9 @@ _addresses_sort_cmp (gconstpointer a, gconstpointer b, gpointer user_data)
 	const NMPlatformIP4Address *a2 = NMP_OBJECT_CAST_IP4_ADDRESS (*((const NMPObject **) b));
 	guint32 n1, n2;
 
+	nm_assert (a1);
+	nm_assert (a2);
+
 	/* Sort by address type. For example link local will
 	 * be sorted *after* a global address. */
 	p1 = _addresses_sort_cmp_get_prio (a1->address);
@@ -577,6 +579,9 @@ sort_captured_addresses (const CList *lst_a, const CList *lst_b, gconstpointer u
 {
 	const NMPlatformIP4Address *addr_a = NMP_OBJECT_CAST_IP4_ADDRESS (c_list_entry (lst_a, NMDedupMultiEntry, lst_entries)->obj);
 	const NMPlatformIP4Address *addr_b = NMP_OBJECT_CAST_IP4_ADDRESS (c_list_entry (lst_b, NMDedupMultiEntry, lst_entries)->obj);
+
+	nm_assert (addr_a);
+	nm_assert (addr_b);
 
 	/* Primary addresses first */
 	return NM_FLAGS_HAS (addr_a->n_ifa_flags, IFA_F_SECONDARY) -
@@ -859,15 +864,12 @@ _nm_ip_config_merge_route_attributes (int addr_family,
 	GET_ATTR (NM_IP_ROUTE_ATTRIBUTE_TABLE, table, UINT32, uint32, 0);
 	r->table_coerced = nm_platform_route_table_coerce (table ?: (route_table ?: RT_TABLE_MAIN));
 
-	if (addr_family == AF_INET) {
+	if (addr_family == AF_INET)
 		GET_ATTR (NM_IP_ROUTE_ATTRIBUTE_TOS,        r4->tos,           BYTE,     byte, 0);
-		GET_ATTR (NM_IP_ROUTE_ATTRIBUTE_ONLINK,     onlink,            BOOLEAN,  boolean, FALSE);
-	} else
-		onlink = FALSE;
 
-	r->r_rtm_flags = 0;
-	if (onlink)
-		r->r_rtm_flags = RTNH_F_ONLINK;
+	GET_ATTR (NM_IP_ROUTE_ATTRIBUTE_ONLINK,         onlink,            BOOLEAN,  boolean, FALSE);
+
+	r->r_rtm_flags = ((onlink) ? (unsigned) RTNH_F_ONLINK : 0u);
 
 	GET_ATTR (NM_IP_ROUTE_ATTRIBUTE_WINDOW,         r->window,         UINT32,   uint32, 0);
 	GET_ATTR (NM_IP_ROUTE_ATTRIBUTE_CWND,           r->cwnd,           UINT32,   uint32, 0);

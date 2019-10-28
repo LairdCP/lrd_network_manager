@@ -1,4 +1,3 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
 /*
  *
  * This program is free software; you can redistribute it and/or modify
@@ -36,6 +35,7 @@
 #define TEST_CERT_DIR              NM_BUILD_SRCDIR"/libnm-core/tests/certs"
 #define TEST_WIRED_TLS_CA_CERT     TEST_CERT_DIR"/test-ca-cert.pem"
 #define TEST_WIRED_TLS_PRIVKEY     TEST_CERT_DIR"/test-key-and-cert.pem"
+#define TEST_WIRED_TLS_TPM2KEY     TEST_CERT_DIR"/test-tpm2wrapped-key.pem"
 
 /*****************************************************************************/
 
@@ -378,15 +378,15 @@ _test_8021x_cert_check_blob_full (NMConnection *con, const void *data, gsize len
 #define _test_8021x_cert_check_blob(con, data) _test_8021x_cert_check_blob_full(con, data, NM_STRLEN (data))
 
 static void
-test_8021x_cert (void)
+_test_8021x_cert_from_files (const char *cert, const char *key)
 {
 	NMSetting8021x *s_8021x;
 	gs_unref_object NMConnection *con = nmtst_create_minimal_connection ("test-cert", NULL, NM_SETTING_WIRED_SETTING_NAME, NULL);
 	GError *error = NULL;
 	gboolean success;
 	NMSetting8021xCKScheme scheme = NM_SETTING_802_1X_CK_SCHEME_PATH;
-	gs_free char *full_TEST_WIRED_TLS_CA_CERT = nmtst_file_resolve_relative_path (TEST_WIRED_TLS_CA_CERT, NULL);
-	gs_free char *full_TEST_WIRED_TLS_PRIVKEY = nmtst_file_resolve_relative_path (TEST_WIRED_TLS_PRIVKEY, NULL);
+	gs_free char *full_TEST_WIRED_TLS_CA_CERT = nmtst_file_resolve_relative_path (cert, NULL);
+	gs_free char *full_TEST_WIRED_TLS_PRIVKEY = nmtst_file_resolve_relative_path (key, NULL);
 
 	/* test writing/reading of certificates of NMSetting8021x */
 
@@ -443,6 +443,18 @@ test_8021x_cert (void)
 	_test_8021x_cert_check_blob (con, "data:;base64,file://a");
 	_test_8021x_cert_check_blob (con, "123");
 
+}
+
+static void
+test_8021x_cert (void)
+{
+	_test_8021x_cert_from_files (TEST_WIRED_TLS_CA_CERT, TEST_WIRED_TLS_PRIVKEY);
+}
+
+static void
+test_8021x_cert_tpm2key (void)
+{
+	_test_8021x_cert_from_files (TEST_WIRED_TLS_CA_CERT, TEST_WIRED_TLS_TPM2KEY);
 }
 
 /*****************************************************************************/
@@ -626,10 +638,14 @@ test_team_conf_read_valid (void)
 static void
 test_team_conf_read_invalid (void)
 {
-#if WITH_JSON_VALIDATION
 	GKeyFile *keyfile = NULL;
 	gs_unref_object NMConnection *con = NULL;
 	NMSettingTeam *s_team;
+
+	if (!WITH_JSON_VALIDATION) {
+		g_test_skip ("team test requires JSON validation");
+		return;
+	}
 
 	con = nmtst_create_connection_from_keyfile (
 	      "[connection]\n"
@@ -645,7 +661,6 @@ test_team_conf_read_invalid (void)
 	g_assert (nm_setting_team_get_config (s_team) == NULL);
 
 	CLEAR (&con, &keyfile);
-#endif
 }
 
 /*****************************************************************************/
@@ -744,6 +759,102 @@ test_vpn_1 (void)
 
 /*****************************************************************************/
 
+static void
+test_bridge_vlans (void)
+{
+	gs_unref_keyfile GKeyFile *keyfile = NULL;
+	gs_unref_object NMConnection *con = NULL;
+	NMSettingBridge *s_bridge;
+	NMBridgeVlan *vlan;
+	guint16 vid, vid_end;
+
+	con = nmtst_create_connection_from_keyfile (
+	      "[connection]\n"
+	      "id=t\n"
+	      "type=bridge\n"
+	      "interface-name=br4\n"
+	      "\n"
+	      "[bridge]\n"
+	      "vlans=900 ,  1 pvid  untagged, 100-123 untagged\n"
+	      "",
+	      "/test_bridge_port/vlans");
+	s_bridge = NM_SETTING_BRIDGE (nm_connection_get_setting (con, NM_TYPE_SETTING_BRIDGE));
+	g_assert (s_bridge);
+	g_assert_cmpuint (nm_setting_bridge_get_num_vlans (s_bridge), ==, 3);
+
+	vlan = nm_setting_bridge_get_vlan (s_bridge, 0);
+	g_assert (vlan);
+	nm_bridge_vlan_get_vid_range (vlan, &vid, &vid_end);
+	g_assert_cmpuint (vid, ==, 1);
+	g_assert_cmpuint (vid_end, ==, 1);
+	g_assert_cmpint  (nm_bridge_vlan_is_pvid (vlan), ==, TRUE);
+	g_assert_cmpint  (nm_bridge_vlan_is_untagged (vlan), ==, TRUE);
+
+	vlan = nm_setting_bridge_get_vlan (s_bridge, 1);
+	g_assert (vlan);
+	nm_bridge_vlan_get_vid_range (vlan, &vid, &vid_end);
+	g_assert_cmpuint (vid, ==, 100);
+	g_assert_cmpuint (vid_end, ==, 123);
+	g_assert_cmpint  (nm_bridge_vlan_is_pvid (vlan), ==, FALSE);
+	g_assert_cmpint  (nm_bridge_vlan_is_untagged (vlan), ==, TRUE);
+
+	vlan = nm_setting_bridge_get_vlan (s_bridge, 2);
+	g_assert (vlan);
+	nm_bridge_vlan_get_vid_range (vlan, &vid, &vid_end);
+	g_assert_cmpuint (vid, ==, 900);
+	g_assert_cmpuint (vid_end, ==, 900);
+	g_assert_cmpint  (nm_bridge_vlan_is_pvid (vlan), ==, FALSE);
+	g_assert_cmpint  (nm_bridge_vlan_is_untagged (vlan), ==, FALSE);
+
+	CLEAR (&con, &keyfile);
+}
+
+static void
+test_bridge_port_vlans (void)
+{
+	gs_unref_keyfile GKeyFile *keyfile = NULL;
+	gs_unref_object NMConnection *con = NULL;
+	NMSettingBridgePort *s_port;
+	NMBridgeVlan *vlan;
+	guint16 vid_start, vid_end;
+
+	con = nmtst_create_connection_from_keyfile (
+	      "[connection]\n"
+	      "id=t\n"
+	      "type=dummy\n"
+	      "interface-name=dummy1\n"
+	      "master=br0\n"
+	      "slave-type=bridge\n"
+	      "\n"
+	      "[bridge-port]\n"
+	      "vlans=4094 pvid , 10-20 untagged\n"
+	      "",
+	      "/test_bridge_port/vlans");
+	s_port = NM_SETTING_BRIDGE_PORT (nm_connection_get_setting (con, NM_TYPE_SETTING_BRIDGE_PORT));
+	g_assert (s_port);
+	g_assert_cmpuint (nm_setting_bridge_port_get_num_vlans (s_port), ==, 2);
+
+	vlan = nm_setting_bridge_port_get_vlan (s_port, 0);
+	g_assert (vlan);
+	nm_bridge_vlan_get_vid_range (vlan, &vid_start, &vid_end);
+	g_assert_cmpuint (vid_start, ==, 10);
+	g_assert_cmpuint (vid_end, ==, 20);
+	g_assert_cmpint  (nm_bridge_vlan_is_pvid (vlan), ==, FALSE);
+	g_assert_cmpint  (nm_bridge_vlan_is_untagged (vlan), ==, TRUE);
+
+	vlan = nm_setting_bridge_port_get_vlan (s_port, 1);
+	g_assert (vlan);
+	nm_bridge_vlan_get_vid_range (vlan, &vid_start, &vid_end);
+	g_assert_cmpuint (vid_start, ==, 4094);
+	g_assert_cmpuint (vid_end, ==, 4094);
+	g_assert_cmpint  (nm_bridge_vlan_is_pvid (vlan), ==, TRUE);
+	g_assert_cmpint  (nm_bridge_vlan_is_untagged (vlan), ==, FALSE);
+
+	CLEAR (&con, &keyfile);
+}
+
+/*****************************************************************************/
+
 NMTST_DEFINE ();
 
 int main (int argc, char **argv)
@@ -752,11 +863,14 @@ int main (int argc, char **argv)
 
 	g_test_add_func ("/core/keyfile/encode_key", test_encode_key);
 	g_test_add_func ("/core/keyfile/test_8021x_cert", test_8021x_cert);
+	g_test_add_func ("/core/keyfile/test_8021x_cert_tpm2key", test_8021x_cert_tpm2key);
 	g_test_add_func ("/core/keyfile/test_8021x_cert_read", test_8021x_cert_read);
 	g_test_add_func ("/core/keyfile/test_team_conf_read/valid", test_team_conf_read_valid);
 	g_test_add_func ("/core/keyfile/test_team_conf_read/invalid", test_team_conf_read_invalid);
 	g_test_add_func ("/core/keyfile/test_user/1", test_user_1);
 	g_test_add_func ("/core/keyfile/test_vpn/1", test_vpn_1);
+	g_test_add_func ("/core/keyfile/bridge/vlans", test_bridge_vlans);
+	g_test_add_func ("/core/keyfile/bridge-port/vlans", test_bridge_port_vlans);
 
 	return g_test_run ();
 }

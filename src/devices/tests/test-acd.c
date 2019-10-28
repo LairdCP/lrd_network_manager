@@ -1,4 +1,3 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
 /* nm-platform.c - Handle runtime kernel networking configuration
  *
  * This program is free software; you can redistribute it and/or modify
@@ -111,8 +110,8 @@ acd_manager_probe_terminated (NMAcdManager *acd_manager, gpointer user_data)
 static void
 test_acd_common (test_fixture *fixture, TestInfo *info)
 {
-	NMAcdManager *manager;
-	GMainLoop *loop;
+	nm_auto_free_acdmgr NMAcdManager *manager = NULL;
+	nm_auto_unref_gmainloop GMainLoop *loop = NULL;
 	int i;
 	const guint WAIT_TIME_OPTIMISTIC = 50;
 	guint wait_time;
@@ -120,6 +119,7 @@ test_acd_common (test_fixture *fixture, TestInfo *info)
 		.probe_terminated_callback = acd_manager_probe_terminated,
 		.user_data_destroy         = (GDestroyNotify) g_main_loop_unref,
 	};
+	int r;
 
 	if (_skip_acd_test ())
 		return;
@@ -131,8 +131,10 @@ test_acd_common (test_fixture *fixture, TestInfo *info)
 	wait_time = WAIT_TIME_OPTIMISTIC;
 again:
 
+	nm_clear_pointer (&loop, g_main_loop_unref);
 	loop = g_main_loop_new (NULL, FALSE);
 
+	nm_clear_pointer (&manager, nm_acd_manager_free);
 	manager = nm_acd_manager_new (fixture->ifindex0,
 	                              fixture->hwaddr0,
 	                              fixture->hwaddr0_len,
@@ -148,9 +150,10 @@ again:
 		                        24, 0, 3600, 1800, 0, NULL);
 	}
 
-	g_assert (nm_acd_manager_start_probe (manager, wait_time));
+	r = nm_acd_manager_start_probe (manager, wait_time);
+	g_assert_cmpint (r, ==, 0);
+
 	g_assert (nmtst_main_loop_run (loop, 2000));
-	g_main_loop_unref (loop);
 
 	for (i = 0; info->addresses[i]; i++) {
 		gboolean val;
@@ -164,7 +167,6 @@ again:
 			/* probably we just had a glitch and the system took longer than
 			 * expected. Re-verify with a large timeout this time. */
 			wait_time = 1000;
-			nm_clear_pointer (&manager, nm_acd_manager_free);
 			goto again;
 		}
 
@@ -172,8 +174,6 @@ again:
 		         i, nm_utils_inet4_ntop (info->addresses[i], sbuf),
 		         info->expected_result[i] ? "detect no duplicated" : "detect a duplicate");
 	}
-
-	nm_acd_manager_free (manager);
 }
 
 static void
@@ -199,8 +199,9 @@ test_acd_probe_2 (test_fixture *fixture, gconstpointer user_data)
 static void
 test_acd_announce (test_fixture *fixture, gconstpointer user_data)
 {
-	NMAcdManager *manager;
-	GMainLoop *loop;
+	nm_auto_free_acdmgr NMAcdManager *manager = NULL;
+	nm_auto_unref_gmainloop GMainLoop *loop = NULL;
+	int r;
 
 	if (_skip_acd_test ())
 		return;
@@ -216,11 +217,9 @@ test_acd_announce (test_fixture *fixture, gconstpointer user_data)
 	g_assert (nm_acd_manager_add_address (manager, ADDR2));
 
 	loop = g_main_loop_new (NULL, FALSE);
-	nm_acd_manager_announce_addresses (manager);
+	r = nm_acd_manager_announce_addresses (manager);
+	g_assert_cmpint (r, ==, 0);
 	g_assert (!nmtst_main_loop_run (loop, 200));
-	g_main_loop_unref (loop);
-
-	nm_acd_manager_free (manager);
 }
 
 static void

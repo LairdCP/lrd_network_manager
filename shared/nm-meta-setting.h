@@ -1,5 +1,3 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
-
 /*
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -89,7 +87,20 @@ typedef struct {
 	const char *           (*uri_func)    (NMSetting8021x *setting);
 	const char *           (*passwd_func) (NMSetting8021x *setting);
 	NMSettingSecretFlags   (*pwflag_func) (NMSetting8021x *setting);
+	gboolean (*set_cert_func) (NMSetting8021x *setting,
+	                           const char *value,
+	                           NMSetting8021xCKScheme scheme,
+	                           NMSetting8021xCKFormat *out_format,
+	                           GError **error);
+	gboolean (*set_private_key_func) (NMSetting8021x *setting,
+	                                  const char *value,
+	                                  const char *password,
+	                                  NMSetting8021xCKScheme scheme,
+	                                  NMSetting8021xCKFormat *out_format,
+	                                  GError **error);
 	const char *file_suffix;
+	NMSetting8021xSchemeType scheme_type;
+	bool is_secret:1;
 } NMSetting8021xSchemeVtable;
 
 extern const NMSetting8021xSchemeVtable nm_setting_8021x_scheme_vtable[_NM_SETTING_802_1X_SCHEME_TYPE_NUM + 1];
@@ -129,6 +140,7 @@ typedef enum {
 	NM_META_SETTING_TYPE_MACVLAN,
 	NM_META_SETTING_TYPE_MATCH,
 	NM_META_SETTING_TYPE_OVS_BRIDGE,
+	NM_META_SETTING_TYPE_OVS_DPDK,
 	NM_META_SETTING_TYPE_OVS_INTERFACE,
 	NM_META_SETTING_TYPE_OVS_PATCH,
 	NM_META_SETTING_TYPE_OVS_PORT,

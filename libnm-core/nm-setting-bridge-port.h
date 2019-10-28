@@ -1,5 +1,3 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
-
 /*
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -27,6 +25,7 @@
 #endif
 
 #include "nm-setting.h"
+#include "nm-setting-bridge.h"
 
 G_BEGIN_DECLS
 
@@ -42,6 +41,7 @@ G_BEGIN_DECLS
 #define NM_SETTING_BRIDGE_PORT_PRIORITY     "priority"
 #define NM_SETTING_BRIDGE_PORT_PATH_COST    "path-cost"
 #define NM_SETTING_BRIDGE_PORT_HAIRPIN_MODE "hairpin-mode"
+#define NM_SETTING_BRIDGE_PORT_VLANS        "vlans"
 
 /**
  * NMSettingBridgePort:
@@ -68,6 +68,22 @@ guint16     nm_setting_bridge_port_get_priority     (NMSettingBridgePort *settin
 guint16     nm_setting_bridge_port_get_path_cost    (NMSettingBridgePort *setting);
 
 gboolean    nm_setting_bridge_port_get_hairpin_mode (NMSettingBridgePort *setting);
+
+NM_AVAILABLE_IN_1_18
+void          nm_setting_bridge_port_add_vlan (NMSettingBridgePort *setting,
+                                               NMBridgeVlan *vlan);
+NM_AVAILABLE_IN_1_18
+guint         nm_setting_bridge_port_get_num_vlans (NMSettingBridgePort *setting);
+NM_AVAILABLE_IN_1_18
+NMBridgeVlan *nm_setting_bridge_port_get_vlan (NMSettingBridgePort *setting, guint idx);
+NM_AVAILABLE_IN_1_18
+void          nm_setting_bridge_port_remove_vlan (NMSettingBridgePort *setting, guint idx);
+NM_AVAILABLE_IN_1_18
+gboolean      nm_setting_bridge_port_remove_vlan_by_vid (NMSettingBridgePort *setting,
+                                                         guint16 vid_start,
+                                                         guint16 vid_end);
+NM_AVAILABLE_IN_1_18
+void          nm_setting_bridge_port_clear_vlans (NMSettingBridgePort *setting);
 
 G_END_DECLS
 

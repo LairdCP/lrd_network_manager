@@ -1,4 +1,3 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
 /* NetworkManager -- Network link manager
  *
  * This program is free software; you can redistribute it and/or modify
@@ -168,7 +167,8 @@ NMIPConfig *nm_device_ip_config_new (NMDevice *self, int addr_family);
 /*****************************************************************************/
 
 gint64 nm_device_get_configured_mtu_from_connection_default (NMDevice *self,
-                                                             const char *property_name);
+                                                             const char *property_name,
+                                                             guint32 max_mtu);
 
 guint32 nm_device_get_configured_mtu_from_connection (NMDevice *device,
                                                       GType setting_type,

@@ -5,12 +5,13 @@
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdio.h>
 
 #include "alloc-util.h"
 #include "extract-word.h"
+#include "hashmap.h"
 #include "macro.h"
 #include "string-util.h"
-#include "util.h"
 
 char *strv_find(char **l, const char *name) _pure_;
 char *strv_find_prefix(char **l, const char *name) _pure_;
@@ -188,3 +189,7 @@ int fputstrv(FILE *f, char **l, const char *separator, bool *space);
                 (b) = NULL;                     \
                 0;                              \
         })
+
+extern const struct hash_ops string_strv_hash_ops;
+int string_strv_hashmap_put(Hashmap **h, const char *key, const char *value);
+int string_strv_ordered_hashmap_put(OrderedHashmap **h, const char *key, const char *value);

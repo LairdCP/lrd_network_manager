@@ -1,4 +1,3 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
 /*
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -76,8 +75,6 @@ main (int argc, char **argv)
 	loop = g_main_loop_new (NULL, FALSE);
 
 	nm_linux_platform_setup ();
-
-	nm_platform_check_kernel_support (NM_PLATFORM_GET, ~((NMPlatformKernelSupportFlags) 0));
 
 	if (global_opt.persist)
 		g_main_loop_run (loop);

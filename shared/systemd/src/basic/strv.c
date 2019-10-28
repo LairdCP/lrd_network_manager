@@ -13,9 +13,11 @@
 #include "escape.h"
 #include "extract-word.h"
 #include "fileio.h"
+#include "memory-util.h"
+#include "nulstr-util.h"
+#include "sort-util.h"
 #include "string-util.h"
 #include "strv.h"
-#include "util.h"
 
 char *strv_find(char **l, const char *name) {
         char **i;
@@ -79,9 +81,9 @@ char **strv_free_erase(char **l) {
         char **i;
 
         STRV_FOREACH(i, l)
-                string_erase(*i);
+                erase_and_freep(i);
 
-        return strv_free(l);
+        return mfree(l);
 }
 
 char **strv_copy(char * const *l) {
@@ -226,6 +228,7 @@ rollback:
         return -ENOMEM;
 }
 
+#if 0 /* NM_IGNORED */
 int strv_extend_strv_concat(char ***a, char **b, const char *suffix) {
         int r;
         char **s;
@@ -233,7 +236,7 @@ int strv_extend_strv_concat(char ***a, char **b, const char *suffix) {
         STRV_FOREACH(s, b) {
                 char *v;
 
-                v = strappend(*s, suffix);
+                v = strjoin(*s, suffix);
                 if (!v)
                         return -ENOMEM;
 
@@ -246,6 +249,7 @@ int strv_extend_strv_concat(char ***a, char **b, const char *suffix) {
 
         return 0;
 }
+#endif /* NM_IGNORED */
 
 char **strv_split_full(const char *s, const char *separator, SplitFlags flags) {
         const char *word, *state;
@@ -651,6 +655,7 @@ char **strv_parse_nulstr(const char *s, size_t l) {
         return v;
 }
 
+#if 0 /* NM_IGNORED */
 char **strv_split_nulstr(const char *s) {
         const char *i;
         char **r = NULL;
@@ -666,6 +671,7 @@ char **strv_split_nulstr(const char *s) {
 
         return r;
 }
+#endif /* NM_IGNORED */
 
 int strv_make_nulstr(char **l, char **p, size_t *q) {
         /* A valid nulstr with two NULs at the end will be created, but
@@ -722,6 +728,7 @@ bool strv_overlap(char **a, char **b) {
         return false;
 }
 
+#if 0 /* NM_IGNORED */
 static int str_compare(char * const *a, char * const *b) {
         return strcmp(*a, *b);
 }
@@ -730,6 +737,7 @@ char **strv_sort(char **l) {
         typesafe_qsort(l, strv_length(l), str_compare);
         return l;
 }
+#endif /* NM_IGNORED */
 
 bool strv_equal(char **a, char **b) {
 
@@ -891,3 +899,63 @@ int fputstrv(FILE *f, char **l, const char *separator, bool *space) {
 
         return 0;
 }
+
+static int string_strv_hashmap_put_internal(Hashmap *h, const char *key, const char *value) {
+        char **l;
+        int r;
+
+        l = hashmap_get(h, key);
+        if (l) {
+                /* A list for this key already exists, let's append to it if it is not listed yet */
+                if (strv_contains(l, value))
+                        return 0;
+
+                r = strv_extend(&l, value);
+                if (r < 0)
+                        return r;
+
+                assert_se(hashmap_update(h, key, l) >= 0);
+        } else {
+                /* No list for this key exists yet, create one */
+                _cleanup_strv_free_ char **l2 = NULL;
+                _cleanup_free_ char *t = NULL;
+
+                t = strdup(key);
+                if (!t)
+                        return -ENOMEM;
+
+                r = strv_extend(&l2, value);
+                if (r < 0)
+                        return r;
+
+                r = hashmap_put(h, t, l2);
+                if (r < 0)
+                        return r;
+                TAKE_PTR(t);
+                TAKE_PTR(l2);
+        }
+
+        return 1;
+}
+
+int string_strv_hashmap_put(Hashmap **h, const char *key, const char *value) {
+        int r;
+
+        r = hashmap_ensure_allocated(h, &string_strv_hash_ops);
+        if (r < 0)
+                return r;
+
+        return string_strv_hashmap_put_internal(*h, key, value);
+}
+
+int string_strv_ordered_hashmap_put(OrderedHashmap **h, const char *key, const char *value) {
+        int r;
+
+        r = ordered_hashmap_ensure_allocated(h, &string_strv_hash_ops);
+        if (r < 0)
+                return r;
+
+        return string_strv_hashmap_put_internal(PLAIN_HASHMAP(*h), key, value);
+}
+
+DEFINE_HASH_OPS_FULL(string_strv_hash_ops, char, string_hash_func, string_compare_func, free, char*, strv_free);

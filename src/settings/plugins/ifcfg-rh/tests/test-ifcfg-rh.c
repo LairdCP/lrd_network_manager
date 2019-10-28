@@ -1,4 +1,3 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
 /* NetworkManager system settings service - keyfile plugin
  *
  * This program is free software; you can redistribute it and/or modify
@@ -49,7 +48,7 @@
 #include "nm-setting-vlan.h"
 #include "nm-setting-dcb.h"
 #include "nm-core-internal.h"
-#include "nm-ethtool-utils.h"
+#include "nm-libnm-core-intern/nm-ethtool-utils.h"
 
 #include "NetworkManagerUtils.h"
 
@@ -239,7 +238,7 @@ _assert_expected_content (NMConnection *connection, const char *filename, const 
 		g_assert (_ifcfg_dir && _ifcfg_dir[0]); \
 		g_assert (_filename && _filename[0]); \
 		\
-		_success = nms_ifcfg_rh_writer_write_connection (_connection, _ifcfg_dir, _filename, NULL, _out_reread, _out_reread_same, &_error); \
+		_success = nms_ifcfg_rh_writer_write_connection (_connection, _ifcfg_dir, _filename, NULL, NULL, NULL, _out_reread, _out_reread_same, &_error); \
 		nmtst_assert_success (_success, _error); \
 		_assert_expected_content (_connection, _filename, _expected); \
 	} G_STMT_END
@@ -310,7 +309,7 @@ _writer_new_connection_reread (NMConnection *connection,
 	char *filename = NULL;
 	gs_unref_object NMConnection *con_verified = NULL;
 	gs_unref_object NMConnection *reread_copy = NULL;
-	NMConnection **reread = out_reread ?: ((nmtst_get_rand_int () % 2) ? &reread_copy : NULL);
+	NMConnection **reread = out_reread ?: ((nmtst_get_rand_uint32 () % 2) ? &reread_copy : NULL);
 
 	g_assert (NM_IS_CONNECTION (connection));
 	g_assert (ifcfg_dir);
@@ -319,6 +318,8 @@ _writer_new_connection_reread (NMConnection *connection,
 
 	success = nms_ifcfg_rh_writer_write_connection (con_verified,
 	                                                ifcfg_dir,
+	                                                NULL,
+	                                                NULL,
 	                                                NULL,
 	                                                &filename,
 	                                                reread,
@@ -394,6 +395,8 @@ _writer_new_connection_fail (NMConnection *connection,
 
 	success = nms_ifcfg_rh_writer_write_connection (connection_normalized,
 	                                                ifcfg_dir,
+	                                                NULL,
+	                                                NULL,
 	                                                NULL,
 	                                                &filename,
 	                                                &reread,
@@ -718,7 +721,7 @@ test_read_unmanaged_unrecognized (void)
 	connection = _connection_from_file (TEST_IFCFG_DIR"/ifcfg-test-nm-controlled-unrecognized",
 	                                    NULL, NULL,
 	                                    &unhandled_spec);
-	g_assert_cmpstr (unhandled_spec, ==, "unmanaged:interface-name:ipoac0");
+	g_assert_cmpstr (unhandled_spec, ==, "unmanaged:interface-name:=ipoac0");
 
 	/* ===== CONNECTION SETTING ===== */
 	s_con = nm_connection_get_setting_connection (connection);
@@ -1971,6 +1974,27 @@ test_read_802_1x_ttls_eapgtc (void)
 	g_assert_cmpstr (nm_setting_802_1x_get_phase2_autheap (s_8021x), ==, "gtc");
 
 	g_object_unref (connection);
+}
+
+static void
+test_read_802_1x_tls_p12_no_client_cert (void)
+{
+	gs_unref_object NMConnection *connection = NULL;
+	NMSetting8021x *s_8021x;
+	const char *path;
+
+	connection = _connection_from_file (TEST_IFCFG_DIR"/ifcfg-test-wired-8021x-tls-p12-no-client-cert",
+	                                    NULL, TYPE_ETHERNET, NULL);
+
+	s_8021x = nm_connection_get_setting_802_1x (connection);
+	g_assert (s_8021x);
+
+	g_assert_cmpint (nm_setting_802_1x_get_private_key_scheme (s_8021x), ==, NM_SETTING_802_1X_CK_SCHEME_PATH);
+	path = nm_setting_802_1x_get_private_key_path (s_8021x);
+	g_assert (path);
+
+	g_assert_cmpint (nm_setting_802_1x_get_client_cert_scheme (s_8021x), ==, NM_SETTING_802_1X_CK_SCHEME_PATH);
+	g_assert_cmpstr (path, ==, nm_setting_802_1x_get_client_cert_path (s_8021x));
 }
 
 static void
@@ -4465,6 +4489,101 @@ test_write_wired_dhcp (void)
 	nmtst_assert_connection_equals (connection, TRUE, reread, FALSE);
 }
 
+static NMIPRoutingRule *
+_ip_routing_rule_new (int addr_family,
+                      const char *str)
+{
+	NMIPRoutingRuleAsStringFlags flags = NM_IP_ROUTING_RULE_AS_STRING_FLAGS_NONE;
+	gs_free_error GError *local = NULL;
+	NMIPRoutingRule *rule;
+
+	if (addr_family != AF_UNSPEC) {
+		if (addr_family == AF_INET)
+			flags = NM_IP_ROUTING_RULE_AS_STRING_FLAGS_AF_INET;
+		else {
+			g_assert (addr_family == AF_INET6);
+			flags = NM_IP_ROUTING_RULE_AS_STRING_FLAGS_AF_INET6;
+		}
+	}
+
+	rule = nm_ip_routing_rule_from_string (str,
+	                                         NM_IP_ROUTING_RULE_AS_STRING_FLAGS_VALIDATE
+	                                       | flags,
+	                                       NULL,
+	                                       nmtst_get_rand_bool () ? &local : NULL);
+	nmtst_assert_success (rule, local);
+
+	if (addr_family != AF_UNSPEC)
+		g_assert_cmpint (nm_ip_routing_rule_get_addr_family (rule), ==, addr_family);
+	return rule;
+}
+
+static void
+_ip_routing_rule_add_to_setting (NMSettingIPConfig *s_ip,
+                                 const char *str)
+{
+	nm_auto_unref_ip_routing_rule NMIPRoutingRule *rule = NULL;
+
+	rule = _ip_routing_rule_new (nm_setting_ip_config_get_addr_family (s_ip), str);
+	nm_setting_ip_config_add_routing_rule (s_ip, rule);
+}
+
+static void
+test_write_routing_rules (void)
+{
+	nmtst_auto_unlinkfile char *testfile = NULL;
+	gs_unref_object NMConnection *connection = NULL;
+	gs_unref_object NMConnection *reread = NULL;
+	NMSettingConnection *s_con;
+	NMSettingWired *s_wired;
+	NMSettingIPConfig *s_ip4;
+	NMSettingIPConfig *s_ip6;
+
+	connection = nm_simple_connection_new ();
+
+	s_con = (NMSettingConnection *) nm_setting_connection_new ();
+	nm_connection_add_setting (connection, NM_SETTING (s_con));
+
+	g_object_set (s_con,
+	              NM_SETTING_CONNECTION_ID, "Test Write Routing Rules",
+	              NM_SETTING_CONNECTION_UUID, nm_utils_uuid_generate_a (),
+	              NM_SETTING_CONNECTION_AUTOCONNECT, TRUE,
+	              NM_SETTING_CONNECTION_TYPE, NM_SETTING_WIRED_SETTING_NAME,
+	              NULL);
+
+	s_wired = (NMSettingWired *) nm_setting_wired_new ();
+	nm_connection_add_setting (connection, NM_SETTING (s_wired));
+
+	s_ip4 = (NMSettingIPConfig *) nm_setting_ip4_config_new ();
+	nm_connection_add_setting (connection, NM_SETTING (s_ip4));
+
+	g_object_set (s_ip4,
+	              NM_SETTING_IP_CONFIG_METHOD, NM_SETTING_IP4_CONFIG_METHOD_AUTO,
+	              NULL);
+
+	s_ip6 = (NMSettingIPConfig *) nm_setting_ip6_config_new ();
+	nm_connection_add_setting (connection, NM_SETTING (s_ip6));
+
+	g_object_set (s_ip6,
+	              NM_SETTING_IP_CONFIG_METHOD, NM_SETTING_IP6_CONFIG_METHOD_AUTO,
+	              NULL);
+
+	_ip_routing_rule_add_to_setting (s_ip4, "pref 10 from 0.0.0.0/0 table 1");
+	_ip_routing_rule_add_to_setting (s_ip4, "priority 10 to 192.167.8.0/24 table 2");
+	_ip_routing_rule_add_to_setting (s_ip6, "pref 10 from ::/0 table 10");
+	_ip_routing_rule_add_to_setting (s_ip6, "pref 10 from ::/0 to 1:2:3::5/24 table 22");
+	_ip_routing_rule_add_to_setting (s_ip6, "pref 10 from ::/0 to 1:3:3::5/128 table 55");
+
+	nmtst_assert_connection_verifies (connection);
+
+	_writer_new_connec_exp (connection,
+	                        TEST_SCRATCH_DIR,
+	                        TEST_IFCFG_DIR"/ifcfg-Test_Write_Routing_Rules.cexpected",
+	                        &testfile);
+	reread = _connection_from_file (testfile, NULL, TYPE_ETHERNET, NULL);
+	nmtst_assert_connection_equals (connection, TRUE, reread, FALSE);
+}
+
 static void
 test_write_wired_match (void)
 {
@@ -4670,6 +4789,48 @@ test_write_wired_static_ip6_only (void)
 
 	reread = _connection_from_file (testfile, NULL, TYPE_ETHERNET, NULL);
 
+	nmtst_assert_connection_equals (connection, TRUE, reread, FALSE);
+}
+
+static void
+test_write_ip6_disabled (void)
+{
+	nmtst_auto_unlinkfile char *testfile = NULL;
+	gs_unref_object NMConnection *connection = NULL;
+	gs_unref_object NMConnection *reread = NULL;
+	NMSettingConnection *s_con;
+	NMSettingWired *s_wired;
+	NMSettingIPConfig *s_ip4;
+	NMSettingIPConfig *s_ip6;
+
+	connection = nmtst_create_minimal_connection ("Test Write Wired Disabled IP6",
+	                                              NULL,
+	                                              NM_SETTING_WIRED_SETTING_NAME,
+	                                              &s_con);
+
+	s_wired = (NMSettingWired *) nm_setting_wired_new ();
+	nm_connection_add_setting (connection, NM_SETTING (s_wired));
+
+	s_ip4 = (NMSettingIPConfig *) nm_setting_ip4_config_new ();
+	nm_connection_add_setting (connection, NM_SETTING (s_ip4));
+	g_object_set (s_ip4,
+	              NM_SETTING_IP_CONFIG_METHOD, NM_SETTING_IP4_CONFIG_METHOD_AUTO,
+	              NULL);
+
+	s_ip6 = (NMSettingIPConfig *) nm_setting_ip6_config_new ();
+	nm_connection_add_setting (connection, NM_SETTING (s_ip6));
+	g_object_set (s_ip6,
+	              NM_SETTING_IP_CONFIG_METHOD, NM_SETTING_IP6_CONFIG_METHOD_DISABLED,
+	              NULL);
+
+	nmtst_assert_connection_verifies (connection);
+
+	_writer_new_connec_exp (connection,
+	                        TEST_SCRATCH_DIR_TMP,
+	                        TEST_IFCFG_DIR"/ifcfg-test-ip6-disabled.cexpected",
+	                        &testfile);
+
+	reread = _connection_from_file (testfile, NULL, TYPE_ETHERNET, NULL);
 	nmtst_assert_connection_equals (connection, TRUE, reread, FALSE);
 }
 
@@ -7507,6 +7668,8 @@ test_read_bridge_main (void)
 	g_assert_cmpuint (nm_setting_bridge_get_ageing_time (s_bridge), ==, 235352);
 	g_assert_cmpuint (nm_setting_bridge_get_group_forward_mask (s_bridge), ==, 24);
 	g_assert (!nm_setting_bridge_get_multicast_snooping (s_bridge));
+	g_assert_cmpint (nm_setting_bridge_get_vlan_filtering (s_bridge), ==, TRUE);
+	g_assert_cmpint (nm_setting_bridge_get_vlan_default_pvid (s_bridge), ==, 99);
 
 	/* MAC address */
 	s_wired = nm_connection_get_setting_wired (connection);
@@ -7531,6 +7694,8 @@ test_write_bridge_main (void)
 	NMIPAddress *addr;
 	static const char *mac = "31:33:33:37:be:cd";
 	GError *error = NULL;
+	gs_unref_ptrarray GPtrArray *vlans = NULL;
+	NMBridgeVlan *vlan;
 
 	connection = nm_simple_connection_new ();
 	g_assert (connection);
@@ -7551,9 +7716,23 @@ test_write_bridge_main (void)
 	s_bridge = (NMSettingBridge *) nm_setting_bridge_new ();
 	nm_connection_add_setting (connection, NM_SETTING (s_bridge));
 
+	vlans = g_ptr_array_new_with_free_func ((GDestroyNotify) nm_bridge_vlan_unref);
+	vlan = nm_bridge_vlan_new (10, 16);
+	nm_bridge_vlan_set_untagged (vlan, TRUE);
+	g_ptr_array_add (vlans, vlan);
+	vlan = nm_bridge_vlan_new (22, 22);
+	nm_bridge_vlan_set_pvid (vlan, TRUE);
+	nm_bridge_vlan_set_untagged (vlan, TRUE);
+	g_ptr_array_add (vlans, vlan);
+	vlan = nm_bridge_vlan_new (44, 0);
+	g_ptr_array_add (vlans, vlan);
+
 	g_object_set (s_bridge,
 	              NM_SETTING_BRIDGE_MAC_ADDRESS, mac,
 	              NM_SETTING_BRIDGE_GROUP_FORWARD_MASK, 19008,
+	              NM_SETTING_BRIDGE_VLAN_FILTERING, TRUE,
+	              NM_SETTING_BRIDGE_VLAN_DEFAULT_PVID, 4000,
+	              NM_SETTING_BRIDGE_VLANS, vlans,
 	              NULL);
 
 	/* IP4 setting */
@@ -7631,6 +7810,8 @@ test_write_bridge_component (void)
 	NMSetting *s_port;
 	static const char *mac = "31:33:33:37:be:cd";
 	guint32 mtu = 1492;
+	gs_unref_ptrarray GPtrArray *vlans = NULL;
+	NMBridgeVlan *vlan;
 
 	connection = nm_simple_connection_new ();
 	g_assert (connection);
@@ -7658,11 +7839,23 @@ test_write_bridge_component (void)
 	              NULL);
 
 	/* Bridge port */
+	vlans = g_ptr_array_new_with_free_func ((GDestroyNotify) nm_bridge_vlan_unref);
+	vlan = nm_bridge_vlan_new (1, 0);
+	nm_bridge_vlan_set_untagged (vlan, TRUE);
+	g_ptr_array_add (vlans, vlan);
+	vlan = nm_bridge_vlan_new (4, 4094);
+	nm_bridge_vlan_set_untagged (vlan, TRUE);
+	g_ptr_array_add (vlans, vlan);
+	vlan = nm_bridge_vlan_new (2, 2);
+	nm_bridge_vlan_set_pvid (vlan, TRUE);
+	g_ptr_array_add (vlans, vlan);
+
 	s_port = nm_setting_bridge_port_new ();
 	nm_connection_add_setting (connection, s_port);
 	g_object_set (s_port,
 	              NM_SETTING_BRIDGE_PORT_PRIORITY, 50,
 	              NM_SETTING_BRIDGE_PORT_PATH_COST, 33,
+	              NM_SETTING_BRIDGE_PORT_VLANS, vlans,
 	              NULL);
 
 	nmtst_assert_connection_verifies (connection);
@@ -8811,25 +9004,16 @@ static void
 test_read_team_master_invalid (gconstpointer user_data)
 {
 	const char *const PATH_NAME = user_data;
-	NMConnection *connection;
-	NMSettingConnection *s_con;
-	NMSettingTeam *s_team;
+	gs_free_error GError *error = NULL;
+	gs_unref_object NMConnection *connection = NULL;
 
-	NMTST_EXPECT_NM_WARN ("*ignoring invalid team configuration*");
-	connection = _connection_from_file (PATH_NAME, NULL, TYPE_ETHERNET, NULL);
-	g_test_assert_expected_messages ();
+	if (WITH_JSON_VALIDATION) {
+		_connection_from_file_fail (PATH_NAME, NULL, TYPE_ETHERNET, &error);
 
-	g_assert_cmpstr (nm_connection_get_interface_name (connection), ==, "team0");
-
-	s_con = nm_connection_get_setting_connection (connection);
-	g_assert (s_con);
-	g_assert_cmpstr (nm_setting_connection_get_connection_type (s_con), ==, NM_SETTING_TEAM_SETTING_NAME);
-
-	s_team = nm_connection_get_setting_team (connection);
-	g_assert (s_team);
-	g_assert (nm_setting_team_get_config (s_team) == NULL);
-
-	g_object_unref (connection);
+		g_assert_error (error, NM_CONNECTION_ERROR, NM_CONNECTION_ERROR_INVALID_PROPERTY);
+		g_assert (strstr (error->message, _("invalid json")));
+	} else
+		connection = _connection_from_file (PATH_NAME, NULL, TYPE_ETHERNET, NULL);
 }
 
 static void
@@ -9110,19 +9294,19 @@ test_team_reread_slave (void)
 
 	nmtst_assert_connection_equals (connection_1, FALSE, connection_2, FALSE);
 
-	_writer_new_connection_reread ((nmtst_get_rand_int () % 2) ? connection_1 : connection_2,
+	_writer_new_connection_reread ((nmtst_get_rand_uint32 () % 2) ? connection_1 : connection_2,
 	                               TEST_SCRATCH_DIR,
 	                               &testfile,
 	                               TEST_IFCFG_DIR"/ifcfg-team-slave-enp31s0f1-142.cexpected",
 	                               &reread,
 	                               &reread_same);
-	_assert_reread_same ((nmtst_get_rand_int () % 2) ? connection_1 : connection_2, reread);
+	_assert_reread_same ((nmtst_get_rand_uint32 () % 2) ? connection_1 : connection_2, reread);
 	g_assert (reread_same);
 	g_clear_object (&reread);
 
 	reread = _connection_from_file (testfile, NULL, TYPE_VLAN,
 	                                NULL);
-	nmtst_assert_connection_equals ((nmtst_get_rand_int () % 2) ? connection_1 : connection_2, FALSE,
+	nmtst_assert_connection_equals ((nmtst_get_rand_uint32 () % 2) ? connection_1 : connection_2, FALSE,
 	                                reread, FALSE);
 }
 
@@ -9287,7 +9471,7 @@ do_svUnescape_combine_ansi (GString *str_val, GString *str_exp, const UnescapeTe
 	g_string_append (str_val, "$'");
 	if (idx < 0) {
 		for (i = -idx; i > 0; i--) {
-			j = nmtst_get_rand_int () % data_len;
+			j = nmtst_get_rand_uint32 () % data_len;
 			if (!data_ansi[j].can_concat) {
 				i++;
 				continue;
@@ -9486,7 +9670,7 @@ test_svUnescape (void)
 
 	/* different values can be just concatenated... */
 	for (i = 0; i < 200; i++) {
-		gsize num_concat = (nmtst_get_rand_int () % 5) + 2;
+		gsize num_concat = (nmtst_get_rand_uint32 () % 5) + 2;
 
 		g_string_set_size (str_val, 0);
 		g_string_set_size (str_exp, 0);
@@ -9494,12 +9678,12 @@ test_svUnescape (void)
 		while (num_concat > 0) {
 			gsize idx;
 
-			if ((nmtst_get_rand_int () % 3 == 0)) {
-				do_svUnescape_combine_ansi (str_val2, str_exp2, data_ansi, G_N_ELEMENTS (data_ansi), -((int) ((nmtst_get_rand_int () % 5) + 1)));
+			if ((nmtst_get_rand_uint32 () % 3 == 0)) {
+				do_svUnescape_combine_ansi (str_val2, str_exp2, data_ansi, G_N_ELEMENTS (data_ansi), -((int) ((nmtst_get_rand_uint32 () % 5) + 1)));
 				continue;
 			}
 
-			idx = nmtst_get_rand_int () % G_N_ELEMENTS (data_full);
+			idx = nmtst_get_rand_uint32 () % G_N_ELEMENTS (data_full);
 			if (!data_full[idx].can_concat)
 				continue;
 			g_string_append (str_val, data_full[idx].val);
@@ -9507,7 +9691,7 @@ test_svUnescape (void)
 			num_concat--;
 		}
 
-		switch (nmtst_get_rand_int () % 3) {
+		switch (nmtst_get_rand_uint32 () % 3) {
 		case 0:
 			g_string_append (str_val, " ");
 			break;
@@ -9515,7 +9699,7 @@ test_svUnescape (void)
 			g_string_append (str_val, "    ");
 			break;
 		}
-		switch (nmtst_get_rand_int () % 3) {
+		switch (nmtst_get_rand_uint32 () % 3) {
 		case 0:
 			g_string_append (str_val, " #");
 			break;
@@ -10050,6 +10234,7 @@ int main (int argc, char **argv)
 	g_test_add_data_func (TPATH "static-ip6-only-gw/::", "::", test_write_wired_static_ip6_only_gw);
 	g_test_add_data_func (TPATH "static-ip6-only-gw/2001:db8:8:4::2", "2001:db8:8:4::2", test_write_wired_static_ip6_only_gw);
 	g_test_add_data_func (TPATH "static-ip6-only-gw/::ffff:255.255.255.255", "::ffff:255.255.255.255", test_write_wired_static_ip6_only_gw);
+	g_test_add_func (TPATH "ip6/disabled", test_write_ip6_disabled);
 	g_test_add_func (TPATH "read-dns-options", test_read_dns_options);
 	g_test_add_func (TPATH "clear-master", test_clear_master);
 
@@ -10096,6 +10281,8 @@ int main (int argc, char **argv)
 	g_test_add_func (TPATH "802-1x/subj-matches", test_read_write_802_1X_subj_matches);
 	g_test_add_func (TPATH "802-1x/ttls-eapgtc", test_read_802_1x_ttls_eapgtc);
 	g_test_add_func (TPATH "802-1x/password_raw", test_read_write_802_1x_password_raw);
+	g_test_add_func (TPATH "802-1x/tls-p12-no-client-cert", test_read_802_1x_tls_p12_no_client_cert);
+
 	g_test_add_data_func (TPATH "wired/read/aliases/good/0", GINT_TO_POINTER (0), test_read_wired_aliases_good);
 	g_test_add_data_func (TPATH "wired/read/aliases/good/3", GINT_TO_POINTER (3), test_read_wired_aliases_good);
 	g_test_add_func (TPATH "wired/read/aliases/bad1", test_read_wired_aliases_bad_1);
@@ -10168,6 +10355,7 @@ int main (int argc, char **argv)
 	g_test_add_func (TPATH "wired/write-dhcp-plus-ip", test_write_wired_dhcp_plus_ip);
 	g_test_add_func (TPATH "wired/write/dhcp-8021x-peap-mschapv2", test_write_wired_dhcp_8021x_peap_mschapv2);
 	g_test_add_func (TPATH "wired/write/match", test_write_wired_match);
+	g_test_add_func (TPATH "wired/write/routing-rules", test_write_routing_rules);
 
 #define _add_test_write_wired_8021x_tls(testpath, scheme, flags) \
 	nmtst_add_test_func (testpath, test_write_wired_8021x_tls, GINT_TO_POINTER (scheme), GINT_TO_POINTER (flags))

@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <linux/falloc.h>
 #include <linux/magic.h>
 #include <time.h>
 #include <unistd.h>
@@ -217,68 +218,65 @@ int readlink_and_make_absolute(const char *p, char **r) {
 }
 
 int chmod_and_chown(const char *path, mode_t mode, uid_t uid, gid_t gid) {
-        char fd_path[STRLEN("/proc/self/fd/") + DECIMAL_STR_MAX(int) + 1];
         _cleanup_close_ int fd = -1;
+
         assert(path);
 
-        /* Under the assumption that we are running privileged we first change the access mode and only then hand out
-         * ownership to avoid a window where access is too open. */
-
-        fd = open(path, O_PATH|O_CLOEXEC|O_NOFOLLOW); /* Let's acquire an O_PATH fd, as precaution to change mode/owner
-                                                       * on the same file */
+        fd = open(path, O_PATH|O_CLOEXEC|O_NOFOLLOW); /* Let's acquire an O_PATH fd, as precaution to change
+                                                       * mode/owner on the same file */
         if (fd < 0)
                 return -errno;
 
-        xsprintf(fd_path, "/proc/self/fd/%i", fd);
-
-        if (mode != MODE_INVALID) {
-
-                if ((mode & S_IFMT) != 0) {
-                        struct stat st;
-
-                        if (stat(fd_path, &st) < 0)
-                                return -errno;
-
-                        if ((mode & S_IFMT) != (st.st_mode & S_IFMT))
-                                return -EINVAL;
-                }
-
-                if (chmod(fd_path, mode & 07777) < 0)
-                        return -errno;
-        }
-
-        if (uid != UID_INVALID || gid != GID_INVALID)
-                if (chown(fd_path, uid, gid) < 0)
-                        return -errno;
-
-        return 0;
+        return fchmod_and_chown(fd, mode, uid, gid);
 }
 
 int fchmod_and_chown(int fd, mode_t mode, uid_t uid, gid_t gid) {
-        /* Under the assumption that we are running privileged we first change the access mode and only then hand out
-         * ownership to avoid a window where access is too open. */
+        bool do_chown, do_chmod;
+        struct stat st;
 
-        if (mode != MODE_INVALID) {
+        /* Change ownership and access mode of the specified fd. Tries to do so safely, ensuring that at no
+         * point in time the access mode is above the old access mode under the old ownership or the new
+         * access mode under the new ownership. Note: this call tries hard to leave the access mode
+         * unaffected if the uid/gid is changed, i.e. it undoes implicit suid/sgid dropping the kernel does
+         * on chown().
+         *
+         * This call is happy with O_PATH fds. */
 
-                if ((mode & S_IFMT) != 0) {
-                        struct stat st;
+        if (fstat(fd, &st) < 0)
+                return -errno;
 
-                        if (fstat(fd, &st) < 0)
+        do_chown =
+                (uid != UID_INVALID && st.st_uid != uid) ||
+                (gid != GID_INVALID && st.st_gid != gid);
+
+        do_chmod =
+                !S_ISLNK(st.st_mode) && /* chmod is not defined on symlinks */
+                ((mode != MODE_INVALID && ((st.st_mode ^ mode) & 07777) != 0) ||
+                 do_chown); /* If we change ownership, make sure we reset the mode afterwards, since chown()
+                             * modifies the access mode too */
+
+        if (mode == MODE_INVALID)
+                mode = st.st_mode; /* If we only shall do a chown(), save original mode, since chown() might break it. */
+        else if ((mode & S_IFMT) != 0 && ((mode ^ st.st_mode) & S_IFMT) != 0)
+                return -EINVAL; /* insist on the right file type if it was specified */
+
+        if (do_chown && do_chmod) {
+                mode_t minimal = st.st_mode & mode; /* the subset of the old and the new mask */
+
+                if (((minimal ^ st.st_mode) & 07777) != 0)
+                        if (fchmod_opath(fd, minimal & 07777) < 0)
                                 return -errno;
-
-                        if ((mode & S_IFMT) != (st.st_mode & S_IFMT))
-                                return -EINVAL;
-                }
-
-                if (fchmod(fd, mode & 0777) < 0)
-                        return -errno;
         }
 
-        if (uid != UID_INVALID || gid != GID_INVALID)
-                if (fchown(fd, uid, gid) < 0)
+        if (do_chown)
+                if (fchownat(fd, "", uid, gid, AT_EMPTY_PATH) < 0)
                         return -errno;
 
-        return 0;
+        if (do_chmod)
+                if (fchmod_opath(fd, mode & 07777) < 0)
+                        return -errno;
+
+        return do_chown || do_chmod;
 }
 #endif /* NM_IGNORED */
 
@@ -313,6 +311,10 @@ int fd_warn_permissions(const char *path, int fd) {
 
         if (fstat(fd, &st) < 0)
                 return -errno;
+
+        /* Don't complain if we are reading something that is not a file, for example /dev/null */
+        if (!S_ISREG(st.st_mode))
+                return 0;
 
         if (st.st_mode & 0111)
                 log_warning("Configuration file %s is marked executable. Please remove executable permission bits. Proceeding anyway.", path);
@@ -361,13 +363,7 @@ int touch_file(const char *path, bool parents, usec_t stamp, uid_t uid, gid_t gi
          * something fchown(), fchmod(), futimensat() don't allow. */
         xsprintf(fdpath, "/proc/self/fd/%i", fd);
 
-        if (mode != MODE_INVALID)
-                if (chmod(fdpath, mode) < 0)
-                        ret = -errno;
-
-        if (uid_is_valid(uid) || gid_is_valid(gid))
-                if (chown(fdpath, uid, gid) < 0 && ret >= 0)
-                        ret = -errno;
+        ret = fchmod_and_chown(fd, mode, uid, gid);
 
         if (stamp != USEC_INFINITY) {
                 struct timespec ts[2];
@@ -934,6 +930,7 @@ int chase_symlinks(const char *path, const char *original_root, unsigned flags, 
                 if (fstat(child, &st) < 0)
                         return -errno;
                 if ((flags & CHASE_SAFE) &&
+                    (empty_or_root(root) || (size_t)(todo - buffer) > strlen(root)) &&
                     unsafe_transition(&previous_stat, &st))
                         return log_unsafe_transition(fd, child, path, flags);
 
@@ -992,9 +989,9 @@ int chase_symlinks(const char *path, const char *original_root, unsigned flags, 
 
                                 /* Prefix what's left to do with what we just read, and start the loop again, but
                                  * remain in the current directory. */
-                                joined = strjoin(destination, todo);
+                                joined = path_join(destination, todo);
                         } else
-                                joined = strjoin("/", destination, todo);
+                                joined = path_join("/", destination, todo);
                         if (!joined)
                                 return -ENOMEM;
 
@@ -1338,6 +1335,21 @@ int fsync_path_at(int at_fd, const char *path) {
         return 0;
 }
 
+int syncfs_path(int atfd, const char *path) {
+        _cleanup_close_ int fd = -1;
+
+        assert(path);
+
+        fd = openat(atfd, path, O_CLOEXEC|O_RDONLY|O_NONBLOCK);
+        if (fd < 0)
+                return -errno;
+
+        if (syncfs(fd) < 0)
+                return -errno;
+
+        return 0;
+}
+
 int open_parent(const char *path, int flags, mode_t mode) {
         _cleanup_free_ char *parent = NULL;
         int fd;
@@ -1354,9 +1366,9 @@ int open_parent(const char *path, int flags, mode_t mode) {
         /* Let's insist on O_DIRECTORY since the parent of a file or directory is a directory. Except if we open an
          * O_TMPFILE file, because in that case we are actually create a regular file below the parent directory. */
 
-        if ((flags & O_PATH) == O_PATH)
+        if (FLAGS_SET(flags, O_PATH))
                 flags |= O_DIRECTORY;
-        else if ((flags & O_TMPFILE) != O_TMPFILE)
+        else if (!FLAGS_SET(flags, O_TMPFILE))
                 flags |= O_DIRECTORY|O_RDONLY;
 
         fd = open(parent, flags, mode);

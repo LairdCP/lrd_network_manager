@@ -1,4 +1,3 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
 /* NetworkManager -- Network link manager
  *
  * This program is free software; you can redistribute it and/or modify
@@ -36,8 +35,11 @@ NMAcdManager *nm_acd_manager_new (int ifindex,
 void nm_acd_manager_free (NMAcdManager *self);
 
 gboolean nm_acd_manager_add_address (NMAcdManager *self, in_addr_t address);
-gboolean nm_acd_manager_start_probe (NMAcdManager *self, guint timeout);
+int nm_acd_manager_start_probe (NMAcdManager *self, guint timeout);
 gboolean nm_acd_manager_check_address (NMAcdManager *self, in_addr_t address);
-void nm_acd_manager_announce_addresses (NMAcdManager *self);
+int nm_acd_manager_announce_addresses (NMAcdManager *self);
+
+NM_AUTO_DEFINE_FCN0 (NMAcdManager *, _nm_auto_free_acdmgr, nm_acd_manager_free);
+#define nm_auto_free_acdmgr nm_auto (_nm_auto_free_acdmgr)
 
 #endif /* __NM_ACD_MANAGER__ */

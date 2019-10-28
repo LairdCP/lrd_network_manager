@@ -1,4 +1,3 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
 /* NetworkManager
  *
  * This program is free software; you can redistribute it and/or modify
@@ -25,7 +24,7 @@
 
 #include "nm-setting-ip6-config.h"
 
-#include "nm-utils/nm-dedup-multi.h"
+#include "nm-glib-aux/nm-dedup-multi.h"
 #include "platform/nmp-object.h"
 
 /*****************************************************************************/

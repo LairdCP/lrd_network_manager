@@ -23,6 +23,7 @@
 #include "log.h"
 #include "macro.h"
 #include "missing.h"
+#include "nulstr-util.h"
 #include "parse-util.h"
 #include "path-util.h"
 #include "stat-util.h"
@@ -70,10 +71,7 @@ char *path_make_absolute(const char *p, const char *prefix) {
         if (path_is_absolute(p) || isempty(prefix))
                 return strdup(p);
 
-        if (endswith(prefix, "/"))
-                return strjoin(prefix, p);
-        else
-                return strjoin(prefix, "/", p);
+        return path_join(prefix, p);
 }
 
 int safe_getcwd(char **ret) {
@@ -212,6 +210,18 @@ int path_make_relative(const char *from_dir, const char *to_path, char **_r) {
         return 0;
 }
 
+char* path_startswith_strv(const char *p, char **set) {
+        char **s, *t;
+
+        STRV_FOREACH(s, set) {
+                t = path_startswith(p, *s);
+                if (t)
+                        return t;
+        }
+
+        return NULL;
+}
+
 int path_strv_make_absolute_cwd(char **l) {
         char **s;
         int r;
@@ -258,7 +268,7 @@ char **path_strv_resolve(char **l, const char *root) {
 
                 if (root) {
                         orig = *s;
-                        t = prefix_root(root, orig);
+                        t = path_join(root, orig);
                         if (!t) {
                                 enomem = true;
                                 continue;
@@ -387,6 +397,54 @@ char *path_simplify(char *path, bool kill_dots) {
         *t = 0;
         return path;
 }
+
+#if 0 /* NM_IGNORED */
+int path_simplify_and_warn(
+                char *path,
+                unsigned flag,
+                const char *unit,
+                const char *filename,
+                unsigned line,
+                const char *lvalue) {
+
+        bool fatal = flag & PATH_CHECK_FATAL;
+
+        assert(!FLAGS_SET(flag, PATH_CHECK_ABSOLUTE | PATH_CHECK_RELATIVE));
+
+        if (!utf8_is_valid(path))
+                return log_syntax_invalid_utf8(unit, LOG_ERR, filename, line, path);
+
+        if (flag & (PATH_CHECK_ABSOLUTE | PATH_CHECK_RELATIVE)) {
+                bool absolute;
+
+                absolute = path_is_absolute(path);
+
+                if (!absolute && (flag & PATH_CHECK_ABSOLUTE))
+                        return log_syntax(unit, LOG_ERR, filename, line, SYNTHETIC_ERRNO(EINVAL),
+                                          "%s= path is not absolute%s: %s",
+                                          lvalue, fatal ? "" : ", ignoring", path);
+
+                if (absolute && (flag & PATH_CHECK_RELATIVE))
+                        return log_syntax(unit, LOG_ERR, filename, line, SYNTHETIC_ERRNO(EINVAL),
+                                          "%s= path is absolute%s: %s",
+                                          lvalue, fatal ? "" : ", ignoring", path);
+        }
+
+        path_simplify(path, true);
+
+        if (!path_is_valid(path))
+                return log_syntax(unit, LOG_ERR, filename, line, SYNTHETIC_ERRNO(EINVAL),
+                                  "%s= path has invalid length (%zu bytes)%s.",
+                                  lvalue, strlen(path), fatal ? "" : ", ignoring");
+
+        if (!path_is_normalized(path))
+                return log_syntax(unit, LOG_ERR, filename, line, SYNTHETIC_ERRNO(EINVAL),
+                                  "%s= path is not normalized%s: %s",
+                                  lvalue, fatal ? "" : ", ignoring", path);
+
+        return 0;
+}
+#endif /* NM_IGNORED */
 
 char* path_startswith(const char *path, const char *prefix) {
         assert(path);
@@ -585,7 +643,7 @@ int find_binary(const char *name, char **ret) {
                 if (!path_is_absolute(element))
                         continue;
 
-                j = strjoin(element, "/", name);
+                j = path_join(element, name);
                 if (!j)
                         return -ENOMEM;
 
@@ -688,40 +746,6 @@ int mkfs_exists(const char *fstype) {
 
         mkfs = strjoina("mkfs.", fstype);
         return binary_is_good(mkfs);
-}
-
-char *prefix_root(const char *root, const char *path) {
-        char *n, *p;
-        size_t l;
-
-        /* If root is passed, prefixes path with it. Otherwise returns
-         * it as is. */
-
-        assert(path);
-
-        /* First, drop duplicate prefixing slashes from the path */
-        while (path[0] == '/' && path[1] == '/')
-                path++;
-
-        if (empty_or_root(root))
-                return strdup(path);
-
-        l = strlen(root) + 1 + strlen(path) + 1;
-
-        n = new(char, l);
-        if (!n)
-                return NULL;
-
-        p = stpcpy(n, root);
-
-        while (p > n && p[-1] == '/')
-                p--;
-
-        if (path[0] != '/')
-                *(p++) = '/';
-
-        strcpy(p, path);
-        return n;
 }
 
 int parse_path_argument_and_warn(const char *path, bool suppress_root, char **arg) {
@@ -1033,7 +1057,7 @@ int systemd_installation_has_version(const char *root, unsigned minimal_version)
                 _cleanup_free_ char *path = NULL;
                 char *c, **name;
 
-                path = prefix_root(root, pattern);
+                path = path_join(root, pattern);
                 if (!path)
                         return -ENOMEM;
 
@@ -1102,59 +1126,5 @@ bool empty_or_root(const char *root) {
                 return true;
 
         return root[strspn(root, "/")] == 0;
-}
-
-int path_simplify_and_warn(
-                char *path,
-                unsigned flag,
-                const char *unit,
-                const char *filename,
-                unsigned line,
-                const char *lvalue) {
-
-        bool absolute, fatal = flag & PATH_CHECK_FATAL;
-
-        assert(!FLAGS_SET(flag, PATH_CHECK_ABSOLUTE | PATH_CHECK_RELATIVE));
-
-        if (!utf8_is_valid(path)) {
-                log_syntax_invalid_utf8(unit, LOG_ERR, filename, line, path);
-                return -EINVAL;
-        }
-
-        if (flag & (PATH_CHECK_ABSOLUTE | PATH_CHECK_RELATIVE)) {
-                absolute = path_is_absolute(path);
-
-                if (!absolute && (flag & PATH_CHECK_ABSOLUTE)) {
-                        log_syntax(unit, LOG_ERR, filename, line, 0,
-                                   "%s= path is not absolute%s: %s",
-                                   lvalue, fatal ? "" : ", ignoring", path);
-                        return -EINVAL;
-                }
-
-                if (absolute && (flag & PATH_CHECK_RELATIVE)) {
-                        log_syntax(unit, LOG_ERR, filename, line, 0,
-                                   "%s= path is absolute%s: %s",
-                                   lvalue, fatal ? "" : ", ignoring", path);
-                        return -EINVAL;
-                }
-        }
-
-        path_simplify(path, true);
-
-        if (!path_is_normalized(path)) {
-                log_syntax(unit, LOG_ERR, filename, line, 0,
-                           "%s= path is not normalized%s: %s",
-                           lvalue, fatal ? "" : ", ignoring", path);
-                return -EINVAL;
-        }
-
-        if (!path_is_valid(path)) {
-                log_syntax(unit, LOG_ERR, filename, line, 0,
-                           "%s= path has invalid length (%zu bytes)%s.",
-                           lvalue, strlen(path), fatal ? "" : ", ignoring");
-                return -EINVAL;
-        }
-
-        return 0;
 }
 #endif /* NM_IGNORED */

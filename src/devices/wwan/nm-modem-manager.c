@@ -1,4 +1,3 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
 /* NetworkManager -- Network link manager
  *
  * This program is free software; you can redistribute it and/or modify
@@ -32,7 +31,7 @@
 #define sd_booted() FALSE
 #endif
 
-#include "nm-dbus-compat.h"
+#include "nm-std-aux/nm-dbus-compat.h"
 #include "nm-modem.h"
 #include "nm-modem-broadband.h"
 

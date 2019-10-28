@@ -1,4 +1,3 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
 /* NetworkManager
  *
  * This program is free software; you can redistribute it and/or modify
@@ -111,7 +110,7 @@ build_supplicant_config (NMConnection *connection,
 	NMSetting8021x *s_8021x;
 	gboolean success;
 
-	config = nm_supplicant_config_new (support_pmf, support_fils, FALSE);
+	config = nm_supplicant_config_new (support_pmf, support_fils, FALSE, FALSE);
 
 	s_wifi = nm_connection_get_setting_wireless (connection);
 	g_assert (s_wifi);
@@ -126,6 +125,7 @@ build_supplicant_config (NMConnection *connection,
 	if (s_wsec) {
 		NMSettingWirelessSecurityPmf pmf = nm_setting_wireless_security_get_pmf (s_wsec);
 		NMSettingWirelessSecurityFils fils = nm_setting_wireless_security_get_fils (s_wsec);
+		NMSettingWirelessSecurityFt ft = nm_setting_wireless_security_get_ft (s_wsec);
 		s_8021x = nm_connection_get_setting_802_1x (connection);
 		success = nm_supplicant_config_add_setting_wireless_security (config,
 			                                                          s_wsec,
@@ -134,6 +134,7 @@ build_supplicant_config (NMConnection *connection,
 			                                                          mtu,
 			                                                          pmf,
 			                                                          fils,
+                                                                                  ft,
 			                                                          &error);
 	} else {
 		success = nm_supplicant_config_add_no_security (config, &error);

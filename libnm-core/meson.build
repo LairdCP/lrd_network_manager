@@ -30,6 +30,7 @@ libnm_core_headers = files(
   'nm-setting-olpc-mesh.h',
   'nm-setting-ovs-bridge.h',
   'nm-setting-ovs-interface.h',
+  'nm-setting-ovs-dpdk.h',
   'nm-setting-ovs-patch.h',
   'nm-setting-ovs-port.h',
   'nm-setting-ppp.h',
@@ -87,6 +88,7 @@ libnm_core_settings_sources = files(
   'nm-setting-olpc-mesh.c',
   'nm-setting-ovs-bridge.c',
   'nm-setting-ovs-interface.c',
+  'nm-setting-ovs-dpdk.c',
   'nm-setting-ovs-patch.c',
   'nm-setting-ovs-port.c',
   'nm-setting-ppp.c',
@@ -112,15 +114,16 @@ libnm_core_settings_sources = files(
 )
 
 libnm_core_sources = libnm_core_settings_sources + files(
-  'nm-crypto.c',
   'nm-connection.c',
+  'nm-crypto.c',
   'nm-dbus-utils.c',
   'nm-errors.c',
-  'nm-keyfile.c',
   'nm-keyfile-utils.c',
+  'nm-keyfile.c',
   'nm-property-compare.c',
   'nm-setting.c',
   'nm-simple-connection.c',
+  'nm-team-utils.c',
   'nm-utils.c',
   'nm-vpn-editor-plugin.c',
   'nm-vpn-plugin-info.c',
@@ -139,14 +142,57 @@ libnm_core_enum = gnome.mkenums(
   install_dir: libnm_pkgincludedir,
 )
 
+libnm_core_enum_dep = declare_dependency(
+  sources: libnm_core_enum[1],
+)
+
+###############################################################################
+
+shared_nm_libnm_core_intern = static_library(
+    'nm-libnm-core-intern',
+    sources: files('../shared/nm-libnm-core-intern/nm-ethtool-utils.c',
+                   '../shared/nm-libnm-core-intern/nm-libnm-core-utils.c'),
+    c_args: [
+        '-DG_LOG_DOMAIN="@0@"'.format(libnm_name),
+        '-DNETWORKMANAGER_COMPILATION=NM_NETWORKMANAGER_COMPILATION_LIBNM_CORE',
+    ],
+    include_directories: [
+        top_inc,
+        shared_inc,
+        libnm_core_inc,
+    ],
+    dependencies: [
+        glib_dep,
+        shared_c_siphash_dep,
+        shared_nm_glib_aux_dep,
+        libnm_core_enum_dep,
+    ],
+)
+
+shared_nm_libnm_core_intern_dep = declare_dependency(
+    link_with: shared_nm_libnm_core_intern,
+    include_directories: [
+        top_inc,
+        shared_inc,
+    ],
+    dependencies: [
+        glib_dep,
+        shared_nm_glib_aux_dep,
+        libnm_systemd_shared_dep,
+    ],
+)
+
+###############################################################################
+
 deps = [
   dl_dep,
   libudev_dep,
   uuid_dep,
   glib_dep,
   shared_c_siphash_dep,
-  shared_nm_utils_base_dep,
-  shared_nm_utils_udev_dep,
+  shared_nm_glib_aux_dep,
+  shared_nm_udev_aux_dep,
+  shared_nm_libnm_core_intern_dep,
 ]
 
 cflags = [
@@ -188,7 +234,6 @@ endif
 libnm_core_sources_all =  libnm_core_sources
 libnm_core_sources_all += libnm_core_enum
 libnm_core_sources_all += shared_nm_meta_setting_c
-libnm_core_sources_all += shared_nm_ethtool_utils_c
 libnm_core_sources_all += [version_header]
 
 libnm_core = static_library(
@@ -199,15 +244,54 @@ libnm_core = static_library(
   c_args: cflags,
 )
 
-nm_core_dep = declare_dependency(
+libnm_core_dep = declare_dependency(
   sources: libnm_core_enum[1],
   include_directories: libnm_core_inc,
   dependencies: [
-    shared_nm_utils_base_dep,
+    shared_nm_libnm_core_intern_dep,
+    shared_nm_glib_aux_dep,
     shared_c_siphash_dep,
     libnm_systemd_shared_dep,
   ],
 )
+
+###############################################################################
+
+shared_nm_libnm_core_aux = static_library(
+    'nm-libnm-core-aux',
+    sources: files('../shared/nm-libnm-core-aux/nm-libnm-core-aux.c'),
+    c_args: [
+        '-DG_LOG_DOMAIN="@0@"'.format(libnm_name),
+        '-DNETWORKMANAGER_COMPILATION=(NM_NETWORKMANAGER_COMPILATION_WITH_GLIB|NM_NETWORKMANAGER_COMPILATION_WITH_GLIB_I18N_LIB)',
+    ],
+    include_directories: [
+        top_inc,
+        shared_inc,
+        libnm_core_inc,
+    ],
+    dependencies: [
+        glib_dep,
+        shared_c_siphash_dep,
+        shared_nm_glib_aux_dep,
+        libnm_core_dep,
+    ],
+)
+
+shared_nm_libnm_core_aux_dep = declare_dependency(
+    link_with: shared_nm_libnm_core_aux,
+    include_directories: [
+        top_inc,
+        shared_inc,
+    ],
+    dependencies: [
+        libnm_core_dep,
+        glib_dep,
+        shared_nm_glib_aux_dep,
+        libnm_systemd_shared_dep,
+    ],
+)
+
+###############################################################################
 
 enums_to_docbook = join_paths(meson.source_root(), 'tools', 'enums-to-docbook.pl')
 
@@ -232,6 +316,8 @@ foreach docbook: docbooks
 
   content_files += xml.full_path()
 endforeach
+
+###############################################################################
 
 if enable_tests
   subdir('tests')

@@ -14,6 +14,7 @@
 #include "siphash24.h"
 #include "sparse-endian.h"
 #include "stdio-util.h"
+#include "udev-util.h"
 #include "virt.h"
 
 #define SYSTEMD_PEN    43793
@@ -189,7 +190,14 @@ int dhcp_identifier_set_iaid(
                                 /* not yet ready */
                                 return -EBUSY;
 
-                        name = net_get_name(device);
+                        r = device_is_renaming(device);
+                        if (r < 0)
+                                return r;
+                        if (r > 0)
+                                /* device is under renaming */
+                                return -EBUSY;
+
+                        name = net_get_name_persistent(device);
                 }
         }
 

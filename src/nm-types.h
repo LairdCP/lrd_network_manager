@@ -1,4 +1,3 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
 /* NetworkManager -- Network link manager
  *
  * This program is free software; you can redistribute it and/or modify
@@ -119,15 +118,16 @@ NM_IS_IP_CONFIG_SOURCE_RTPROT (NMIPConfigSource source)
 }
 
 /* platform */
-typedef struct _NMPlatform           NMPlatform;
-typedef struct _NMPlatformObject     NMPlatformObject;
-typedef struct _NMPlatformIP4Address NMPlatformIP4Address;
-typedef struct _NMPlatformIP4Route   NMPlatformIP4Route;
-typedef struct _NMPlatformIP6Address NMPlatformIP6Address;
-typedef struct _NMPlatformIP6Route   NMPlatformIP6Route;
-typedef struct _NMPlatformLink       NMPlatformLink;
-typedef struct _NMPNetns             NMPNetns;
-typedef struct _NMPObject            NMPObject;
+typedef struct _NMPlatform               NMPlatform;
+typedef struct _NMPlatformObject         NMPlatformObject;
+typedef struct _NMPlatformObjWithIfindex NMPlatformObjWithIfindex;
+typedef struct _NMPlatformIP4Address     NMPlatformIP4Address;
+typedef struct _NMPlatformIP4Route       NMPlatformIP4Route;
+typedef struct _NMPlatformIP6Address     NMPlatformIP6Address;
+typedef struct _NMPlatformIP6Route       NMPlatformIP6Route;
+typedef struct _NMPlatformLink           NMPlatformLink;
+typedef struct _NMPNetns                 NMPNetns;
+typedef struct _NMPObject                NMPObject;
 
 typedef enum {
 	/* Please don't interpret type numbers outside nm-platform and use functions
@@ -192,6 +192,7 @@ typedef enum {
 	NMP_OBJECT_TYPE_IP6_ADDRESS,
 	NMP_OBJECT_TYPE_IP4_ROUTE,
 	NMP_OBJECT_TYPE_IP6_ROUTE,
+	NMP_OBJECT_TYPE_ROUTING_RULE,
 
 	NMP_OBJECT_TYPE_QDISC,
 

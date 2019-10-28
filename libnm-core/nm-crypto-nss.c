@@ -1,5 +1,3 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
-
 /*
  * Dan Williams <dcbw@redhat.com>
  *
@@ -35,7 +33,7 @@
 #include <ciferfam.h>
 #include <p12plcy.h>
 
-#include "nm-utils/nm-secret-utils.h"
+#include "nm-glib-aux/nm-secret-utils.h"
 #include "nm-errors.h"
 
 /*****************************************************************************/

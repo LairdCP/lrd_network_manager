@@ -1,4 +1,3 @@
-/* -*- Mode: C; tab-width: 4; indent-tabs-mode: t; c-basic-offset: 4 -*- */
 /*
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -186,6 +185,34 @@
 # define NM_AVAILABLE_IN_1_16            G_UNAVAILABLE(1,16)
 #else
 # define NM_AVAILABLE_IN_1_16
+#endif
+
+#if NM_VERSION_MIN_REQUIRED >= NM_VERSION_1_18
+# define NM_DEPRECATED_IN_1_18           G_DEPRECATED
+# define NM_DEPRECATED_IN_1_18_FOR(f)    G_DEPRECATED_FOR(f)
+#else
+# define NM_DEPRECATED_IN_1_18
+# define NM_DEPRECATED_IN_1_18_FOR(f)
+#endif
+
+#if NM_VERSION_MAX_ALLOWED < NM_VERSION_1_18
+# define NM_AVAILABLE_IN_1_18            G_UNAVAILABLE(1,18)
+#else
+# define NM_AVAILABLE_IN_1_18
+#endif
+
+#if NM_VERSION_MIN_REQUIRED >= NM_VERSION_1_20
+# define NM_DEPRECATED_IN_1_20           G_DEPRECATED
+# define NM_DEPRECATED_IN_1_20_FOR(f)    G_DEPRECATED_FOR(f)
+#else
+# define NM_DEPRECATED_IN_1_20
+# define NM_DEPRECATED_IN_1_20_FOR(f)
+#endif
+
+#if NM_VERSION_MAX_ALLOWED < NM_VERSION_1_20
+# define NM_AVAILABLE_IN_1_20            G_UNAVAILABLE(1,20)
+#else
+# define NM_AVAILABLE_IN_1_20
 #endif
 
 #endif  /* NM_VERSION_H */
