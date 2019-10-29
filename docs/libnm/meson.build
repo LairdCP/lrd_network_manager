@@ -43,6 +43,7 @@ gnome.gtkdoc(
   scan_args: [
     '--rebuild-types',
     '--rebuild-sections',
+    '--ignore-decorators=NM_AVAILABLE_IN_\d_\d\d?|NM_DEPRECATED_IN_\d_\d\d?',
     '--ignore-headers=' + ' '.join(private_headers),
   ],
   scanobjs_args: '--type-init-func="g_type_init();"',

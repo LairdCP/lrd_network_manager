@@ -7,8 +7,6 @@
 # Note that it contains __PLACEHOLDERS__ that will be replaced by the accompanying 'build.sh' script.
 
 
-%global wireless_tools_version 1:28-0pre9
-
 %global wpa_supplicant_version 1:1.1
 
 %global ppp_version %(sed -n 's/^#define\\s*VERSION\\s*"\\([^\\s]*\\)"$/\\1/p' %{_includedir}/pppd/patchlevel.h 2>/dev/null | grep . || echo bad)
@@ -52,7 +50,6 @@
 %bcond_without wwan
 %bcond_without team
 %bcond_without wifi
-%bcond_with iwd
 %bcond_without ovs
 %bcond_without ppp
 %bcond_without nmtui
@@ -75,6 +72,11 @@
 %bcond_without crypto_gnutls
 %else
 %bcond_with crypto_gnutls
+%endif
+%if 0%{?rhel}
+%bcond_with iwd
+%else
+%bcond_without iwd
 %endif
 
 ###############################################################################
@@ -179,9 +181,6 @@ BuildRequires: intltool
 BuildRequires: gettext-devel
 
 BuildRequires: dbus-devel >= %{dbus_version}
-%if 0%{?fedora}
-BuildRequires: wireless-tools-devel >= %{wireless_tools_version}
-%endif
 BuildRequires: glib2-devel >= 2.40.0
 BuildRequires: gobject-introspection-devel >= 0.10.3
 %if %{with ppp}
@@ -321,6 +320,7 @@ Requires: %{name}%{?_isa} = %{epoch}:%{version}-%{release}
 
 %if %{with iwd} && (0%{?fedora} > 24 || 0%{?rhel} > 7)
 Requires: (wpa_supplicant >= %{wpa_supplicant_version} or iwd)
+Suggests: wpa_supplicant
 %else
 # Just require wpa_supplicant on platforms that don't support boolean
 # dependencies even though the plugin supports both supplicant and
@@ -724,9 +724,9 @@ mkdir -p %{buildroot}%{_sysctldir}
 cp %{SOURCE6} %{buildroot}%{_sysctldir}
 %endif
 
-cp examples/dispatcher/10-ifcfg-rh-routes.sh %{buildroot}%{_sysconfdir}/%{name}/dispatcher.d/
-ln -s ../no-wait.d/10-ifcfg-rh-routes.sh %{buildroot}%{_sysconfdir}/%{name}/dispatcher.d/pre-up.d/
-ln -s ../10-ifcfg-rh-routes.sh %{buildroot}%{_sysconfdir}/%{name}/dispatcher.d/no-wait.d/
+cp examples/dispatcher/10-ifcfg-rh-routes.sh %{buildroot}%{nmlibdir}/dispatcher.d/
+ln -s ../no-wait.d/10-ifcfg-rh-routes.sh %{buildroot}%{nmlibdir}/dispatcher.d/pre-up.d/
+ln -s ../10-ifcfg-rh-routes.sh %{buildroot}%{nmlibdir}/dispatcher.d/no-wait.d/
 
 %find_lang %{name}
 
@@ -848,6 +848,10 @@ fi
 %endif
 %dir %{nmlibdir}
 %dir %{nmlibdir}/conf.d
+%dir %{nmlibdir}/dispatcher.d
+%dir %{nmlibdir}/dispatcher.d/pre-down.d
+%dir %{nmlibdir}/dispatcher.d/pre-up.d
+%dir %{nmlibdir}/dispatcher.d/no-wait.d
 %dir %{nmlibdir}/VPN
 %dir %{nmlibdir}/system-connections
 %{_mandir}/man1/*
@@ -961,9 +965,9 @@ fi
 
 
 %files dispatcher-routing-rules
-%{_sysconfdir}/%{name}/dispatcher.d/10-ifcfg-rh-routes.sh
-%{_sysconfdir}/%{name}/dispatcher.d/no-wait.d/10-ifcfg-rh-routes.sh
-%{_sysconfdir}/%{name}/dispatcher.d/pre-up.d/10-ifcfg-rh-routes.sh
+%{nmlibdir}/dispatcher.d/10-ifcfg-rh-routes.sh
+%{nmlibdir}/dispatcher.d/no-wait.d/10-ifcfg-rh-routes.sh
+%{nmlibdir}/dispatcher.d/pre-up.d/10-ifcfg-rh-routes.sh
 
 
 %if %{with nmtui}

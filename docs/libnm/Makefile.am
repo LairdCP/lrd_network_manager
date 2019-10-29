@@ -19,7 +19,7 @@ DOC_SOURCE_DIR= \
 	$(top_builddir)/libnm
 
 # Extra options to supply to gtkdoc-scan.
-SCAN_OPTIONS=--rebuild-types --rebuild-sections
+SCAN_OPTIONS=--rebuild-types --rebuild-sections --ignore-decorators="NM_AVAILABLE_IN_\d_\d\d?|NM_DEPRECATED_IN_\d_\d\d?"
 
 # Extra options to supply to gtkdoc-mkdb.
 MKDB_OPTIONS=--sgml-mode --output-format=xml
