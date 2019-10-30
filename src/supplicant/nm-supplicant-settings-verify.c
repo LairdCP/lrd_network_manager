@@ -70,7 +70,7 @@ static const char *const key_mgmt_allowed[] = { "WPA-PSK", "WPA-PSK-SHA256", "FT
                                                 "WPA-EAP", "WPA-EAP-SHA256", "FT-EAP", "FT-EAP-SHA384",
                                                 "CCKM",
                                                 "FILS-SHA256", "FILS-SHA384",
-                                                "IEEE8021X", "WPA-NONE", "SAE",
+                                                "IEEE8021X", "WPA-NONE", "SAE", "FT-SAE",
                                                 "NONE", NULL };
 static const char *const auth_alg_allowed[] = { "OPEN", "SHARED", "LEAP", NULL };
 static const char *const eap_allowed[] =      { "LEAP", "MD5", "TLS", "PEAP", "TTLS", "SIM",

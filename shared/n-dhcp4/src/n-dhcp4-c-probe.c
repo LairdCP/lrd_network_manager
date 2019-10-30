@@ -26,7 +26,7 @@ static int n_dhcp4_client_probe_option_new(NDhcp4ClientProbeOption **optionp,
                                     uint8_t n_data) {
         NDhcp4ClientProbeOption *op;
 
-        op = malloc(sizeof(op) + n_data);
+        op = malloc(sizeof(*op) + n_data);
         if (!op)
                 return -ENOMEM;
 
@@ -1009,7 +1009,7 @@ int n_dhcp4_client_probe_transition_accept(NDhcp4ClientProbe *probe, NDhcp4Incom
 
                 probe->state = N_DHCP4_CLIENT_PROBE_STATE_BOUND;
 
-                /* XXX: trigger timers */
+                n_dhcp4_client_arm_timer (probe->client);
 
                 break;
 
