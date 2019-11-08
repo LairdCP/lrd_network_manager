@@ -161,6 +161,10 @@ nm_supplicant_manager_set_wfd_ies (NMSupplicantManager *self,
 
 	priv = NM_SUPPLICANT_MANAGER_GET_PRIVATE (self);
 
+	if (priv->wfd_support == NM_SUPPLICANT_FEATURE_NO) {
+		return;
+	}
+
 	_LOGD ("setting WFD IEs for P2P operation");
 
 	if (wfd_ies)
@@ -457,7 +461,7 @@ update_capabilities (NMSupplicantManager *self)
 	}
 
 	for (ifaces = priv->ifaces; ifaces; ifaces = ifaces->next)
-		nm_supplicant_interface_set_wfd_support (ifaces->data, priv->fast_support);
+		nm_supplicant_interface_set_wfd_support (ifaces->data, priv->wfd_support);
 
 	_LOGD ("WFD is %ssupported",
 	       (priv->wfd_support == NM_SUPPLICANT_FEATURE_YES) ? "" :
