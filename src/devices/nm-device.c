@@ -10511,7 +10511,13 @@ share_init (NMDevice *self, GError **error)
 		       errsv, nm_strerror_native (errsv));
 	}
 
-	for (iter = modules; *iter; iter++)
+	iter = modules;
+	if(-1 == access(IPTABLES_PATH, F_OK)) {
+		++iter;
+		++iter;
+	}
+
+	for (; *iter; iter++)
 		nm_utils_modprobe (NULL, FALSE, *iter, NULL);
 
 	return TRUE;
@@ -10567,16 +10573,38 @@ start_sharing (NMDevice *self, NMIP4Config *config, GError **error)
 	network = ip4_addr->address & netmask;
 	nm_utils_inet4_ntop (network, str_addr);
 
-	add_share_rule (req, "nat", "POSTROUTING --source %s/%s ! --destination %s/%s --jump MASQUERADE", str_addr, str_mask, str_addr, str_mask);
-	add_share_rule (req, "filter", "FORWARD --destination %s/%s --out-interface %s --match state --state ESTABLISHED,RELATED --jump ACCEPT", str_addr, str_mask, ip_iface);
-	add_share_rule (req, "filter", "FORWARD --source %s/%s --in-interface %s --jump ACCEPT", str_addr, str_mask, ip_iface);
-	add_share_rule (req, "filter", "FORWARD --in-interface %s --out-interface %s --jump ACCEPT", ip_iface, ip_iface);
-	add_share_rule (req, "filter", "FORWARD --out-interface %s --jump REJECT", ip_iface);
-	add_share_rule (req, "filter", "FORWARD --in-interface %s --jump REJECT", ip_iface);
-	add_share_rule (req, "filter", "INPUT --in-interface %s --protocol udp --destination-port 67 --jump ACCEPT", ip_iface);
-	add_share_rule (req, "filter", "INPUT --in-interface %s --protocol tcp --destination-port 67 --jump ACCEPT", ip_iface);
-	add_share_rule (req, "filter", "INPUT --in-interface %s --protocol udp --destination-port 53 --jump ACCEPT", ip_iface);
-	add_share_rule (req, "filter", "INPUT --in-interface %s --protocol tcp --destination-port 53 --jump ACCEPT", ip_iface);
+	if(0 == access(IPTABLES_PATH, F_OK)) {
+		add_share_rule (req, "nat", "POSTROUTING --source %s/%s ! --destination %s/%s --jump MASQUERADE", str_addr, str_mask, str_addr, str_mask);
+		add_share_rule (req, "filter", "FORWARD --destination %s/%s --out-interface %s --match state --state ESTABLISHED,RELATED --jump ACCEPT", str_addr, str_mask, ip_iface);
+		add_share_rule (req, "filter", "FORWARD --source %s/%s --in-interface %s --jump ACCEPT", str_addr, str_mask, ip_iface);
+		add_share_rule (req, "filter", "FORWARD --in-interface %s --out-interface %s --jump ACCEPT", ip_iface, ip_iface);
+		add_share_rule (req, "filter", "FORWARD --out-interface %s --jump REJECT", ip_iface);
+		add_share_rule (req, "filter", "FORWARD --in-interface %s --jump REJECT", ip_iface);
+		add_share_rule (req, "filter", "INPUT --in-interface %s --protocol udp --destination-port 67 --jump ACCEPT", ip_iface);
+		add_share_rule (req, "filter", "INPUT --in-interface %s --protocol tcp --destination-port 67 --jump ACCEPT", ip_iface);
+		add_share_rule (req, "filter", "INPUT --in-interface %s --protocol udp --destination-port 53 --jump ACCEPT", ip_iface);
+		add_share_rule (req, "filter", "INPUT --in-interface %s --protocol tcp --destination-port 53 --jump ACCEPT", ip_iface);
+	}
+	else if(0 == access("/sbin/firewalld", F_OK)) {
+		//Let firewalld define rules
+	}
+	else if(0 == access("/sbin/nft", F_OK)) {
+		add_share_rule (req, "chain", "ip %s_filter output { type filter hook output priority 100; policy accept; }", ip_iface);
+
+		add_share_rule (req, "chain", "ip %s_filter input { type filter hook input priority 10; policy accept; }", ip_iface);
+
+		add_share_rule (req, "rule", "ip %s_filter forward ct state invalid drop", ip_iface);
+		add_share_rule (req, "rule", "ip %s_filter forward oifname %s ip daddr %s/%d ct state established,related accept", ip_iface, ip_iface, str_addr, ip4_addr->plen);
+		add_share_rule (req, "rule", "ip %s_filter forward iifname %s ip saddr %s/%d accept", ip_iface, ip_iface, str_addr, ip4_addr->plen);
+		add_share_rule (req, "chain", "ip %s_filter forward { type filter hook forward priority 10; policy drop; }", ip_iface);
+
+		add_share_rule (req, "table", "ip %s_filter", ip_iface);
+
+		add_share_rule (req, "rule", "ip %s_nat postrouting ip saddr %s/%d oifname != %s masquerade", ip_iface, str_addr, ip4_addr->plen, ip_iface);
+		add_share_rule (req, "chain", "ip %s_nat prerouting { type nat hook prerouting priority 0; }", ip_iface);
+		add_share_rule (req, "chain", "ip %s_nat postrouting { type nat hook postrouting priority 100; }", ip_iface);
+		add_share_rule (req, "table", "ip %s_nat", ip_iface);
+	}
 
 	nm_act_request_set_shared (req, TRUE);
 
