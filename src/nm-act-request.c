@@ -306,11 +306,21 @@ nm_act_request_set_shared (NMActRequest *req, gboolean shared)
 		gs_strfreev char **argv = NULL;
 		gs_free char *cmd = NULL;
 
-		cmd = g_strdup_printf ("%s --table %s %s %s",
+		if(0 == access(IPTABLES_PATH, F_OK)) {
+			cmd = g_strdup_printf ("%s --table %s %s %s",
 		                       IPTABLES_PATH,
 		                       rule->table,
 		                       shared ? "--insert" : "--delete",
 		                       rule->rule);
+		}
+		else if(0 == access("/sbin/nft", F_OK)) {
+			if(shared) {
+				cmd = g_strdup_printf ("/sbin/nft add %s %s", rule->table, rule->rule);
+			}
+			else if(g_strstr_len(rule->table, -1, "table")) {
+				cmd = g_strdup_printf ("/sbin/nft delete %s %s", rule->table, rule->rule);
+			}
+		}
 		if (!cmd)
 			continue;
 
