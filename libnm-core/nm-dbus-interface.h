@@ -284,7 +284,7 @@ typedef enum { /*< flags >*/
  * @NM_WIFI_DEVICE_CAP_CIPHER_WEP40: device supports 40/64-bit WEP encryption
  * @NM_WIFI_DEVICE_CAP_CIPHER_WEP104: device supports 104/128-bit WEP encryption
  * @NM_WIFI_DEVICE_CAP_CIPHER_TKIP: device supports TKIP encryption
- * @NM_WIFI_DEVICE_CAP_CIPHER_CCMP: device supports AES/CCMP encryption
+ * @NM_WIFI_DEVICE_CAP_CIPHER_CCMP: device supports AES/CCMP-128 encryption
  * @NM_WIFI_DEVICE_CAP_WPA: device supports WPA1 authentication
  * @NM_WIFI_DEVICE_CAP_RSN: device supports WPA2/RSN authentication
  * @NM_WIFI_DEVICE_CAP_AP: device supports Access Point mode
@@ -293,6 +293,13 @@ typedef enum { /*< flags >*/
  * @NM_WIFI_DEVICE_CAP_FREQ_2GHZ: device supports 2.4GHz frequencies
  * @NM_WIFI_DEVICE_CAP_FREQ_5GHZ: device supports 5GHz frequencies
  * @NM_WIFI_DEVICE_CAP_MESH: device supports acting as a mesh point. Since: 1.20.
+ * @NM_WIFI_DEVICE_CAP_CIPHER_CCMP_256: device supports AES/CCMP-256 encryption
+ * @NM_WIFI_DEVICE_CAP_CIPHER_GCMP_128: device supports AES/GCMP-128 encryption
+ * @NM_WIFI_DEVICE_CAP_CIPHER_GCMP_256: device supports AES/GCMP-256 encrytion
+ * @NM_WIFI_DEVICE_CAP_CIPHER_CMAC_128: device supports PMF AES/CMAC-128 encrytion
+ * @NM_WIFI_DEVICE_CAP_CIPHER_CMAC_256: device supports PMF AES/CMAC-256 encryption
+ * @NM_WIFI_DEVICE_CAP_CIPHER_GMAC_128: device supports PMF AES/GMAC-128 encryption
+ * @NM_WIFI_DEVICE_CAP_CIPHER_GMAC_256: device supports PMF AES/GMAC-256 encryption
  *
  * 802.11 specific device encryption and authentication capabilities.
  **/
@@ -310,6 +317,13 @@ typedef enum { /*< flags >*/
 	NM_WIFI_DEVICE_CAP_FREQ_2GHZ     = 0x00000200,
 	NM_WIFI_DEVICE_CAP_FREQ_5GHZ     = 0x00000400,
 	NM_WIFI_DEVICE_CAP_MESH          = 0x00001000,
+	NM_WIFI_DEVICE_CAP_CIPHER_CCMP_256 = 0x00002000,
+	NM_WIFI_DEVICE_CAP_CIPHER_GCMP_128 = 0x00004000,
+	NM_WIFI_DEVICE_CAP_CIPHER_GCMP_256 = 0x00008000,
+	NM_WIFI_DEVICE_CAP_CIPHER_CMAC_128 = 0x00010000,
+	NM_WIFI_DEVICE_CAP_CIPHER_CMAC_256 = 0x00020000,
+	NM_WIFI_DEVICE_CAP_CIPHER_GMAC_128 = 0x00040000,
+	NM_WIFI_DEVICE_CAP_CIPHER_GMAC_256 = 0x00080000,
 } NMDeviceWifiCapabilities;
 
 /**
@@ -320,6 +334,7 @@ typedef enum { /*< flags >*/
  * @NM_802_11_AP_FLAGS_WPS: access point supports some WPS method
  * @NM_802_11_AP_FLAGS_WPS_PBC: access point supports push-button WPS
  * @NM_802_11_AP_FLAGS_WPS_PIN: access point supports PIN-based WPS
+ * @NM_802_11_AP_FLAGS_OWE_IE: access point has OWE IE
  *
  * 802.11 access point flags.
  **/
@@ -329,6 +344,7 @@ typedef enum { /*< underscore_name=nm_802_11_ap_flags, flags >*/
 	NM_802_11_AP_FLAGS_WPS     = 0x00000002,
 	NM_802_11_AP_FLAGS_WPS_PBC = 0x00000004,
 	NM_802_11_AP_FLAGS_WPS_PIN = 0x00000008,
+	NM_802_11_AP_FLAGS_OWE_IE  = 0x00000010,
 } NM80211ApFlags;
 
 /**
@@ -339,13 +355,22 @@ typedef enum { /*< underscore_name=nm_802_11_ap_flags, flags >*/
  * @NM_802_11_AP_SEC_PAIR_WEP104: 104/128-bit WEP is supported for
  * pairwise/unicast encryption
  * @NM_802_11_AP_SEC_PAIR_TKIP: TKIP is supported for pairwise/unicast encryption
- * @NM_802_11_AP_SEC_PAIR_CCMP: AES/CCMP is supported for pairwise/unicast encryption
+ * @NM_802_11_AP_SEC_PAIR_CCMP: AES/CCMP-128 is supported for pairwise/unicast encryption
+ * @NM_802_11_AP_SEC_PAIR_CCMP_256: AES/CCMP-256 is supported for pairwise/unicast encryption
+ * @NM_802_11_AP_SEC_PAIR_GCMP_128: AES/GCMP-128 is supported for pairwise/unicast encryption
+ * @NM_802_11_AP_SEC_PAIR_GCMP_256: AES/GCMP-256 is supported for pairwise/unicast encryption
  * @NM_802_11_AP_SEC_GROUP_WEP40: 40/64-bit WEP is supported for group/broadcast
  * encryption
  * @NM_802_11_AP_SEC_GROUP_WEP104: 104/128-bit WEP is supported for
  * group/broadcast encryption
  * @NM_802_11_AP_SEC_GROUP_TKIP: TKIP is supported for group/broadcast encryption
- * @NM_802_11_AP_SEC_GROUP_CCMP: AES/CCMP is supported for group/broadcast
+ * @NM_802_11_AP_SEC_GROUP_CCMP: AES/CCMP-128 is supported for group/broadcast
+ * encryption
+ * @NM_802_11_AP_SEC_GROUP_CCMP_256: AES/CCMP-256 is supported for group/broadcast
+ * encryption
+ * @NM_802_11_AP_SEC_GROUP_GCMP_128: AES/GCMP-128 is supported for group/broadcast
+ * encryption
+ * @NM_802_11_AP_SEC_GROUP_GCMP_256: AES/GCMP-256 is supported for group/broadcast
  * encryption
  * @NM_802_11_AP_SEC_KEY_MGMT_PSK: WPA/RSN Pre-Shared Key encryption is
  * supported
@@ -355,6 +380,16 @@ typedef enum { /*< underscore_name=nm_802_11_ap_flags, flags >*/
  * supported
  * @NM_802_11_AP_SEC_KEY_MGMT_CCKM: CCKM authentication and key management
  * is supported
+ * @NM_802_11_AP_SEC_KEY_MGMT_SUITE_B: Suite-B authentication and key management
+ * is supported
+ * @NM_802_11_AP_SEC_KEY_MGMT_SUITE_B_192: Suite-B-192 authentication and key management
+ * is supported
+ * @NM_802_11_AP_SEC_KEY_MGMT_OWE: OWE authentication and key management
+ * is supported
+ * @NM_802_11_AP_SEC_MGMT_GROUP_CMAC_128: BIP-CMAC-128 group management frame is supported
+ * @NM_802_11_AP_SEC_MGMT_GROUP_CMAC_256: BIP-CMAC-256 group management frame is supported
+ * @NM_802_11_AP_SEC_MGMT_GROUP_GMAC_128: BIP-GMAC-128 group management frame is supported
+ * @NM_802_11_AP_SEC_MGMT_GROUP_GMAC_256: BIP-GMAC-256 group management frame is supported
  *
  * 802.11 access point security and authentication flags.  These flags describe
  * the current security requirements of an access point as determined from the
@@ -374,7 +409,55 @@ typedef enum { /*< underscore_name=nm_802_11_ap_security_flags, flags >*/
 	NM_802_11_AP_SEC_KEY_MGMT_802_1X = 0x00000200,
 	NM_802_11_AP_SEC_KEY_MGMT_SAE    = 0x00000400,
 	NM_802_11_AP_SEC_KEY_MGMT_CCKM   = 0x00000800,
+	NM_802_11_AP_SEC_PAIR_CCMP_256        = 0x00001000,
+	NM_802_11_AP_SEC_PAIR_GCMP_128        = 0x00002000,
+	NM_802_11_AP_SEC_PAIR_GCMP_256        = 0x00004000,
+	NM_802_11_AP_SEC_GROUP_CCMP_256       = 0x00008000,
+	NM_802_11_AP_SEC_GROUP_GCMP_128       = 0x00010000,
+	NM_802_11_AP_SEC_GROUP_GCMP_256       = 0x00020000,
+	NM_802_11_AP_SEC_KEY_MGMT_SUITE_B     = 0x00040000,
+	NM_802_11_AP_SEC_KEY_MGMT_SUITE_B_192 = 0x00080000,
+	NM_802_11_AP_SEC_KEY_MGMT_OWE         = 0x00100000,
+	NM_802_11_AP_SEC_MGMT_GROUP_CMAC_128  = 0x00200000,
+	NM_802_11_AP_SEC_MGMT_GROUP_CMAC_256  = 0x00400000,
+	NM_802_11_AP_SEC_MGMT_GROUP_GMAC_128  = 0x00800000,
+	NM_802_11_AP_SEC_MGMT_GROUP_GMAC_256  = 0x01000000,
 } NM80211ApSecurityFlags;
+
+#define	NM_802_11_AP_SEC_GROUP_CCMP_128 NM_802_11_AP_SEC_GROUP_CCMP
+
+#define NM_802_11_AP_SEC_PAIR_MASK \
+	(NM_802_11_AP_SEC_PAIR_WEP40|				\
+	 NM_802_11_AP_SEC_PAIR_WEP104|				\
+	 NM_802_11_AP_SEC_PAIR_TKIP|				\
+	 NM_802_11_AP_SEC_PAIR_CCMP|				\
+	 NM_802_11_AP_SEC_PAIR_CCMP_256|			\
+	 NM_802_11_AP_SEC_PAIR_GCMP_128|				\
+	 NM_802_11_AP_SEC_PAIR_GCMP_256)
+
+#define NM_802_11_AP_SEC_GROUP_MASK				\
+	(NM_802_11_AP_SEC_GROUP_WEP40|				\
+	 NM_802_11_AP_SEC_GROUP_WEP104|				\
+	 NM_802_11_AP_SEC_GROUP_TKIP|				\
+	 NM_802_11_AP_SEC_GROUP_CCMP|				\
+	 NM_802_11_AP_SEC_GROUP_CCMP_256|			\
+	 NM_802_11_AP_SEC_GROUP_GCMP_128|				\
+	 NM_802_11_AP_SEC_GROUP_GCMP_256)
+
+#define NM_802_11_AP_SEC_KEY_MGMT_MASK			\
+	(NM_802_11_AP_SEC_KEY_MGMT_PSK|				\
+	 NM_802_11_AP_SEC_KEY_MGMT_802_1X|			\
+	 NM_802_11_AP_SEC_KEY_MGMT_SAE|				\
+	 NM_802_11_AP_SEC_KEY_MGMT_CCKM|			\
+	 NM_802_11_AP_SEC_KEY_MGMT_SUITE_B|			\
+	 NM_802_11_AP_SEC_KEY_MGMT_SUITE_B_192|		\
+	 NM_802_11_AP_SEC_KEY_MGMT_OWE)
+
+#define NM_802_11_AP_SEC_MGMT_GROUP_MASK		\
+	(NM_802_11_AP_SEC_MGMT_GROUP_CMAC_128|		\
+	 NM_802_11_AP_SEC_MGMT_GROUP_CMAC_256|		\
+	 NM_802_11_AP_SEC_MGMT_GROUP_GMAC_128|		\
+	 NM_802_11_AP_SEC_MGMT_GROUP_GMAC_256)
 
 /**
  * NM80211Mode:

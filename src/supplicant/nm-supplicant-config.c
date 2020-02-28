@@ -61,6 +61,12 @@ typedef struct {
 	guint32    frequency_dfs;
 
 	NMSupplicantFeature laird_support;
+
+	struct {
+		gboolean suiteb;
+		gboolean ca_cert_check;
+	} flags1x;
+
 } NMSupplicantConfigPrivate;
 
 struct _NMSupplicantConfig {
@@ -741,6 +747,8 @@ nm_supplicant_config_add_bgscan (NMSupplicantConfig *self,
 		if (NM_IN_STRSET (nm_setting_wireless_security_get_key_mgmt (s_wsec),
 		                  "ieee8021x",
 		                  "cckm",
+		                  "wpa-eap-suite-b",
+		                  "wpa-eap-suite-b-192",
 		                  "wpa-eap"))
 			bgscan = "simple:30:-65:300";
 	}
@@ -924,6 +932,26 @@ add_wep_key (NMSupplicantConfig *self,
 	return TRUE;
 }
 
+static gboolean
+has_proto (NMSettingWirelessSecurity *s_wsec, const char *proto)
+{
+	int i;
+
+	for (i = 0; i < nm_setting_wireless_security_get_num_protos (s_wsec); i++) {
+		if (g_strcmp0 (proto, nm_setting_wireless_security_get_proto (s_wsec, i)) == 0)
+			return TRUE;
+	}
+	return FALSE;
+}
+
+static gboolean
+has_proto_only (NMSettingWirelessSecurity *s_wsec, const char *proto)
+{
+	if (1 != nm_setting_wireless_security_get_num_protos (s_wsec))
+		return FALSE;
+	return has_proto (s_wsec, proto);
+}
+
 gboolean
 nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
                                                     NMSettingWirelessSecurity *setting,
@@ -940,11 +968,14 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
 	const char *key_mgmt, *auth_alg;
 	const char *psk;
 	gboolean set_pmf;
+	gboolean wpa3_only;
 
 	g_return_val_if_fail (NM_IS_SUPPLICANT_CONFIG (self), FALSE);
 	g_return_val_if_fail (setting != NULL, FALSE);
 	g_return_val_if_fail (con_uuid != NULL, FALSE);
 	g_return_val_if_fail (!error || !*error, FALSE);
+
+	wpa3_only = has_proto_only(setting, "wpa3");
 
 	/* Check if we actually support FILS */
 	if (!priv->support_fils) {
@@ -961,6 +992,9 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
 	if (nm_streq (key_mgmt, "wpa-psk")) {
 		if (priv->support_pmf)
 			g_string_append (key_mgmt_conf, " wpa-psk-sha256");
+		// wpa3-psk: must also enable sae
+		if (wpa3_only)
+			g_string_append (key_mgmt_conf, " sae");
 	} else if (nm_streq (key_mgmt, "wpa-eap")) {
 		if (priv->support_pmf)
 			g_string_append (key_mgmt_conf, " wpa-eap-sha256");
@@ -977,6 +1011,29 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
 		default:
 			break;
 		}
+	}
+	else if (nm_streq (key_mgmt, "wpa-eap-suite-b") ||
+			 nm_streq (key_mgmt, "wpa-eap-suite-b-192"))
+	{
+		// disable ft for suite-b
+		ft = NM_SETTING_WIRELESS_SECURITY_FT_DISABLE;
+	}
+	else if (nm_streq (key_mgmt, "open"))
+	{
+		// wpa3-open: must use owe
+		if (wpa3_only) {
+			g_string_truncate (key_mgmt_conf, 0);
+			g_string_append (key_mgmt_conf, "owe");
+			ft = NM_SETTING_WIRELESS_SECURITY_FT_DISABLE;
+		}
+	}
+	else if (nm_streq (key_mgmt, "owe") ||
+			 nm_streq (key_mgmt, "owe-only"))
+	{
+		// disable ft for owe
+		g_string_truncate (key_mgmt_conf, 0);
+		g_string_append (key_mgmt_conf, "owe");
+		ft = NM_SETTING_WIRELESS_SECURITY_FT_DISABLE;
 	}
 
 	/* Check if we actually support FT */
@@ -997,6 +1054,9 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
 
 		if (nm_streq (key_mgmt, "wpa-psk")) {
 			g_string_append (key_mgmt_conf, " ft-psk");
+			// wpa3-psk: must also enable sae
+			if (wpa3_only)
+				g_string_append (key_mgmt_conf, " ft-sae");
 		} else if (nm_streq (key_mgmt, "wpa-eap")) {
 			switch (fils) {
 			case NM_SETTING_WIRELESS_SECURITY_FILS_REQUIRED:
@@ -1023,6 +1083,11 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
 
 	if (!add_string_val (self, key_mgmt_conf->str, "key_mgmt", TRUE, NULL, error))
 		return FALSE;
+
+	if (nm_streq (key_mgmt, "owe-only")) {
+		if (!add_string_val (self, "1", "owe_only", TRUE, NULL, error))
+			return FALSE;
+	}
 
 	auth_alg = nm_setting_wireless_security_get_auth_alg (setting);
 	if (!add_string_val (self, auth_alg, "auth_alg", TRUE, NULL, error))
@@ -1075,8 +1140,28 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
 		}
 	}
 
+	if (NM_IN_STRSET (key_mgmt, "wpa-eap-suite-b", "wpa-eap-suite-b-192"))
+	{
+		// pmf required for suite-b
+		pmf = NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED;
+	}
+	else if (wpa3_only) {
+
+		/* wpa3/wpa-psk (wpa3-sae transition): default to pmf optional */
+		/* wpa3/other: pmf required */
+		if (NM_IN_STRSET (key_mgmt, "wpa-psk")) {
+			// wpa3-sae transition mode: default to pmf optional
+			if (pmf != NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED)
+				pmf = NM_SETTING_WIRELESS_SECURITY_PMF_OPTIONAL;
+		} else {
+			// wpa3: pmf required
+			pmf = NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED;
+		}
+	}
+	else
 	/* Don't try to enable PMF on non-WPA networks */
-	if (!NM_IN_STRSET (key_mgmt, "wpa-eap", "wpa-psk"))
+		if (!NM_IN_STRSET (key_mgmt, "wpa-eap", "wpa-psk", "sae",
+						   "owe", "owe-only"))
 		pmf = NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE;
 
 	/* Check if we actually support PMF */
@@ -1087,6 +1172,11 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
 			                     "Supplicant does not support PMF");
 			return FALSE;
 		}
+		if (wpa3_only) {
+			g_set_error_literal (error, NM_SUPPLICANT_ERROR, NM_SUPPLICANT_ERROR_CONFIG,
+			                     "Supplicant does not support PMF.  Required for wpa3.");
+			return FALSE;
+		}
 		set_pmf = FALSE;
 	}
 
@@ -1094,15 +1184,82 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
 	if (   !strcmp (key_mgmt, "wpa-none")
 	    || !strcmp (key_mgmt, "wpa-psk")
 	    || !strcmp (key_mgmt, "wpa-eap")
+	    || !strcmp (key_mgmt, "wpa-eap-suite-b")
+	    || !strcmp (key_mgmt, "wpa-eap-suite-b-192")
 	    || !strcmp (key_mgmt, "cckm")
-	    || !strcmp (key_mgmt, "sae")) {
-		if (!ADD_STRING_LIST_VAL (self, setting, wireless_security, proto, protos, "proto", ' ', TRUE, NULL, error))
-			return FALSE;
+	    || !strcmp (key_mgmt, "sae")
+	    || !strcmp (key_mgmt, "owe")
+	    || !strcmp (key_mgmt, "owe-only")
+		|| wpa3_only)
+	{
+
+		const char *_pairwise = NULL;
+		const char *_group = NULL;
+		const char *_group_mgmt = NULL;
+
+		if (wpa3_only) {
+			if (!strcmp (key_mgmt, "wpa-eap-suite-b")) {
+				// suite-b: GCMP/BIP-GMAC (same as wpa2 mode)
+				_pairwise = "GCMP";
+				_group = "GCMP";
+				_group_mgmt = "BIP-GMAC-128";
+			} else if (!strcmp (key_mgmt, "wpa-eap-suite-b-192")) {
+				// wpa3-enterprise-192: GCMP-256/BIP-GMAC-256, PMF required
+				_pairwise = "GCMP-256";
+				_group = "GCMP-256";
+				_group_mgmt = "BIP-GMAC-256";
+			} else {
+				// wpa3: no wep/tkip
+				_pairwise = "CCMP CCMP-256 GCMP GCMP-256";
+				_group = "CCMP CCMP-256 GCMP GCMP-256";
+				_group_mgmt = "AES-128-CMAC BIP-CMAC-256 BIP-GMAC-128 BIP-GMAC-256";
+			}
+			// use "WPA3" so sae-transition will use pmf for sae
+			if (!nm_supplicant_config_add_option (self, "proto", "WPA3", -1, NULL, error))
+				return FALSE;
+		} else {
+			if (!strcmp (key_mgmt, "wpa-eap-suite-b")) {
+				// suite-b: GCMP/BIP-GMAC
+				_pairwise = "GCMP";
+				_group = "GCMP";
+				_group_mgmt = "BIP-GMAC-128";
+			} else if (!strcmp (key_mgmt, "wpa-eap-suite-b-192")) {
+				// suite-b-192: CCMP-256/GCMP-256/BIP-CMAC-256/BIP-GMAC-256, PMF required
+				_pairwise = "CCMP-256 GCMP-256";
+				_group = "CCMP-256 GCMP-256";
+				_group_mgmt = "BIP-CMAC-256 BIP-GMAC-256";
+			}
+			if (!ADD_STRING_LIST_VAL (self, setting, wireless_security, proto, protos, "proto", ' ', TRUE, NULL, error))
+				return FALSE;
+		}
+
+		if (nm_setting_wireless_security_get_num_pairwise (setting) == 0) {
+			if (_pairwise && !nm_supplicant_config_add_option (self, "pairwise", _pairwise, -1, NULL, error))
+				return FALSE;
+		} else
 		if (!ADD_STRING_LIST_VAL (self, setting, wireless_security, pairwise, pairwise, "pairwise", ' ', TRUE, NULL, error))
 			return FALSE;
+
+		if (nm_setting_wireless_security_get_num_groups (setting) == 0) {
+			if (_group && !nm_supplicant_config_add_option (self, "group", _group, -1, NULL, error))
+				return FALSE;
+		} else
 		if (!ADD_STRING_LIST_VAL (self, setting, wireless_security, group, groups, "group", ' ', TRUE, NULL, error))
 			return FALSE;
 
+		if (_group_mgmt && !nm_supplicant_config_add_option (self, "group_mgmt", _group_mgmt, -1, NULL, error))
+			return FALSE;
+
+		if (wpa3_only) {
+			// pmf: was set to required, or optional above
+			if (!nm_supplicant_config_add_option (self,
+												  "ieee80211w",
+												  pmf == NM_SETTING_WIRELESS_SECURITY_PMF_OPTIONAL ? "1" : "2",
+												  -1,
+												  NULL,
+												  error))
+				return FALSE;
+		} else
 		if (   set_pmf
 		    && !nm_streq (key_mgmt, "wpa-none")
 		    && NM_IN_SET (pmf,
@@ -1166,17 +1323,32 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
 		}
 	} else {
 		/* 802.1x for Dynamic WEP and WPA-Enterprise */
-		if (!strcmp (key_mgmt, "ieee8021x") || !strcmp (key_mgmt, "wpa-eap") || !strcmp (key_mgmt, "cckm")) {
+		if (!strcmp (key_mgmt, "ieee8021x") || !strcmp (key_mgmt, "wpa-eap") || !strcmp (key_mgmt, "cckm") ||
+				!strcmp (key_mgmt, "wpa-eap-suite-b") || !strcmp (key_mgmt, "wpa-eap-suite-b-192") )
+		{
 			if (!setting_8021x) {
 				g_set_error (error, NM_SUPPLICANT_ERROR, NM_SUPPLICANT_ERROR_CONFIG,
 				             "Cannot set key-mgmt %s with missing 8021x setting", key_mgmt);
 				return FALSE;
 			}
+			if (!strcmp (key_mgmt, "wpa-eap-suite-b") || !strcmp (key_mgmt, "wpa-eap-suite-b-192") )
+			{
+				priv->flags1x.suiteb = TRUE;
+			} else {
+				priv->flags1x.suiteb = FALSE;
+			}
+			if (wpa3_only) {
+				priv->flags1x.ca_cert_check = TRUE;
+			} else {
+				priv->flags1x.ca_cert_check = FALSE;
+			}
 			if (!nm_supplicant_config_add_setting_8021x (self, setting_8021x, con_uuid, mtu, FALSE, error))
 				return FALSE;
 		}
 
-		if (!strcmp (key_mgmt, "wpa-eap") || !strcmp (key_mgmt, "cckm")) {
+		if (!strcmp (key_mgmt, "wpa-eap") || !strcmp (key_mgmt, "cckm") ||
+				!strcmp (key_mgmt, "wpa-eap-suite-b") || !strcmp (key_mgmt, "wpa-eap-suite-b-192") )
+		{
 			/* When using WPA-Enterprise, we want to use Proactive Key Caching (also
 			 * called Opportunistic Key Caching) to avoid full EAP exchanges when
 			 * roaming between access points in the same mobility group.
@@ -1262,6 +1434,8 @@ nm_supplicant_config_add_setting_8021x (NMSupplicantConfig *self,
 	NMSetting8021xAuthFlags phase1_auth_flags;
 	nm_auto_free_gstring GString *eap_str = NULL;
 	char const *tls_disable = NULL;
+	int ca_cert_needed = 0;
+	int ca_cert_configured = 0;
 
 	g_return_val_if_fail (NM_IS_SUPPLICANT_CONFIG (self), FALSE);
 	g_return_val_if_fail (setting != NULL, FALSE);
@@ -1302,8 +1476,18 @@ nm_supplicant_config_add_setting_8021x (NMSupplicantConfig *self,
 	 * special handling: PEAP + GTC, FAST, external */
 	eap_str = g_string_new (NULL);
 	num_eap = nm_setting_802_1x_get_num_eap_methods (setting);
+
 	for (i = 0; i < num_eap; i++) {
 		const char *method = nm_setting_802_1x_get_eap_method (setting, i);
+
+		if (priv->flags1x.suiteb) {
+			// suiteb, 802-1x.eap must be only tls
+			if (!nm_streq (method, "tls")) {
+				g_set_error (error, NM_SUPPLICANT_ERROR, NM_SUPPLICANT_ERROR_CONFIG,
+				             "suite-b must use 802-1x.eap tls");
+				return FALSE;
+			}
+		}
 
 		if (nm_streq (method, "fast")) {
 			fast = TRUE;
@@ -1320,9 +1504,22 @@ nm_supplicant_config_add_setting_8021x (NMSupplicantConfig *self,
 			continue;
 		}
 
+		if (nm_streq (method, "tls") ||
+			nm_streq (method, "peap") ||
+			nm_streq (method, "ttls")) {
+			ca_cert_needed = 1;
+		}
+
 		if (eap_str->len)
 			g_string_append_c (eap_str, ' ');
 		g_string_append (eap_str, method);
+	}
+
+	if (priv->flags1x.suiteb && num_eap != 1) {
+		// suiteb, 802-1x.eap must be only tls
+		g_set_error (error, NM_SUPPLICANT_ERROR, NM_SUPPLICANT_ERROR_CONFIG,
+					 "suite-b must use 802-1x.eap tls");
+		return FALSE;
 	}
 
 	g_string_ascii_up (eap_str);
@@ -1377,6 +1574,10 @@ nm_supplicant_config_add_setting_8021x (NMSupplicantConfig *self,
 	tls_disable = nm_setting_802_1x_get_tls_disable_time_checks (setting);
 	if (tls_disable) {
 		g_string_append_printf (phase1, "%stls_disable_time_checks=%s", (phase1->len ? " " : ""), tls_disable);
+	}
+
+	if (priv->flags1x.suiteb) {
+		g_string_append_printf (phase1, "%stls_suiteb=1", (phase1->len ? " " : ""));
 	}
 
 	if (phase1->len) {
@@ -1477,17 +1678,20 @@ nm_supplicant_config_add_setting_8021x (NMSupplicantConfig *self,
 	if (ca_cert_override) {
 		if (!add_string_val (self, ca_cert_override, "ca_cert", FALSE, NULL, error))
 			return FALSE;
+		ca_cert_configured = 1;
 	} else {
 		switch (nm_setting_802_1x_get_ca_cert_scheme (setting)) {
 		case NM_SETTING_802_1X_CK_SCHEME_BLOB:
 			bytes = nm_setting_802_1x_get_ca_cert_blob (setting);
 			if (!nm_supplicant_config_add_blob_for_connection (self, bytes, "ca_cert", con_uuid, error))
 				return FALSE;
+			ca_cert_configured = 1;
 			break;
 		case NM_SETTING_802_1X_CK_SCHEME_PATH:
 			path = nm_setting_802_1x_get_ca_cert_path (setting);
 			if (!add_string_val (self, path, "ca_cert", FALSE, NULL, error))
 				return FALSE;
+			ca_cert_configured = 1;
 			break;
 		case NM_SETTING_802_1X_CK_SCHEME_PKCS11:
 			if (!add_pkcs11_uri_with_pin (self, "ca_cert",
@@ -1497,10 +1701,20 @@ nm_supplicant_config_add_setting_8021x (NMSupplicantConfig *self,
 			                              error)) {
 				return FALSE;
 			}
+			ca_cert_configured = 1;
 			break;
 		default:
 			break;
 		}
+	}
+
+	if (priv->flags1x.ca_cert_check &&
+		ca_cert_needed && !ca_cert_configured)
+	{
+		// wpa3 must have ca cert if required for eap
+		g_set_error (error, NM_SUPPLICANT_ERROR, NM_SUPPLICANT_ERROR_CONFIG,
+					 "wpa3 missing ca certificate");
+		return FALSE;
 	}
 
 	/* Phase 2 CA certificate */

@@ -63,7 +63,8 @@ gboolean          nm_wifi_ap_update_from_properties   (NMWifiAP *ap,
                                                        GVariant *properties);
 
 gboolean          nm_wifi_ap_check_compatible         (NMWifiAP *self,
-                                                       NMConnection *connection);
+                                                       NMConnection *connection,
+                                                       NMDeviceWifiCapabilities dev_caps);
 
 gboolean          nm_wifi_ap_complete_connection      (NMWifiAP *self,
                                                        NMConnection *connection,
@@ -105,7 +106,8 @@ const char      **nm_wifi_aps_get_paths        (const CList *aps_lst_head,
                                                 gboolean include_without_ssid);
 
 NMWifiAP         *nm_wifi_aps_find_first_compatible (const CList *aps_lst_head,
-                                                     NMConnection *connection);
+                                                     NMConnection *connection,
+                                                     NMDeviceWifiCapabilities dev_caps);
 
 NMWifiAP         *nm_wifi_aps_find_by_supplicant_path (const CList *aps_lst_head, const char *path);
 

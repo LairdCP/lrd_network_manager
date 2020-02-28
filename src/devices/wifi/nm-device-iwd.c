@@ -747,7 +747,7 @@ check_connection_available (NMDevice *device,
 		return TRUE;
 
 	if (!ap)
-		ap = nm_wifi_aps_find_first_compatible (&priv->aps_lst_head, connection);
+		ap = nm_wifi_aps_find_first_compatible (&priv->aps_lst_head, connection, priv->capabilities);
 
 	if (!ap) {
 		nm_utils_error_set_literal (error, NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
@@ -813,7 +813,7 @@ complete_connection (NMDevice *device,
 		}
 
 		/* Find a compatible AP in the scan list */
-		ap = nm_wifi_aps_find_first_compatible (&priv->aps_lst_head, connection);
+		ap = nm_wifi_aps_find_first_compatible (&priv->aps_lst_head, connection, priv->capabilities);
 		if (!ap) {
 			if (!nm_streq0 (mode, NM_SETTING_WIRELESS_MODE_ADHOC)) {
 				g_set_error_literal (error,
@@ -973,7 +973,7 @@ can_auto_connect (NMDevice *device,
 			return FALSE;
 	}
 
-	ap = nm_wifi_aps_find_first_compatible (&priv->aps_lst_head, connection);
+	ap = nm_wifi_aps_find_first_compatible (&priv->aps_lst_head, connection, priv->capabilities);
 	if (ap) {
 		/* All good; connection is usable */
 		NM_SET_OUT (specific_object, g_strdup (nm_dbus_object_get_path (NM_DBUS_OBJECT (ap))));
@@ -1747,7 +1747,7 @@ act_stage1_prepare (NMDevice *device, NMDeviceStateReason *out_failure_reason)
 		return NM_ACT_STAGE_RETURN_SUCCESS;
 	}
 
-	ap = nm_wifi_aps_find_first_compatible (&priv->aps_lst_head, connection);
+	ap = nm_wifi_aps_find_first_compatible (&priv->aps_lst_head, connection, priv->capabilities);
 	if (ap) {
 		nm_active_connection_set_specific_object (NM_ACTIVE_CONNECTION (req),
 		                                          nm_dbus_object_get_path (NM_DBUS_OBJECT (ap)));

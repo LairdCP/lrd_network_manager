@@ -417,7 +417,10 @@ verify_wpa_eap (NMSettingWirelessSecurity *s_wsec,
 		if (!strcmp (key_mgmt, "cckm")) {
 			return verify_cckm(s_wsec, s_8021x, wpa_flags, rsn_flags, error);
 		}
-		if (!strcmp (key_mgmt, "wpa-eap")) {
+		if (!strcmp (key_mgmt, "wpa-eap") ||
+			!strcmp (key_mgmt, "wpa-eap-suite-b") ||
+			!strcmp (key_mgmt, "wpa-eap-suite-b-192"))
+		{
 			if (!s_8021x) {
 				g_set_error_literal (error,
 				                     NM_CONNECTION_ERROR,

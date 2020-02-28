@@ -726,12 +726,40 @@ warn_wireless_requires_laird_support(NMDeviceWifi *self, NMSettingWireless *s_wi
 	return rv;
 }
 
+
+static gboolean
+has_proto (NMSettingWirelessSecurity *s_wsec, const char *proto)
+{
+	int i;
+
+	for (i = 0; i < nm_setting_wireless_security_get_num_protos (s_wsec); i++) {
+		if (g_strcmp0 (proto, nm_setting_wireless_security_get_proto (s_wsec, i)) == 0)
+			return TRUE;
+	}
+	return FALSE;
+}
+
+#define WPA_CAPS (NM_WIFI_DEVICE_CAP_CIPHER_TKIP | \
+                  NM_WIFI_DEVICE_CAP_CIPHER_CCMP | \
+                  NM_WIFI_DEVICE_CAP_WPA | \
+                  NM_WIFI_DEVICE_CAP_RSN)
+
+#define RSN_CAPS (NM_WIFI_DEVICE_CAP_CIPHER_CCMP | NM_WIFI_DEVICE_CAP_RSN)
+
+#define RSN_CAPS_PMF (NM_WIFI_DEVICE_CAP_CIPHER_CMAC_128 |	\
+					  NM_WIFI_DEVICE_CAP_CIPHER_CMAC_256 |	\
+					  NM_WIFI_DEVICE_CAP_CIPHER_GMAC_128 |	\
+					  NM_WIFI_DEVICE_CAP_CIPHER_GMAC_256)
+
 static gboolean
 check_connection_compatible (NMDevice *device, NMConnection *connection, GError **error)
 {
 	NMDeviceWifi *self = NM_DEVICE_WIFI (device);
 	NMDeviceWifiPrivate *priv = NM_DEVICE_WIFI_GET_PRIVATE (self);
 	NMSettingWireless *s_wireless;
+	NMSettingWirelessSecurity *s_wsec;
+	NMDeviceWifiCapabilities wifi_caps;
+	const char *key_mgmt;
 	const char *mac;
 	const char * const *mac_blacklist;
 	int i;
@@ -820,6 +848,74 @@ check_connection_compatible (NMDevice *device, NMConnection *connection, GError 
 	// FIXME: check encryption against device capabilities
 	// FIXME: check bitrate against device capabilities
 
+	/* Check device capabilities; we assume all devices can do WEP at least */
+	s_wsec = nm_connection_get_setting_wireless_security (connection);
+	if (s_wsec) {
+		/* Connection has security, verify it against the device's capabilities */
+		key_mgmt = nm_setting_wireless_security_get_key_mgmt (s_wsec);
+		if (   !g_strcmp0 (key_mgmt, "wpa-none")
+		    || !g_strcmp0 (key_mgmt, "wpa-psk")
+		    || !g_strcmp0 (key_mgmt, "sae")
+		    || !g_strcmp0 (key_mgmt, "wpa-eap-suite-b")
+		    || !g_strcmp0 (key_mgmt, "wpa-eap-suite-b-192")
+		    || !g_strcmp0 (key_mgmt, "owe")
+		    || !g_strcmp0 (key_mgmt, "owe-only")
+		    || !g_strcmp0 (key_mgmt, "wpa-eap")) {
+
+			wifi_caps = priv->capabilities;
+
+			/* Is device only WEP capable? */
+			if (!(wifi_caps & WPA_CAPS)) {
+				g_set_error_literal (error, NM_DEVICE_ERROR, NM_DEVICE_ERROR_INCOMPATIBLE_CONNECTION,
+				                     _("The device is lacking capabilities required by the connection."));
+				return FALSE;
+			}
+
+			/* Make sure WPA2/RSN-only connections don't get chosen for WPA-only cards */
+			if ( (has_proto (s_wsec, "rsn")||has_proto (s_wsec, "wpa3"))
+				 && !has_proto (s_wsec, "wpa") && !(wifi_caps & RSN_CAPS)) {
+				g_set_error_literal (error, NM_DEVICE_ERROR, NM_DEVICE_ERROR_INCOMPATIBLE_CONNECTION,
+				                     _("The device is lacking WPA2/RSN capabilities required by the connection."));
+				return FALSE;
+			}
+
+			if (has_proto (s_wsec, "wpa3")) {
+				if (!(wifi_caps & RSN_CAPS_PMF)) {
+					g_set_error_literal (error, NM_DEVICE_ERROR, NM_DEVICE_ERROR_INCOMPATIBLE_CONNECTION,
+										 _("The device is lacking PMF capabilities required by the connection."));
+					return FALSE;
+				}
+				if (!g_strcmp0 (key_mgmt, "wpa-eap-suite-b-192") &&
+					!(wifi_caps & NM_WIFI_DEVICE_CAP_CIPHER_GCMP_256) &&
+					!(wifi_caps & NM_WIFI_DEVICE_CAP_CIPHER_GMAC_256))
+				{
+					g_set_error_literal (error, NM_DEVICE_ERROR, NM_DEVICE_ERROR_INCOMPATIBLE_CONNECTION,
+										 _("The device is lacking wpa3 suite-b-192 gcmp-256/gmac-256 capabilities required by the connection."));
+					return FALSE;
+				}
+			} else {
+				if (!g_strcmp0 (key_mgmt, "wpa-eap-suite-b-192") &&
+					!(wifi_caps & (NM_WIFI_DEVICE_CAP_CIPHER_CCMP_256|
+								   NM_WIFI_DEVICE_CAP_CIPHER_GCMP_256)) &&
+					!(wifi_caps & (NM_WIFI_DEVICE_CAP_CIPHER_CMAC_256|
+								   NM_WIFI_DEVICE_CAP_CIPHER_GMAC_256)))
+				{
+					g_set_error_literal (error, NM_DEVICE_ERROR, NM_DEVICE_ERROR_INCOMPATIBLE_CONNECTION,
+										 _("The device is lacking suite-b-192 ccmp-256/gcmp-256, or cmac-256/gmac-256 capabilities required by the connection."));
+					return FALSE;
+				}
+			}
+			if (!g_strcmp0 (key_mgmt, "wpa-eap-suite-b") &&
+				!(wifi_caps & NM_WIFI_DEVICE_CAP_CIPHER_GCMP_128) &&
+				!(wifi_caps & NM_WIFI_DEVICE_CAP_CIPHER_GMAC_128))
+			{
+				g_set_error_literal (error, NM_DEVICE_ERROR, NM_DEVICE_ERROR_INCOMPATIBLE_CONNECTION,
+									 _("The device is lacking suite-b gcmp/gmac capabilities required by the connection."));
+				return FALSE;
+			}
+		}
+	}
+
 	return TRUE;
 }
 
@@ -850,7 +946,8 @@ check_connection_available (NMDevice *device,
 			                            "requested access point not found");
 			return FALSE;
 		}
-		if (!nm_wifi_ap_check_compatible (ap, connection)) {
+
+		if (!nm_wifi_ap_check_compatible (ap, connection, priv->capabilities)) {
 			nm_utils_error_set_literal (error, NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
 			                            "requested access point is not compatible with profile");
 			return FALSE;
@@ -879,7 +976,7 @@ check_connection_available (NMDevice *device,
 	    || NM_FLAGS_HAS (flags, _NM_DEVICE_CHECK_CON_AVAILABLE_FOR_USER_REQUEST_IGNORE_AP))
 		return TRUE;
 
-	if (!nm_wifi_aps_find_first_compatible (&priv->aps_lst_head, connection)) {
+	if (!nm_wifi_aps_find_first_compatible (&priv->aps_lst_head, connection, priv->capabilities)) {
 		nm_utils_error_set_literal (error, NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
 		                            "no compatible access point found");
 		return FALSE;
@@ -930,7 +1027,7 @@ complete_connection (NMDevice *device,
 
 		if (!nm_streq0 (mode, NM_SETTING_WIRELESS_MODE_AP)) {
 			/* Find a compatible AP in the scan list */
-			ap = nm_wifi_aps_find_first_compatible (&priv->aps_lst_head, connection);
+			ap = nm_wifi_aps_find_first_compatible (&priv->aps_lst_head, connection, priv->capabilities);
 
 			/* If we still don't have an AP, then the WiFI settings needs to be
 			 * fully specified by the client.  Might not be able to find an AP
@@ -1114,7 +1211,7 @@ can_auto_connect (NMDevice *device,
 			return FALSE;
 	}
 
-	ap = nm_wifi_aps_find_first_compatible (&priv->aps_lst_head, connection);
+	ap = nm_wifi_aps_find_first_compatible (&priv->aps_lst_head, connection, priv->capabilities);
 	if (ap) {
 		/* All good; connection is usable */
 		NM_SET_OUT (specific_object, g_strdup (nm_dbus_object_get_path (NM_DBUS_OBJECT (ap))));
@@ -3002,7 +3099,7 @@ act_stage1_prepare (NMDevice *device, NMDeviceStateReason *out_failure_reason)
 		if (ap)
 			goto done;
 
-		ap = nm_wifi_aps_find_first_compatible (&priv->aps_lst_head, connection);
+		ap = nm_wifi_aps_find_first_compatible (&priv->aps_lst_head, connection, priv->capabilities);
 	}
 
 	if (ap) {

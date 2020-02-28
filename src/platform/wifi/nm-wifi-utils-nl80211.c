@@ -738,7 +738,12 @@ struct nl80211_device_info {
 #define WLAN_CIPHER_SUITE_CCMP      0x000FAC04
 #define WLAN_CIPHER_SUITE_WEP104    0x000FAC05
 #define WLAN_CIPHER_SUITE_AES_CMAC  0x000FAC06
-#define WLAN_CIPHER_SUITE_GCMP      0x000FAC08
+#define WLAN_CIPHER_SUITE_GCMP_128  0x000FAC08
+#define WLAN_CIPHER_SUITE_GCMP_256  0x000FAC09
+#define WLAN_CIPHER_SUITE_CCMP_256  0x000FAC0A
+#define WLAN_CIPHER_SUITE_GMAC_128  0x000FAC0B
+#define WLAN_CIPHER_SUITE_GMAC_256  0x000FAC0C
+#define WLAN_CIPHER_SUITE_CMAC_256  0x000FAC0D
 #define WLAN_CIPHER_SUITE_SMS4      0x00147201
 
 static int nl80211_wiphy_info_handler (struct nl_msg *msg, void *arg)
@@ -902,8 +907,27 @@ static int nl80211_wiphy_info_handler (struct nl_msg *msg, void *arg)
 				info->caps |= (NM_WIFI_DEVICE_CAP_CIPHER_CCMP |
 				               NM_WIFI_DEVICE_CAP_RSN);
 				break;
+			case WLAN_CIPHER_SUITE_CCMP_256:
+				info->caps |= NM_WIFI_DEVICE_CAP_CIPHER_CCMP_256;
+				break;
+			case WLAN_CIPHER_SUITE_GCMP_128:
+				info->caps |= NM_WIFI_DEVICE_CAP_CIPHER_GCMP_128;
+				break;
+			case WLAN_CIPHER_SUITE_GCMP_256:
+				info->caps |= NM_WIFI_DEVICE_CAP_CIPHER_GCMP_256;
+				break;
 			case WLAN_CIPHER_SUITE_AES_CMAC:
-			case WLAN_CIPHER_SUITE_GCMP:
+				info->caps |= NM_WIFI_DEVICE_CAP_CIPHER_CMAC_128;
+				break;
+			case WLAN_CIPHER_SUITE_CMAC_256:
+				info->caps |= NM_WIFI_DEVICE_CAP_CIPHER_CMAC_256;
+				break;
+			case WLAN_CIPHER_SUITE_GMAC_128:
+				info->caps |= NM_WIFI_DEVICE_CAP_CIPHER_GMAC_128;
+				break;
+			case WLAN_CIPHER_SUITE_GMAC_256:
+				info->caps |= NM_WIFI_DEVICE_CAP_CIPHER_GMAC_256;
+				break;
 			case WLAN_CIPHER_SUITE_SMS4:
 				break;
 			default:

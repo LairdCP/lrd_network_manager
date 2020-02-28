@@ -63,14 +63,18 @@ static const struct validate_entry validate_table[] = {
 	{ TYPE_KEYWORD, validate_type_keyword },
 };
 
-static const char *const pairwise_allowed[] = { "CCMP", "TKIP", "NONE", NULL };
-static const char *const group_allowed[] =    { "CCMP", "TKIP", "WEP104", "WEP40", NULL };
-static const char *const proto_allowed[] =    { "WPA", "RSN", NULL };
+static const char *const pairwise_allowed[] = { "CCMP", "TKIP", "NONE",
+												"CCMP-256", "GCMP", "GCMP-256", NULL };
+static const char *const group_allowed[] =    { "CCMP", "TKIP", "WEP104", "WEP40",
+												"CCMP-256", "GCMP", "GCMP-256", NULL };
+static const char *const group_mgmt_allowed[] = { "AES-128-CMAC", "BIP-CMAC-256","BIP-GMAC-128","BIP-GMAC-256", NULL };
+static const char *const proto_allowed[] =    { "WPA", "RSN", "WPA3", NULL };
 static const char *const key_mgmt_allowed[] = { "WPA-PSK", "WPA-PSK-SHA256", "FT-PSK",
                                                 "WPA-EAP", "WPA-EAP-SHA256", "FT-EAP", "FT-EAP-SHA384",
                                                 "CCKM",
                                                 "FILS-SHA256", "FILS-SHA384",
                                                 "IEEE8021X", "WPA-NONE", "SAE", "FT-SAE",
+												"WPA-EAP-SUITE-B", "WPA-EAP-SUITE-B-192", "OWE",
                                                 "NONE", NULL };
 static const char *const auth_alg_allowed[] = { "OPEN", "SHARED", "LEAP", NULL };
 static const char *const eap_allowed[] =      { "LEAP", "MD5", "TLS", "PEAP", "TTLS", "SIM",
@@ -84,6 +88,7 @@ static const char *const phase1_allowed[] =   { "peapver=0", "peapver=1", "peapl
                                                 "tls_disable_tlsv1_0=1", "tls_disable_tlsv1_1=0",
                                                 "tls_disable_tlsv1_1=1", "tls_disable_tlsv1_2=0",
                                                 "tls_disable_tlsv1_2=1", "tls_disable_time_checks=0",
+                                                "tls_suiteb=1", "tls_suiteb=0",
                                                 "tls_disable_time_checks=1", NULL };
 
 static const char *const phase2_allowed[] =   { "auth=PAP", "auth=CHAP", "auth=MSCHAP",
@@ -104,6 +109,7 @@ static const struct Opt opt_table[] = {
 	{ "psk",                TYPE_BYTES,   0, 0, FALSE,  NULL },
 	{ "pairwise",           TYPE_KEYWORD, 0, 0, FALSE,  pairwise_allowed },
 	{ "group",              TYPE_KEYWORD, 0, 0, FALSE,  group_allowed },
+	{ "group_mgmt",         TYPE_KEYWORD, 0, 0, FALSE,  group_mgmt_allowed },
 	{ "proto",              TYPE_KEYWORD, 0, 0, FALSE,  proto_allowed },
 	{ "key_mgmt",           TYPE_KEYWORD, 0, 0, FALSE,  key_mgmt_allowed },
 	{ "wep_key0",           TYPE_BYTES,   0, 0, FALSE,  NULL },
@@ -160,6 +166,7 @@ static const struct Opt opt_table[] = {
 	{ "pac_file_password",  TYPE_BYTES,   0, 1024, FALSE,  NULL },
 	{ "ignore_broadcast_ssid", TYPE_INT,  0, 2, FALSE, NULL },
 	{ "dms",                TYPE_INT,     0, 6, FALSE, NULL },
+	{ "owe_only",           TYPE_INT,     0, 1, FALSE,  NULL },
 };
 
 static gboolean

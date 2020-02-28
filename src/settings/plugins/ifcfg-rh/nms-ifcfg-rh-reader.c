@@ -3627,7 +3627,8 @@ make_wpa_setting (shvarFile *ifcfg,
 	v = svGetValueStr (ifcfg, "KEY_MGMT", &value);
 	wpa_psk = nm_streq0 (v, "WPA-PSK");
 	wpa_sae = nm_streq0 (v, "SAE");
-	wpa_eap = nm_streq0 (v, "WPA-EAP");
+	wpa_eap = nm_streq0 (v, "WPA-EAP")
+		|| nm_streq0 (v, "WPA-EAP-SUITE-B") || nm_streq0 (v, "WPA-EAP-SUITE-B-192");
 	ieee8021x = nm_streq0 (v, "IEEE8021X");
 	if (   !wpa_psk
 	    && !wpa_sae
