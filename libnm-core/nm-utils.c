@@ -1071,6 +1071,15 @@ device_supports_ap_ciphers (guint32 dev_caps,
 		if (dev_caps & NM_WIFI_DEVICE_CAP_CIPHER_CCMP)
 			if (ap_flags & NM_802_11_AP_SEC_PAIR_CCMP)
 				have_pair = TRUE;
+		if (dev_caps & NM_WIFI_DEVICE_CAP_CIPHER_CCMP_256)
+			if (ap_flags & NM_802_11_AP_SEC_PAIR_CCMP_256)
+				have_pair = TRUE;
+		if (dev_caps & NM_WIFI_DEVICE_CAP_CIPHER_GCMP_128)
+			if (ap_flags & NM_802_11_AP_SEC_PAIR_GCMP_128)
+				have_pair = TRUE;
+		if (dev_caps & NM_WIFI_DEVICE_CAP_CIPHER_GCMP_256)
+			if (ap_flags & NM_802_11_AP_SEC_PAIR_GCMP_256)
+				have_pair = TRUE;
 	}
 
 	/* Group */
@@ -1086,6 +1095,15 @@ device_supports_ap_ciphers (guint32 dev_caps,
 				have_group = TRUE;
 		if (dev_caps & NM_WIFI_DEVICE_CAP_CIPHER_CCMP)
 			if (ap_flags & NM_802_11_AP_SEC_GROUP_CCMP)
+				have_group = TRUE;
+		if (dev_caps & NM_WIFI_DEVICE_CAP_CIPHER_CCMP_256)
+			if (ap_flags & NM_802_11_AP_SEC_GROUP_CCMP_256)
+				have_group = TRUE;
+		if (dev_caps & NM_WIFI_DEVICE_CAP_CIPHER_GCMP_128)
+			if (ap_flags & NM_802_11_AP_SEC_GROUP_GCMP_128)
+				have_group = TRUE;
+		if (dev_caps & NM_WIFI_DEVICE_CAP_CIPHER_GCMP_256)
+			if (ap_flags & NM_802_11_AP_SEC_GROUP_GCMP_256)
 				have_group = TRUE;
 	}
 

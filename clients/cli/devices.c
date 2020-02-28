@@ -42,31 +42,59 @@
 static char *
 ap_wpa_rsn_flags_to_string (NM80211ApSecurityFlags flags)
 {
-	char *flags_str[13];
+	char *flags_str[27];
 	int i = 0;
 
 	if (flags & NM_802_11_AP_SEC_PAIR_WEP40)
-		flags_str[i++] = "pair_wpe40";
+		flags_str[i++] = "pair_wep40";
 	if (flags & NM_802_11_AP_SEC_PAIR_WEP104)
-		flags_str[i++] = "pair_wpe104";
+		flags_str[i++] = "pair_wep104";
 	if (flags & NM_802_11_AP_SEC_PAIR_TKIP)
 		flags_str[i++] = "pair_tkip";
 	if (flags & NM_802_11_AP_SEC_PAIR_CCMP)
 		flags_str[i++] = "pair_ccmp";
+	if (flags & NM_802_11_AP_SEC_PAIR_CCMP_256)
+		flags_str[i++] = "pair_ccmp_256";
+	if (flags & NM_802_11_AP_SEC_PAIR_GCMP_128)
+		flags_str[i++] = "pair_gcmp";
+	if (flags & NM_802_11_AP_SEC_PAIR_GCMP_256)
+		flags_str[i++] = "pair_gcmp_256";
 	if (flags & NM_802_11_AP_SEC_GROUP_WEP40)
-		flags_str[i++] = "group_wpe40";
+		flags_str[i++] = "group_wep40";
 	if (flags & NM_802_11_AP_SEC_GROUP_WEP104)
-		flags_str[i++] = "group_wpe104";
+		flags_str[i++] = "group_wep104";
 	if (flags & NM_802_11_AP_SEC_GROUP_TKIP)
 		flags_str[i++] = "group_tkip";
 	if (flags & NM_802_11_AP_SEC_GROUP_CCMP)
 		flags_str[i++] = "group_ccmp";
+	if (flags & NM_802_11_AP_SEC_GROUP_CCMP_256)
+		flags_str[i++] = "group_ccmp_256";
+	if (flags & NM_802_11_AP_SEC_GROUP_GCMP_128)
+		flags_str[i++] = "group_gcmp";
+	if (flags & NM_802_11_AP_SEC_GROUP_GCMP_256)
+		flags_str[i++] = "group_gcmp_256";
 	if (flags & NM_802_11_AP_SEC_KEY_MGMT_PSK)
 		flags_str[i++] = "psk";
 	if (flags & NM_802_11_AP_SEC_KEY_MGMT_802_1X)
 		flags_str[i++] = "802.1X";
 	if (flags & NM_802_11_AP_SEC_KEY_MGMT_SAE)
 		flags_str[i++] = "sae";
+	if (flags & NM_802_11_AP_SEC_KEY_MGMT_CCKM)
+		flags_str[i++] = "cckm";
+	if (flags & NM_802_11_AP_SEC_KEY_MGMT_SUITE_B)
+		flags_str[i++] = "suite_b";
+	if (flags & NM_802_11_AP_SEC_KEY_MGMT_SUITE_B_192)
+		flags_str[i++] = "suite_b_192";
+	if (flags & NM_802_11_AP_SEC_KEY_MGMT_OWE)
+		flags_str[i++] = "owe";
+	if (flags & NM_802_11_AP_SEC_MGMT_GROUP_CMAC_128)
+		flags_str[i++] = "bip_cmac";
+	if (flags & NM_802_11_AP_SEC_MGMT_GROUP_CMAC_256)
+		flags_str[i++] = "bip_cmac_256";
+	if (flags & NM_802_11_AP_SEC_MGMT_GROUP_GMAC_128)
+		flags_str[i++] = "bip_gmac_128";
+	if (flags & NM_802_11_AP_SEC_MGMT_GROUP_GMAC_256)
+		flags_str[i++] = "bip_gmac_256";
 	/* Make sure you grow flags_str when adding items here. */
 
 	if (i == 0)
@@ -1168,13 +1196,41 @@ fill_output_access_point (gpointer data, gpointer user_data)
 		g_string_append (security_str, "WPA1 ");
 	}
 	if (   (rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_PSK)
+	    || (rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_SAE)
+	    || (rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_CCKM)
+	    || (rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_SUITE_B)
+	    || (rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_SUITE_B_192)
 	    || (rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_802_1X)) {
 		g_string_append (security_str, "WPA2 ");
 	}
-	if (rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_SAE) {
-		g_string_append (security_str, "WPA3 ");
+
+	if (wpa_flags == NM_802_11_AP_SEC_NONE &&
+		0 == (rsn_flags & (NM_802_11_AP_SEC_PAIR_WEP40|
+						   NM_802_11_AP_SEC_PAIR_WEP104|
+						   NM_802_11_AP_SEC_PAIR_TKIP|
+						   NM_802_11_AP_SEC_GROUP_WEP40|
+						   NM_802_11_AP_SEC_GROUP_WEP104|
+						   NM_802_11_AP_SEC_GROUP_TKIP)))
+	{
+		if (rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_SAE) {
+			// wpa3-sae access point
+			// TBD: should check for MGMT_GROUP cipher also
+			g_string_append (security_str, "WPA3 ");
+		} else if (rsn_flags ==
+				   (NM_802_11_AP_SEC_KEY_MGMT_SUITE_B_192|
+					NM_802_11_AP_SEC_PAIR_GCMP_256|
+					NM_802_11_AP_SEC_GROUP_GCMP_256|
+					NM_802_11_AP_SEC_MGMT_GROUP_GMAC_256))
+		{
+			// wpa3-suite-b-192 access point (likely)
+			g_string_append (security_str, "WPA3 ");
+		}
 	}
+
 	if (   (wpa_flags & NM_802_11_AP_SEC_KEY_MGMT_802_1X)
+		   || (rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_CCKM)
+		   || (rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_SUITE_B)
+		   || (rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_SUITE_B_192)
 	    || (rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_802_1X)) {
 		g_string_append   (security_str, "802.1X ");
 	}

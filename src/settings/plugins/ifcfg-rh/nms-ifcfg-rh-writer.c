@@ -596,6 +596,15 @@ write_wireless_security_setting (NMConnection *connection,
 	} else if (!strcmp (key_mgmt, "wpa-eap")) {
 		svSetValueStr (ifcfg, "KEY_MGMT", "WPA-EAP");
 		wpa = TRUE;
+	} else if (!strcmp (key_mgmt, "wpa-eap-suite-b")) {
+		svSetValueStr (ifcfg, "KEY_MGMT", "WPA-EAP-SUITE-B");
+		wpa = TRUE;
+	} else if (!strcmp (key_mgmt, "wpa-eap-suite-b-192")) {
+		svSetValueStr (ifcfg, "KEY_MGMT", "WPA-EAP-SUITE-B-192");
+		wpa = TRUE;
+	} else if (!strcmp (key_mgmt, "owe") || !strcmp (key_mgmt, "owe-only")) {
+		svSetValueStr (ifcfg, "KEY_MGMT", "OWE");
+		wpa = TRUE;
 	}
 
 	svUnsetValue (ifcfg, "SECURITYMODE");
@@ -716,6 +725,8 @@ write_wireless_security_setting (NMConnection *connection,
 		if (proto && !strcmp (proto, "wpa"))
 			svSetValueStr (ifcfg, "WPA_ALLOW_WPA", "yes");
 		else if (proto && !strcmp (proto, "rsn"))
+			svSetValueStr (ifcfg, "WPA_ALLOW_WPA2", "yes");
+		else if (proto && !strcmp (proto, "wpa3"))
 			svSetValueStr (ifcfg, "WPA_ALLOW_WPA2", "yes");
 	}
 

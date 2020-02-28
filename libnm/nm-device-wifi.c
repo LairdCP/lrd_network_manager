@@ -583,6 +583,11 @@ _nm_device_wifi_set_wireless_enabled (NMDeviceWifi *device,
 
 #define RSN_CAPS (NM_WIFI_DEVICE_CAP_CIPHER_CCMP | NM_WIFI_DEVICE_CAP_RSN)
 
+#define RSN_CAPS_PMF (NM_WIFI_DEVICE_CAP_CIPHER_CMAC_128 |	\
+					  NM_WIFI_DEVICE_CAP_CIPHER_CMAC_256 |	\
+					  NM_WIFI_DEVICE_CAP_CIPHER_GMAC_128 |	\
+					  NM_WIFI_DEVICE_CAP_CIPHER_GMAC_256)
+
 static gboolean
 has_proto (NMSettingWirelessSecurity *s_wsec, const char *proto)
 {
@@ -638,6 +643,11 @@ connection_compatible (NMDevice *device, NMConnection *connection, GError **erro
 		key_mgmt = nm_setting_wireless_security_get_key_mgmt (s_wsec);
 		if (   !g_strcmp0 (key_mgmt, "wpa-none")
 		    || !g_strcmp0 (key_mgmt, "wpa-psk")
+		    || !g_strcmp0 (key_mgmt, "sae")
+		    || !g_strcmp0 (key_mgmt, "wpa-eap-suite-b")
+		    || !g_strcmp0 (key_mgmt, "wpa-eap-suite-b-192")
+		    || !g_strcmp0 (key_mgmt, "owe")
+		    || !g_strcmp0 (key_mgmt, "owe-only")
 		    || !g_strcmp0 (key_mgmt, "wpa-eap")) {
 
 			wifi_caps = nm_device_wifi_get_capabilities (NM_DEVICE_WIFI (device));
@@ -645,14 +655,50 @@ connection_compatible (NMDevice *device, NMConnection *connection, GError **erro
 			/* Is device only WEP capable? */
 			if (!(wifi_caps & WPA_CAPS)) {
 				g_set_error_literal (error, NM_DEVICE_ERROR, NM_DEVICE_ERROR_INCOMPATIBLE_CONNECTION,
-				                     _("The device is lacking WPA capabilities required by the connection."));
+				                     _("The device is lacking capabilities required by the connection."));
 				return FALSE;
 			}
 
 			/* Make sure WPA2/RSN-only connections don't get chosen for WPA-only cards */
-			if (has_proto (s_wsec, "rsn") && !has_proto (s_wsec, "wpa") && !(wifi_caps & RSN_CAPS)) {
+			if ( (has_proto (s_wsec, "rsn")||has_proto (s_wsec, "wpa3"))
+				 && !has_proto (s_wsec, "wpa") && !(wifi_caps & RSN_CAPS)) {
 				g_set_error_literal (error, NM_DEVICE_ERROR, NM_DEVICE_ERROR_INCOMPATIBLE_CONNECTION,
 				                     _("The device is lacking WPA2/RSN capabilities required by the connection."));
+				return FALSE;
+			}
+
+			if (has_proto (s_wsec, "wpa3")) {
+				if (!(wifi_caps & RSN_CAPS_PMF)) {
+					g_set_error_literal (error, NM_DEVICE_ERROR, NM_DEVICE_ERROR_INCOMPATIBLE_CONNECTION,
+										 _("The device is lacking PMF capabilities required by the connection."));
+					return FALSE;
+				}
+				if (!g_strcmp0 (key_mgmt, "wpa-eap-suite-b-192") &&
+					!(wifi_caps & NM_WIFI_DEVICE_CAP_CIPHER_GCMP_256) &&
+					!(wifi_caps & NM_WIFI_DEVICE_CAP_CIPHER_GMAC_256))
+				{
+					g_set_error_literal (error, NM_DEVICE_ERROR, NM_DEVICE_ERROR_INCOMPATIBLE_CONNECTION,
+										 _("The device is lacking wpa3 suite-b-192 gcmp-256/gmac-256 capabilities required by the connection."));
+					return FALSE;
+				}
+			} else {
+				if (!g_strcmp0 (key_mgmt, "wpa-eap-suite-b-192") &&
+					!(wifi_caps & (NM_WIFI_DEVICE_CAP_CIPHER_CCMP_256|
+								   NM_WIFI_DEVICE_CAP_CIPHER_GCMP_256)) &&
+					!(wifi_caps & (NM_WIFI_DEVICE_CAP_CIPHER_CMAC_256|
+								   NM_WIFI_DEVICE_CAP_CIPHER_GMAC_256)))
+				{
+					g_set_error_literal (error, NM_DEVICE_ERROR, NM_DEVICE_ERROR_INCOMPATIBLE_CONNECTION,
+										 _("The device is lacking suite-b-192 ccmp-256/gcmp-256, or cmac-256/gmac-256 capabilities required by the connection."));
+					return FALSE;
+				}
+			}
+			if (!g_strcmp0 (key_mgmt, "wpa-eap-suite-b") &&
+				!(wifi_caps & NM_WIFI_DEVICE_CAP_CIPHER_GCMP_128) &&
+				!(wifi_caps & NM_WIFI_DEVICE_CAP_CIPHER_GMAC_128))
+			{
+				g_set_error_literal (error, NM_DEVICE_ERROR, NM_DEVICE_ERROR_INCOMPATIBLE_CONNECTION,
+									 _("The device is lacking suite-b gcmp/gmac capabilities required by the connection."));
 				return FALSE;
 			}
 		}

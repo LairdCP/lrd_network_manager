@@ -265,6 +265,13 @@ gboolean          nm_setting_wireless_ap_security_compatible (NMSettingWireless 
                                                               NM80211ApSecurityFlags ap_wpa,
                                                               NM80211ApSecurityFlags ap_rsn,
                                                               NM80211Mode ap_mode);
+gboolean          nm_setting_wireless_ap_security_compatible2(NMSettingWireless *s_wireless,
+                                                              NMSettingWirelessSecurity *s_wireless_sec,
+                                                              NM80211ApFlags ap_flags,
+                                                              NM80211ApSecurityFlags ap_wpa,
+                                                              NM80211ApSecurityFlags ap_rsn,
+                                                              NM80211Mode ap_mode,
+                                                              NMDeviceWifiCapabilities dev_caps);
 
 NM_AVAILABLE_IN_1_12
 NMSettingWirelessWakeOnWLan  nm_setting_wireless_get_wake_on_wlan (NMSettingWireless *setting);

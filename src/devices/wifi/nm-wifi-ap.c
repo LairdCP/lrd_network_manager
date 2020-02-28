@@ -418,14 +418,12 @@ security_from_vardict (GVariant *security)
 
 	if (   g_variant_lookup (security, "KeyMgmt", "^a&s", &array)
 	    && array) {
-		// TBD: need to add "wpa-ft-psk"?
 		if (g_strv_contains (array, "wpa-psk") ||
 			g_strv_contains (array, "wpa-psk-sha256") ||
 			g_strv_contains (array, "wpa-ft-psk"))
 			flags |= NM_802_11_AP_SEC_KEY_MGMT_PSK;
 		if (g_strv_contains (array, "cckm"))
 			flags |= NM_802_11_AP_SEC_KEY_MGMT_CCKM;
-		// TBD: need to add "wpa-ft-eap"?
 		if (g_strv_contains (array, "wpa-eap") ||
 		    g_strv_contains (array, "wpa-eap-sha256") ||
 		    g_strv_contains (array, "wpa-ft-eap") ||
@@ -434,6 +432,12 @@ security_from_vardict (GVariant *security)
 			flags |= NM_802_11_AP_SEC_KEY_MGMT_802_1X;
 		if (g_strv_contains (array, "sae"))
 			flags |= NM_802_11_AP_SEC_KEY_MGMT_SAE;
+		if (g_strv_contains (array, "owe"))
+			flags |= NM_802_11_AP_SEC_KEY_MGMT_OWE;
+		if (g_strv_contains (array, "wpa-eap-suite-b"))
+			flags |= NM_802_11_AP_SEC_KEY_MGMT_SUITE_B;
+		if (g_strv_contains (array, "wpa-eap-suite-b-192"))
+			flags |= NM_802_11_AP_SEC_KEY_MGMT_SUITE_B_192;
 		g_free (array);
 	}
 
@@ -443,6 +447,12 @@ security_from_vardict (GVariant *security)
 			flags |= NM_802_11_AP_SEC_PAIR_TKIP;
 		if (g_strv_contains (array, "ccmp"))
 			flags |= NM_802_11_AP_SEC_PAIR_CCMP;
+		if (g_strv_contains (array, "ccmp-256"))
+			flags |= NM_802_11_AP_SEC_PAIR_CCMP_256;
+		if (g_strv_contains (array, "gcmp"))
+			flags |= NM_802_11_AP_SEC_PAIR_GCMP_128;
+		if (g_strv_contains (array, "gcmp-256"))
+			flags |= NM_802_11_AP_SEC_PAIR_GCMP_256;
 		g_free (array);
 	}
 
@@ -455,6 +465,24 @@ security_from_vardict (GVariant *security)
 			flags |= NM_802_11_AP_SEC_GROUP_TKIP;
 		if (strcmp (tmp, "ccmp") == 0)
 			flags |= NM_802_11_AP_SEC_GROUP_CCMP;
+		if (strcmp (tmp, "ccmp-256") == 0)
+			flags |= NM_802_11_AP_SEC_GROUP_CCMP_256;
+		if (strcmp (tmp, "gcmp") == 0)
+			flags |= NM_802_11_AP_SEC_GROUP_GCMP_128;
+		if (strcmp (tmp, "gcmp-256") == 0)
+			flags |= NM_802_11_AP_SEC_GROUP_GCMP_256;
+	}
+
+	// group management cipher
+	if (g_variant_lookup (security, "MgmtGroup", "&s", &tmp)) {
+		if (strcmp (tmp, "aes128cmac") == 0)
+			flags |= NM_802_11_AP_SEC_MGMT_GROUP_CMAC_128;
+		if (strcmp (tmp, "bip-gmac-256") == 0)
+			flags |= NM_802_11_AP_SEC_MGMT_GROUP_GMAC_256;
+		if (strcmp (tmp, "bip-gmac-128") == 0)
+			flags |= NM_802_11_AP_SEC_MGMT_GROUP_GMAC_128;
+		if (strcmp (tmp, "bip-gmac-256") == 0)
+			flags |= NM_802_11_AP_SEC_MGMT_GROUP_GMAC_256;
 	}
 
 	return flags;
@@ -777,6 +805,42 @@ get_max_rate (const guint8 *bytes, gsize len)
 	return max_rate;
 }
 
+static gboolean
+has_owe_element (const guint8 *bytes, gsize len)
+{
+	guint8 id, elem_len;
+	guint32 max_rate = 0;
+
+	while (len) {
+		guint32 m;
+
+		if (len < 2)
+			return 0;
+
+		id = *bytes++;
+		elem_len = *bytes++;
+		len -= 2;
+
+		if (elem_len > len)
+			return 0;
+
+		if (id == 221) {
+			if (elem_len > 4) {
+				if (bytes[0] == 0x50 &&
+					bytes[1] == 0x6F &&
+					bytes[2] == 0x9A &&
+					bytes[3] == 0x1C)
+					return TRUE;
+			}
+		}
+
+		len -= elem_len;
+		bytes += elem_len;
+	}
+
+	return FALSE;
+}
+
 /*****************************************************************************/
 
 gboolean
@@ -876,6 +940,10 @@ nm_wifi_ap_update_from_properties (NMWifiAP *ap,
 	if (v) {
 		bytes = g_variant_get_fixed_array (v, &len, 1);
 		max_rate = NM_MAX (max_rate, get_max_rate (bytes, len));
+		// OWE: look for owe-transition element
+		if (has_owe_element(bytes, len)) {
+			changed |= nm_wifi_ap_set_flags (ap, priv->flags | NM_802_11_AP_FLAGS_OWE_IE);
+		}
 		g_variant_unref (v);
 	}
 	if (max_rate)
@@ -883,13 +951,15 @@ nm_wifi_ap_update_from_properties (NMWifiAP *ap,
 
 	v = g_variant_lookup_value (properties, "WPA", G_VARIANT_TYPE_VARDICT);
 	if (v) {
-		changed |= nm_wifi_ap_set_wpa_flags (ap, priv->wpa_flags | security_from_vardict (v));
+		// LAIRD: note: do not OR with the old wpa_flags
+		changed |= nm_wifi_ap_set_wpa_flags (ap, security_from_vardict (v));
 		g_variant_unref (v);
 	}
 
 	v = g_variant_lookup_value (properties, "RSN", G_VARIANT_TYPE_VARDICT);
 	if (v) {
-		changed |= nm_wifi_ap_set_rsn_flags (ap, priv->rsn_flags | security_from_vardict (v));
+		// LAIRD: note: do not OR with the old rsn_flags
+		changed |= nm_wifi_ap_set_rsn_flags (ap, security_from_vardict (v));
 		g_variant_unref (v);
 	}
 
@@ -912,8 +982,11 @@ has_proto (NMSettingWirelessSecurity *sec, const char *proto)
 	guint32 num_protos = nm_setting_wireless_security_get_num_protos (sec);
 	guint32 i;
 
-	if (num_protos == 0)
+	if (num_protos == 0) {
+		if (!strcmp(proto,"wpa3"))
+			return FALSE; /* wpa3 is not enabled by default */
 		return TRUE; /* interpret no protos as "all" */
+	}
 
 	for (i = 0; i < num_protos; i++) {
 		if (!strcmp (nm_setting_wireless_security_get_proto (sec, i), proto))
@@ -932,7 +1005,11 @@ add_pair_ciphers (NMWifiAP *ap, NMSettingWirelessSecurity *sec)
 
 	/* If no ciphers are specified, that means "all" WPA ciphers */
 	if (num == 0) {
-		flags |= NM_802_11_AP_SEC_PAIR_TKIP | NM_802_11_AP_SEC_PAIR_CCMP;
+		if (has_proto (sec, "wpa3"))
+			flags |= NM_802_11_AP_SEC_PAIR_CCMP | NM_802_11_AP_SEC_PAIR_CCMP_256 |
+				NM_802_11_AP_SEC_PAIR_GCMP_128 | NM_802_11_AP_SEC_PAIR_GCMP_256;
+		else
+			flags |= NM_802_11_AP_SEC_PAIR_TKIP | NM_802_11_AP_SEC_PAIR_CCMP;
 	} else {
 		for (i = 0; i < num; i++) {
 			const char *cipher = nm_setting_wireless_security_get_pairwise (sec, i);
@@ -941,12 +1018,19 @@ add_pair_ciphers (NMWifiAP *ap, NMSettingWirelessSecurity *sec)
 				flags |= NM_802_11_AP_SEC_PAIR_TKIP;
 			else if (!strcmp (cipher, "ccmp"))
 				flags |= NM_802_11_AP_SEC_PAIR_CCMP;
+			else if (!strcmp (cipher, "ccmp-256"))
+				flags |= NM_802_11_AP_SEC_PAIR_CCMP_256;
+			else if (!strcmp (cipher, "gcmp"))
+				flags |= NM_802_11_AP_SEC_PAIR_GCMP_128;
+			else if (!strcmp (cipher, "gcmp-256"))
+				flags |= NM_802_11_AP_SEC_PAIR_GCMP_256;
 		}
 	}
 
 	if (has_proto (sec, PROTO_WPA))
 		nm_wifi_ap_set_wpa_flags (ap, priv->wpa_flags | flags);
-	if (has_proto (sec, PROTO_RSN))
+	if (has_proto (sec, PROTO_RSN) ||
+		has_proto (sec, "wpa3"))
 		nm_wifi_ap_set_rsn_flags (ap, priv->rsn_flags | flags);
 }
 
@@ -960,7 +1044,11 @@ add_group_ciphers (NMWifiAP *ap, NMSettingWirelessSecurity *sec)
 
 	/* If no ciphers are specified, that means "all" WPA ciphers */
 	if (num == 0) {
-		flags |= NM_802_11_AP_SEC_GROUP_TKIP | NM_802_11_AP_SEC_GROUP_CCMP;
+		if (has_proto (sec, "wpa3"))
+			flags |= NM_802_11_AP_SEC_GROUP_CCMP | NM_802_11_AP_SEC_GROUP_CCMP_256 |
+				NM_802_11_AP_SEC_GROUP_GCMP_128 | NM_802_11_AP_SEC_GROUP_GCMP_256;
+		else
+			flags |= NM_802_11_AP_SEC_GROUP_TKIP | NM_802_11_AP_SEC_GROUP_CCMP;
 	} else {
 		for (i = 0; i < num; i++) {
 			const char *cipher = nm_setting_wireless_security_get_group (sec, i);
@@ -973,12 +1061,19 @@ add_group_ciphers (NMWifiAP *ap, NMSettingWirelessSecurity *sec)
 				flags |= NM_802_11_AP_SEC_GROUP_TKIP;
 			else if (!strcmp (cipher, "ccmp"))
 				flags |= NM_802_11_AP_SEC_GROUP_CCMP;
+			else if (!strcmp (cipher, "ccmp-256"))
+				flags |= NM_802_11_AP_SEC_GROUP_CCMP_256;
+			else if (!strcmp (cipher, "gcmp"))
+				flags |= NM_802_11_AP_SEC_GROUP_GCMP_128;
+			else if (!strcmp (cipher, "gcmp-256"))
+				flags |= NM_802_11_AP_SEC_GROUP_GCMP_256;
 		}
 	}
 
 	if (has_proto (sec, PROTO_WPA))
 		nm_wifi_ap_set_wpa_flags (ap, priv->wpa_flags | flags);
-	if (has_proto (sec, PROTO_RSN))
+	if (has_proto (sec, PROTO_RSN) ||
+		has_proto (sec, "wpa3"))
 		nm_wifi_ap_set_rsn_flags (ap, priv->rsn_flags | flags);
 }
 
@@ -1008,7 +1103,7 @@ nm_wifi_ap_to_string (const NMWifiAP *self,
 		export_path = "/";
 
 	g_snprintf (str_buf, buf_len,
-	            "%17s %-35s [ %c %3u %3u%% %c W:%04X R:%04X ] %3us sup:%s [nm:%s]",
+	            "%17s %-35s [ %c %3u %3u%% %c W:%07X R:%07X ] %3us sup:%s [nm:%s]",
 	            priv->address ?: "(none)",
 	            (ssid_to_free = _nm_utils_ssid_to_string (priv->ssid)),
 	            (priv->mode == NM_802_11_MODE_ADHOC
@@ -1023,8 +1118,8 @@ nm_wifi_ap_to_string (const NMWifiAP *self,
 	            chan,
 	            priv->strength,
 	            priv->flags & NM_802_11_AP_FLAGS_PRIVACY ? 'P' : '_',
-	            priv->wpa_flags & 0xFFFF,
-	            priv->rsn_flags & 0xFFFF,
+	            priv->wpa_flags & 0xFFFFFFF,
+	            priv->rsn_flags & 0xFFFFFFF,
 	            priv->last_seen > 0 ? ((now_s > 0 ? now_s : nm_utils_get_monotonic_timestamp_s ()) - priv->last_seen) : -1,
 	            supplicant_id,
 	            export_path);
@@ -1043,7 +1138,8 @@ freq_to_band (guint32 freq)
 
 gboolean
 nm_wifi_ap_check_compatible (NMWifiAP *self,
-                             NMConnection *connection)
+							  NMConnection *connection,
+							  NMDeviceWifiCapabilities dev_caps)
 {
 	NMWifiAPPrivate *priv;
 	NMSettingWireless *s_wireless;
@@ -1108,12 +1204,13 @@ nm_wifi_ap_check_compatible (NMWifiAP *self,
 
 	s_wireless_sec = nm_connection_get_setting_wireless_security (connection);
 
-	return nm_setting_wireless_ap_security_compatible (s_wireless,
+	return nm_setting_wireless_ap_security_compatible2(s_wireless,
 	                                                   s_wireless_sec,
 	                                                   priv->flags,
 	                                                   priv->wpa_flags,
 	                                                   priv->rsn_flags,
-	                                                   priv->mode);
+	                                                   priv->mode,
+	                                                   dev_caps);
 }
 
 gboolean
@@ -1297,23 +1394,27 @@ nm_wifi_ap_new_fake_from_connection (NMConnection *connection)
 	if (!strcmp (key_mgmt, "none") || !strcmp (key_mgmt, "ieee8021x"))
 		goto done;
 
-	psk = !strcmp (key_mgmt, "wpa-psk");
-	eap = !strcmp (key_mgmt, "wpa-eap");
-	cckm = !strcmp (key_mgmt, "cckm");
-	if (psk || eap || cckm) {
+	flags = 0;
+	if (!strcmp (key_mgmt, "wpa-psk"))
+		flags = NM_802_11_AP_SEC_KEY_MGMT_PSK;
+	else if (!strcmp (key_mgmt, "wpa-eap"))
+		flags = NM_802_11_AP_SEC_KEY_MGMT_802_1X;
+	else if (!strcmp (key_mgmt, "sae"))
+		flags = NM_802_11_AP_SEC_KEY_MGMT_SAE;
+	else if (!strcmp (key_mgmt, "cckm"))
+		flags = NM_802_11_AP_SEC_KEY_MGMT_CCKM;
+	else if (!strcmp(key_mgmt, "wpa-eap-suite-b"))
+		flags = NM_802_11_AP_SEC_KEY_MGMT_SUITE_B;
+	else if (!strcmp(key_mgmt, "wpa-eap-suite-b-192"))
+		flags = NM_802_11_AP_SEC_KEY_MGMT_SUITE_B_192;
+
+	if (flags != 0) {
 		if (has_proto (s_wireless_sec, PROTO_WPA)) {
-			if (cckm)
-				flags = priv->wpa_flags | NM_802_11_AP_SEC_KEY_MGMT_CCKM;
-			else
-				flags = priv->wpa_flags | (eap ? NM_802_11_AP_SEC_KEY_MGMT_802_1X : NM_802_11_AP_SEC_KEY_MGMT_PSK);
-			nm_wifi_ap_set_wpa_flags (ap, flags);
+			nm_wifi_ap_set_wpa_flags (ap, priv->wpa_flags | flags);
 		}
-		if (has_proto (s_wireless_sec, PROTO_RSN)) {
-			if (cckm)
-				flags = priv->rsn_flags | NM_802_11_AP_SEC_KEY_MGMT_CCKM;
-			else
-				flags = priv->rsn_flags | (eap ? NM_802_11_AP_SEC_KEY_MGMT_802_1X : NM_802_11_AP_SEC_KEY_MGMT_PSK);
-			nm_wifi_ap_set_rsn_flags (ap, flags);
+		if (has_proto (s_wireless_sec, PROTO_RSN) ||
+			has_proto (s_wireless_sec, "wpa3")) {
+			nm_wifi_ap_set_rsn_flags (ap, priv->rsn_flags | flags);
 		}
 
 		add_pair_ciphers (ap, s_wireless_sec);
@@ -1328,14 +1429,8 @@ nm_wifi_ap_new_fake_from_connection (NMConnection *connection)
 		flags = priv->wpa_flags | NM_802_11_AP_SEC_KEY_MGMT_PSK;
 
 		/* Clear ciphers; pairwise must be unset anyway, and group gets set below */
-		flags &= ~(  NM_802_11_AP_SEC_PAIR_WEP40
-		           | NM_802_11_AP_SEC_PAIR_WEP104
-		           | NM_802_11_AP_SEC_PAIR_TKIP
-		           | NM_802_11_AP_SEC_PAIR_CCMP
-		           | NM_802_11_AP_SEC_GROUP_WEP40
-		           | NM_802_11_AP_SEC_GROUP_WEP104
-		           | NM_802_11_AP_SEC_GROUP_TKIP
-		           | NM_802_11_AP_SEC_GROUP_CCMP);
+		flags &= ~(  NM_802_11_AP_SEC_PAIR_MASK
+		           | NM_802_11_AP_SEC_GROUP_MASK);
 
 		for (i = 0; i < nm_setting_wireless_security_get_num_groups (s_wireless_sec); i++) {
 			if (!strcmp (nm_setting_wireless_security_get_group (s_wireless_sec, i), "ccmp")) {
@@ -1524,14 +1619,15 @@ nm_wifi_aps_get_paths (const CList *aps_lst_head, gboolean include_without_ssid)
 
 NMWifiAP *
 nm_wifi_aps_find_first_compatible (const CList *aps_lst_head,
-                                   NMConnection *connection)
+									NMConnection *connection,
+									NMDeviceWifiCapabilities dev_caps)
 {
 	NMWifiAP *ap;
 
 	g_return_val_if_fail (connection, NULL);
 
 	c_list_for_each_entry (ap, aps_lst_head, aps_lst) {
-		if (nm_wifi_ap_check_compatible (ap, connection))
+		if (nm_wifi_ap_check_compatible (ap, connection, dev_caps))
 			return ap;
 	}
 	return NULL;

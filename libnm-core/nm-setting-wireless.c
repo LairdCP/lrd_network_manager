@@ -130,6 +130,52 @@ match_cipher (const char *cipher,
 	return TRUE;
 }
 
+static gboolean
+has_proto (NMSettingWirelessSecurity *s_wsec, const char *proto)
+{
+	int i;
+
+	for (i = 0; i < nm_setting_wireless_security_get_num_protos (s_wsec); i++) {
+		if (g_strcmp0 (proto, nm_setting_wireless_security_get_proto (s_wsec, i)) == 0)
+			return TRUE;
+	}
+	return FALSE;
+}
+
+static gboolean
+has_proto_only (NMSettingWirelessSecurity *s_wsec, const char *proto)
+{
+	if (1 != nm_setting_wireless_security_get_num_protos (s_wsec))
+		return FALSE;
+	return has_proto (s_wsec, proto);
+}
+
+static gboolean
+has_ap_flags_valid_set(NM80211ApFlags ap_flags,
+					   NM80211ApFlags mask, NM80211ApFlags valid)
+{
+	if (0 == (ap_flags & valid))
+		return FALSE; /* must have one of valid bits set */
+	ap_flags &= ~valid;
+	if (ap_flags & mask)
+		return FALSE; /* invalid bit is set */
+	return TRUE;
+}
+
+/* only allow key_mgmt values in valid */
+static gboolean
+has_ap_flags_valid_key_mgmt(NM80211ApFlags ap_flags, NM80211ApFlags valid)
+{
+	return has_ap_flags_valid_set(ap_flags, NM_802_11_AP_SEC_KEY_MGMT_MASK, valid);
+}
+
+/* only allow pairwise values in valid */
+static gboolean
+has_ap_flags_valid_pair(NM80211ApFlags ap_flags, NM80211ApFlags valid)
+{
+	return has_ap_flags_valid_set(ap_flags, NM_802_11_AP_SEC_PAIR_MASK, valid);
+}
+
 /**
  * nm_setting_wireless_ap_security_compatible:
  * @s_wireless: a #NMSettingWireless
@@ -159,9 +205,52 @@ nm_setting_wireless_ap_security_compatible (NMSettingWireless *s_wireless,
                                             NM80211ApSecurityFlags ap_rsn,
                                             NM80211Mode ap_mode)
 {
+	return nm_setting_wireless_ap_security_compatible2(s_wireless,
+													   s_wireless_sec,
+													   ap_flags,
+													   ap_wpa,
+													   ap_rsn,
+													   ap_mode,
+													   0);
+}
+
+/**
+ * nm_setting_wireless_ap_security_compatible2:
+ * @s_wireless: a #NMSettingWireless
+ * @s_wireless_sec: a #NMSettingWirelessSecurity or %NULL
+ * @ap_flags: the %NM80211ApFlags of the given access point
+ * @ap_wpa: the %NM80211ApSecurityFlags of the given access point's WPA
+ * capabilities
+ * @ap_rsn: the %NM80211ApSecurityFlags of the given access point's WPA2/RSN
+ * capabilities
+ * @ap_mode: the 802.11 mode of the AP, either Ad-Hoc or Infrastructure
+ * @dev_caps: the %NMDeviceWifiCapabilities of the device
+ *
+ * Given a #NMSettingWireless and an optional #NMSettingWirelessSecurity,
+ * determine if the configuration given by the settings is compatible with
+ * the security of an access point using that access point's capability flags
+ * and mode.  Useful for clients that wish to filter a set of connections
+ * against a set of access points and determine which connections are
+ * compatible with which access points.  Adds #NMDeviceWifiCapabilities
+ * to the validation of the pairwise and group ciphers.
+ *
+ * Returns: %TRUE if the given settings are compatible with the access point's
+ * security flags and mode, %FALSE if they are not.
+ */
+gboolean
+nm_setting_wireless_ap_security_compatible2 (NMSettingWireless *s_wireless,
+                                            NMSettingWirelessSecurity *s_wireless_sec,
+                                            NM80211ApFlags ap_flags,
+                                            NM80211ApSecurityFlags ap_wpa,
+                                            NM80211ApSecurityFlags ap_rsn,
+                                            NM80211Mode ap_mode,
+											NMDeviceWifiCapabilities dev_caps)
+{
 	const char *key_mgmt = NULL, *cipher;
 	guint32 num, i;
 	gboolean found = FALSE;
+	gboolean wpa3_only;
+	gboolean pmf_check = FALSE;
 
 	g_return_val_if_fail (NM_IS_SETTING_WIRELESS (s_wireless), FALSE);
 
@@ -171,6 +260,11 @@ nm_setting_wireless_ap_security_compatible (NMSettingWireless *s_wireless,
 		    || (ap_rsn != NM_802_11_AP_SEC_NONE))
 			return FALSE;
 		return TRUE;
+	}
+
+	wpa3_only = has_proto_only(s_wireless_sec, "wpa3");
+	if (wpa3_only) {
+		pmf_check = TRUE;
 	}
 
 	key_mgmt = nm_setting_wireless_security_get_key_mgmt (s_wireless_sec);
@@ -184,6 +278,22 @@ nm_setting_wireless_ap_security_compatible (NMSettingWireless *s_wireless,
 		    || (ap_rsn != NM_802_11_AP_SEC_NONE))
 			return FALSE;
 		return TRUE;
+	}
+
+	if (!strcmp (key_mgmt, "owe")) {
+		if (   (ap_flags & NM_802_11_AP_FLAGS_PRIVACY) == 0
+		    && (ap_wpa == NM_802_11_AP_SEC_NONE)
+		    && (ap_rsn == NM_802_11_AP_SEC_NONE))
+			return TRUE;
+	}
+
+	if (!strcmp (key_mgmt, "owe-only")) {
+		// accept an open AP, only if it has the OWE IE
+		if (   (ap_flags & NM_802_11_AP_FLAGS_PRIVACY) == 0
+		    && (ap_flags & NM_802_11_AP_FLAGS_OWE_IE)
+		    && (ap_wpa == NM_802_11_AP_SEC_NONE)
+		    && (ap_rsn == NM_802_11_AP_SEC_NONE))
+			return TRUE;
 	}
 
 	/* Adhoc WPA */
@@ -255,11 +365,26 @@ nm_setting_wireless_ap_security_compatible (NMSettingWireless *s_wireless,
 	}
 
 	/* WPA[2]-PSK and WPA[2] Enterprise */
+	/* and WPA3 */
 	if (   !strcmp (key_mgmt, "wpa-psk")
 		|| !strcmp (key_mgmt, "cckm")
-	    || !strcmp (key_mgmt, "wpa-eap")) {
+	    || !strcmp (key_mgmt, "wpa-eap")
+	    || !strcmp (key_mgmt, "wpa-eap-suite-b")
+	    || !strcmp (key_mgmt, "wpa-eap-suite-b-192")
+	    || !strcmp (key_mgmt, "owe")
+	    || !strcmp (key_mgmt, "owe-only")
+	    || !strcmp (key_mgmt, "sae")) {
 
 		if (!strcmp (key_mgmt, "wpa-psk")) {
+			if (wpa3_only) {
+				// wpa3-sae transition mode (psk or sae)
+				if (!(ap_rsn & (NM_802_11_AP_SEC_KEY_MGMT_PSK |
+								NM_802_11_AP_SEC_KEY_MGMT_SAE)))
+					return FALSE;
+				if (!(ap_rsn & NM_802_11_AP_SEC_KEY_MGMT_SAE))
+					/* wpa3-sae transition: psk only AP, allow non-PMF */
+					pmf_check = FALSE;
+			} else
 			if (   !(ap_wpa & NM_802_11_AP_SEC_KEY_MGMT_PSK)
 			    && !(ap_rsn & NM_802_11_AP_SEC_KEY_MGMT_PSK))
 				return FALSE;
@@ -267,48 +392,218 @@ nm_setting_wireless_ap_security_compatible (NMSettingWireless *s_wireless,
 			if (   !(ap_wpa & NM_802_11_AP_SEC_KEY_MGMT_802_1X)
 			    && !(ap_rsn & NM_802_11_AP_SEC_KEY_MGMT_802_1X))
 				return FALSE;
+		} else if (!strcmp (key_mgmt, "sae")) {
+			if (wpa3_only) {
+				/* wpa3-sae only mode */
+				if (!(ap_rsn & NM_802_11_AP_SEC_KEY_MGMT_SAE))
+					return FALSE;
+			} else
+			if (   !(ap_wpa & NM_802_11_AP_SEC_KEY_MGMT_SAE)
+			    && !(ap_rsn & NM_802_11_AP_SEC_KEY_MGMT_SAE))
+				return FALSE;
 		} else if (!strcmp (key_mgmt, "cckm")) {
 			if (   !(ap_wpa & NM_802_11_AP_SEC_KEY_MGMT_CCKM)
 			    && !(ap_rsn & NM_802_11_AP_SEC_KEY_MGMT_CCKM))
 				return FALSE;
+		} else if (!strcmp (key_mgmt, "owe") ||
+				   !strcmp (key_mgmt, "owe-only")) {
+			// note, for owe, an open ap was accepted above
+			if (   !(ap_wpa & NM_802_11_AP_SEC_KEY_MGMT_OWE)
+			    && !(ap_rsn & NM_802_11_AP_SEC_KEY_MGMT_OWE))
+				return FALSE;
+		} else if (!strcmp (key_mgmt, "wpa-eap-suite-b")) {
+			/* key_mgmt must only have suite-b */
+			if (!has_ap_flags_valid_key_mgmt(ap_rsn, NM_802_11_AP_SEC_KEY_MGMT_SUITE_B))
+				return FALSE;
+			/* pairwise must only have gcmp-128 */
+			if (!has_ap_flags_valid_pair(ap_rsn, NM_802_11_AP_SEC_PAIR_GCMP_128))
+				return FALSE;
+			if (!(ap_rsn & NM_802_11_AP_SEC_GROUP_GCMP_128))
+				return FALSE;
+			if (!(ap_rsn & NM_802_11_AP_SEC_MGMT_GROUP_GMAC_128))
+				return FALSE;
+
+		} else if (!strcmp (key_mgmt, "wpa-eap-suite-b-192")) {
+			/* key_mgmt must only have suite-b-192 */
+			if (!has_ap_flags_valid_key_mgmt(ap_rsn, NM_802_11_AP_SEC_KEY_MGMT_SUITE_B_192))
+				return FALSE;
+
+			if (wpa3_only) {
+				/* pairwise must only have gcmp-256 */
+				if (!has_ap_flags_valid_pair(ap_rsn, NM_802_11_AP_SEC_PAIR_GCMP_256))
+					return FALSE;
+				if (!(ap_rsn & NM_802_11_AP_SEC_GROUP_GCMP_256))
+					return FALSE;
+				if (!(ap_rsn & NM_802_11_AP_SEC_MGMT_GROUP_GMAC_256))
+					return FALSE;
+			} else {
+				/* pairwise may have gcmp-256 or ccmp-256 */
+				if (!has_ap_flags_valid_pair(ap_rsn, NM_802_11_AP_SEC_PAIR_GCMP_256|
+								NM_802_11_AP_SEC_PAIR_CCMP_256))
+					return FALSE;
+				if (!(ap_rsn & (NM_802_11_AP_SEC_GROUP_GCMP_256|
+								NM_802_11_AP_SEC_GROUP_CCMP_256)))
+					return FALSE;
+				if (!(ap_rsn & (NM_802_11_AP_SEC_MGMT_GROUP_GMAC_256|
+								NM_802_11_AP_SEC_MGMT_GROUP_CMAC_256)))
+					return FALSE;
+			}
 		}
 
-		// FIXME: should handle WPA and RSN separately here to ensure that
-		// if the Connection only uses WPA we don't match a cipher against
-		// the AP's RSN IE instead
-
-		/* Match at least one pairwise cipher with AP's capability if the
-		 * wireless-security setting explicitly lists pairwise ciphers
-		 */
-		num = nm_setting_wireless_security_get_num_pairwise (s_wireless_sec);
-		for (i = 0, found = FALSE; i < num; i++) {
-			cipher = nm_setting_wireless_security_get_pairwise (s_wireless_sec, i);
-			if ((found = match_cipher (cipher, "tkip", ap_wpa, ap_rsn, NM_802_11_AP_SEC_PAIR_TKIP)))
-				break;
-			if ((found = match_cipher (cipher, "ccmp", ap_wpa, ap_rsn, NM_802_11_AP_SEC_PAIR_CCMP)))
-				break;
+		if (wpa3_only) {
+			// wpa3: wep and tkip are not allowed
+			if (ap_rsn & (NM_802_11_AP_SEC_PAIR_WEP40|
+						  NM_802_11_AP_SEC_PAIR_WEP104|
+						  NM_802_11_AP_SEC_PAIR_TKIP|
+						  NM_802_11_AP_SEC_GROUP_WEP40|
+						  NM_802_11_AP_SEC_GROUP_WEP104|
+						  NM_802_11_AP_SEC_GROUP_TKIP))
+				return FALSE;
+			if (ap_wpa & (NM_802_11_AP_SEC_PAIR_WEP40|
+						  NM_802_11_AP_SEC_PAIR_WEP104|
+						  NM_802_11_AP_SEC_PAIR_TKIP|
+						  NM_802_11_AP_SEC_GROUP_WEP40|
+						  NM_802_11_AP_SEC_GROUP_WEP104|
+						  NM_802_11_AP_SEC_GROUP_TKIP))
+				return FALSE;
 		}
-		if (!found && num)
-			return FALSE;
 
-		/* Match at least one group cipher with AP's capability if the
-		 * wireless-security setting explicitly lists group ciphers
-		 */
-		num = nm_setting_wireless_security_get_num_groups (s_wireless_sec);
-		for (i = 0, found = FALSE; i < num; i++) {
-			cipher = nm_setting_wireless_security_get_group (s_wireless_sec, i);
-
-			if ((found = match_cipher (cipher, "wep40", ap_wpa, ap_rsn, NM_802_11_AP_SEC_GROUP_WEP40)))
-				break;
-			if ((found = match_cipher (cipher, "wep104", ap_wpa, ap_rsn, NM_802_11_AP_SEC_GROUP_WEP104)))
-				break;
-			if ((found = match_cipher (cipher, "tkip", ap_wpa, ap_rsn, NM_802_11_AP_SEC_GROUP_TKIP)))
-				break;
-			if ((found = match_cipher (cipher, "ccmp", ap_wpa, ap_rsn, NM_802_11_AP_SEC_GROUP_CCMP)))
-				break;
+		if (pmf_check) {
+			/* note, this check requires a supplicant change to not
+			 * set the MgmtGroup if management frame protection is disabled */
+			if (0 == (ap_rsn & NM_802_11_AP_SEC_MGMT_GROUP_MASK))
+				/* pmf is disabled */
+				return FALSE;
 		}
-		if (!found && num)
-			return FALSE;
+
+		// validation of pairwise/group ciphers using ap, settings, and dev_caps
+		{
+			NM80211ApSecurityFlags cfg_flags =  0;
+			NM80211ApSecurityFlags dev_flags =  0;
+			gboolean check_wpa = FALSE;
+			gboolean check_rsn = FALSE;
+
+			if (!strcmp (key_mgmt, "wpa-eap-suite-b")) {
+				cfg_flags |= NM_802_11_AP_SEC_PAIR_GCMP_128 |
+					NM_802_11_AP_SEC_GROUP_GCMP_128;
+			} else if (wpa3_only) {
+				cfg_flags |= NM_802_11_AP_SEC_PAIR_CCMP |
+					NM_802_11_AP_SEC_PAIR_CCMP_256 |
+					NM_802_11_AP_SEC_PAIR_GCMP_128 |
+					NM_802_11_AP_SEC_PAIR_GCMP_256 |
+					NM_802_11_AP_SEC_GROUP_CCMP |
+					NM_802_11_AP_SEC_GROUP_CCMP_256 |
+					NM_802_11_AP_SEC_GROUP_GCMP_128 |
+					NM_802_11_AP_SEC_GROUP_GCMP_256;
+				if (!strcmp (key_mgmt, "wpa-eap-suite-b-192")) {
+					cfg_flags |= NM_802_11_AP_SEC_PAIR_GCMP_256 |
+					NM_802_11_AP_SEC_GROUP_GCMP_256;
+				}
+			} else if (!strcmp (key_mgmt, "wpa-eap-suite-b-192")) {
+				cfg_flags |= NM_802_11_AP_SEC_PAIR_CCMP_256 |
+					NM_802_11_AP_SEC_PAIR_GCMP_256 |
+					NM_802_11_AP_SEC_GROUP_CCMP_256 |
+					NM_802_11_AP_SEC_GROUP_GCMP_256;
+			} else {
+				cfg_flags |= NM_802_11_AP_SEC_PAIR_TKIP |
+					NM_802_11_AP_SEC_PAIR_CCMP |
+					NM_802_11_AP_SEC_GROUP_WEP40 |
+					NM_802_11_AP_SEC_GROUP_WEP104 |
+					NM_802_11_AP_SEC_GROUP_TKIP |
+					NM_802_11_AP_SEC_GROUP_CCMP;
+			}
+
+			num = nm_setting_wireless_security_get_num_pairwise (s_wireless_sec);
+			if (num != 0) {
+				cfg_flags &= ~NM_802_11_AP_SEC_PAIR_MASK;
+				for (i = 0; i < num; i++) {
+					cipher = nm_setting_wireless_security_get_pairwise (s_wireless_sec, i);
+					if (!strcmp(cipher, "tkip"))
+						cfg_flags |= NM_802_11_AP_SEC_PAIR_TKIP;
+					else if (!strcmp(cipher, "ccmp"))
+						cfg_flags |= NM_802_11_AP_SEC_PAIR_CCMP;
+					else if (!strcmp(cipher, "ccmp-256"))
+						cfg_flags |= NM_802_11_AP_SEC_PAIR_CCMP_256;
+					else if (!strcmp(cipher, "gcmp"))
+						cfg_flags |= NM_802_11_AP_SEC_PAIR_GCMP_128;
+					else if (!strcmp(cipher, "gcmp-256"))
+						cfg_flags |= NM_802_11_AP_SEC_PAIR_GCMP_256;
+				}
+			}
+			num = nm_setting_wireless_security_get_num_groups (s_wireless_sec);
+			if (num != 0) {
+				cfg_flags &= ~NM_802_11_AP_SEC_GROUP_MASK;
+				for (i = 0, found = FALSE; i < num; i++) {
+					cipher = nm_setting_wireless_security_get_group (s_wireless_sec, i);
+					if (!strcmp(cipher, "wep40"))
+						cfg_flags |= NM_802_11_AP_SEC_GROUP_WEP40;
+					else if (!strcmp(cipher, "wep104"))
+						cfg_flags |= NM_802_11_AP_SEC_GROUP_WEP104;
+					else if (!strcmp(cipher, "tkip"))
+						cfg_flags |= NM_802_11_AP_SEC_GROUP_TKIP;
+					else if (!strcmp(cipher, "ccmp"))
+						cfg_flags |= NM_802_11_AP_SEC_GROUP_CCMP;
+					else if (!strcmp(cipher, "ccmp-256"))
+						cfg_flags |= NM_802_11_AP_SEC_GROUP_CCMP_256;
+					else if (!strcmp(cipher, "gcmp"))
+						cfg_flags |= NM_802_11_AP_SEC_GROUP_GCMP_128;
+					else if (!strcmp(cipher, "gcmp-256"))
+						cfg_flags |= NM_802_11_AP_SEC_GROUP_GCMP_256;
+				}
+			}
+			if (dev_caps) {
+				if (dev_caps & NM_WIFI_DEVICE_CAP_CIPHER_WEP40)
+					dev_flags |= NM_802_11_AP_SEC_GROUP_WEP40;
+				if (dev_caps & NM_WIFI_DEVICE_CAP_CIPHER_WEP104)
+					dev_flags |= NM_802_11_AP_SEC_GROUP_WEP104;
+				if (dev_caps & NM_WIFI_DEVICE_CAP_CIPHER_TKIP)
+					dev_flags |= NM_802_11_AP_SEC_PAIR_TKIP|NM_802_11_AP_SEC_GROUP_TKIP;
+				if (dev_caps & NM_WIFI_DEVICE_CAP_CIPHER_CCMP)
+					dev_flags |= NM_802_11_AP_SEC_PAIR_CCMP|NM_802_11_AP_SEC_GROUP_CCMP;
+				if (dev_caps & NM_WIFI_DEVICE_CAP_CIPHER_CCMP_256)
+					dev_flags |= NM_802_11_AP_SEC_PAIR_CCMP_256|NM_802_11_AP_SEC_GROUP_CCMP_256;
+				if (dev_caps & NM_WIFI_DEVICE_CAP_CIPHER_GCMP_256)
+					dev_flags |= NM_802_11_AP_SEC_PAIR_GCMP_128|NM_802_11_AP_SEC_GROUP_GCMP_128;
+				if (dev_caps & NM_WIFI_DEVICE_CAP_CIPHER_GCMP_256)
+					dev_flags |= NM_802_11_AP_SEC_PAIR_GCMP_256|NM_802_11_AP_SEC_GROUP_GCMP_256;
+			}
+
+			if (wpa3_only) {
+				check_rsn = 1;
+			} else if (nm_setting_wireless_security_get_num_protos (s_wireless_sec) == 0) {
+				check_wpa = 1;
+				check_rsn = 1;
+			} else {
+				if (has_proto(s_wireless_sec, "wpa"))
+					check_wpa = 1;
+				if (has_proto(s_wireless_sec, "rsn"))
+					check_rsn = 1;
+			}
+
+			ap_wpa &= cfg_flags;
+			ap_rsn &= cfg_flags;
+			if (dev_caps) {
+				ap_wpa &= dev_flags;
+				ap_rsn &= dev_flags;
+			}
+			found = 0;
+			if (check_wpa) {
+				if ((ap_wpa & NM_802_11_AP_SEC_PAIR_MASK) &&
+					(ap_wpa & NM_802_11_AP_SEC_GROUP_MASK))
+				{
+					found = 1;
+				}
+			}
+			if (check_rsn) {
+				if ((ap_rsn & NM_802_11_AP_SEC_PAIR_MASK) &&
+					(ap_rsn & NM_802_11_AP_SEC_GROUP_MASK))
+				{
+					found = 1;
+				}
+			}
+			if (!found)
+				return FALSE;
+		}
 
 		return TRUE;
 	}
