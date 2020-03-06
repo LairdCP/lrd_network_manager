@@ -167,6 +167,10 @@ static const struct Opt opt_table[] = {
 	{ "ignore_broadcast_ssid", TYPE_INT,  0, 2, FALSE, NULL },
 	{ "dms",                TYPE_INT,     0, 6, FALSE, NULL },
 	{ "owe_only",           TYPE_INT,     0, 1, FALSE,  NULL },
+	{ "ht40",               TYPE_INT,     -1, 1, FALSE,  NULL },
+	{ "vht",                TYPE_INT,     0, 1, FALSE,  NULL },
+	{ "max_oper_chwidth",   TYPE_INT,     0, 1, FALSE,  NULL },
+	{ "vht_center_freq1",   TYPE_INT,     2412, 5825, FALSE,  NULL },
 };
 
 static gboolean

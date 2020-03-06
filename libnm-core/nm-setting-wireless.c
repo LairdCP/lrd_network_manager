@@ -69,6 +69,7 @@ NM_GOBJECT_PROPERTIES_DEFINE (NMSettingWireless,
 	PROP_FREQUENCY_LIST,
 	PROP_FREQUENCY_DFS,
 	PROP_MAX_SCAN_INTERVAL,
+	PROP_CHANNEL_WIDTH,
 
 	PROP_WAKE_ON_WLAN,
 	PROP_DMS,
@@ -79,6 +80,7 @@ typedef struct {
 	char *mode;
 	char *band;
 	guint32 channel;
+	char *channel_width;
 	char *bssid;
 	guint32 rate;
 	guint32 tx_power;
@@ -665,6 +667,20 @@ nm_setting_wireless_get_channel (NMSettingWireless *setting)
 	g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), 0);
 
 	return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->channel;
+}
+
+/**
+ * nm_setting_wireless_get_channel_width:
+ * @setting: the #NMSettingWireless
+ *
+ * Returns: the #NMSettingWireless:channel_width property of the setting
+ **/
+const char *
+nm_setting_wireless_get_channel_width (NMSettingWireless *setting)
+{
+	g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), NULL);
+
+	return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->channel_width;
 }
 
 /**
@@ -1355,6 +1371,16 @@ verify (NMSetting *setting, NMConnection *connection, GError **error)
 		}
 	}
 
+	if (priv->channel_width && !priv->channel) {
+		g_set_error (error,
+		             NM_CONNECTION_ERROR,
+		             NM_CONNECTION_ERROR_MISSING_PROPERTY,
+		             _("'%s' requires setting '%s' property"),
+		             NM_SETTING_WIRELESS_CHANNEL_WIDTH, NM_SETTING_WIRELESS_CHANNEL);
+		g_prefix_error (error, "%s.%s: ", NM_SETTING_WIRELESS_SETTING_NAME, NM_SETTING_WIRELESS_CHANNEL);
+		return FALSE;
+	}
+
 	if ((g_strcmp0 (priv->mode, NM_SETTING_WIRELESS_MODE_MESH) == 0) && !(priv->channel && priv->band)) {
 		g_set_error (error,
 		             NM_CONNECTION_ERROR,
@@ -1610,6 +1636,9 @@ get_property (GObject *object, guint prop_id,
 	case PROP_CHANNEL:
 		g_value_set_uint (value, nm_setting_wireless_get_channel (setting));
 		break;
+	case PROP_CHANNEL_WIDTH:
+		g_value_set_string (value, nm_setting_wireless_get_channel_width (setting));
+		break;
 	case PROP_BSSID:
 		g_value_set_string (value, nm_setting_wireless_get_bssid (setting));
 		break;
@@ -1723,6 +1752,10 @@ set_property (GObject *object, guint prop_id,
 		break;
 	case PROP_CHANNEL:
 		priv->channel = g_value_get_uint (value);
+		break;
+	case PROP_CHANNEL_WIDTH:
+		g_free (priv->channel_width);
+		priv->channel_width = g_value_dup_string (value);
 		break;
 	case PROP_BSSID:
 		g_free (priv->bssid);
@@ -2003,6 +2036,25 @@ nm_setting_wireless_class_init (NMSettingWirelessClass *klass)
 	                       G_PARAM_READWRITE |
 	                       G_PARAM_CONSTRUCT |
 	                       G_PARAM_STATIC_STRINGS);
+
+	/**
+	 * NMSettingWireless:channel-width:
+	 *
+	 * Wireless channel-width to use when creating an AP/Ad-Hoc network.
+	 **/
+	/* ---ifcfg-rh---
+	 * property: channel-width
+	 * variable: CHANNEL_WIDTH
+	 * description: Channel width used for AP/Ad-Hoc.
+	 * values: 20, 40, 40-, 40+, 80
+	 * example: CHANNEL_WIDTH=20
+	 * ---end---
+	 */
+	obj_properties[PROP_CHANNEL_WIDTH] =
+	    g_param_spec_string (NM_SETTING_WIRELESS_CHANNEL_WIDTH, "", "",
+	                         NULL,
+	                         G_PARAM_READWRITE |
+	                         G_PARAM_STATIC_STRINGS);
 
 	/**
 	 * NMSettingWireless:bssid:

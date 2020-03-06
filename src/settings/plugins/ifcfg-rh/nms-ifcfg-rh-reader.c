@@ -3977,6 +3977,23 @@ make_wireless_setting (shvarFile *ifcfg,
 		g_free (value);
 	}
 
+	value = svGetValueStr_cp (ifcfg, "CHANNEL_WIDTH");
+	if (value) {
+		if (strcmp (value, "20") &&
+			strcmp (value, "40") &&
+			strcmp (value, "40+") &&
+			strcmp (value, "40-") &&
+			strcmp (value, "80"))
+		{
+			g_set_error (error, NM_SETTINGS_ERROR, NM_SETTINGS_ERROR_INVALID_CONNECTION,
+						 "Invalid wireless channel width '%s'", value);
+			g_free (value);
+			goto error;
+		}
+		g_object_set (s_wireless, NM_SETTING_WIRELESS_CHANNEL_WIDTH, value, NULL);
+		g_free (value);
+	}
+
 	value = svGetValueStr_cp (ifcfg, "BAND");
 	if (value) {
 		if (!strcmp (value, "a")) {

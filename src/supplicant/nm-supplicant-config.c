@@ -458,6 +458,140 @@ wifi_freqs_to_string (gboolean bg_band)
 	return str;
 }
 
+static void
+wifi_channel_width_24g(guint32 channel, int width, int *ht40)
+{
+	if (width == 80) {
+		*ht40 = 0;
+		return; // 80MHz is not supported, fallback to 20MHz
+	}
+	if (channel < 1 || channel > 11) {
+		*ht40 = 0;
+		return; // channel only supports 20MHz
+	}
+	if (channel < 5) {
+		*ht40 = 1; // secondary channel is always above
+	} else if (channel > 7) {
+		*ht40 = -1; // secondary channel is always below
+	} else {
+		if (*ht40 == 0)
+			*ht40 = 1; // default to secondary channel is above
+	}
+}
+
+typedef struct {
+	int chan;
+	int ht40; // ht40 -- secondary channel: 1=above, -1=below
+	int vht80_cfreq; // vht 80-MHz center frequency
+} vhtchan_t;
+
+static vhtchan_t vht_table[] =
+{
+	{ 36, 1, 5210 },
+	{ 40, -1, 5210 },
+	{ 44, 1, 5210 },
+	{ 48, -1, 5210 },
+
+	{ 52, 1, 5290 },
+	{ 56, -1, 5290 },
+	{ 60, 1, 5290 },
+	{ 64, -1, 5290 },
+
+	{ 100, 1, 5530 },
+	{ 104, -1, 5530 },
+	{ 108, 1, 5530 },
+	{ 112, -1, 5530 },
+
+	{ 116, 1, 5610 },
+	{ 120, -1, 5610 },
+	{ 124, 1, 5610 },
+	{ 128, -1, 5610 },
+
+	{ 132, 1, 5690 },
+	{ 136, -1, 5690 },
+	{ 140, 1, 5690 },
+	{ 144, -1, 5690 },
+
+	{ 149, 1, 5775 },
+	{ 153, -1, 5775 },
+	{ 157, 1, 5775 },
+	{ 161, -1, 5775 },
+
+	{ 0, 0, 0 }
+};
+
+static void
+wifi_channel_width_5g(guint32 channel, int width, int *ht40, int *vht80_cfreq)
+{
+	vhtchan_t *pt = vht_table;
+	while (pt->chan) {
+		if (pt->chan == channel) break;
+		pt++;
+	}
+	if (pt->chan) {
+		*ht40 = pt->ht40;
+		if (width == 80)
+			*vht80_cfreq = pt->vht80_cfreq;
+		return;
+	}
+	*ht40 = 0;
+	*vht80_cfreq = 0;
+}
+
+/*
+ * settings for 40 and 80 MHz channels
+ */
+static gboolean
+nm_supplicant_config_add_channel_width(NMSupplicantConfig * self,
+									   const char *band, guint32 channel,
+									   const char *width_str,
+									   GError **error)
+{
+	int ht40 = 0; // secondary channel is above(+1), or below(-1)
+	int vht80_cfreq = 0;
+	int width;
+
+	if (!width_str) {
+		return TRUE; // default to 20MHz
+	} else if (!strcmp(width_str, "80")) {
+		width = 80;
+	} else if (!strcmp(width_str, "40")) {
+		width = 40;
+	} else if (!strcmp(width_str, "40+")) {
+		width = 40;
+		ht40 = 1;
+	} else if (!strcmp(width_str, "40-")) {
+		width = 40;
+		ht40 = -1;
+	} else {
+		return TRUE; // unsupported channel width, or 20MHz
+	}
+	if (!strcmp (band, "bg")) {
+		wifi_channel_width_24g(channel, width, &ht40);
+	} else if (!strcmp (band, "a")) {
+		wifi_channel_width_5g(channel, width, &ht40, &vht80_cfreq);
+	} else {
+		return TRUE; // unsupported band
+	}
+	if (ht40) {
+		char buf[32];
+		snprintf (buf, sizeof (buf), "%d", ht40);
+		if (!nm_supplicant_config_add_option (self, "ht40", buf, -1, NULL, error))
+			return FALSE;
+		if (vht80_cfreq) {
+			snprintf (buf, sizeof (buf), "%d", vht80_cfreq);
+			if (!nm_supplicant_config_add_option (self, "vht_center_freq1", buf, -1, NULL, error))
+				return FALSE;
+			if (!nm_supplicant_config_add_option (self, "vht", "1", -1, NULL, error))
+				return FALSE;
+			if (!nm_supplicant_config_add_option (self, "max_oper_chwidth", "1", -1, NULL, error))
+				return FALSE;
+		}
+	}
+
+	return TRUE;
+}
+
 gboolean
 nm_supplicant_config_add_setting_macsec (NMSupplicantConfig * self,
                                          NMSettingMacsec * setting,
@@ -643,12 +777,16 @@ nm_supplicant_config_add_setting_wireless (NMSupplicantConfig * self,
 	} else
 	if (band) {
 		if (channel) {
+			const char *width;
 			guint32 freq;
 			gs_free char *str_freq = NULL;
 
 			freq = nm_utils_wifi_channel_to_freq (channel, band);
 			str_freq = g_strdup_printf ("%u", freq);
 			if (!nm_supplicant_config_add_option (self, "freq_list", str_freq, -1, NULL, error))
+				return FALSE;
+			width = nm_setting_wireless_get_channel_width (setting);
+			if (!nm_supplicant_config_add_channel_width(self, band, channel, width, error))
 				return FALSE;
 		} else {
 			const char *freqs = NULL;

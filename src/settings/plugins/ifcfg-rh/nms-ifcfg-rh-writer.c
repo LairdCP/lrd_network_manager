@@ -925,6 +925,7 @@ write_wireless_setting (NMConnection *connection,
 	chan = nm_setting_wireless_get_channel (s_wireless);
 	if (chan) {
 		svSetValueInt64 (ifcfg, "CHANNEL", chan);
+		svSetValueStr (ifcfg, "CHANNEL_WIDTH", nm_setting_wireless_get_channel_width (s_wireless));
 	} else {
 		/* Band only set if channel is not, since channel implies band */
 		svSetValueStr (ifcfg, "BAND", nm_setting_wireless_get_band (s_wireless));
