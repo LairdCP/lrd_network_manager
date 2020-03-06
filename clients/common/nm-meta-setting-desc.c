@@ -7256,6 +7256,12 @@ static const NMMetaPropertyInfo *const property_infos_WIRELESS[] = {
 			.set_fcn =                  _set_fcn_wireless_channel,
 		),
 	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_WIRELESS_CHANNEL_WIDTH,
+		.property_type =                &_pt_gobject_string,
+		.property_typ_data = DEFINE_PROPERTY_TYP_DATA (
+			.values_static =            NM_MAKE_STRV ("20", "40", "40+", "40-", "80"),
+		),
+	),
 	PROPERTY_INFO_WITH_DESC (NM_SETTING_WIRELESS_BSSID,
 		.property_type =                &_pt_gobject_mac,
 	),

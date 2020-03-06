@@ -1658,4 +1658,5 @@ global:
 	nm_setting_wireguard_get_ip4_auto_default_route;
 	nm_setting_wireguard_get_ip6_auto_default_route;
 	nm_settings_add_connection2_flags_get_type;
+	nm_setting_wireless_get_channel_width;
 } libnm_1_18_0;

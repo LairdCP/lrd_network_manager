@@ -87,6 +87,7 @@ typedef enum { /*< flags >*/
 #define NM_SETTING_WIRELESS_MODE        "mode"
 #define NM_SETTING_WIRELESS_BAND        "band"
 #define NM_SETTING_WIRELESS_CHANNEL     "channel"
+#define NM_SETTING_WIRELESS_CHANNEL_WIDTH     "channel-width"
 #define NM_SETTING_WIRELESS_BSSID       "bssid"
 #define NM_SETTING_WIRELESS_RATE        "rate"
 #define NM_SETTING_WIRELESS_TX_POWER    "tx-power"
@@ -207,6 +208,7 @@ GBytes           *nm_setting_wireless_get_ssid               (NMSettingWireless 
 const char       *nm_setting_wireless_get_mode               (NMSettingWireless *setting);
 const char       *nm_setting_wireless_get_band               (NMSettingWireless *setting);
 guint32           nm_setting_wireless_get_channel            (NMSettingWireless *setting);
+const char       *nm_setting_wireless_get_channel_width      (NMSettingWireless *setting);
 const char       *nm_setting_wireless_get_bssid              (NMSettingWireless *setting);
 guint32           nm_setting_wireless_get_rate               (NMSettingWireless *setting);
 guint32           nm_setting_wireless_get_tx_power           (NMSettingWireless *setting);
