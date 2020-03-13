@@ -40,3 +40,8 @@
 #define DESCRIBE_DOC_NM_SETTING_WIRELESS_CHANNEL_WIDTH	\
 	N_("Selects channel width used when creating a network (AP/Ahoc).  Valid values are 20, 40, 40-, 40+, and 80.")
 
+
+#define DESCRIBE_DOC_NM_SETTING_WIFI_P2P_DEVICE_NAME \
+	N_("P2P device name used for this device.")
+#define DESCRIBE_DOC_NM_SETTING_WIFI_P2P_PEER_DEVICE_NAME \
+	N_("P2P device name that should be connected to.")

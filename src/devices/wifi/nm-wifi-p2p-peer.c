@@ -551,6 +551,8 @@ nm_wifi_p2p_peer_check_compatible (NMWifiP2PPeer *self,
 	NMWifiP2PPeerPrivate *priv;
 	NMSettingWifiP2P *s_wifi_p2p;
 	const char *hwaddr;
+	const char *peer_device_name;
+	gboolean compatible = FALSE;
 
 	g_return_val_if_fail (NM_IS_WIFI_P2P_PEER (self), FALSE);
 	g_return_val_if_fail (NM_IS_CONNECTION (connection), FALSE);
@@ -562,12 +564,24 @@ nm_wifi_p2p_peer_check_compatible (NMWifiP2PPeer *self,
 		return FALSE;
 
 	hwaddr = nm_setting_wifi_p2p_get_peer (s_wifi_p2p);
-	if (   hwaddr
-	    && (   !priv->address
-	        || !nm_utils_hwaddr_matches (hwaddr, -1, priv->address, -1)))
-		return FALSE;
+	if (hwaddr) {
+		if (!priv->address
+			|| !nm_utils_hwaddr_matches (hwaddr, -1, priv->address, -1))
+		{
+			return FALSE;
+		}
+		compatible = TRUE;
+	}
 
-	return TRUE;
+	peer_device_name = nm_setting_wifi_p2p_get_peer_device_name (s_wifi_p2p);
+	if (peer_device_name) {
+		if (strcmp(priv->name, peer_device_name)) {
+			return FALSE;
+		}
+		compatible = TRUE;
+	}
+
+	return compatible;
 }
 
 /*****************************************************************************/
