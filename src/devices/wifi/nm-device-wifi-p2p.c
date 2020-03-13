@@ -373,6 +373,7 @@ act_stage1_prepare (NMDevice *device, NMDeviceStateReason *out_failure_reason)
 	NMConnection *connection;
 	NMSettingWifiP2P *s_wifi_p2p;
 	NMWifiP2PPeer *peer;
+	NMConnection *conn = nm_device_get_applied_connection (device);
 
 	nm_clear_g_source (&priv->sup_timeout_id);
 
@@ -400,6 +401,8 @@ act_stage1_prepare (NMDevice *device, NMDeviceStateReason *out_failure_reason)
 		priv->sup_timeout_id = g_timeout_add_seconds (10,
 		                                              supplicant_find_timeout_cb,
 		                                              self);
+
+		nm_supplicant_interface_p2p_device_config (priv->mgmt_iface, conn);
 
 		nm_supplicant_interface_p2p_start_find (priv->mgmt_iface, 10);
 
@@ -1002,6 +1005,7 @@ impl_device_wifi_p2p_start_find (NMDBusObject *obj,
 	GVariant *opts_val;
 	GVariantIter iter;
 	gint32 timeout = 30;
+	NMConnection *conn = nm_device_get_applied_connection (NM_DEVICE (self));
 
 	g_variant_get (parameters, "(@a{sv})", &options);
 
@@ -1045,6 +1049,8 @@ impl_device_wifi_p2p_start_find (NMDBusObject *obj,
 		                                               "WPA Supplicant management interface is currently unavailable.");
 		return;
 	}
+
+	nm_supplicant_interface_p2p_device_config (priv->mgmt_iface, conn);
 
 	nm_supplicant_interface_p2p_start_find (priv->mgmt_iface, timeout);
 

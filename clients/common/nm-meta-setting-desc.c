@@ -7027,7 +7027,6 @@ static const NMMetaPropertyInfo *const property_infos_WIFI_P2P[] = {
 	PROPERTY_INFO_WITH_DESC (NM_SETTING_WIFI_P2P_PEER,
 		.is_cli_option =                TRUE,
 		.property_alias =               "peer",
-		.inf_flags =                    NM_META_PROPERTY_INF_FLAG_REQD,
 		.prompt =                       N_("Peer"),
 		.property_type =                &_pt_gobject_mac,
 	),
@@ -7041,6 +7040,12 @@ static const NMMetaPropertyInfo *const property_infos_WIFI_P2P[] = {
 	),
 	PROPERTY_INFO_WITH_DESC (NM_SETTING_WIFI_P2P_WFD_IES,
 		.property_type =                &_pt_gobject_bytes,
+	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_WIFI_P2P_DEVICE_NAME,
+		.property_type =                &_pt_gobject_string,
+	),
+	PROPERTY_INFO_WITH_DESC (NM_SETTING_WIFI_P2P_PEER_DEVICE_NAME,
+		.property_type =                &_pt_gobject_string,
 	),
 	NULL
 };
