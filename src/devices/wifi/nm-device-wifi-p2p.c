@@ -455,7 +455,8 @@ act_stage2_config (NMDevice *device, NMDeviceStateReason *out_failure_reason)
 	/* TODO: Fix "pbc" being hardcoded here! */
 	nm_supplicant_interface_p2p_connect (priv->mgmt_iface,
 	                                     nm_wifi_p2p_peer_get_supplicant_path (peer),
-	                                     "pbc", NULL);
+	                                     "pbc", NULL,
+	                                     nm_setting_wifi_p2p_get_frequency (s_wifi_p2p));
 
 	/* Set up a timeout on the connect attempt */
 	if (priv->sup_timeout_id == 0) {

@@ -2989,7 +2989,8 @@ void
 nm_supplicant_interface_p2p_connect (NMSupplicantInterface * self,
                                      const char * peer,
                                      const char * wps_method,
-                                     const char * wps_pin)
+                                     const char * wps_pin,
+                                     int frequency)
 {
 	NMSupplicantInterfacePrivate *priv;
 	GVariantBuilder builder;
@@ -3015,6 +3016,10 @@ nm_supplicant_interface_p2p_connect (NMSupplicantInterface * self,
 	g_variant_builder_add (&builder, "{sv}", "join", g_variant_new_boolean (FALSE));
 	g_variant_builder_add (&builder, "{sv}", "persistent", g_variant_new_boolean (FALSE));
 	g_variant_builder_add (&builder, "{sv}", "go_intent", g_variant_new_int32 (7));
+	if (frequency) {
+		g_variant_builder_add (&builder, "{sv}", "frequency", g_variant_new_int32 (frequency));
+	}
+
 
 	g_dbus_proxy_call (priv->p2p_proxy,
 	                   "Connect",

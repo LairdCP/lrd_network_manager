@@ -45,3 +45,5 @@
 	N_("P2P device name used for this device.")
 #define DESCRIBE_DOC_NM_SETTING_WIFI_P2P_PEER_DEVICE_NAME \
 	N_("P2P device name that should be connected to.")
+#define DESCRIBE_DOC_NM_SETTING_WIFI_P2P_FREQUENCY \
+	N_("P2P frequency (MHz).")
