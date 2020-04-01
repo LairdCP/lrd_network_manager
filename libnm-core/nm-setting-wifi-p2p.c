@@ -52,6 +52,7 @@ NM_GOBJECT_PROPERTIES_DEFINE_BASE (
 	PROP_WFD_IES,
 	PROP_DEVICE_NAME,
 	PROP_PEER_DEVICE_NAME,
+	PROP_FREQUENCY,
 );
 
 typedef struct {
@@ -62,6 +63,7 @@ typedef struct {
 
 	char *device_name;
 	char *peer_device_name;
+	int frequency;
 
 } NMSettingWifiP2PPrivate;
 
@@ -126,6 +128,22 @@ nm_setting_wifi_p2p_get_peer_device_name (NMSettingWifiP2P *setting)
 	g_return_val_if_fail (NM_IS_SETTING_WIFI_P2P (setting), NULL);
 
 	return NM_SETTING_WIFI_P2P_GET_PRIVATE (setting)->peer_device_name;
+}
+
+/**
+ * nm_setting_wifi_p2p_get_frequency:
+ * @setting: the #NMSettingWifiP2P
+ *
+ * Returns: the #NMSettingWifiP2P:frequency property of the setting
+ *
+ * Since: 1.18
+ **/
+int
+nm_setting_wifi_p2p_get_frequency (NMSettingWifiP2P *setting)
+{
+	g_return_val_if_fail (NM_IS_SETTING_WIFI_P2P (setting), NULL);
+
+	return NM_SETTING_WIFI_P2P_GET_PRIVATE (setting)->frequency;
 }
 
 /**
@@ -248,6 +266,9 @@ get_property (GObject *object, guint prop_id,
 	case PROP_PEER_DEVICE_NAME:
 		g_value_set_string (value, nm_setting_wifi_p2p_get_peer_device_name (setting));
 		break;
+	case PROP_FREQUENCY:
+		g_value_set_uint (value, nm_setting_wifi_p2p_get_frequency (setting));
+		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
 		break;
@@ -280,6 +301,9 @@ set_property (GObject *object, guint prop_id,
 	case PROP_PEER_DEVICE_NAME:
 		g_free (priv->peer_device_name);
 		priv->peer_device_name = g_value_dup_string (value);
+		break;
+	case PROP_FREQUENCY:
+		priv->frequency = g_value_get_uint (value);
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -431,6 +455,23 @@ nm_setting_wifi_p2p_class_init (NMSettingWifiP2PClass *setting_wifi_p2p_class)
 	                         NULL,
 	                         G_PARAM_READWRITE |
 	                         G_PARAM_STATIC_STRINGS);
+
+	/**
+	 * NMSettingWifiP2P:frequency:
+	 *
+	 * Frequency (MHz).
+	 *
+	 * Since: 1.18
+	 */
+	obj_properties[PROP_FREQUENCY] =
+	    g_param_spec_uint (NM_SETTING_WIFI_P2P_FREQUENCY, "", "",
+	                       0,
+	                       G_MAXUINT32,
+	                       0,
+	                       G_PARAM_READWRITE |
+	                       G_PARAM_CONSTRUCT |
+	                       NM_SETTING_PARAM_FUZZY_IGNORE |
+	                       G_PARAM_STATIC_STRINGS);
 
 	g_object_class_install_properties (object_class, _PROPERTY_ENUMS_LAST, obj_properties);
 

@@ -169,7 +169,8 @@ void nm_supplicant_interface_p2p_stop_find (NMSupplicantInterface *self);
 void nm_supplicant_interface_p2p_connect (NMSupplicantInterface * self,
                                           const char * peer,
                                           const char * wps_method,
-                                          const char * wps_pin);
+                                          const char * wps_pin,
+                                          int frequency);
 void nm_supplicant_interface_p2p_cancel_connect (NMSupplicantInterface * self);
 void nm_supplicant_interface_p2p_disconnect (NMSupplicantInterface * self);
 

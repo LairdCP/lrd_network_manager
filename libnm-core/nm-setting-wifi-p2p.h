@@ -48,6 +48,7 @@ G_BEGIN_DECLS
 #define NM_SETTING_WIFI_P2P_WFD_IES     "wfd-ies"
 #define NM_SETTING_WIFI_P2P_DEVICE_NAME "device-name"
 #define NM_SETTING_WIFI_P2P_PEER_DEVICE_NAME "peer-device-name"
+#define NM_SETTING_WIFI_P2P_FREQUENCY   "frequency"
 
 typedef struct _NMSettingWifiP2PClass NMSettingWifiP2PClass;
 
@@ -65,6 +66,9 @@ const char *nm_setting_wifi_p2p_get_device_name (NMSettingWifiP2P *setting);
 
 NM_AVAILABLE_IN_1_18
 const char *nm_setting_wifi_p2p_get_peer_device_name (NMSettingWifiP2P *setting);
+
+NM_AVAILABLE_IN_1_18
+int nm_setting_wifi_p2p_get_frequency (NMSettingWifiP2P *setting);
 
 NM_AVAILABLE_IN_1_16
 NMSettingWirelessSecurityWpsMethod nm_setting_wifi_p2p_get_wps_method (NMSettingWifiP2P *setting);
