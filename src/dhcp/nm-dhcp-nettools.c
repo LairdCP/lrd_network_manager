@@ -1,19 +1,6 @@
+// SPDX-License-Identifier: LGPL-2.1+
 /*
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU Library General Public License as
- * published by the Free Software Foundation; either version 2 of the
- * License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Copyright (C) 2014-2019 Red Hat, Inc.
+ * Copyright (C) 2014 - 2019 Red Hat, Inc.
  */
 
 #include "nm-default.h"
@@ -42,6 +29,7 @@
 #include "nm-dhcp-client-logging.h"
 #include "n-dhcp4/src/n-dhcp4.h"
 #include "systemd/nm-sd-utils-shared.h"
+#include "systemd/nm-sd-utils-dhcp.h"
 
 /*****************************************************************************/
 
@@ -55,8 +43,6 @@
 typedef struct _NMDhcpNettools NMDhcpNettools;
 typedef struct _NMDhcpNettoolsClass NMDhcpNettoolsClass;
 
-static GType nm_dhcp_nettools_get_type (void);
-
 /*****************************************************************************/
 
 typedef struct {
@@ -65,6 +51,7 @@ typedef struct {
 	NDhcp4ClientLease *lease;
 	GIOChannel *channel;
 	guint event_id;
+	char *lease_file;
 } NMDhcpNettoolsPrivate;
 
 struct _NMDhcpNettools {
@@ -83,13 +70,6 @@ G_DEFINE_TYPE (NMDhcpNettools, nm_dhcp_nettools, NM_TYPE_DHCP_CLIENT)
 /*****************************************************************************/
 
 #define DHCP_MAX_FQDN_LENGTH 255
-
-enum {
-	DHCP_FQDN_FLAG_S = (1 << 0),
-	DHCP_FQDN_FLAG_O = (1 << 1),
-	DHCP_FQDN_FLAG_E = (1 << 2),
-	DHCP_FQDN_FLAG_N = (1 << 3),
-};
 
 enum {
 	NM_IN_ADDR_CLASS_A,
@@ -354,24 +334,21 @@ lease_get_u16 (NDhcp4ClientLease *lease,
 	return TRUE;
 }
 
-#define LOG_LEASE(domain, ...) \
-    G_STMT_START { \
-        _LOG2I ((domain), (iface), "  "__VA_ARGS__); \
-    } G_STMT_END
-
 static gboolean
 lease_parse_address (NDhcp4ClientLease *lease,
-                     const char *iface,
                      NMIP4Config *ip4_config,
                      GHashTable *options,
                      GError **error)
 {
 	char addr_str[NM_UTILS_INET_ADDRSTRLEN];
-	const gint64 ts = nm_utils_get_monotonic_timestamp_ns ();
 	struct in_addr a_address;
 	struct in_addr a_netmask;
+	struct in_addr a_next_server;
 	guint32 a_plen;
-	guint64 a_lifetime;
+	guint64 nettools_lifetime;
+	guint32 a_lifetime;
+	guint32 a_timestamp;
+	guint64 a_expiry;
 
 	n_dhcp4_client_lease_get_yiaddr (lease, &a_address);
 	if (a_address.s_addr == INADDR_ANY) {
@@ -379,8 +356,48 @@ lease_parse_address (NDhcp4ClientLease *lease,
 		return FALSE;
 	}
 
-	/* n_dhcp4_client_lease_get_lifetime() never fails */
-	n_dhcp4_client_lease_get_lifetime (lease, &a_lifetime);
+	n_dhcp4_client_lease_get_lifetime (lease, &nettools_lifetime);
+
+	if (nettools_lifetime == G_MAXUINT64) {
+		a_timestamp = 0;
+		a_lifetime = NM_PLATFORM_LIFETIME_PERMANENT;
+		a_expiry = G_MAXUINT64;
+	} else {
+		guint64 nettools_basetime;
+		guint64 lifetime;
+		gint64 ts;
+
+		n_dhcp4_client_lease_get_basetime (lease, &nettools_basetime);
+
+		/* usually we shouldn't assert against external libraries like n-dhcp4.
+		 * Here we still do it... it seems safe enough. */
+		nm_assert (nettools_basetime > 0);
+		nm_assert (nettools_lifetime >= nettools_basetime);
+		nm_assert (((nettools_lifetime - nettools_basetime) % NM_UTILS_NS_PER_SECOND) == 0);
+		nm_assert ((nettools_lifetime - nettools_basetime) / NM_UTILS_NS_PER_SECOND <= G_MAXUINT32);
+
+		if (nettools_lifetime <= nettools_basetime) {
+			/* A lease time of 0 is allowed on some dhcp servers, so, let's accept it. */
+			lifetime = 0;
+		} else {
+			lifetime = nettools_lifetime - nettools_basetime;
+
+			/* we "ceil" the value to the next second. In practice, we don't expect any sub-second values
+			 * from n-dhcp4 anyway, so this should have no effect. */
+			lifetime += NM_UTILS_NS_PER_SECOND - 1;
+		}
+
+		ts = nm_utils_monotonic_timestamp_from_boottime (nettools_basetime, 1);
+
+		/* the timestamp must be positive, because we only started nettools DHCP client
+		 * after obtaining the first monotonic timestamp. Hence, the lease must have been
+		 * received afterwards. */
+		nm_assert (ts >= NM_UTILS_NS_PER_SECOND);
+
+		a_timestamp = ts / NM_UTILS_NS_PER_SECOND;
+		a_lifetime = NM_MIN (lifetime / NM_UTILS_NS_PER_SECOND, NM_PLATFORM_LIFETIME_PERMANENT - 1);
+		a_expiry = time (NULL) + ((lifetime - (nm_utils_clock_gettime_ns (CLOCK_BOOTTIME) - nettools_basetime)) / NM_UTILS_NS_PER_SECOND);
+	}
 
 	if (!lease_get_in_addr (lease, NM_DHCP_OPTION_DHCP4_SUBNET_MASK, &a_netmask)) {
 		nm_utils_error_set_literal (error, NM_UTILS_ERROR_UNKNOWN, "could not get netmask from lease");
@@ -390,7 +407,6 @@ lease_parse_address (NDhcp4ClientLease *lease,
 	nm_utils_inet4_ntop (a_address.s_addr, addr_str);
 	a_plen = nm_utils_ip4_netmask_to_prefix (a_netmask.s_addr);
 
-	LOG_LEASE (LOGD_DHCP4, "address %s/%u", addr_str, a_plen);
 	nm_dhcp_option_add_option (options,
 	                           _nm_dhcp_option_dhcp4_options,
 	                           NM_DHCP_OPTION_DHCP4_NM_IP_ADDRESS,
@@ -400,12 +416,27 @@ lease_parse_address (NDhcp4ClientLease *lease,
 	                           NM_DHCP_OPTION_DHCP4_SUBNET_MASK,
 	                           nm_utils_inet4_ntop (a_netmask.s_addr, addr_str));
 
-	LOG_LEASE (LOGD_DHCP4, "expires in %u seconds",
-	           (guint) ((a_lifetime - ts)/1000000000));
 	nm_dhcp_option_add_option_u64 (options,
 	                               _nm_dhcp_option_dhcp4_options,
 	                               NM_DHCP_OPTION_DHCP4_IP_ADDRESS_LEASE_TIME,
-	                               (guint64) (a_lifetime / 1000000000));
+	                               (guint64) a_lifetime);
+
+	if (a_expiry != G_MAXUINT64) {
+		nm_dhcp_option_add_option_u64 (options,
+		                               _nm_dhcp_option_dhcp4_options,
+		                               NM_DHCP_OPTION_DHCP4_NM_EXPIRY,
+		                               a_expiry);
+	}
+
+
+	n_dhcp4_client_lease_get_siaddr (lease, &a_next_server);
+	if (a_next_server.s_addr != INADDR_ANY) {
+		nm_utils_inet4_ntop (a_next_server.s_addr, addr_str);
+		nm_dhcp_option_add_option (options,
+		                           _nm_dhcp_option_dhcp4_options,
+		                           NM_DHCP_OPTION_DHCP4_NM_NEXT_SERVER,
+		                           addr_str);
+	}
 
 	nm_ip4_config_add_address (ip4_config,
 	                           &((const NMPlatformIP4Address) {
@@ -413,9 +444,9 @@ lease_parse_address (NDhcp4ClientLease *lease,
 	                                   .peer_address = a_address.s_addr,
 	                                   .plen         = a_plen,
 	                                   .addr_source  = NM_IP_CONFIG_SOURCE_DHCP,
-	                                   .timestamp    = ts / 1000000000,
-	                                   .lifetime     = (a_lifetime - ts) / 1000000000,
-	                                   .preferred    = (a_lifetime - ts) / 1000000000,
+	                                   .timestamp    = a_timestamp,
+	                                   .lifetime     = a_lifetime,
+	                                   .preferred    = a_lifetime,
 	                           }));
 
 	return TRUE;
@@ -423,7 +454,6 @@ lease_parse_address (NDhcp4ClientLease *lease,
 
 static void
 lease_parse_domain_name_servers (NDhcp4ClientLease *lease,
-                                 const char *iface,
                                  NMIP4Config *ip4_config,
                                  GHashTable *options)
 {
@@ -454,7 +484,6 @@ lease_parse_domain_name_servers (NDhcp4ClientLease *lease,
 		nm_ip4_config_add_nameserver (ip4_config, addr.s_addr);
 	}
 
-	LOG_LEASE (LOGD_DHCP4, "nameserver '%s'", str->str);
 	nm_dhcp_option_add_option (options,
 	                           _nm_dhcp_option_dhcp4_options,
 	                           NM_DHCP_OPTION_DHCP4_DOMAIN_NAME_SERVER,
@@ -463,7 +492,6 @@ lease_parse_domain_name_servers (NDhcp4ClientLease *lease,
 
 static void
 lease_parse_routes (NDhcp4ClientLease *lease,
-                    const char *iface,
                     NMIP4Config *ip4_config,
                     GHashTable *options,
                     guint32 route_table,
@@ -493,11 +521,6 @@ lease_parse_routes (NDhcp4ClientLease *lease,
 			nm_utils_inet4_ntop (dest.s_addr, dest_str);
 			nm_utils_inet4_ntop (gateway.s_addr, gateway_str);
 
-			LOG_LEASE (LOGD_DHCP4,
-			           "classless static route %s/%d gw %s",
-			           dest_str,
-			           (int) plen,
-			           gateway_str);
 			g_string_append_printf (nm_gstring_add_space_delimiter (str),
 			                        "%s/%d %s",
 			                        dest_str,
@@ -542,11 +565,6 @@ lease_parse_routes (NDhcp4ClientLease *lease,
 			nm_utils_inet4_ntop (dest.s_addr, dest_str);
 			nm_utils_inet4_ntop (gateway.s_addr, gateway_str);
 
-			LOG_LEASE (LOGD_DHCP4,
-			           "static route %s/%d gw %s",
-			           dest_str,
-			           (int) plen,
-			           gateway_str);
 			g_string_append_printf (nm_gstring_add_space_delimiter (str),
 			                        "%s/%d %s",
 			                        dest_str,
@@ -623,7 +641,6 @@ lease_parse_routes (NDhcp4ClientLease *lease,
 			                         }),
 			                         NULL);
 		}
-		LOG_LEASE (LOGD_DHCP4, "router %s", str->str);
 		nm_dhcp_option_add_option (options,
 		                           _nm_dhcp_option_dhcp4_options,
 		                           NM_DHCP_OPTION_DHCP4_ROUTER,
@@ -633,7 +650,6 @@ lease_parse_routes (NDhcp4ClientLease *lease,
 
 static void
 lease_parse_mtu (NDhcp4ClientLease *lease,
-                 const char *iface,
                  NMIP4Config *ip4_config,
                  GHashTable *options)
 {
@@ -645,7 +661,6 @@ lease_parse_mtu (NDhcp4ClientLease *lease,
 	if (mtu < 68)
 		return;
 
-	LOG_LEASE (LOGD_DHCP4, "mtu %u", mtu);
 	nm_dhcp_option_add_option_u64 (options,
 	                               _nm_dhcp_option_dhcp4_options,
 	                               NM_DHCP_OPTION_DHCP4_INTERFACE_MTU,
@@ -655,7 +670,6 @@ lease_parse_mtu (NDhcp4ClientLease *lease,
 
 static void
 lease_parse_metered (NDhcp4ClientLease *lease,
-                     const char *iface,
                      NMIP4Config *ip4_config,
                      GHashTable *options)
 {
@@ -671,13 +685,12 @@ lease_parse_metered (NDhcp4ClientLease *lease,
 		metered = !!memmem (data, n_data, "ANDROID_METERED", NM_STRLEN ("ANDROID_METERED"));
 	}
 
-	LOG_LEASE (LOGD_DHCP4, "%s", metered ? "metered" : "unmetered");
+	/* TODO: expose the vendor specific option when present */
 	nm_ip4_config_set_metered (ip4_config, metered);
 }
 
 static void
 lease_parse_ntps (NDhcp4ClientLease *lease,
-                  const char *iface,
                   GHashTable *options)
 {
 	nm_auto_free_gstring GString *str = NULL;
@@ -698,13 +711,14 @@ lease_parse_ntps (NDhcp4ClientLease *lease,
 		g_string_append (nm_gstring_add_space_delimiter (str), addr_str);
 	}
 
-	LOG_LEASE (LOGD_DHCP4, "ntp server '%s'", str->str);
-	nm_dhcp_option_add_option (options, _nm_dhcp_option_dhcp4_options, NM_DHCP_OPTION_DHCP4_NTP_SERVER, str->str);
+	nm_dhcp_option_add_option (options,
+	                           _nm_dhcp_option_dhcp4_options,
+	                           NM_DHCP_OPTION_DHCP4_NTP_SERVER,
+	                           str->str);
 }
 
 static void
 lease_parse_hostname (NDhcp4ClientLease *lease,
-                      const char *iface,
                       GHashTable *options)
 {
 	nm_auto_free_gstring GString *str = NULL;
@@ -721,13 +735,14 @@ lease_parse_hostname (NDhcp4ClientLease *lease,
 	if (is_localhost(str->str))
 		return;
 
-	LOG_LEASE (LOGD_DHCP4, "hostname '%s'", str->str);
-	nm_dhcp_option_add_option (options, _nm_dhcp_option_dhcp4_options, NM_DHCP_OPTION_DHCP4_HOST_NAME, str->str);
+	nm_dhcp_option_add_option (options,
+	                           _nm_dhcp_option_dhcp4_options,
+	                           NM_DHCP_OPTION_DHCP4_HOST_NAME,
+	                           str->str);
 }
 
 static void
 lease_parse_domainname (NDhcp4ClientLease *lease,
-                        const char *iface,
                         NMIP4Config *ip4_config,
                         GHashTable *options)
 {
@@ -754,13 +769,14 @@ lease_parse_domainname (NDhcp4ClientLease *lease,
 		g_string_append (nm_gstring_add_space_delimiter (str), *d);
 		nm_ip4_config_add_domain (ip4_config, *d);
 	}
-	LOG_LEASE (LOGD_DHCP4, "domain name '%s'", str->str);
-	nm_dhcp_option_add_option (options, _nm_dhcp_option_dhcp4_options, NM_DHCP_OPTION_DHCP4_DOMAIN_NAME, str->str);
+	nm_dhcp_option_add_option (options,
+	                           _nm_dhcp_option_dhcp4_options,
+	                           NM_DHCP_OPTION_DHCP4_DOMAIN_NAME,
+	                           str->str);
 }
 
 static void
 lease_parse_search_domains (NDhcp4ClientLease *lease,
-                            const char *iface,
                             NMIP4Config *ip4_config,
                             GHashTable *options)
 {
@@ -788,7 +804,6 @@ lease_parse_search_domains (NDhcp4ClientLease *lease,
 		g_string_append (nm_gstring_add_space_delimiter (str), domain->str);
 		nm_ip4_config_add_search (ip4_config, domain->str);
 	}
-	LOG_LEASE (LOGD_DHCP4, "domain search '%s'", str->str);
 	nm_dhcp_option_add_option (options,
 	                           _nm_dhcp_option_dhcp4_options,
 	                           NM_DHCP_OPTION_DHCP4_DOMAIN_SEARCH_LIST,
@@ -797,7 +812,6 @@ lease_parse_search_domains (NDhcp4ClientLease *lease,
 
 static void
 lease_parse_root_path (NDhcp4ClientLease *lease,
-                       const char *iface,
                        GHashTable *options)
 {
 	nm_auto_free_gstring GString *str = NULL;
@@ -810,16 +824,17 @@ lease_parse_root_path (NDhcp4ClientLease *lease,
 		return;
 
 	str = g_string_new_len ((char *)data, n_data);
-	LOG_LEASE (LOGD_DHCP4, "root path '%s'", str->str);
-	nm_dhcp_option_add_option (options, _nm_dhcp_option_dhcp4_options, NM_DHCP_OPTION_DHCP4_ROOT_PATH, str->str);
+	nm_dhcp_option_add_option (options,
+	                           _nm_dhcp_option_dhcp4_options,
+	                           NM_DHCP_OPTION_DHCP4_ROOT_PATH,
+	                           str->str);
 }
 
 static void
 lease_parse_wpad (NDhcp4ClientLease *lease,
-                  const char *iface,
                   GHashTable *options)
 {
-	nm_auto_free_gstring GString *str = NULL;
+	gs_free char *wpad = NULL;
 	uint8_t *data;
 	size_t n_data;
 	int r;
@@ -828,12 +843,44 @@ lease_parse_wpad (NDhcp4ClientLease *lease,
 	if (r)
 		return;
 
-	str = g_string_new_len ((char *)data, n_data);
-	LOG_LEASE (LOGD_DHCP4, "wpad '%s'", str->str);
+	nm_utils_buf_utf8safe_escape ((char *)data, n_data, 0, &wpad);
+	if (wpad == NULL)
+		wpad = g_strndup ((char *)data, n_data);
+
 	nm_dhcp_option_add_option (options,
 	                           _nm_dhcp_option_dhcp4_options,
 	                           NM_DHCP_OPTION_DHCP4_PRIVATE_PROXY_AUTODISCOVERY,
-	                           str->str);
+	                           wpad);
+}
+
+static void
+lease_parse_private_options (NDhcp4ClientLease *lease,
+                             GHashTable *options)
+{
+	int i;
+
+	for (i = NM_DHCP_OPTION_DHCP4_PRIVATE_224; i <= NM_DHCP_OPTION_DHCP4_PRIVATE_254; i++) {
+		gs_free char *option_string = NULL;
+		guint8 *data;
+		gsize n_data;
+		int r;
+
+		/* We manage private options 249 (private classless static route) and 252 (wpad) in a special
+		 * way, so skip them as we here just manage all (the other) private options as raw data */
+		if (NM_IN_SET (i, NM_DHCP_OPTION_DHCP4_PRIVATE_CLASSLESS_STATIC_ROUTE,
+		                  NM_DHCP_OPTION_DHCP4_PRIVATE_PROXY_AUTODISCOVERY))
+			continue;
+
+		r = n_dhcp4_client_lease_query (lease, i, &data, &n_data);
+		if (r)
+			continue;
+
+		option_string = nm_utils_bin2hexstr_full (data, n_data, ':', FALSE, NULL);
+		nm_dhcp_option_take_option (options,
+		                            _nm_dhcp_option_dhcp4_options,
+		                            i,
+		                            g_steal_pointer (&option_string));
+	}
 }
 
 static NMIP4Config *
@@ -852,22 +899,23 @@ lease_to_ip4_config (NMDedupMultiIndex *multi_idx,
 	g_return_val_if_fail (lease != NULL, NULL);
 
 	ip4_config = nm_ip4_config_new (multi_idx, ifindex);
-	options = out_options ? nm_dhcp_option_create_options_dict () : NULL;
+	options = nm_dhcp_option_create_options_dict ();
 
-	if (!lease_parse_address (lease, iface, ip4_config, options, error))
+	if (!lease_parse_address (lease, ip4_config, options, error))
 		return NULL;
 
-	lease_parse_routes (lease, iface, ip4_config, options, route_table, route_metric);
-	lease_parse_domain_name_servers (lease, iface, ip4_config, options);
-	lease_parse_domainname (lease, iface, ip4_config, options);
-	lease_parse_search_domains (lease, iface, ip4_config, options);
-	lease_parse_mtu (lease, iface, ip4_config, options);
-	lease_parse_metered (lease, iface, ip4_config, options);
+	lease_parse_routes (lease, ip4_config, options, route_table, route_metric);
+	lease_parse_domain_name_servers (lease, ip4_config, options);
+	lease_parse_domainname (lease, ip4_config, options);
+	lease_parse_search_domains (lease, ip4_config, options);
+	lease_parse_mtu (lease, ip4_config, options);
+	lease_parse_metered (lease, ip4_config, options);
 
-	lease_parse_hostname (lease, iface, options);
-	lease_parse_ntps (lease, iface, options);
-	lease_parse_root_path (lease, iface, options);
-	lease_parse_wpad (lease, iface, options);
+	lease_parse_hostname (lease, options);
+	lease_parse_ntps (lease, options);
+	lease_parse_root_path (lease, options);
+	lease_parse_wpad (lease, options);
+	lease_parse_private_options (lease, options);
 
 	NM_SET_OUT (out_options, g_steal_pointer (&options));
 	return g_steal_pointer (&ip4_config);
@@ -876,8 +924,34 @@ lease_to_ip4_config (NMDedupMultiIndex *multi_idx,
 /*****************************************************************************/
 
 static void
+lease_save (NDhcp4ClientLease *lease, const char *lease_file)
+{
+	struct in_addr a_address;
+	nm_auto_free_gstring GString *new_contents = NULL;
+	char sbuf[NM_UTILS_INET_ADDRSTRLEN];
+
+	nm_assert (lease);
+	nm_assert (lease_file);
+
+	new_contents = g_string_new ("# This is private data. Do not parse.\n");
+
+	n_dhcp4_client_lease_get_yiaddr (lease, &a_address);
+	if (a_address.s_addr == INADDR_ANY)
+		return;
+
+	g_string_append_printf (new_contents,
+	                        "ADDRESS=%s\n", nm_utils_inet4_ntop (a_address.s_addr, sbuf));
+
+	g_file_set_contents (lease_file,
+	                     new_contents->str,
+	                     -1,
+	                     NULL);
+}
+
+static void
 bound4_handle (NMDhcpNettools *self, NDhcp4ClientLease *lease)
 {
+	NMDhcpNettoolsPrivate *priv = NM_DHCP_NETTOOLS_GET_PRIVATE (self);
 	const char *iface = nm_dhcp_client_get_iface (NM_DHCP_CLIENT (self));
 	gs_unref_object NMIP4Config *ip4_config = NULL;
 	gs_unref_hashtable GHashTable *options = NULL;
@@ -901,6 +975,7 @@ bound4_handle (NMDhcpNettools *self, NDhcp4ClientLease *lease)
 	}
 
 	nm_dhcp_option_add_requests_to_options (options, _nm_dhcp_option_dhcp4_options);
+	lease_save (lease, priv->lease_file);
 
 	nm_dhcp_client_set_state (NM_DHCP_CLIENT (self),
 	                          NM_DHCP_STATE_BOUND,
@@ -969,6 +1044,27 @@ dhcp4_event_cb (GIOChannel *source,
 	}
 
 	return G_SOURCE_CONTINUE;
+}
+
+G_GNUC_PRINTF (3, 4)
+static void
+nettools_log (int level, void *data, const char *fmt, ...)
+{
+	NMDhcpNettools *self = data;
+	NMLogLevel nm_level;
+	gs_free char *msg = NULL;
+	va_list ap;
+
+	nm_level = nm_log_level_from_syslog (level);
+	if (nm_logging_enabled (nm_level, LOGD_DHCP4)) {
+		va_start (ap, fmt);
+		msg = g_strdup_vprintf (fmt, ap);
+		va_end (ap);
+		nm_log (nm_level, LOGD_DHCP4, NULL , NULL,
+		        "dhcp4 (%s): %s",
+		        nm_dhcp_client_get_iface (NM_DHCP_CLIENT (self)),
+		        msg);
+	}
 }
 
 static gboolean
@@ -1040,11 +1136,15 @@ nettools_create (NMDhcpNettools *self,
 		return FALSE;
 	}
 
+	n_dhcp4_client_config_set_log_level (config, nm_log_level_to_syslog (nm_logging_get_level (LOGD_DHCP4)));
+	n_dhcp4_client_config_set_log_func (config, nettools_log, self);
 	n_dhcp4_client_config_set_ifindex (config, nm_dhcp_client_get_ifindex (NM_DHCP_CLIENT (self)));
 	n_dhcp4_client_config_set_transport (config, transport);
 	n_dhcp4_client_config_set_mac (config, hwaddr_arr, hwaddr_len);
 	n_dhcp4_client_config_set_broadcast_mac (config, bcast_hwaddr_arr, bcast_hwaddr_len);
-	r = n_dhcp4_client_config_set_client_id (config, client_id_arr, client_id_len);
+	r = n_dhcp4_client_config_set_client_id (config,
+	                                         client_id_arr,
+	                                         NM_MIN (client_id_len, 1 + _NM_SD_MAX_CLIENT_ID_LEN));
 	if (r) {
 		nm_utils_error_set_errno (error, r, "failed to set client-id: %s");
 		return FALSE;
@@ -1113,6 +1213,22 @@ decline (NMDhcpClient *client,
 	return TRUE;
 }
 
+static guint8
+fqdn_flags_to_wire (NMDhcpHostnameFlags flags)
+{
+	guint r = 0;
+
+	/* RFC 4702 section 2.1 */
+	if (flags & NM_DHCP_HOSTNAME_FLAG_FQDN_SERV_UPDATE)
+		r |= (1 << 0);
+	if (flags & NM_DHCP_HOSTNAME_FLAG_FQDN_ENCODED)
+		r |= (1 << 2);
+	if (flags & NM_DHCP_HOSTNAME_FLAG_FQDN_NO_UPDATE)
+		r |= (1 << 3);
+
+	return r;
+}
+
 static gboolean
 ip4_start (NMDhcpClient *client,
            const char *dhcp_anycast_addr,
@@ -1122,6 +1238,7 @@ ip4_start (NMDhcpClient *client,
 	nm_auto (n_dhcp4_client_probe_config_freep) NDhcp4ClientProbeConfig *config = NULL;
 	NMDhcpNettools *self = NM_DHCP_NETTOOLS (client);
 	NMDhcpNettoolsPrivate *priv = NM_DHCP_NETTOOLS_GET_PRIVATE (self);
+	gs_free char *lease_file = NULL;
 	struct in_addr last_addr = { 0 };
 	const char *hostname;
 	int r, i;
@@ -1143,10 +1260,31 @@ ip4_start (NMDhcpClient *client,
 	 */
 	n_dhcp4_client_probe_config_set_start_delay (config, 1);
 
-	if (last_ip4_address) {
+	nm_dhcp_utils_get_leasefile_path (AF_INET,
+	                                  "internal",
+	                                  nm_dhcp_client_get_iface (client),
+	                                  nm_dhcp_client_get_uuid (client),
+	                                  &lease_file);
+
+	if (last_ip4_address)
 		inet_pton (AF_INET, last_ip4_address, &last_addr);
-		n_dhcp4_client_probe_config_set_requested_ip (config, last_addr);
+	else {
+		/*
+		 * TODO: we stick to the systemd-networkd lease file format. Quite easy for now to
+		 * just use the functions in systemd code. Anyway, as in the end we just use the
+		 * ip address from all the options found in the lease, write a function that parses
+		 * the lease file just for the assigned address and returns it in &last_address.
+		 * Then drop reference to systemd-networkd structures and functions.
+		 */
+		nm_auto (sd_dhcp_lease_unrefp) sd_dhcp_lease *lease = NULL;
+
+		dhcp_lease_load (&lease, lease_file);
+		if (lease)
+			sd_dhcp_lease_get_address (lease, &last_addr);
 	}
+
+	if (last_addr.s_addr)
+		n_dhcp4_client_probe_config_set_requested_ip (config, last_addr);
 
 	/* Add requested options */
 	for (i = 0; _nm_dhcp_option_dhcp4_options[i].name; i++) {
@@ -1160,26 +1298,38 @@ ip4_start (NMDhcpClient *client,
 	hostname = nm_dhcp_client_get_hostname (client);
 	if (hostname) {
 		if (nm_dhcp_client_get_use_fqdn (client)) {
-			uint8_t buffer[3 + DHCP_MAX_FQDN_LENGTH];
+			uint8_t buffer[255];
+			NMDhcpHostnameFlags flags;
+			size_t fqdn_len;
 
-			buffer[0] = DHCP_FQDN_FLAG_S | /* Request server to perform A RR DNS updates */
-			            DHCP_FQDN_FLAG_E;  /* Canonical wire format */
-			buffer[1] = 0;                 /* RCODE1 (deprecated) */
-			buffer[2] = 0;                 /* RCODE2 (deprecated) */
+			flags = nm_dhcp_client_get_hostname_flags (client);
+			buffer[0] = fqdn_flags_to_wire (flags);
+			buffer[1] = 0;   /* RCODE1 (deprecated) */
+			buffer[2] = 0;   /* RCODE2 (deprecated) */
 
-			r = nm_sd_dns_name_to_wire_format (hostname,
-			                                   buffer + 3,
-			                                   sizeof (buffer) - 3,
-			                                   FALSE);
-			if (r < 0) {
-				nm_utils_error_set_errno (error, r, "failed to convert DHCP FQDN: %s");
-				return FALSE;
+			if (flags & NM_DHCP_HOSTNAME_FLAG_FQDN_ENCODED) {
+				r = nm_sd_dns_name_to_wire_format (hostname,
+				                                   buffer + 3,
+				                                   sizeof (buffer) - 3,
+				                                   FALSE);
+				if (r <= 0) {
+					nm_utils_error_set_errno (error, r, "failed to convert DHCP FQDN: %s");
+					return FALSE;
+				}
+				fqdn_len = r;
+			} else {
+				fqdn_len = strlen (hostname);
+				if (fqdn_len > sizeof (buffer) - 3) {
+					nm_utils_error_set (error, r, "failed to set DHCP FQDN: name too long");
+					return FALSE;
+				}
+				memcpy (buffer + 3, hostname, fqdn_len);
 			}
 
 			r = n_dhcp4_client_probe_config_append_option (config,
 			                                               NM_DHCP_OPTION_DHCP4_CLIENT_FQDN,
 			                                               buffer,
-			                                               3 + r);
+			                                               3 + fqdn_len);
 			if (r) {
 				nm_utils_error_set_errno (error, r, "failed to set DHCP FQDN: %s");
 				return FALSE;
@@ -1196,6 +1346,9 @@ ip4_start (NMDhcpClient *client,
 		}
 	}
 
+	g_free (priv->lease_file);
+	priv->lease_file = g_steal_pointer (&lease_file);
+
 	r = n_dhcp4_client_probe (priv->client, &priv->probe, config);
 	if (r) {
 		nm_utils_error_set_errno (error, r, "failed to start DHCP client: %s");
@@ -1206,18 +1359,6 @@ ip4_start (NMDhcpClient *client,
 
 	nm_dhcp_client_start_timeout (client);
 	return TRUE;
-}
-
-static gboolean
-ip6_start (NMDhcpClient *client,
-           const char *dhcp_anycast_addr,
-           const struct in6_addr *ll_addr,
-           NMSettingIP6ConfigPrivacy privacy,
-           guint needed_prefixes,
-           GError **error)
-{
-	nm_utils_error_set_literal (error, NM_UTILS_ERROR_UNKNOWN, "nettools plugin does not support IPv6");
-	return FALSE;
 }
 
 static void
@@ -1247,6 +1388,7 @@ dispose (GObject *object)
 {
 	NMDhcpNettoolsPrivate *priv = NM_DHCP_NETTOOLS_GET_PRIVATE ((NMDhcpNettools *) object);
 
+	nm_clear_pointer (&priv->lease_file, g_free);
 	nm_clear_pointer (&priv->channel, g_io_channel_unref);
 	nm_clear_g_source (&priv->event_id);
 	nm_clear_pointer (&priv->lease, n_dhcp4_client_lease_unref);
@@ -1265,14 +1407,13 @@ nm_dhcp_nettools_class_init (NMDhcpNettoolsClass *class)
 	object_class->dispose = dispose;
 
 	client_class->ip4_start = ip4_start;
-	client_class->ip6_start = ip6_start;
 	client_class->accept = _accept;
 	client_class->decline = decline;
 	client_class->stop = stop;
 }
 
 const NMDhcpClientFactory _nm_dhcp_client_factory_nettools = {
-	.name = "nettools",
-	.get_type = nm_dhcp_nettools_get_type,
-	.get_path = NULL,
+	.name         = "nettools",
+	.get_type     = nm_dhcp_nettools_get_type,
+	.experimental = TRUE,
 };

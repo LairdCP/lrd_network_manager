@@ -1,20 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2, or (at your option)
- * any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- *
  * Copyright (C) 2013 - 2014 Red Hat, Inc.
- *
  */
 
 #include "nm-default.h"
@@ -72,6 +58,47 @@ build_test_config (void)
 	nm_ip4_config_add_wins (config, nmtst_inet4_from_string ("4.2.3.10"));
 
 	return config;
+}
+
+static void
+test_replace (void)
+{
+	gs_unref_object NMIP4Config *config1 = NULL;
+	gs_unref_object NMIP4Config *config2 = NULL;
+	NMPlatformIP4Address addr;
+	gboolean relevant_changes;
+
+	config1 = nmtst_ip4_config_new (1);
+
+	addr = *nmtst_platform_ip4_address ("172.16.0.1", NULL, 24);
+	addr.timestamp = 10;
+	addr.preferred = 3600;
+	addr.lifetime = 7200;
+	nm_ip4_config_add_address (config1, &addr);
+
+	addr = *nmtst_platform_ip4_address ("172.16.0.2", NULL, 24);
+	addr.timestamp = 10;
+	addr.preferred = 3600;
+	addr.lifetime = 7200;
+	nm_ip4_config_add_address (config1, &addr);
+
+	config2 = nmtst_ip4_config_new (1);
+
+	addr = *nmtst_platform_ip4_address ("192.168.1.1", NULL, 24);
+	addr.timestamp = 40;
+	addr.preferred = 60;
+	addr.lifetime = 120;
+	nm_ip4_config_add_address (config2, &addr);
+
+	addr = *nmtst_platform_ip4_address ("172.16.0.2", NULL, 24);
+	addr.timestamp = 40;
+	addr.preferred = 60;
+	addr.lifetime = 120;
+	nm_ip4_config_add_address (config2, &addr);
+
+	g_assert (nm_ip4_config_replace (config2, config1, &relevant_changes));
+	g_assert (relevant_changes);
+	g_assert (nm_ip4_config_equal (config1, config2));
 }
 
 static void
@@ -339,6 +366,7 @@ main (int argc, char **argv)
 {
 	nmtst_init_with_logging (&argc, &argv, NULL, "DEFAULT");
 
+	g_test_add_func ("/ip4-config/replace", test_replace);
 	g_test_add_func ("/ip4-config/subtract", test_subtract);
 	g_test_add_func ("/ip4-config/compare-with-source", test_compare_with_source);
 	g_test_add_func ("/ip4-config/add-address-with-source", test_add_address_with_source);

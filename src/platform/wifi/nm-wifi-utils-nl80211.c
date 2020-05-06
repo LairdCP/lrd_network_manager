@@ -1,19 +1,5 @@
-/* NetworkManager -- Network link manager
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- *
+// SPDX-License-Identifier: GPL-2.0+
+/*
  * Copyright (C) 2005 - 2018 Red Hat, Inc.
  * Copyright (C) 2006 - 2008 Novell, Inc.
  * Copyright (C) 2011 Intel Corporation. All rights reserved.
@@ -722,6 +708,7 @@ struct nl80211_device_info {
 	int phy;
 	guint32 *freqs;
 	int num_freqs;
+	guint32 freq;
 	guint32 caps;
 	gboolean can_scan;
 	gboolean can_scan_ssid;
@@ -788,6 +775,11 @@ static int nl80211_wiphy_info_handler (struct nl_msg *msg, void *arg)
 		return NL_SKIP;
 
 	info->phy = nla_get_u32 (tb[NL80211_ATTR_WIPHY]);
+
+	if (tb[NL80211_ATTR_WIPHY_FREQ])
+		info->freq = nla_get_u32 (tb[NL80211_ATTR_WIPHY_FREQ]);
+	else
+		info->freq = 0;
 
 	if (tb[NL80211_ATTR_MAX_NUM_SCAN_SSIDS]) {
 		info->can_scan_ssid =
@@ -955,9 +947,70 @@ static int nl80211_wiphy_info_handler (struct nl_msg *msg, void *arg)
 		}
 	}
 
+	if (tb[NL80211_ATTR_SUPPORT_IBSS_RSN])
+		info->caps |= NM_WIFI_DEVICE_CAP_IBSS_RSN;
+
 	info->success = TRUE;
 
 	return NL_SKIP;
+}
+
+static guint32
+wifi_nl80211_get_mesh_channel (NMWifiUtils *data)
+{
+	NMWifiUtilsNl80211 *self = (NMWifiUtilsNl80211 *) data;
+	nm_auto_nlmsg struct nl_msg *msg = NULL;
+	struct nl80211_device_info device_info = { .self = self };
+	int i;
+
+	msg = nl80211_alloc_msg (self, NL80211_CMD_GET_WIPHY, 0);
+
+	if (nl80211_send_and_recv (self, msg, nl80211_wiphy_info_handler,
+	                           &device_info) < 0) {
+		_LOGW ("NL80211_CMD_GET_WIPHY request failed");
+		return 0;
+	}
+
+	for (i = 0; i < self->num_freqs; i++) {
+		if (device_info.freq == self->freqs[i])
+			return i + 1;
+	}
+	return 0;
+}
+
+static gboolean
+wifi_nl80211_set_mesh_channel (NMWifiUtils *data, guint32 channel)
+{
+	NMWifiUtilsNl80211 *self = (NMWifiUtilsNl80211 *) data;
+	nm_auto_nlmsg struct nl_msg *msg = NULL;
+	int err;
+
+	if (channel > self->num_freqs)
+		return FALSE;
+
+	msg = nl80211_alloc_msg (self, NL80211_CMD_SET_WIPHY, 0);
+	NLA_PUT_U32 (msg, NL80211_ATTR_WIPHY_FREQ, self->freqs[channel - 1]);
+	err = nl80211_send_and_recv (self, msg, NULL, NULL);
+	return err >= 0;
+
+nla_put_failure:
+	g_return_val_if_reached (FALSE);
+}
+
+static gboolean
+wifi_nl80211_set_mesh_ssid (NMWifiUtils *data, const guint8 *ssid, gsize len)
+{
+	NMWifiUtilsNl80211 *self = (NMWifiUtilsNl80211 *) data;
+	nm_auto_nlmsg struct nl_msg *msg = NULL;
+	int err;
+
+	msg = nl80211_alloc_msg (self, NL80211_CMD_SET_INTERFACE, 0);
+	NLA_PUT (msg, NL80211_ATTR_MESH_ID, len, ssid);
+	err = nl80211_send_and_recv (self, msg, NULL, NULL);
+	return err >= 0;
+
+nla_put_failure:
+	g_return_val_if_reached (FALSE);
 }
 
 static void
@@ -984,6 +1037,9 @@ nm_wifi_utils_nl80211_class_init (NMWifiUtilsNl80211Class *klass)
 	wifi_utils_class->get_rate = wifi_nl80211_get_rate;
 	wifi_utils_class->get_qual = wifi_nl80211_get_qual;
 	wifi_utils_class->indicate_addressing_running = wifi_nl80211_indicate_addressing_running;
+	wifi_utils_class->get_mesh_channel = wifi_nl80211_get_mesh_channel;
+	wifi_utils_class->set_mesh_channel = wifi_nl80211_set_mesh_channel;
+	wifi_utils_class->set_mesh_ssid = wifi_nl80211_set_mesh_ssid;
 	wifi_utils_class->get_can_apscan = wifi_nl80211_get_can_apscan;
 }
 

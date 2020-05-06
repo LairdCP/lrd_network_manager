@@ -1,19 +1,5 @@
-/* NetworkManager system settings service - keyfile plugin
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- *
+// SPDX-License-Identifier: GPL-2.0+
+/*
  * Copyright (C) 2008 - 2009 Novell, Inc.
  * Copyright (C) 2008 - 2017 Red Hat, Inc.
  */
@@ -248,15 +234,16 @@ static gpointer
 build_route (KeyfileReaderInfo *info,
              const char *property_name,
              int family,
-             const char *dest_str, guint32 plen,
-             const char *gateway_str, const char *metric_str)
+             const char *dest_str,
+             guint32 plen,
+             const char *gateway_str,
+             const char *metric_str)
 {
 	NMIPRoute *route;
 	guint32 u32;
 	gint64 metric = -1;
 	GError *error = NULL;
 
-	g_return_val_if_fail (plen, NULL);
 	g_return_val_if_fail (dest_str, NULL);
 
 	/* Next hop */
@@ -294,7 +281,10 @@ build_route (KeyfileReaderInfo *info,
 		metric = u32;
 	}
 
-	route = nm_ip_route_new (family, dest_str, plen, gateway_str,
+	route = nm_ip_route_new (family,
+	                         dest_str,
+	                         plen,
+	                         gateway_str,
 	                         metric,
 	                         &error);
 	if (!route) {
@@ -517,8 +507,7 @@ read_one_ip_address_or_route (KeyfileReaderInfo *info,
 
 	/* parse plen, fallback to defaults */
 	if (plen_str) {
-		if (   !get_one_int (info, property_name, plen_str, ipv6 ? 128 : 32, &plen)
-		    || (route && plen == 0)) {
+		if (!get_one_int (info, property_name, plen_str, ipv6 ? 128 : 32, &plen)) {
 			plen = DEFAULT_PREFIX (route, ipv6);
 			if (   info->error
 			    || !handle_warn (info, property_name, NM_KEYFILE_WARN_SEVERITY_WARN,
@@ -536,12 +525,19 @@ read_one_ip_address_or_route (KeyfileReaderInfo *info,
 
 	/* build the appropriate data structure for NetworkManager settings */
 	if (route) {
-		result = build_route (info, property_name,
+		result = build_route (info,
+		                      property_name,
 		                      ipv6 ? AF_INET6 : AF_INET,
-		                      address_str, plen, gateway_str, metric_str);
+		                      address_str,
+		                      plen,
+		                      gateway_str,
+		                      metric_str);
 	} else {
-		result = build_address (info, ipv6 ? AF_INET6 : AF_INET,
-		                        address_str, plen, property_name);
+		result = build_address (info,
+		                        ipv6 ? AF_INET6 : AF_INET,
+		                        address_str,
+		                        plen,
+		                        property_name);
 		if (!result)
 			return NULL;
 		if (gateway_str)
@@ -1359,6 +1355,9 @@ nm_keyfile_detect_unqualified_path_scheme (const char *base_dir,
 	 */
 
 	path = get_cert_path (base_dir, (const guint8 *) data, data_len);
+
+	/* FIXME(keyfile-parse-in-memory): it is wrong that keyfile reader makes decisions based on
+	 * the file systems content. The serialization/parsing should be entirely in-memory. */
 	if (   !memchr (data, '/', data_len)
 	    && !has_cert_ext (path)) {
 		if (!consider_exists)
@@ -1439,6 +1438,10 @@ cert_parser (KeyfileReaderInfo *info, NMSetting *setting, const char *key)
 			path2 = path2_free;
 		}
 
+		/* FIXME(keyfile-parse-in-memory): keyfile reader must not access the file system and
+		 * (in a first step) only operate in memory-only. If the presence of files should be checked,
+		 * then by invoking a callback (and possibly keyfile settings plugin would
+		 * collect the file names to be checked and check them later). */
 		if (!g_file_test (path2, G_FILE_TEST_EXISTS)) {
 			handle_warn (info, key, NM_KEYFILE_WARN_SEVERITY_INFO_MISSING_FILE,
 			             _("certificate or key file '%s' does not exist"),
@@ -2896,41 +2899,48 @@ static const ParseInfoSetting *const parse_infos[_NM_META_SETTING_TYPE_NUM] = {
 	),
 };
 
-static const ParseInfoProperty *
+static void
 _parse_info_find (NMSetting *setting,
                   const char *property_name,
-                  const NMMetaSettingInfo **out_setting_info)
+                  const NMMetaSettingInfo **out_setting_info,
+                  const ParseInfoSetting **out_parse_info_setting,
+                  const ParseInfoProperty **out_parse_info_property)
 {
 	const NMMetaSettingInfo *setting_info;
 	const ParseInfoSetting *pis;
-	gssize idx;
+	const ParseInfoProperty *pip;
 
 #if NM_MORE_ASSERTS > 10
 	{
 		guint i, j;
+		static int asserted = FALSE;
 
-		for (i = 0; i < G_N_ELEMENTS (parse_infos); i++) {
-			pis = parse_infos[i];
+		if (!asserted) {
+			for (i = 0; i < G_N_ELEMENTS (parse_infos); i++) {
+				pis = parse_infos[i];
 
-			if (!pis)
-				continue;
+				if (!pis)
+					continue;
+				if (!pis->properties)
+					continue;
 
-			g_assert (pis->properties);
-			g_assert (pis->properties[0]);
-			for (j = 0; pis->properties[j]; j++) {
-				const ParseInfoProperty *pip0;
-				const ParseInfoProperty *pip = pis->properties[j];
+				g_assert (pis->properties[0]);
+				for (j = 0; pis->properties[j]; j++) {
+					const ParseInfoProperty *pip0;
+					const ParseInfoProperty *pipj = pis->properties[j];
 
-				g_assert (pip->property_name);
-				if (   j > 0
-				    && (pip0 = pis->properties[j - 1])
-				    && strcmp (pip0->property_name, pip->property_name) >= 0) {
-					g_error ("Wrong order at index #%d.%d: \"%s.%s\" before \"%s.%s\"",
-					         i, j - 1,
-					         nm_meta_setting_infos[i].setting_name, pip0->property_name,
-					         nm_meta_setting_infos[i].setting_name, pip->property_name);
+					g_assert (pipj->property_name);
+					if (   j > 0
+					    && (pip0 = pis->properties[j - 1])
+					    && strcmp (pip0->property_name, pipj->property_name) >= 0) {
+						g_error ("Wrong order at index #%d.%d: \"%s.%s\" before \"%s.%s\"",
+						         i, j - 1,
+						         nm_meta_setting_infos[i].setting_name, pip0->property_name,
+						         nm_meta_setting_infos[i].setting_name, pipj->property_name);
+					}
 				}
 			}
+			asserted = TRUE;
 		}
 	}
 #endif
@@ -2938,16 +2948,25 @@ _parse_info_find (NMSetting *setting,
 	if (   !NM_IS_SETTING (setting)
 	    || !(setting_info = NM_SETTING_GET_CLASS (setting)->setting_info)) {
 		/* handle invalid setting objects gracefully. */
-		*out_setting_info = NULL;
-		return NULL;
+		NM_SET_OUT (out_setting_info, NULL);
+		NM_SET_OUT (out_parse_info_setting, NULL);
+		NM_SET_OUT (out_parse_info_property, NULL);
+		return;
 	}
 
 	nm_assert (setting_info->setting_name);
+	nm_assert (_NM_INT_NOT_NEGATIVE (setting_info->meta_type));
+	nm_assert (setting_info->meta_type < G_N_ELEMENTS (parse_infos));
 
-	*out_setting_info = setting_info;
+	pis = parse_infos[setting_info->meta_type];
 
-	if ((pis = parse_infos[setting_info->meta_type])) {
+	pip = NULL;
+	if (   pis
+	    && property_name) {
+		gssize idx;
+
 		G_STATIC_ASSERT_EXPR (G_STRUCT_OFFSET (ParseInfoProperty, property_name) == 0);
+
 		idx = nm_utils_ptrarray_find_binary_search ((gconstpointer *) pis->properties,
 		                                            NM_PTRARRAY_LEN (pis->properties),
 		                                            &property_name,
@@ -2956,10 +2975,12 @@ _parse_info_find (NMSetting *setting,
 		                                            NULL,
 		                                            NULL);
 		if (idx >= 0)
-			return pis->properties[idx];
+			pip = pis->properties[idx];
 	}
 
-	return NULL;
+	NM_SET_OUT (out_setting_info, setting_info);
+	NM_SET_OUT (out_parse_info_setting, pis);
+	NM_SET_OUT (out_parse_info_property, pip);
 }
 
 /*****************************************************************************/
@@ -2985,7 +3006,7 @@ read_one_setting_value (KeyfileReaderInfo *info,
 
 	key = property_info->name;
 
-	pip = _parse_info_find (setting, key, &setting_info);
+	_parse_info_find (setting, key, &setting_info, NULL, &pip);
 
 	nm_assert (setting_info);
 
@@ -3603,7 +3624,7 @@ write_setting_value (KeyfileWriterInfo *info,
 
 	key = property_info->name;
 
-	pip = _parse_info_find (setting, key, &setting_info);
+	_parse_info_find (setting, key, &setting_info, NULL, &pip);
 
 	if (!pip) {
 		if (!setting_info) {
@@ -3840,8 +3861,12 @@ nm_keyfile_write (NMConnection *connection,
 	for (i = 0; i < n_settings; i++) {
 		const NMSettInfoSetting *sett_info;
 		NMSetting *setting = settings[i];
+		const char *setting_name;
+		const char *setting_alias;
 
 		sett_info = _nm_setting_class_get_sett_info (NM_SETTING_GET_CLASS (setting));
+
+		setting_name = sett_info->setting_class->setting_info->setting_name;
 
 		if (sett_info->detail.gendata_info) {
 			guint k, n_keys;
@@ -3852,7 +3877,6 @@ nm_keyfile_write (NMConnection *connection,
 			n_keys = _nm_setting_gendata_get_all (setting, &keys, NULL);
 
 			if (n_keys > 0) {
-				const char *setting_name = sett_info->setting_class->setting_info->setting_name;
 				GHashTable *h = _nm_setting_gendata_hash (setting, FALSE);
 
 				for (k = 0; k < n_keys; k++) {
@@ -3884,6 +3908,18 @@ nm_keyfile_write (NMConnection *connection,
 			write_setting_value (&info, setting, property_info);
 			if (info.error)
 				goto out_with_info_error;
+		}
+
+		setting_alias = nm_keyfile_plugin_get_alias_for_setting_name (setting_name);
+		if (   (   setting_alias
+		        && g_key_file_has_group (info.keyfile, setting_alias))
+		    || g_key_file_has_group (info.keyfile, setting_name)) {
+			/* we have a section for the setting. Nothing to do. */
+		} else {
+			/* ensure the group is present. There is no API for that, so add and remove
+			 * a dummy key. */
+			g_key_file_set_value  (info.keyfile, setting_alias ?: setting_name, ".X", "1");
+			g_key_file_remove_key (info.keyfile, setting_alias ?: setting_name, ".X", NULL);
 		}
 
 		if (NM_IS_SETTING_WIREGUARD (setting)) {

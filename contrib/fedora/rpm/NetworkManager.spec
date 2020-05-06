@@ -7,8 +7,6 @@
 # Note that it contains __PLACEHOLDERS__ that will be replaced by the accompanying 'build.sh' script.
 
 
-%global wireless_tools_version 1:28-0pre9
-
 %global wpa_supplicant_version 1:1.1
 
 %global ppp_version %(sed -n 's/^#define\\s*VERSION\\s*"\\([^\\s]*\\)"$/\\1/p' %{_includedir}/pppd/patchlevel.h 2>/dev/null | grep . || echo bad)
@@ -44,6 +42,8 @@
 
 %global systemd_units NetworkManager.service NetworkManager-wait-online.service NetworkManager-dispatcher.service
 
+%global systemd_units_cloud_setup nm-cloud-setup.service nm-cloud-setup.timer
+
 ###############################################################################
 
 %bcond_with meson
@@ -52,10 +52,10 @@
 %bcond_without wwan
 %bcond_without team
 %bcond_without wifi
-%bcond_with iwd
 %bcond_without ovs
 %bcond_without ppp
 %bcond_without nmtui
+%bcond_without nm_cloud_setup
 %bcond_without regen_docs
 %bcond_with    debug
 %bcond_with    test
@@ -75,6 +75,11 @@
 %bcond_without crypto_gnutls
 %else
 %bcond_with crypto_gnutls
+%endif
+%if 0%{?rhel}
+%bcond_with iwd
+%else
+%bcond_without iwd
 %endif
 
 ###############################################################################
@@ -179,9 +184,6 @@ BuildRequires: intltool
 BuildRequires: gettext-devel
 
 BuildRequires: dbus-devel >= %{dbus_version}
-%if 0%{?fedora}
-BuildRequires: wireless-tools-devel >= %{wireless_tools_version}
-%endif
 BuildRequires: glib2-devel >= 2.40.0
 BuildRequires: gobject-introspection-devel >= 0.10.3
 %if %{with ppp}
@@ -214,6 +216,9 @@ BuildRequires: libcurl-devel
 BuildRequires: libndp-devel >= 1.0
 %if 0%{?with_modem_manager_1}
 BuildRequires: ModemManager-glib-devel >= 1.0
+%endif
+%if %{with wwan}
+BuildRequires: mobile-broadband-provider-info-devel
 %endif
 %if %{with nmtui}
 BuildRequires: newt-devel
@@ -321,6 +326,7 @@ Requires: %{name}%{?_isa} = %{epoch}:%{version}-%{release}
 
 %if %{with iwd} && (0%{?fedora} > 24 || 0%{?rhel} > 7)
 Requires: (wpa_supplicant >= %{wpa_supplicant_version} or iwd)
+Suggests: wpa_supplicant
 %else
 # Just require wpa_supplicant on platforms that don't support boolean
 # dependencies even though the plugin supports both supplicant and
@@ -463,7 +469,7 @@ configurations using "/etc/sysconfig/network-scripts/rule-NAME" files
 (eg, to do policy-based routing).
 
 
-%if 0%{with_nmtui}
+%if %{with nmtui}
 %package tui
 Summary: NetworkManager curses-based UI
 Group: System Environment/Base
@@ -474,6 +480,20 @@ Requires: %{name}-libnm%{?_isa} = %{epoch}:%{version}-%{release}
 This adds a curses-based "TUI" (Text User Interface) to
 NetworkManager, to allow performing some of the operations supported
 by nm-connection-editor and nm-applet in a non-graphical environment.
+%endif
+
+
+%if %{with nm_cloud_setup}
+%package cloud-setup
+Summary: Automatically configure NetworkManager in cloud
+Group: System Environment/Base
+Requires: %{name} = %{epoch}:%{version}-%{release}
+Requires: %{name}-libnm%{?_isa} = %{epoch}:%{version}-%{release}
+
+%description cloud-setup
+Installs a nm-cloud-setup tool that can automatically configure
+NetworkManager in cloud setups. Currently only EC2 is supported.
+This tool is still experimental.
 %endif
 
 
@@ -531,6 +551,21 @@ by nm-connection-editor and nm-applet in a non-graphical environment.
 %else
 	-Diwd=false \
 %endif
+%if %{with bluetooth}
+	-Dbluez5_dun=true \
+%else
+	-Dbluez5_dun=false \
+%endif
+%if %{with nmtui}
+	-Dnmtui=true \
+%else
+	-Dnmtui=false \
+%endif
+%if %{with nm_cloud_setup}
+	-Dnm_cloud_setup=true \
+%else
+	-Dnm_cloud_setup=false \
+%endif
 	-Dvapi=true \
 	-Dintrospection=true \
 %if %{with regen_docs}
@@ -550,6 +585,7 @@ by nm-connection-editor and nm-applet in a non-graphical environment.
 %endif
 	-Dselinux=true \
 	-Dpolkit=true  \
+	-Dconfig_auth_polkit_default=true \
 	-Dpolkit_agent=true \
 	-Dmodify_system=true \
 	-Dconcheck=true \
@@ -647,6 +683,21 @@ intltoolize --automake --copy --force
 %else
 	--with-iwd=no \
 %endif
+%if %{with bluetooth}
+	--enable-bluez5-dun=yes \
+%else
+	--enable-bluez5-dun=no \
+%endif
+%if %{with nmtui}
+	--with-nmtui=yes \
+%else
+	--with-nmtui=no \
+%endif
+%if %{with nm_cloud_setup}
+	--with-nm-cloud-setup=yes \
+%else
+	--with-nm-cloud-setup=no \
+%endif
 	--enable-vala=yes \
 	--enable-introspection \
 %if %{with regen_docs}
@@ -701,7 +752,7 @@ intltoolize --automake --copy --force
 
 make %{?_smp_mflags}
 
-%endif # end autotools
+%endif
 
 %install
 %if %{with meson}
@@ -724,9 +775,9 @@ mkdir -p %{buildroot}%{_sysctldir}
 cp %{SOURCE6} %{buildroot}%{_sysctldir}
 %endif
 
-cp examples/dispatcher/10-ifcfg-rh-routes.sh %{buildroot}%{_sysconfdir}/%{name}/dispatcher.d/
-ln -s ../no-wait.d/10-ifcfg-rh-routes.sh %{buildroot}%{_sysconfdir}/%{name}/dispatcher.d/pre-up.d/
-ln -s ../10-ifcfg-rh-routes.sh %{buildroot}%{_sysconfdir}/%{name}/dispatcher.d/no-wait.d/
+cp examples/dispatcher/10-ifcfg-rh-routes.sh %{buildroot}%{nmlibdir}/dispatcher.d/
+ln -s ../no-wait.d/10-ifcfg-rh-routes.sh %{buildroot}%{nmlibdir}/dispatcher.d/pre-up.d/
+ln -s ../10-ifcfg-rh-routes.sh %{buildroot}%{nmlibdir}/dispatcher.d/no-wait.d/
 
 %find_lang %{name}
 
@@ -759,7 +810,7 @@ make -k %{?_smp_mflags} check
 %else
 make -k %{?_smp_mflags} check || :
 %endif
-%endif # end autotools
+%endif
 
 
 %pre
@@ -788,6 +839,12 @@ else
 fi
 
 
+%if %{with nm_cloud_setup}
+%post cloud-setup
+%systemd_post %{systemd_units_cloud_setup}
+%endif
+
+
 %preun
 if [ $1 -eq 0 ]; then
     # Package removal, not upgrade
@@ -801,6 +858,12 @@ fi
 %systemd_preun NetworkManager-wait-online.service NetworkManager-dispatcher.service
 
 
+%if %{with nm_cloud_setup}
+%preun cloud-setup
+%systemd_preun %{systemd_units_cloud_setup}
+%endif
+
+
 %postun
 /usr/bin/udevadm control --reload-rules || :
 /usr/bin/udevadm trigger --subsystem-match=net || :
@@ -811,6 +874,12 @@ fi
 %if (0%{?fedora} && 0%{?fedora} < 28) || 0%{?rhel}
 %post   libnm -p /sbin/ldconfig
 %postun libnm -p /sbin/ldconfig
+%endif
+
+
+%if %{with nm_cloud_setup}
+%postun cloud-setup
+%systemd_postun %{systemd_units_cloud_setup}
 %endif
 
 
@@ -848,6 +917,10 @@ fi
 %endif
 %dir %{nmlibdir}
 %dir %{nmlibdir}/conf.d
+%dir %{nmlibdir}/dispatcher.d
+%dir %{nmlibdir}/dispatcher.d/pre-down.d
+%dir %{nmlibdir}/dispatcher.d/pre-up.d
+%dir %{nmlibdir}/dispatcher.d/no-wait.d
 %dir %{nmlibdir}/VPN
 %dir %{nmlibdir}/system-connections
 %{_mandir}/man1/*
@@ -867,6 +940,8 @@ fi
 %{_datadir}/doc/NetworkManager/examples/server.conf
 %doc NEWS AUTHORS README CONTRIBUTING TODO
 %license COPYING
+%license COPYING.LGPL
+%license COPYING.GFDL
 
 
 %if %{with adsl}
@@ -961,9 +1036,9 @@ fi
 
 
 %files dispatcher-routing-rules
-%{_sysconfdir}/%{name}/dispatcher.d/10-ifcfg-rh-routes.sh
-%{_sysconfdir}/%{name}/dispatcher.d/no-wait.d/10-ifcfg-rh-routes.sh
-%{_sysconfdir}/%{name}/dispatcher.d/pre-up.d/10-ifcfg-rh-routes.sh
+%{nmlibdir}/dispatcher.d/10-ifcfg-rh-routes.sh
+%{nmlibdir}/dispatcher.d/no-wait.d/10-ifcfg-rh-routes.sh
+%{nmlibdir}/dispatcher.d/pre-up.d/10-ifcfg-rh-routes.sh
 
 
 %if %{with nmtui}
@@ -973,6 +1048,16 @@ fi
 %{_bindir}/nmtui-connect
 %{_bindir}/nmtui-hostname
 %{_mandir}/man1/nmtui*
+%endif
+
+
+%if %{with nm_cloud_setup}
+%files cloud-setup
+%{_libexecdir}/nm-cloud-setup
+%{systemd_dir}/nm-cloud-setup.service
+%{systemd_dir}/nm-cloud-setup.timer
+%{nmlibdir}/dispatcher.d/90-nm-cloud-setup.sh
+%{nmlibdir}/dispatcher.d/no-wait.d/90-nm-cloud-setup.sh
 %endif
 
 

@@ -1,18 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of the
- * License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
- * General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
- *
- * Copyright 2013 Red Hat, Inc.
+ * Copyright (C) 2013 Red Hat, Inc.
  */
 
 /**
@@ -78,6 +66,7 @@ static NmtNewtPopupEntry wifi_band[] = {
 static NmtNewtPopupEntry wifi_security[] = {
 	{ NC_("Wi-Fi security", "None"),           "none" },
 	{ N_("WPA & WPA2 Personal"),               "wpa-personal" },
+	{ N_("WPA3 Personal"),                     "wpa3-personal" },
 	{ N_("WPA & WPA2 Enterprise"),             "wpa-enterprise" },
 	{ N_("WEP 40/128-bit Key (Hex or ASCII)"), "wep-key" },
 	{ N_("WEP 128-bit Passphrase"),            "wep-passphrase" },
@@ -275,6 +264,7 @@ nmt_page_wifi_constructed (GObject *object)
 	                        G_BINDING_SYNC_CREATE | G_BINDING_BIDIRECTIONAL);
 	nmt_editor_grid_append (NMT_EDITOR_GRID (subgrid), _("Password"), widget, NULL);
 	nmt_newt_stack_add (stack, "wpa-personal", subgrid);
+	nmt_newt_stack_add (stack, "wpa3-personal", subgrid);
 
 	/* "wpa-enterprise" */
 	// FIXME

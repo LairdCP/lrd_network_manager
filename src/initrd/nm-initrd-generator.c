@@ -1,20 +1,5 @@
-/* NetworkManager initrd configuration generator
- *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
- *
- * This library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the
- * Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
- * Boston, MA 02110-1301 USA.
- *
+// SPDX-License-Identifier: LGPL-2.1+
+/*
  * Copyright (C) 2018 Red Hat, Inc.
  */
 
@@ -63,7 +48,12 @@ output_conn (gpointer key, gpointer value, gpointer user_data)
 		filename = nm_keyfile_utils_create_filename (basename, TRUE);
 		full_filename = g_build_filename (connections_dir, filename, NULL);
 
-		if (!nm_utils_file_set_contents (full_filename, data, len, 0600, &error))
+		if (!nm_utils_file_set_contents (full_filename,
+		                                 data,
+		                                 len,
+		                                 0600,
+		                                 NULL,
+		                                 &error))
 			goto err_out;
 	} else
 		g_print ("\n*** Connection '%s' ***\n\n%s", basename, data);
@@ -95,7 +85,7 @@ main (int argc, char *argv[])
 	int errsv;
 
 	option_context = g_option_context_new ("-- [ip=...] [rd.route=...] [bridge=...] [bond=...] [team=...] [vlan=...] "
-	                                       "[bootdev=...] [nameserver=...] [rd.peerdns=...] [rd.bootif=...] [BOOTIF=...] ... ");
+	                                       "[bootdev=...] [nameserver=...] [rd.peerdns=...] [rd.bootif=...] [BOOTIF=...] [rd.znet=...] ... ");
 
 	g_option_context_set_summary (option_context, "Generate early NetworkManager configuration.");
 	g_option_context_set_description (option_context,
@@ -127,7 +117,7 @@ main (int argc, char *argv[])
 		return 1;
 	}
 
-	connections = nmi_cmdline_reader_parse (sysfs_dir, remaining);
+	connections = nmi_cmdline_reader_parse (sysfs_dir, (const char *const*) remaining);
 	g_hash_table_foreach (connections, output_conn, connections_dir);
 	g_hash_table_destroy (connections);
 

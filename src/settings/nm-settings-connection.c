@@ -1,21 +1,7 @@
-/* NetworkManager system settings service
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Copyright 2008 Novell, Inc.
- * Copyright 2008 - 2014 Red Hat, Inc.
+// SPDX-License-Identifier: GPL-2.0+
+/*
+ * Copyright (C) 2008 Novell, Inc.
+ * Copyright (C) 2008 - 2014 Red Hat, Inc.
  */
 
 #include "nm-default.h"
@@ -1235,7 +1221,7 @@ pk_auth_cb (NMAuthManager *auth_manager,
 	} else if (nm_auth_call_result_eval (is_authorized, is_challenge, auth_error) != NM_AUTH_CALL_RESULT_YES) {
 		error = g_error_new_literal (NM_SETTINGS_ERROR,
 		                             NM_SETTINGS_ERROR_PERMISSION_DENIED,
-		                             "Insufficient privileges");
+		                             NM_UTILS_ERROR_MSG_INSUFF_PRIV);
 	}
 
 	auth_data->callback (self,
@@ -1268,7 +1254,7 @@ _new_auth_subject (GDBusMethodInvocation *context, GError **error)
 		g_set_error_literal (error,
 		                     NM_SETTINGS_ERROR,
 		                     NM_SETTINGS_ERROR_PERMISSION_DENIED,
-		                     "Unable to determine UID of request.");
+		                     NM_UTILS_ERROR_MSG_REQ_UID_UKNOWN);
 	}
 
 	return subject;

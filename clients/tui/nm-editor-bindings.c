@@ -1,18 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of the
- * License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
- * General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
- *
- * Copyright 2013 Red Hat, Inc.
+ * Copyright (C) 2013 Red Hat, Inc.
  */
 
 /**
@@ -601,9 +589,11 @@ get_security_type (NMEditorWirelessSecurityMethodBinding *binding)
 		return "dynamic-wep";
 	}
 
-	if (   !strcmp (key_mgmt, "wpa-none")
-	    || !strcmp (key_mgmt, "wpa-psk"))
+	if (!strcmp (key_mgmt, "wpa-psk"))
 		return "wpa-personal";
+
+	if (!strcmp (key_mgmt, "sae"))
+		return "wpa3-personal";
 
 	if (!strcmp (key_mgmt, "wpa-eap"))
 		return "wpa-enterprise";
@@ -706,6 +696,12 @@ wireless_security_target_changed (GObject    *object,
 	} else if (!strcmp (method, "wpa-personal")) {
 		g_object_set (binding->s_wsec,
 		              NM_SETTING_WIRELESS_SECURITY_KEY_MGMT, "wpa-psk",
+		              NM_SETTING_WIRELESS_SECURITY_AUTH_ALG, NULL,
+		              NM_SETTING_WIRELESS_SECURITY_WEP_KEY_TYPE, NM_WEP_KEY_TYPE_UNKNOWN,
+		              NULL);
+	} else if (!strcmp (method, "wpa3-personal")) {
+		g_object_set (binding->s_wsec,
+		              NM_SETTING_WIRELESS_SECURITY_KEY_MGMT, "sae",
 		              NM_SETTING_WIRELESS_SECURITY_AUTH_ALG, NULL,
 		              NM_SETTING_WIRELESS_SECURITY_WEP_KEY_TYPE, NM_WEP_KEY_TYPE_UNKNOWN,
 		              NULL);

@@ -1,21 +1,7 @@
+// SPDX-License-Identifier: LGPL-2.1+
 /*
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
- *
- * This library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the
- * Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
- * Boston, MA 02110-1301 USA.
- *
- * Copyright 2007 - 2014 Red Hat, Inc.
- * Copyright 2007 - 2008 Novell, Inc.
+ * Copyright (C) 2007 - 2014 Red Hat, Inc.
+ * Copyright (C) 2007 - 2008 Novell, Inc.
  */
 
 #ifndef __NM_SETTING_8021X_H__
@@ -84,9 +70,12 @@ typedef enum { /*< underscore_name=nm_setting_802_1x_ck_scheme >*/
  * #NMSetting8021xAuthFlags values indicate which authentication settings
  * should be used.
  *
+ * Before 1.22, this was wrongly marked as a enum and not as a flags
+ * type.
+ *
  * Since: 1.8
  */
-typedef enum { /*< underscore_name=nm_setting_802_1x_auth_flags >*/
+typedef enum { /*< flags, underscore_name=nm_setting_802_1x_auth_flags >*/
 	NM_SETTING_802_1X_AUTH_FLAGS_NONE                = 0,
 	NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_0_DISABLE     = 0x1,
 	NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_1_DISABLE     = 0x2,
@@ -148,6 +137,7 @@ typedef enum { /*< underscore_name=nm_setting_802_1x_auth_flags >*/
 #define NM_SETTING_802_1X_PIN_FLAGS "pin-flags"
 #define NM_SETTING_802_1X_SYSTEM_CA_CERTS "system-ca-certs"
 #define NM_SETTING_802_1X_AUTH_TIMEOUT "auth-timeout"
+#define NM_SETTING_802_1X_OPTIONAL "optional"
 #define NM_SETTING_802_1X_TLS_DISABLE_TIME_CHECKS "tls-disable-time-checks"
 #define NM_SETTING_802_1X_PAC_FILE_PASSWORD "pac-file-password"
 
@@ -365,6 +355,8 @@ NM_AVAILABLE_IN_1_8
 NMSetting8021xAuthFlags nm_setting_802_1x_get_phase1_auth_flags          (NMSetting8021x *setting);
 NM_AVAILABLE_IN_1_8
 int                    nm_setting_802_1x_get_auth_timeout                (NMSetting8021x *setting);
+NM_AVAILABLE_IN_1_22
+gboolean               nm_setting_802_1x_get_optional                    (NMSetting8021x *setting);
 
 const char *           nm_setting_802_1x_get_tls_disable_time_checks	 (NMSetting8021x *setting);
 const char *           nm_setting_802_1x_get_pac_file_password           (NMSetting8021x *setting);

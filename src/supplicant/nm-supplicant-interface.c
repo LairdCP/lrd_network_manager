@@ -1,19 +1,5 @@
-/* NetworkManager -- Network link manager
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- *
+// SPDX-License-Identifier: GPL-2.0+
+/*
  * Copyright (C) 2006 - 2017 Red Hat, Inc.
  * Copyright (C) 2006 - 2008 Novell, Inc.
  */
@@ -122,6 +108,7 @@ NM_GOBJECT_PROPERTIES_DEFINE (NMSupplicantInterface,
 	PROP_WFD_SUPPORT,
 	PROP_FT_SUPPORT,
 	PROP_SHA384_SUPPORT,
+	PROP_AUTH_STATE,
 	PROP_LAIRD_SUPPORT,
 );
 
@@ -145,7 +132,8 @@ typedef struct {
 	NMSupplicantFeature p2p_support;
 	NMSupplicantFeature mesh_support;
 	NMSupplicantFeature wfd_support;
-	NMSupplicantFeature ft_support;
+	NMSupplicantFeature ft_support_global;
+	NMSupplicantFeature ft_support_per_iface;
 	NMSupplicantFeature sha384_support;
 	guint32        max_scan_ssids;
 	guint32        ready_count;
@@ -188,6 +176,7 @@ typedef struct {
 		LairdScanGlobals pushed;
 	} laird;
 
+	NMSupplicantAuthState auth_state;
 } NMSupplicantInterfacePrivate;
 
 struct _NMSupplicantInterface {
@@ -623,14 +612,25 @@ static void
 parse_capabilities (NMSupplicantInterface *self, GVariant *capabilities)
 {
 	NMSupplicantInterfacePrivate *priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
-	gboolean have_active = FALSE, have_p2p = FALSE, have_ssid = FALSE;
+	gboolean have_active = FALSE;
+	gboolean have_ssid = FALSE;
+	gboolean have_p2p = FALSE;
+	gboolean have_ft = FALSE;
 	gint32 max_scan_ssids = -1;
 	const char **array;
 
 	g_return_if_fail (capabilities && g_variant_is_of_type (capabilities, G_VARIANT_TYPE_VARDICT));
 
-	if (   g_variant_lookup (capabilities, "Modes", "^a&s", &array)
-	    && array) {
+	if (g_variant_lookup (capabilities, "KeyMgmt", "^a&s", &array)) {
+		have_ft = g_strv_contains (array, "wpa-ft-psk");
+		g_free (array);
+	}
+
+	priv->ft_support_per_iface =   have_ft
+	                             ? NM_SUPPLICANT_FEATURE_YES
+	                             : NM_SUPPLICANT_FEATURE_NO;
+
+	if (g_variant_lookup (capabilities, "Modes", "^a&s", &array)) {
 		if (g_strv_contains (array, "p2p"))
 			have_p2p = TRUE;
 		g_free (array);
@@ -641,8 +641,7 @@ parse_capabilities (NMSupplicantInterface *self, GVariant *capabilities)
 		_notify (self, PROP_P2P_AVAILABLE);
 	}
 
-	if (   g_variant_lookup (capabilities, "Scan", "^a&s", &array)
-	    && array) {
+	if (g_variant_lookup (capabilities, "Scan", "^a&s", &array)) {
 		if (g_strv_contains (array, "active"))
 			have_active = TRUE;
 		if (g_strv_contains (array, "ssid"))
@@ -821,13 +820,25 @@ nm_supplicant_interface_get_wfd_support (NMSupplicantInterface *self)
 NMSupplicantFeature
 nm_supplicant_interface_get_ft_support (NMSupplicantInterface *self)
 {
-	return NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self)->ft_support;
+	NMSupplicantInterfacePrivate *priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
+
+	if (priv->ft_support_global == NM_SUPPLICANT_FEATURE_NO)
+		return NM_SUPPLICANT_FEATURE_NO;
+	if (priv->ft_support_per_iface != NM_SUPPLICANT_FEATURE_UNKNOWN)
+		return priv->ft_support_per_iface;
+	return priv->ft_support_global;
 }
 
 NMSupplicantFeature
 nm_supplicant_interface_get_sha384_support (NMSupplicantInterface *self)
 {
 	return NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self)->sha384_support;
+}
+
+NMSupplicantAuthState
+nm_supplicant_interface_get_auth_state (NMSupplicantInterface *self)
+{
+	return NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self)->auth_state;
 }
 
 void
@@ -919,7 +930,7 @@ nm_supplicant_interface_set_ft_support (NMSupplicantInterface *self,
 {
 	NMSupplicantInterfacePrivate *priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
 
-	priv->ft_support = ft_support;
+	priv->ft_support_global = ft_support;
 }
 
 void
@@ -1357,6 +1368,34 @@ wpas_iface_network_request (GDBusProxy *proxy,
 }
 
 static void
+eap_changed (GDBusProxy *proxy,
+             const char *status,
+             const char *parameter,
+             gpointer user_data)
+{
+	NMSupplicantInterface *self = NM_SUPPLICANT_INTERFACE (user_data);
+	NMSupplicantInterfacePrivate *priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
+	NMSupplicantAuthState auth_state = NM_SUPPLICANT_AUTH_STATE_UNKNOWN;
+
+	if (nm_streq0 (status, "started"))
+		auth_state = NM_SUPPLICANT_AUTH_STATE_STARTED;
+	else if (nm_streq0 (status, "completion")) {
+		if (nm_streq0 (parameter, "success"))
+			auth_state = NM_SUPPLICANT_AUTH_STATE_SUCCESS;
+		else if (nm_streq0 (parameter, "failure"))
+			auth_state = NM_SUPPLICANT_AUTH_STATE_FAILURE;
+	}
+
+	/* the state eventually reaches one of started, success or failure
+	 * so ignore any other intermediate (unknown) state change. */
+	if (   auth_state != NM_SUPPLICANT_AUTH_STATE_UNKNOWN
+	    && auth_state != priv->auth_state) {
+		priv->auth_state = auth_state;
+		_notify (self, PROP_AUTH_STATE);
+	}
+}
+
+static void
 props_changed_cb (GDBusProxy *proxy,
                   GVariant *changed_properties,
                   GStrv invalidated_properties,
@@ -1534,7 +1573,7 @@ p2p_props_changed_cb (GDBusProxy *proxy,
 	if (g_variant_lookup (changed_properties, "Group", "&o", &path)) {
 		if (priv->group_proxy && g_strcmp0 (path, g_dbus_proxy_get_object_path (priv->group_proxy)) == 0) {
 			/* We already have the proxy, nothing to do. */
-		} else if (path && g_strcmp0 (path, "/") != 0) {
+		} else if (nm_dbus_path_not_empty (path)) {
 			if (priv->group_proxy != NULL) {
 				_LOGW ("P2P: Unexpected update of the group object path");
 				priv->group_proxy_acquired = FALSE;
@@ -1698,6 +1737,8 @@ on_iface_proxy_acquired (GDBusProxy *proxy, GAsyncResult *result, gpointer user_
 	                         G_CALLBACK (wpas_iface_bss_removed), self);
 	_nm_dbus_signal_connect (priv->iface_proxy, "NetworkRequest", G_VARIANT_TYPE ("(oss)"),
 	                         G_CALLBACK (wpas_iface_network_request), self);
+	_nm_dbus_signal_connect (priv->iface_proxy, "EAP", G_VARIANT_TYPE ("(ss)"),
+	                         G_CALLBACK (eap_changed), self);
 
 	/* Scan result aging parameters */
 	g_dbus_proxy_call (priv->iface_proxy,
@@ -3022,6 +3063,9 @@ get_property (GObject *object,
 	case PROP_P2P_AVAILABLE:
 		g_value_set_boolean (value, priv->p2p_capable && priv->p2p_proxy_acquired);
 		break;
+	case PROP_AUTH_STATE:
+		g_value_set_uint (value, priv->auth_state);
+		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
 		break;
@@ -3079,7 +3123,7 @@ set_property (GObject *object,
 		break;
 	case PROP_FT_SUPPORT:
 		/* construct-only */
-		priv->ft_support = g_value_get_int (value);
+		priv->ft_support_global = g_value_get_int (value);
 		break;
 	case PROP_SHA384_SUPPORT:
 		/* construct-only */
@@ -3318,6 +3362,13 @@ nm_supplicant_interface_class_init (NMSupplicantInterfaceClass *klass)
 	                      G_PARAM_WRITABLE |
 	                      G_PARAM_CONSTRUCT_ONLY |
 	                      G_PARAM_STATIC_STRINGS);
+	obj_properties[PROP_AUTH_STATE] =
+	    g_param_spec_uint (NM_SUPPLICANT_INTERFACE_AUTH_STATE, "", "",
+	                       NM_SUPPLICANT_AUTH_STATE_UNKNOWN,
+	                       _NM_SUPPLICANT_AUTH_STATE_NUM - 1,
+	                       NM_SUPPLICANT_AUTH_STATE_UNKNOWN,
+	                       G_PARAM_READABLE |
+	                       G_PARAM_STATIC_STRINGS);
 	obj_properties[PROP_LAIRD_SUPPORT] =
 	    g_param_spec_int (NM_SUPPLICANT_INTERFACE_LAIRD_SUPPORT, "", "",
 	                      NM_SUPPLICANT_FEATURE_UNKNOWN,

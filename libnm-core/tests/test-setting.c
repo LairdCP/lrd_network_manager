@@ -1,20 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2, or (at your option)
- * any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Copyright 2008 - 2017 Red Hat, Inc.
- *
+ * Copyright (C) 2008 - 2017 Red Hat, Inc.
  */
 
 #include "nm-default.h"
@@ -22,6 +8,7 @@
 #include <linux/pkt_sched.h>
 #include <net/if.h>
 
+#include "nm-core-internal.h"
 #include "nm-utils.h"
 #include "nm-utils-private.h"
 #include "nm-core-internal.h"
@@ -2581,7 +2568,7 @@ static void
 test_roundtrip_conversion (gconstpointer test_data)
 {
 	const int MODE = GPOINTER_TO_INT (test_data);
-	const char *ID= nm_sprintf_bufa (100, "roundtip-conversion-%d", MODE);
+	const char *ID= nm_sprintf_bufa (100, "roundtrip-conversion-%d", MODE);
 	const char *UUID= "63376701-b61e-4318-bf7e-664a1c1eeaab";
 	const char *INTERFACE_NAME = nm_sprintf_bufa (100, "ifname%d", MODE);
 	guint32 ETH_MTU = nmtst_rand_select ((guint32) 0u,
@@ -2663,6 +2650,8 @@ test_roundtrip_conversion (gconstpointer test_data)
 		                     "addr-gen-mode=stable-privacy\n"
 		                     "dns-search=\n"
 		                     "method=auto\n"
+		                     "\n"
+		                     "[proxy]\n"
 		                     "",
 		                     ID,
 		                     UUID,
@@ -2722,6 +2711,8 @@ test_roundtrip_conversion (gconstpointer test_data)
 		                     "interface-name=%s\n"
 		                     "permissions=\n"
 		                     "\n"
+		                     "[wireguard]\n"
+		                     "\n"
 		                     "[ipv4]\n"
 		                     "dns-search=\n"
 		                     "method=disabled\n"
@@ -2730,6 +2721,8 @@ test_roundtrip_conversion (gconstpointer test_data)
 		                     "addr-gen-mode=stable-privacy\n"
 		                     "dns-search=\n"
 		                     "method=ignore\n"
+		                     "\n"
+		                     "[proxy]\n"
 		                     "",
 		                     ID,
 		                     UUID,
@@ -2770,7 +2763,8 @@ test_roundtrip_conversion (gconstpointer test_data)
 		                     "type=wireguard\n"
 		                     "interface-name=%s\n"
 		                     "permissions=\n"
-		                     "%s" /* [wireguard] */
+		                     "\n"
+		                     "[wireguard]\n"
 		                     "%s" /* fwmark */
 		                     "%s" /* listen-port */
 		                     "%s" /* private-key-flags */
@@ -2785,17 +2779,12 @@ test_roundtrip_conversion (gconstpointer test_data)
 		                     "addr-gen-mode=stable-privacy\n"
 		                     "dns-search=\n"
 		                     "method=ignore\n"
+		                     "\n"
+		                     "[proxy]\n"
 		                     "",
 		                     ID,
 		                     UUID,
 		                     INTERFACE_NAME,
-		                     (  (   (WG_FWMARK != 0)
-		                         || (WG_LISTEN_PORT != 0)
-		                         || (WG_PRIVATE_KEY_FLAGS != NM_SETTING_SECRET_FLAG_NONE)
-		                         || (   WG_PRIVATE_KEY
-		                             && WG_PRIVATE_KEY_FLAGS == NM_SETTING_SECRET_FLAG_NONE))
-		                      ? "\n[wireguard]\n"
-		                      : ""),
 		                     (  (WG_FWMARK != 0)
 		                      ? nm_sprintf_bufa (100, "fwmark=%u\n", WG_FWMARK)
 		                      : ""),
@@ -2887,6 +2876,8 @@ test_roundtrip_conversion (gconstpointer test_data)
 		                     "routing-rule1=priority 1 from ::/0 table 1000\n"
 		                     "routing-rule2=priority 2 from 1:2:3:b::/65 table 1001\n"
 		                     "routing-rule3=priority 3 from 1:2:3:c::/66 table 1002\n"
+		                     "\n"
+		                     "[proxy]\n"
 		                     "",
 		                     ID,
 		                     UUID,
@@ -3168,7 +3159,9 @@ test_routing_rule (gconstpointer test_data)
 	_rr_from_str ("priority 5 from :: iif a\\\\303b table 25");
 	_rr_from_str ("priority 5 to 0.0.0.0 sport 10 table 6",
 	              "priority 5 to 0.0.0.0 sport 10-10 table 6");
-	_rr_from_str ("not priority 5 to 0.0.0.0 dport 10-133 table 6",
+	_rr_from_str ("priority 5 not to 0.0.0.0 dport 10-133 table 6",
+	              "not priority 5 to 0.0.0.0 dport 10-133 table 6",
+	              "not priority 5 not to 0.0.0.0 dport 10-133 table 6",
 	              "priority 5 to 0.0.0.0 not dport 10-133 not table 6",
 	              "priority 5 to 0.0.0.0 not dport 10-\\ 133 not table 6");
 	_rr_from_str ("priority 5 to 0.0.0.0 ipproto 10 sport 10 table 6");
@@ -3279,6 +3272,320 @@ test_parse_tc_handle (void)
 
 /*****************************************************************************/
 
+static void
+test_empty_setting (void)
+{
+	gs_unref_object NMConnection *con = NULL;
+	gs_unref_object NMConnection *con2 = NULL;
+	NMSettingBluetooth *s_bt;
+	NMSettingGsm *s_gsm;
+	gs_unref_keyfile GKeyFile *kf = NULL;
+	gs_free_error GError *error = NULL;
+
+	con = nmtst_create_minimal_connection ("bt-empty-gsm", "dca3192a-f2dc-48eb-b806-d0ff788f122c", NM_SETTING_BLUETOOTH_SETTING_NAME, NULL);
+
+	s_bt = _nm_connection_get_setting (con, NM_TYPE_SETTING_BLUETOOTH);
+	g_object_set (s_bt,
+	              NM_SETTING_BLUETOOTH_TYPE, "dun",
+	              NM_SETTING_BLUETOOTH_BDADDR, "aa:bb:cc:dd:ee:ff",
+	              NULL);
+
+	s_gsm = NM_SETTING_GSM (nm_setting_gsm_new ());
+	nm_connection_add_setting (con, NM_SETTING (s_gsm));
+
+	nmtst_connection_normalize (con);
+
+	nmtst_assert_connection_verifies_without_normalization (con);
+
+	kf = nm_keyfile_write (con, NULL, NULL, &error);
+	nmtst_assert_success (kf, error);
+
+	g_assert (g_key_file_has_group (kf, "gsm"));
+	g_assert_cmpint (nmtst_keyfile_get_num_keys (kf, "gsm"), ==, 0);
+
+	con2 = nm_keyfile_read (kf,
+	                        "/ignored/current/working/directory/for/loading/relative/paths",
+	                        NULL,
+	                        NULL,
+	                        &error);
+	nmtst_assert_success (con2, error);
+
+	g_assert (nm_connection_get_setting (con2, NM_TYPE_SETTING_GSM));
+
+	nmtst_assert_connection_verifies_without_normalization (con2);
+}
+
+/*****************************************************************************/
+
+static guint
+_PROP_IDX_PACK (NMMetaSettingType meta_type,
+                guint idx)
+{
+	return   (((guint) meta_type) & 0xFFu)
+	       | (idx << 8);
+}
+
+static const char *
+_PROP_IDX_OWNER (GHashTable *h_property_types,
+                 const NMSettInfoPropertType *property_type)
+{
+	const NMSettInfoSetting *sett_info_settings = nmtst_sett_info_settings ();
+	const NMSettInfoSetting *sis;
+	const NMMetaSettingInfo *msi;
+	GArray *arr;
+	guint idx;
+	NMMetaSettingType meta_type;
+	guint prop_idx;
+	char sbuf[300];
+
+	g_assert (h_property_types);
+	g_assert (property_type);
+
+	arr = g_hash_table_lookup (h_property_types, property_type);
+
+	g_assert (arr);
+	g_assert (arr->len > 0);
+
+	idx = g_array_index (arr, guint, 0);
+
+	meta_type = (idx & 0xFFu);
+	prop_idx = idx >> 8;
+
+	g_assert (meta_type < _NM_META_SETTING_TYPE_NUM);
+
+	sis = &sett_info_settings[meta_type];
+	msi = &nm_meta_setting_infos[meta_type];
+
+	g_assert (prop_idx < sis->property_infos_len);
+
+	nm_sprintf_buf (sbuf, "%s.%s", msi->setting_name, sis->property_infos[prop_idx].name);
+
+	return g_intern_string (sbuf);
+}
+
+static void
+test_setting_metadata (void)
+{
+	const NMSettInfoSetting *sett_info_settings = nmtst_sett_info_settings ();
+	NMMetaSettingType meta_type;
+	gs_unref_hashtable GHashTable *h_property_types = NULL;
+
+	G_STATIC_ASSERT (_NM_META_SETTING_TYPE_NUM == NM_META_SETTING_TYPE_UNKNOWN);
+
+	h_property_types = g_hash_table_new_full (nm_direct_hash, NULL, NULL, (GDestroyNotify) g_array_unref);
+
+	for (meta_type = 0; meta_type < _NM_META_SETTING_TYPE_NUM; meta_type++) {
+		const NMMetaSettingInfo *msi = &nm_meta_setting_infos[meta_type];
+		nm_auto_unref_gtypeclass NMSettingClass *klass = NULL;
+		GType gtype;
+
+		g_assert (msi->setting_name);
+		g_assert (msi->get_setting_gtype);
+		g_assert (msi->meta_type == meta_type);
+		g_assert (msi->setting_priority >= NM_SETTING_PRIORITY_CONNECTION);
+		g_assert (msi->setting_priority <= NM_SETTING_PRIORITY_USER);
+
+		if (meta_type > 0)
+			g_assert_cmpint (strcmp (nm_meta_setting_infos[meta_type - 1].setting_name, msi->setting_name), <, 0);
+
+		gtype = msi->get_setting_gtype ();
+
+		g_assert (g_type_is_a (gtype, NM_TYPE_SETTING));
+		g_assert (gtype != NM_TYPE_SETTING);
+
+		klass = g_type_class_ref (gtype);
+		g_assert (klass);
+		g_assert (NM_IS_SETTING_CLASS (klass));
+
+		g_assert (msi == klass->setting_info);
+	}
+
+	g_assert (sett_info_settings);
+
+	for (meta_type = 0; meta_type < _NM_META_SETTING_TYPE_NUM; meta_type++) {
+		const NMSettInfoSetting *sis = &sett_info_settings[meta_type];
+		const NMMetaSettingInfo *msi = &nm_meta_setting_infos[meta_type];
+		gs_unref_hashtable GHashTable *h_properties = NULL;
+		GType gtype;
+		gs_unref_object NMSetting *setting = NULL;
+		guint prop_idx;
+		gs_free GParamSpec **property_specs = NULL;
+		guint n_property_specs;
+
+		g_assert (sis);
+
+		g_assert (NM_IS_SETTING_CLASS (sis->setting_class));
+
+		gtype = msi->get_setting_gtype ();
+
+		g_assert (G_TYPE_FROM_CLASS (sis->setting_class) == gtype);
+
+		setting = g_object_new (gtype, NULL);
+
+		g_assert (NM_IS_SETTING (setting));
+
+		g_assert_cmpint (sis->property_infos_len, >, 0);
+		g_assert (sis->property_infos);
+
+		h_properties = g_hash_table_new (nm_str_hash, g_str_equal);
+
+		for (prop_idx = 0; prop_idx < sis->property_infos_len; prop_idx++) {
+			const NMSettInfoProperty *sip = &sis->property_infos[prop_idx];
+			GArray *property_types_data;
+			guint prop_idx_val;
+
+			g_assert (sip->name);
+
+			if (prop_idx > 0)
+				g_assert_cmpint (strcmp (sis->property_infos[prop_idx - 1].name, sip->name), <, 0);
+
+			g_assert (sip->property_type);
+			g_assert (sip->property_type->dbus_type);
+			g_assert (g_variant_type_string_is_valid ((const char *) sip->property_type->dbus_type));
+
+			g_assert (!sip->property_type->to_dbus_fcn || !sip->property_type->gprop_to_dbus_fcn);
+			g_assert (!sip->property_type->from_dbus_fcn || !sip->property_type->gprop_from_dbus_fcn);
+
+			if (!g_hash_table_insert (h_properties, (char *) sip->name, sip->param_spec))
+				g_assert_not_reached ();
+
+			property_types_data = g_hash_table_lookup (h_property_types, sip->property_type);
+			if (!property_types_data) {
+				property_types_data = g_array_new (FALSE, FALSE, sizeof (guint));
+				if (!g_hash_table_insert (h_property_types, (gpointer) sip->property_type, property_types_data))
+					g_assert_not_reached ();
+			}
+			prop_idx_val = _PROP_IDX_PACK (meta_type, prop_idx);
+			g_array_append_val (property_types_data, prop_idx_val);
+
+			if (sip->param_spec) {
+				nm_auto_unset_gvalue GValue val = G_VALUE_INIT;
+
+				g_assert_cmpstr (sip->name, ==, sip->param_spec->name);
+
+				g_value_init (&val, sip->param_spec->value_type);
+				g_object_get_property (G_OBJECT (setting), sip->name, &val);
+
+				if (sip->param_spec->value_type == G_TYPE_STRING) {
+					const char *default_value;
+
+					default_value = ((const GParamSpecString *) sip->param_spec)->default_value;
+					if (default_value) {
+						/* having a string property with a default != NULL is really ugly. They
+						 * should be best avoided... */
+						if (   meta_type == NM_META_SETTING_TYPE_DCB
+						    && nm_streq (sip->name, NM_SETTING_DCB_APP_FCOE_MODE)) {
+							/* Whitelist the properties that have a non-NULL default value. */
+							g_assert_cmpstr (default_value, ==, NM_SETTING_DCB_FCOE_MODE_FABRIC);
+						} else
+							g_assert_not_reached ();
+					}
+
+					if (nm_streq (sip->name, NM_SETTING_NAME))
+						g_assert_cmpstr (g_value_get_string (&val), ==, msi->setting_name);
+					else
+						g_assert_cmpstr (g_value_get_string (&val), ==, default_value);
+				}
+
+				if (NM_FLAGS_HAS (sip->param_spec->flags, NM_SETTING_PARAM_TO_DBUS_IGNORE_FLAGS))
+					g_assert (sip->property_type->to_dbus_fcn);
+			}
+		}
+
+		/* check that all GObject based properties are tracked by the settings. */
+		property_specs = g_object_class_list_properties (G_OBJECT_CLASS (sis->setting_class),
+		                                                 &n_property_specs);
+		g_assert (property_specs);
+		g_assert_cmpint (n_property_specs, >, 0);
+		for (prop_idx = 0; prop_idx < n_property_specs; prop_idx++) {
+			const GParamSpec *pip = property_specs[prop_idx];
+
+			g_assert (g_hash_table_lookup (h_properties, pip->name) == pip);
+		}
+
+		/* check that property_infos_sorted is as expected. */
+		if (sis->property_infos_sorted) {
+			gs_unref_hashtable GHashTable *h = g_hash_table_new (nm_direct_hash, NULL);
+
+			/* property_infos_sorted is only implemented for [connection] type */
+			g_assert_cmpint (meta_type, ==, NM_META_SETTING_TYPE_CONNECTION);
+
+			/* ensure that there are no duplicates, and that all properties are also
+			 * tracked by sis->property_infos. */
+			for (prop_idx = 0; prop_idx < sis->property_infos_len; prop_idx++) {
+				const NMSettInfoProperty *sip = sis->property_infos_sorted[prop_idx];
+
+				if (!g_hash_table_add (h, (gpointer) sip))
+					g_assert_not_reached ();
+			}
+			for (prop_idx = 0; prop_idx < sis->property_infos_len; prop_idx++) {
+				const NMSettInfoProperty *sip = &sis->property_infos[prop_idx];
+
+				g_assert (g_hash_table_contains (h, sip));
+			}
+		} else
+			g_assert_cmpint (meta_type, !=, NM_META_SETTING_TYPE_CONNECTION);
+
+		/* consistency check for gendata-info. */
+		if (sis->detail.gendata_info) {
+			g_assert_cmpint (meta_type, ==, NM_META_SETTING_TYPE_ETHTOOL);
+			g_assert (sis->detail.gendata_info->get_variant_type);
+
+			/* the gendata info based setting has only one regular property: the "name". */
+			g_assert_cmpint (sis->property_infos_len, ==, 1);
+			g_assert_cmpstr (sis->property_infos[0].name, ==, NM_SETTING_NAME);
+		} else
+			g_assert_cmpint (meta_type, !=, NM_META_SETTING_TYPE_ETHTOOL);
+	}
+
+	{
+		gs_free NMSettInfoPropertType **a_property_types = NULL;
+		guint a_property_types_len;
+		guint prop_idx;
+		guint prop_idx_2;
+
+		a_property_types = (NMSettInfoPropertType **) g_hash_table_get_keys_as_array (h_property_types, &a_property_types_len);
+
+		for (prop_idx = 0; prop_idx < a_property_types_len; prop_idx++) {
+			const NMSettInfoPropertType *pt = a_property_types[prop_idx];
+
+			for (prop_idx_2 = prop_idx + 1; prop_idx_2 < a_property_types_len; prop_idx_2++) {
+				const NMSettInfoPropertType *pt_2 = a_property_types[prop_idx_2];
+
+				if (   !g_variant_type_equal (pt->dbus_type, pt_2->dbus_type)
+				    || pt->to_dbus_fcn != pt_2->to_dbus_fcn
+				    || pt->from_dbus_fcn != pt_2->from_dbus_fcn
+				    || pt->missing_from_dbus_fcn != pt_2->missing_from_dbus_fcn
+				    || pt->gprop_to_dbus_fcn != pt_2->gprop_to_dbus_fcn
+				    || pt->gprop_from_dbus_fcn != pt_2->gprop_from_dbus_fcn)
+					continue;
+
+				if (   (pt   == &nm_sett_info_propert_type_plain_i && pt_2 == &nm_sett_info_propert_type_deprecated_ignore_i)
+				    || (pt_2 == &nm_sett_info_propert_type_plain_i && pt   == &nm_sett_info_propert_type_deprecated_ignore_i)
+				    || (pt   == &nm_sett_info_propert_type_plain_u && pt_2 == &nm_sett_info_propert_type_deprecated_ignore_u)
+				    || (pt_2 == &nm_sett_info_propert_type_plain_u && pt   == &nm_sett_info_propert_type_deprecated_ignore_u)) {
+					/* These are known to be duplicated. This is the case for
+					 *   "gsm.network-type"  and plain properies like "802-11-wireless-security.fils" ("i" D-Bus type)
+					 *   "gsm.allowed-bands" and plain properies like "802-11-olpc-mesh.channel" ("u" D-Bus type)
+					 * While the content/behaviour of the property types are identical, their purpose
+					 * is different. So allowe them.
+					 */
+					continue;
+				}
+
+				/* the property-types with same content should all be shared. Here we have two that
+				 * are the same content, but different instances. Bug. */
+				g_error ("The identical property type for D-Bus type \"%s\" is used by: %s and %s",
+				         (const char *) pt->dbus_type,
+				         _PROP_IDX_OWNER (h_property_types, pt),
+				         _PROP_IDX_OWNER (h_property_types, pt_2));
+			}
+		}
+	}
+}
+
+/*****************************************************************************/
+
 NMTST_DEFINE ();
 
 int
@@ -3365,6 +3672,10 @@ main (int argc, char **argv)
 	g_test_add_func ("/libnm/parse-tc-handle", test_parse_tc_handle);
 
 	g_test_add_func ("/libnm/test_team_setting", test_team_setting);
+
+	g_test_add_func ("/libnm/test_empty_setting", test_empty_setting);
+
+	g_test_add_func ("/libnm/test_setting_metadata", test_setting_metadata);
 
 	return g_test_run ();
 }

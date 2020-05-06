@@ -1,20 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2, or (at your option)
- * any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- *
  * Copyright (C) 2014 Red Hat, Inc.
- *
  */
 
 #include "nm-default.h"
@@ -58,10 +44,13 @@ test_nm_utils_monotonic_timestamp_as_boottime (void)
 		g_assert_cmpint (now_boottime_2, >=, now_boottime);
 		g_assert_cmpint (now_boottime_2 - now_boottime, <=, NM_UTILS_NS_PER_SECOND / 10);
 
+		g_assert_cmpint (now, ==, nm_utils_monotonic_timestamp_from_boottime (now_boottime_2, 1));
+
 		for (timestamp_ns_per_tick = 1; timestamp_ns_per_tick <= NM_UTILS_NS_PER_SECOND; timestamp_ns_per_tick *= 10) {
 			now_boottime_3 = nm_utils_monotonic_timestamp_as_boottime (now / timestamp_ns_per_tick, timestamp_ns_per_tick);
 
 			g_assert_cmpint (now_boottime_2 / timestamp_ns_per_tick, ==, now_boottime_3);
+			g_assert_cmpint (now / timestamp_ns_per_tick, ==, nm_utils_monotonic_timestamp_from_boottime (now_boottime_3, timestamp_ns_per_tick));
 		}
 	}
 }
@@ -118,13 +107,13 @@ test_nm_utils_kill_child_async_do (const char *name, pid_t pid, int sig, guint32
 	timeout_id = g_timeout_add_seconds (5, test_nm_utils_kill_child_async_fail_cb, &data);
 
 	data.loop = g_main_loop_new (NULL, FALSE);
-	g_main_run (data.loop);
+	g_main_loop_run (data.loop);
 
 	g_assert (data.called);
 	success = g_source_remove (timeout_id);
 	g_assert (success);
 
-	g_main_destroy (data.loop);
+	g_main_loop_unref (data.loop);
 }
 
 static void
@@ -578,4 +567,3 @@ main (int argc, char **argv)
 
 	return g_test_run ();
 }
-

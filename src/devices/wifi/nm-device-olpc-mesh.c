@@ -1,26 +1,11 @@
-/* NetworkManager -- Network link manager
- *
+// SPDX-License-Identifier: GPL-2.0+
+/*
  * Dan Williams <dcbw@redhat.com>
  * Sjoerd Simons <sjoerd.simons@collabora.co.uk>
  * Daniel Drake <dsd@laptop.org>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * (C) Copyright 2005 - 2014 Red Hat, Inc.
- * (C) Copyright 2008 Collabora Ltd.
- * (C) Copyright 2009 One Laptop per Child
+ * Copyright (C) 2005 - 2014 Red Hat, Inc.
+ * Copyright (C) 2008 Collabora Ltd.
+ * Copyright (C) 2009 One Laptop per Child
  */
 
 #include "nm-default.h"
@@ -58,7 +43,7 @@ NM_GOBJECT_PROPERTIES_DEFINE (NMDeviceOlpcMesh,
 typedef struct {
 	NMDevice *companion;
 	NMManager *manager;
-	gboolean  stage1_waiting;
+	bool stage1_waiting:1;
 } NMDeviceOlpcMeshPrivate;
 
 struct _NMDeviceOlpcMesh {
@@ -82,9 +67,9 @@ get_autoconnect_allowed (NMDevice *device)
 	NMDeviceOlpcMesh *self = NM_DEVICE_OLPC_MESH (device);
 	NMDeviceOlpcMeshPrivate *priv = NM_DEVICE_OLPC_MESH_GET_PRIVATE (self);
 
-	/* We shall always have a companion if we're >= DISCONENCTED, and this
-	 * ought not be called until then. */
-	g_return_val_if_fail (priv->companion, FALSE);
+	/* We can't even connect if we don't have a companion yet. */
+	if (!priv->companion)
+		return FALSE;
 
 	/* We must not attempt to autoconnect when the companion is connected or
 	 * connecting, * because we'd tear down its connection. */
@@ -145,12 +130,7 @@ act_stage1_prepare (NMDevice *device, NMDeviceStateReason *out_failure_reason)
 {
 	NMDeviceOlpcMesh *self = NM_DEVICE_OLPC_MESH (device);
 	NMDeviceOlpcMeshPrivate *priv = NM_DEVICE_OLPC_MESH_GET_PRIVATE (self);
-	NMActStageReturn ret;
 	gboolean scanning;
-
-	ret = NM_DEVICE_CLASS (nm_device_olpc_mesh_parent_class)->act_stage1_prepare (device, out_failure_reason);
-	if (ret != NM_ACT_STAGE_RETURN_SUCCESS)
-		return ret;
 
 	/* disconnect companion device, if it is connected */
 	if (nm_device_get_act_request (NM_DEVICE (priv->companion))) {
@@ -171,20 +151,32 @@ act_stage1_prepare (NMDevice *device, NMDeviceStateReason *out_failure_reason)
 		return NM_ACT_STAGE_RETURN_POSTPONE;
 	}
 
+	priv->stage1_waiting = FALSE;
 	return NM_ACT_STAGE_RETURN_SUCCESS;
 }
 
-static void
+static gboolean
 _mesh_set_channel (NMDeviceOlpcMesh *self, guint32 channel)
 {
 	NMPlatform *platform;
 	int ifindex = nm_device_get_ifindex (NM_DEVICE (self));
+	guint32 old_channel;
 
 	platform = nm_device_get_platform (NM_DEVICE (self));
-	if (nm_platform_mesh_get_channel (platform, ifindex) != channel) {
-		if (nm_platform_mesh_set_channel (platform, ifindex, channel))
-			_notify (self, PROP_ACTIVE_CHANNEL);
-	}
+	old_channel = nm_platform_mesh_get_channel (platform, ifindex);
+
+	if (channel == 0)
+		channel = old_channel;
+
+	/* We want to call this even if the channel number is the same,
+	 * because that actually starts the mesh with the configured mesh ID. */
+	if (!nm_platform_mesh_set_channel (platform, ifindex, channel))
+		return FALSE;
+
+	if (old_channel != channel)
+		_notify (self, PROP_ACTIVE_CHANNEL);
+
+	return TRUE;
 }
 
 static NMActStageReturn
@@ -192,26 +184,34 @@ act_stage2_config (NMDevice *device, NMDeviceStateReason *out_failure_reason)
 {
 	NMDeviceOlpcMesh *self = NM_DEVICE_OLPC_MESH (device);
 	NMSettingOlpcMesh *s_mesh;
-	guint32 channel;
 	GBytes *ssid;
 	const char *anycast_addr;
+	gboolean success;
 
 	s_mesh = nm_device_get_applied_setting (device, NM_TYPE_SETTING_OLPC_MESH);
 
 	g_return_val_if_fail (s_mesh, NM_ACT_STAGE_RETURN_FAILURE);
 
-	channel = nm_setting_olpc_mesh_get_channel (s_mesh);
-	if (channel != 0)
-		_mesh_set_channel (self, channel);
-
 	ssid = nm_setting_olpc_mesh_get_ssid (s_mesh);
-	nm_platform_mesh_set_ssid (nm_device_get_platform (device),
-	                           nm_device_get_ifindex (device),
-	                           g_bytes_get_data (ssid, NULL),
-	                           g_bytes_get_size (ssid));
+	nm_device_take_down (NM_DEVICE (self), TRUE);
+	success = nm_platform_mesh_set_ssid (nm_device_get_platform (device),
+	                                     nm_device_get_ifindex (device),
+	                                     g_bytes_get_data (ssid, NULL),
+	                                     g_bytes_get_size (ssid));
+	nm_device_bring_up (NM_DEVICE (self), TRUE, NULL);
+	if (!success) {
+		_LOGW (LOGD_WIFI, "Unable to set the mesh ID");
+		return NM_ACT_STAGE_RETURN_FAILURE;
+	}
 
 	anycast_addr = nm_setting_olpc_mesh_get_dhcp_anycast_address (s_mesh);
 	nm_device_set_dhcp_anycast_address (device, anycast_addr);
+
+	if (!_mesh_set_channel (self, nm_setting_olpc_mesh_get_channel (s_mesh))) {
+		_LOGW (LOGD_WIFI, "Unable to set the mesh channel");
+		return NM_ACT_STAGE_RETURN_FAILURE;
+	}
+
 
 	return NM_ACT_STAGE_RETURN_SUCCESS;
 }
@@ -254,10 +254,9 @@ companion_notify_cb (NMDeviceWifi *companion, GParamSpec *pspec, gpointer user_d
 		return;
 
 	g_object_get (companion, NM_DEVICE_WIFI_SCANNING, &scanning, NULL);
-
 	if (!scanning) {
 		priv->stage1_waiting = FALSE;
-		nm_device_activate_schedule_stage2_device_config (NM_DEVICE (self));
+		nm_device_activate_schedule_stage1_device_prepare (NM_DEVICE (self));
 	}
 }
 
@@ -450,7 +449,7 @@ constructed (GObject *object)
 
 	G_OBJECT_CLASS (nm_device_olpc_mesh_parent_class)->constructed (object);
 
-	priv->manager = g_object_ref (nm_manager_get ());
+	priv->manager = g_object_ref (NM_MANAGER_GET);
 
 	g_signal_connect (priv->manager, NM_MANAGER_DEVICE_ADDED, G_CALLBACK (device_added_cb), self);
 	g_signal_connect (priv->manager, NM_MANAGER_DEVICE_REMOVED, G_CALLBACK (device_removed_cb), self);

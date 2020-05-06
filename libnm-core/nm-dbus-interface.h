@@ -1,19 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * Copyright 2004 - 2018 Red Hat, Inc.
+ * Copyright (C) 2004 - 2018 Red Hat, Inc.
  */
 
 /* Definitions related to NetworkManager's D-Bus interfaces.
@@ -293,6 +280,7 @@ typedef enum { /*< flags >*/
  * @NM_WIFI_DEVICE_CAP_FREQ_2GHZ: device supports 2.4GHz frequencies
  * @NM_WIFI_DEVICE_CAP_FREQ_5GHZ: device supports 5GHz frequencies
  * @NM_WIFI_DEVICE_CAP_MESH: device supports acting as a mesh point. Since: 1.20.
+ * @NM_WIFI_DEVICE_CAP_IBSS_RSN: device supports WPA2/RSN in an IBSS network. Since: 1.22.
  * @NM_WIFI_DEVICE_CAP_CIPHER_CCMP_256: device supports AES/CCMP-256 encryption
  * @NM_WIFI_DEVICE_CAP_CIPHER_GCMP_128: device supports AES/GCMP-128 encryption
  * @NM_WIFI_DEVICE_CAP_CIPHER_GCMP_256: device supports AES/GCMP-256 encrytion
@@ -317,13 +305,14 @@ typedef enum { /*< flags >*/
 	NM_WIFI_DEVICE_CAP_FREQ_2GHZ     = 0x00000200,
 	NM_WIFI_DEVICE_CAP_FREQ_5GHZ     = 0x00000400,
 	NM_WIFI_DEVICE_CAP_MESH          = 0x00001000,
-	NM_WIFI_DEVICE_CAP_CIPHER_CCMP_256 = 0x00002000,
-	NM_WIFI_DEVICE_CAP_CIPHER_GCMP_128 = 0x00004000,
-	NM_WIFI_DEVICE_CAP_CIPHER_GCMP_256 = 0x00008000,
-	NM_WIFI_DEVICE_CAP_CIPHER_CMAC_128 = 0x00010000,
-	NM_WIFI_DEVICE_CAP_CIPHER_CMAC_256 = 0x00020000,
-	NM_WIFI_DEVICE_CAP_CIPHER_GMAC_128 = 0x00040000,
-	NM_WIFI_DEVICE_CAP_CIPHER_GMAC_256 = 0x00080000,
+	NM_WIFI_DEVICE_CAP_IBSS_RSN      = 0x00002000,
+	NM_WIFI_DEVICE_CAP_CIPHER_CCMP_256 = 0x00010000,
+	NM_WIFI_DEVICE_CAP_CIPHER_GCMP_128 = 0x00020000,
+	NM_WIFI_DEVICE_CAP_CIPHER_GCMP_256 = 0x00040000,
+	NM_WIFI_DEVICE_CAP_CIPHER_CMAC_128 = 0x00080000,
+	NM_WIFI_DEVICE_CAP_CIPHER_CMAC_256 = 0x00100000,
+	NM_WIFI_DEVICE_CAP_CIPHER_GMAC_128 = 0x00200000,
+	NM_WIFI_DEVICE_CAP_CIPHER_GMAC_256 = 0x00400000,
 } NMDeviceWifiCapabilities;
 
 /**
@@ -739,10 +728,37 @@ typedef enum {
 /**
  * NMMetered:
  * @NM_METERED_UNKNOWN:     The metered status is unknown
- * @NM_METERED_YES:         Metered, the value was statically set
- * @NM_METERED_NO:          Not metered, the value was statically set
+ * @NM_METERED_YES:         Metered, the value was explicitly configured
+ * @NM_METERED_NO:          Not metered, the value was explicitly configured
  * @NM_METERED_GUESS_YES:   Metered, the value was guessed
  * @NM_METERED_GUESS_NO:    Not metered, the value was guessed
+ *
+ * The NMMetered enum has two different purposes: one is to configure
+ * "connection.metered" setting of a connection profile in #NMSettingConnection, and
+ * the other is to express the actual metered state of the #NMDevice at a given moment.
+ *
+ * For the connection profile only #NM_METERED_UNKNOWN, #NM_METERED_NO
+ * and #NM_METERED_YES are allowed.
+ *
+ * The device's metered state at runtime is determined by the profile
+ * which is currently active. If the profile explicitly specifies #NM_METERED_NO
+ * or #NM_METERED_YES, then the device's metered state is as such.
+ * If the connection profile leaves it undecided at #NM_METERED_UNKNOWN (the default),
+ * then NetworkManager tries to guess the metered state, for example based on the
+ * device type or on DHCP options (like Android devices exposing a "ANDROID_METERED"
+ * DHCP vendor option). This then leads to either #NM_METERED_GUESS_NO or #NM_METERED_GUESS_YES.
+ *
+ * Most applications probably should treat the runtime state #NM_METERED_GUESS_YES
+ * like #NM_METERED_YES, and all other states as not metered.
+ *
+ * Note that the per-device metered states are then combined to a global metered
+ * state. This is basically the metered state of the device with the best default
+ * route. However, that generalization of a global metered state may not be correct
+ * if the default routes for IPv4 and IPv6 are on different devices, or if policy
+ * routing is configured. In general, the global metered state tries to express whether
+ * the traffic is likely metered, but since that depends on the traffic itself,
+ * there is not one answer in all cases. Hence, an application may want to consider
+ * the per-device's metered states.
  *
  * Since: 1.2
  **/
@@ -1191,5 +1207,57 @@ typedef enum {
 	NM_TERNARY_FALSE = 0,
 	NM_TERNARY_TRUE = 1,
 } NMTernary;
+
+/**
+ * NMManagerReloadFlags:
+ * @NM_MANAGER_RELOAD_FLAG_NONE: an alias for numeric zero, no flags set. This
+ *   reloads everything that is supported and is identical to a SIGHUP.
+ * @NM_MANAGER_RELOAD_FLAG_CONF: reload the NetworkManager.conf configuration
+ *   from disk. Note that this does not include connections, which can be
+ *   reloaded via Setting's ReloadConnections().
+ * @NM_MANAGER_RELOAD_FLAG_DNS_RC: update DNS configuration, which usually
+ *   involves writing /etc/resolv.conf anew.
+ * @NM_MANAGER_RELOAD_FLAG_DNS_FULL: means to restart the DNS plugin. This
+ *   is for example useful when using dnsmasq plugin, which uses additional
+ *   configuration in /etc/NetworkManager/dnsmasq.d. If you edit those files,
+ *   you can restart the DNS plugin. This action shortly interrupts name
+ *   resolution.
+ * @NM_MANAGER_RELOAD_FLAG_ALL: all flags.
+ *
+ * Flags for the manager Reload() call.
+ *
+ * Since: 1.22
+ */
+typedef enum { /*< flags >*/
+	NM_MANAGER_RELOAD_FLAG_NONE          = 0,    /*< skip >*/
+	NM_MANAGER_RELOAD_FLAG_CONF          = 0x1,
+	NM_MANAGER_RELOAD_FLAG_DNS_RC        = 0x2,
+	NM_MANAGER_RELOAD_FLAG_DNS_FULL      = 0x4,
+	NM_MANAGER_RELOAD_FLAG_ALL           = 0x7,  /*< skip >*/
+} NMManagerReloadFlags;
+
+/**
+ * NMDeviceInterfaceFlags:
+ * @NM_DEVICE_INTERFACE_FLAG_NONE: an alias for numeric zero, no flags set.
+ * @NM_DEVICE_INTERFACE_FLAG_UP: the interface is enabled from the
+ *   administrative point of view. Corresponds to kernel IFF_UP.
+ * @NM_DEVICE_INTERFACE_FLAG_LOWER_UP: the physical link is up. Corresponds
+ *   to kernel IFF_LOWER_UP.
+ * @NM_DEVICE_INTERFACE_FLAG_CARRIER: the interface has carrier. In most
+ *   cases this is equal to the value of @NM_DEVICE_INTERFACE_FLAG_LOWER_UP.
+ *   However some devices have a non-standard carrier detection mechanism.
+ *
+ * Flags for a network interface.
+ *
+ * Since: 1.22
+ */
+typedef enum { /*< flags >*/
+	/* kernel flags */
+	NM_DEVICE_INTERFACE_FLAG_NONE        = 0,   /*< skip >*/
+	NM_DEVICE_INTERFACE_FLAG_UP          = 0x1,
+	NM_DEVICE_INTERFACE_FLAG_LOWER_UP    = 0x2,
+	/* NM-specific flags */
+	NM_DEVICE_INTERFACE_FLAG_CARRIER     = 0x10000,
+} NMDeviceInterfaceFlags;
 
 #endif /* __NM_DBUS_INTERFACE_H__ */

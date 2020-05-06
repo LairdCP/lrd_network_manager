@@ -1,25 +1,10 @@
-/* NetworkManager system settings service
- *
+// SPDX-License-Identifier: GPL-2.0+
+/*
  * Søren Sandmann <sandmann@daimi.au.dk>
  * Dan Williams <dcbw@redhat.com>
  * Tambet Ingo <tambet@gmail.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * (C) Copyright 2007 - 2011 Red Hat, Inc.
- * (C) Copyright 2008 Novell, Inc.
+ * Copyright (C) 2007 - 2011 Red Hat, Inc.
+ * Copyright (C) 2008 Novell, Inc.
  */
 
 #include "nm-default.h"
@@ -2421,7 +2406,7 @@ pk_add_cb (NMAuthChain *chain,
 	if (result != NM_AUTH_CALL_RESULT_YES) {
 		error = g_error_new_literal (NM_SETTINGS_ERROR,
 		                             NM_SETTINGS_ERROR_PERMISSION_DENIED,
-		                             "Insufficient privileges.");
+		                             NM_UTILS_ERROR_MSG_INSUFF_PRIV);
 	} else {
 		/* Authorized */
 		connection = nm_auth_chain_get_data (chain, "connection");
@@ -2487,17 +2472,6 @@ nm_settings_add_connection_dbus (NMSettings *self,
 		goto done;
 	}
 
-	/* FIXME: The kernel doesn't support Ad-Hoc WPA connections well at this time,
-	 * and turns them into open networks.  It's been this way since at least
-	 * 2.6.30 or so; until that's fixed, disable WPA-protected Ad-Hoc networks.
-	 */
-	if (nm_utils_connection_is_adhoc_wpa (connection)) {
-		error = g_error_new_literal (NM_SETTINGS_ERROR,
-		                             NM_SETTINGS_ERROR_INVALID_CONNECTION,
-		                             "WPA Ad-Hoc disabled due to kernel bugs");
-		goto done;
-	}
-
 	if (!nm_auth_is_subject_in_acl_set_error (connection,
 	                                          subject,
 	                                          NM_SETTINGS_ERROR,
@@ -2521,7 +2495,7 @@ nm_settings_add_connection_dbus (NMSettings *self,
 	if (!chain) {
 		error = g_error_new_literal (NM_SETTINGS_ERROR,
 		                             NM_SETTINGS_ERROR_PERMISSION_DENIED,
-		                             "Unable to authenticate the request.");
+		                             NM_UTILS_ERROR_MSG_REQ_AUTH_FAILED);
 		goto done;
 	}
 
@@ -2605,7 +2579,7 @@ settings_add_connection_helper (NMSettings *self,
 		g_dbus_method_invocation_return_error_literal (context,
 		                                               NM_SETTINGS_ERROR,
 		                                               NM_SETTINGS_ERROR_PERMISSION_DENIED,
-		                                               "Unable to determine UID of request.");
+		                                               NM_UTILS_ERROR_MSG_REQ_UID_UKNOWN);
 		return;
 	}
 
@@ -2776,9 +2750,10 @@ impl_settings_load_connections (NMDBusObject *obj,
 		for (i = 0; i < n_entries; i++) {
 			NMSettingsPluginConnectionLoadEntry *entry = &entries[i];
 
-			if (!entry->handled)
+			if (!entry->handled) {
 				_LOGW ("load: no settings plugin could load \"%s\"", entry->filename);
-			else if (entry->error) {
+				nm_assert (!entry->error);
+			} else if (entry->error) {
 				_LOGW ("load: failure to load \"%s\": %s", entry->filename, entry->error->message);
 				g_clear_error (&entry->error);
 			} else
@@ -2847,6 +2822,7 @@ impl_settings_reload_connections (NMDBusObject *obj,
 
 	nm_audit_log_connection_op (NM_AUDIT_OP_CONNS_RELOAD, NULL, TRUE, NULL, invocation, NULL);
 
+	/* We MUST return %TRUE here, otherwise older libnm versions might misbehave. */
 	g_dbus_method_invocation_return_value (invocation, g_variant_new ("(b)", TRUE));
 }
 
@@ -2946,7 +2922,7 @@ impl_settings_get_connection_by_uuid (NMDBusObject *obj,
 	if (!subject) {
 		error = g_error_new_literal (NM_SETTINGS_ERROR,
 		                             NM_SETTINGS_ERROR_PERMISSION_DENIED,
-		                             "Unable to determine UID of request.");
+		                             NM_UTILS_ERROR_MSG_REQ_UID_UKNOWN);
 		goto error;
 	}
 
@@ -3140,9 +3116,9 @@ add_plugin (NMSettings *self,
 
 	priv->plugins = g_slist_append (priv->plugins, g_object_ref (plugin));
 
-	nm_shutdown_wait_obj_register_full (G_OBJECT (plugin),
-	                                    g_strdup_printf ("%s-settings-plugin", pname),
-	                                    TRUE);
+	nm_shutdown_wait_obj_register_object_full (plugin,
+	                                           g_strdup_printf ("%s-settings-plugin", pname),
+	                                           TRUE);
 
 	_LOGI ("Loaded settings plugin: %s (%s%s%s)",
 	       pname,
@@ -3288,21 +3264,26 @@ pk_hostname_cb (NMAuthChain *chain,
 	c_list_unlink (nm_auth_chain_parent_lst_list (chain));
 
 	result = nm_auth_chain_get_result (chain, NM_AUTH_PERMISSION_SETTINGS_MODIFY_HOSTNAME);
+	hostname = nm_auth_chain_get_data (chain, "hostname");
 
 	/* If our NMSettingsConnection is already gone, do nothing */
 	if (result != NM_AUTH_CALL_RESULT_YES) {
 		error = g_error_new_literal (NM_SETTINGS_ERROR,
 		                             NM_SETTINGS_ERROR_PERMISSION_DENIED,
-		                             "Insufficient privileges.");
+		                             NM_UTILS_ERROR_MSG_INSUFF_PRIV);
 	} else {
-		hostname = nm_auth_chain_get_data (chain, "hostname");
-
 		if (!nm_hostname_manager_write_hostname (priv->hostname_manager, hostname)) {
 			error = g_error_new_literal (NM_SETTINGS_ERROR,
 			                             NM_SETTINGS_ERROR_FAILED,
 			                             "Saving the hostname failed.");
 		}
 	}
+
+	nm_audit_log_control_op (NM_AUDIT_OP_HOSTNAME_SAVE,
+	                         hostname,
+	                         !error,
+	                         nm_auth_chain_get_subject (chain),
+	                         error ? error->message : NULL);
 
 	if (error)
 		g_dbus_method_invocation_take_error (context, error);
@@ -3323,30 +3304,39 @@ impl_settings_save_hostname (NMDBusObject *obj,
 	NMSettingsPrivate *priv = NM_SETTINGS_GET_PRIVATE (self);
 	NMAuthChain *chain;
 	const char *hostname;
+	const char *error_reason;
+	int error_code;
 
 	g_variant_get (parameters, "(&s)", &hostname);
 
 	/* Minimal validation of the hostname */
 	if (!nm_hostname_manager_validate_hostname (hostname)) {
-		g_dbus_method_invocation_return_error_literal (invocation,
-		                                               NM_SETTINGS_ERROR,
-		                                               NM_SETTINGS_ERROR_INVALID_HOSTNAME,
-		                                               "The hostname was too long or contained invalid characters.");
-		return;
+		error_code = NM_SETTINGS_ERROR_INVALID_HOSTNAME;
+		error_reason = "The hostname was too long or contained invalid characters";
+		goto err;
 	}
 
 	chain = nm_auth_chain_new_context (invocation, pk_hostname_cb, self);
 	if (!chain) {
-		g_dbus_method_invocation_return_error_literal (invocation,
-		                                               NM_SETTINGS_ERROR,
-		                                               NM_SETTINGS_ERROR_PERMISSION_DENIED,
-		                                               "Unable to authenticate the request.");
-		return;
+		error_code = NM_SETTINGS_ERROR_PERMISSION_DENIED;
+		error_reason = NM_UTILS_ERROR_MSG_REQ_AUTH_FAILED;
+		goto err;
 	}
 
 	c_list_link_tail (&priv->auth_lst_head, nm_auth_chain_parent_lst_list (chain));
 	nm_auth_chain_add_call (chain, NM_AUTH_PERMISSION_SETTINGS_MODIFY_HOSTNAME, TRUE);
 	nm_auth_chain_set_data (chain, "hostname", g_strdup (hostname), g_free);
+	return;
+err:
+	nm_audit_log_control_op (NM_AUDIT_OP_HOSTNAME_SAVE,
+	                         hostname,
+	                         FALSE,
+	                         invocation,
+	                         error_reason);
+	g_dbus_method_invocation_return_error_literal (invocation,
+	                                               NM_SETTINGS_ERROR,
+	                                               error_code,
+	                                               error_reason);
 }
 
 /*****************************************************************************/
@@ -3365,26 +3355,13 @@ static gboolean
 have_connection_for_device (NMSettings *self, NMDevice *device)
 {
 	NMSettingsPrivate *priv = NM_SETTINGS_GET_PRIVATE (self);
-	NMSettingWired *s_wired;
-	const char *setting_hwaddr;
-	const char *perm_hw_addr;
 	NMSettingsConnection *sett_conn;
 
 	g_return_val_if_fail (NM_IS_SETTINGS (self), FALSE);
 
-	perm_hw_addr = nm_device_get_permanent_hw_address (device);
-
-	/* Find a wired connection locked to the given MAC address, if any */
+	/* Find a wired connection matching for the device, if any */
 	c_list_for_each_entry (sett_conn, &priv->connections_lst_head, _connections_lst) {
 		NMConnection *connection = nm_settings_connection_get_connection (sett_conn);
-		NMSettingConnection *s_con = nm_connection_get_setting_connection (connection);
-		const char *ctype;
-		const char *iface;
-
-		ctype = nm_setting_connection_get_connection_type (s_con);
-		if (!NM_IN_STRSET (ctype, NM_SETTING_WIRED_SETTING_NAME,
-		                          NM_SETTING_PPPOE_SETTING_NAME))
-			continue;
 
 		if (!nm_device_check_connection_compatible (device, connection, NULL))
 			continue;
@@ -3396,27 +3373,7 @@ have_connection_for_device (NMSettings *self, NMDevice *device)
 		                  NM_SETTINGS_CONNECTION_INT_FLAGS_VOLATILE))
 			continue;
 
-		iface = nm_setting_connection_get_interface_name (s_con);
-		if (!nm_streq0 (iface, nm_device_get_iface (device)))
-			continue;
-
-		s_wired = nm_connection_get_setting_wired (connection);
-		if (   !s_wired
-		    && nm_streq (ctype, NM_SETTING_PPPOE_SETTING_NAME)) {
-			/* No wired setting; therefore the PPPoE connection applies to any device */
-			return TRUE;
-		}
-
-		setting_hwaddr = nm_setting_wired_get_mac_address (s_wired);
-		if (setting_hwaddr) {
-			/* A connection mac-locked to this device */
-			if (   perm_hw_addr
-			    && nm_utils_hwaddr_matches (setting_hwaddr, -1, perm_hw_addr, -1))
-				return TRUE;
-		} else {
-			/* A connection that applies to any wired device */
-			return TRUE;
-		}
+		return TRUE;
 	}
 
 	/* See if there's a known non-NetworkManager configuration for the device */
@@ -3472,15 +3429,29 @@ device_realized (NMDevice *device, GParamSpec *pspec, NMSettings *self)
 	/* If the device isn't managed or it already has a default wired connection,
 	 * ignore it.
 	 */
-	if (   !nm_device_get_managed (device, FALSE)
-	    || g_object_get_qdata (G_OBJECT (device), _default_wired_connection_quark ())
-	    || have_connection_for_device (self, device)
-	    || nm_config_get_no_auto_default_for_device (priv->config, device))
+	if (   !NM_DEVICE_GET_CLASS (device)->new_default_connection
+	    || !nm_device_get_managed (device, FALSE)
+	    || g_object_get_qdata (G_OBJECT (device), _default_wired_connection_quark ()))
 		return;
 
-	connection = nm_device_new_default_connection (device);
-	if (!connection)
+	if (nm_config_get_no_auto_default_for_device (priv->config, device)) {
+		_LOGT ("auto-default: cannot create auto-default connection for device %s: disabled by \"no-auto-default\"",
+		       nm_device_get_iface (device));
 		return;
+	}
+
+	if (have_connection_for_device (self, device)) {
+		_LOGT ("auto-default: cannot create auto-default connection for device %s: already has a profile",
+		       nm_device_get_iface (device));
+		return;
+	}
+
+	connection = nm_device_new_default_connection (device);
+	if (!connection) {
+		_LOGT ("auto-default: cannot create auto-default connection for device %s",
+		       nm_device_get_iface (device));
+		return;
+	}
 
 	_LOGT ("auto-default: creating in-memory connection %s (%s) for device %s",
 	       nm_connection_get_uuid (connection),
