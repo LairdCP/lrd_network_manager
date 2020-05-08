@@ -1472,6 +1472,16 @@ int_list_add_string(int_list *plist, const char *v)
 	}
 }
 
+static void
+int_list_add_aint(int_list *plist, const int *v)
+{
+	if (!v)
+		return;
+	while (*v) {
+		int_list_add_int(plist, *v++);
+	}
+}
+
 typedef struct {
 	const char *ifname; // ifname for filtering connections
 	int profile_count; // count of profiles
@@ -1482,6 +1492,43 @@ typedef struct {
 	LairdScanSettings lss;
 } BuildLSS;
 
+// note: should match lists in src/supplicant/nm-supplicant-config.c
+static int scan_a_freq[] = {
+	5180, 5200, 5220, 5240,
+	5260, 5280, 5300, 5320,
+	5500, 5520, 5540, 5560,
+	5580, 5600, 5620, 5640,
+	5660, 5680, 5700, 5720,
+	5745, 5765, 5785, 5805, 5825,
+	0
+};
+
+static int scan_bg_freq[] = {
+	2412, 2417, 2422, 2427, 2432, 2437, 2442, 2447, 2452, 2457, 2462, 2467,
+	2472,
+	2484,
+	0
+};
+
+// similar to nm_utils_wifi_freq_to_channel()
+// converts a channel/band to one of the above supported frequencies
+// returns 0 if no match is found
+static int _channel_to_freq(guint32 channel, const char *band)
+{
+	if (!strcmp (band, "bg")) {
+		if (1 <= channel && channel <= 14) {
+			return scan_bg_freq[channel - 1];
+		}
+		return 0;
+	}
+	if (!strcmp (band, "a")) {
+		if (0 < channel && channel < 200) {
+			return 5000 + 5 * channel;
+		}
+		return 0;
+	}
+	return 0;
+}
 
 // determine scan settings to use when disconnected, from connection profiles
 // note, only non-ap configurations will make it to this routine
@@ -1490,6 +1537,8 @@ build_laird_scan(NMSettingWireless *s_wifi, gpointer user_data)
 {
 	BuildLSS *scan = (BuildLSS*)user_data;
 	const char *frequency_list;
+	const char *band;
+	guint32 channel;
 	guint32 v;
 
 	scan->profile_count++;
@@ -1500,15 +1549,39 @@ build_laird_scan(NMSettingWireless *s_wifi, gpointer user_data)
 
 	if (!scan->require_all_freq) {
 		frequency_list = nm_setting_wireless_get_frequency_list (s_wifi);
-		if (!frequency_list) {
-			// no frequency list -- must scan all channels
+		band = nm_setting_wireless_get_band (s_wifi);
+		channel = nm_setting_wireless_get_channel (s_wifi);
+		// accumulate frequency list from profiles
+		if (frequency_list) {
+			int_list_add_string((int_list*)(&scan->lss.freqs), frequency_list);
+		} else 	if (band) {
+			const int *pifreqs = NULL;
+			gint32 freq = 0;
+			int aifreqs[2];
+			if (channel) {
+				freq = _channel_to_freq (channel, band);
+			}
+			if (freq) {
+				aifreqs[0] = freq;
+				aifreqs[1] = 0;
+				pifreqs = aifreqs;
+			} else if (!strcmp (band, "a"))
+				pifreqs = scan_a_freq;
+			else if (!strcmp (band, "bg"))
+				pifreqs = scan_bg_freq;
+			if (pifreqs) {
+				int_list_add_aint((int_list*)(&scan->lss.freqs), pifreqs);
+			} else {
+				scan->require_all_freq = 1;
+			}
+		} else {
 			scan->require_all_freq = 1;
+		}
+		if (scan->require_all_freq) {
+			// clear scan frequency list
 			free(scan->lss.freqs.ptr);
 			scan->lss.freqs.ptr = NULL;
 			scan->lss.freqs.count = 0;
-		} else {
-			// accumulate frequency list from profiles
-			int_list_add_string((int_list*)(&scan->lss.freqs), frequency_list);
 		}
 	}
 

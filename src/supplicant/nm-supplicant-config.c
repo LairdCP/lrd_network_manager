@@ -658,6 +658,21 @@ nm_supplicant_config_add_setting_macsec (NMSupplicantConfig * self,
 	return TRUE;
 }
 
+static const char scan_a_freq_str[] = {
+	"5180 5200 5220 5240 "
+	"5260 5280 5300 5320 "
+	"5500 5520 5540 5560 "
+	"5580 5600 5620 5640 "
+	"5660 5680 5700 5720 "
+	"5745 5765 5785 5805 5825"
+};
+
+static const char scan_bg_freq_str[] = {
+	"2412 2417 2422 2427 2432 2437 2442 2447 2452 2457 2462 2467 "
+	"2472 "
+	"2484"
+};
+
 gboolean
 nm_supplicant_config_add_setting_wireless (NMSupplicantConfig * self,
                                            NMSettingWireless * setting,
@@ -758,8 +773,11 @@ nm_supplicant_config_add_setting_wireless (NMSupplicantConfig * self,
 	if (frequency_list) {
 		if (!nm_supplicant_config_add_option (self, "freq_list", frequency_list, -1, NULL, error))
 				return FALSE;
-		if (!nm_supplicant_config_add_option (self, "scan_freq", frequency_list, -1, NULL, error))
+		if (priv->laird_support == NM_SUPPLICANT_FEATURE_YES) {
+			// only summit; sterling may reject scan if unsupported frequencies
+			if (!nm_supplicant_config_add_option (self, "scan_freq", frequency_list, -1, NULL, error))
 				return FALSE;
+		}
 	} else
 	if (band) {
 		if (channel) {
@@ -771,19 +789,35 @@ nm_supplicant_config_add_setting_wireless (NMSupplicantConfig * self,
 			str_freq = g_strdup_printf ("%u", freq);
 			if (!nm_supplicant_config_add_option (self, "freq_list", str_freq, -1, NULL, error))
 				return FALSE;
+			if (priv->laird_support == NM_SUPPLICANT_FEATURE_YES) {
+				// only summit; sterling may reject scan if invalid frequencies
+				if (!nm_supplicant_config_add_option (self, "scan_freq", str_freq, -1, NULL, error))
+					return FALSE;
+			}
 			width = nm_setting_wireless_get_channel_width (setting);
 			if (!nm_supplicant_config_add_channel_width(self, band, channel, width, error))
 				return FALSE;
 		} else {
 			const char *freqs = NULL;
-
+			const char *scan_freqs = NULL;
 			if (!strcmp (band, "a"))
+			{
 				freqs = wifi_freqs_to_string (FALSE);
+				scan_freqs = scan_a_freq_str;
+			}
 			else if (!strcmp (band, "bg"))
+			{
 				freqs = wifi_freqs_to_string (TRUE);
+				scan_freqs = scan_bg_freq_str;
+			}
 
 			if (freqs && !nm_supplicant_config_add_option (self, "freq_list", freqs, strlen (freqs), NULL, error))
 				return FALSE;
+			if (priv->laird_support == NM_SUPPLICANT_FEATURE_YES) {
+				// only summit; sterling may reject scan if invalid frequencies
+				if (scan_freqs && !nm_supplicant_config_add_option (self, "scan_freq", scan_freqs, strlen (scan_freqs), NULL, error))
+					return FALSE;
+			}
 		}
 	}
 
