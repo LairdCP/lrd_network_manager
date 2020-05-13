@@ -2804,7 +2804,9 @@ nm_supplicant_interface_request_scan_laird (NMSupplicantInterface *self, const G
 	}
 
 	if (lss && priv->laird_support == NM_SUPPLICANT_FEATURE_YES &&
-		priv->state <= NM_SUPPLICANT_INTERFACE_STATE_SCANNING) {
+		(priv->state <= NM_SUPPLICANT_INTERFACE_STATE_SCANNING
+		 || !priv->net_path))
+	{
 		// not connected, use disconnected settings
 		LairdScanGlobals g;
 		memset(&g, 0, sizeof(g));
