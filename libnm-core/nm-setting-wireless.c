@@ -347,7 +347,7 @@ nm_setting_wireless_ap_security_compatible2 (NMSettingWireless *s_wireless,
 	/* WPA[2]-PSK and WPA[2] Enterprise */
 	/* and WPA3 */
 	if (   !strcmp (key_mgmt, "wpa-psk")
-		|| !strcmp (key_mgmt, "cckm")
+	    || !strcmp (key_mgmt, "cckm")
 	    || !strcmp (key_mgmt, "wpa-eap")
 	    || !strcmp (key_mgmt, "wpa-eap-suite-b")
 	    || !strcmp (key_mgmt, "wpa-eap-suite-b-192")

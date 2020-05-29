@@ -1049,6 +1049,7 @@ complete_connection (NMDevice *device,
 		if (!nm_wifi_ap_complete_connection (ap,
 		                                     connection,
 		                                     nm_wifi_utils_is_manf_default_ssid (ssid),
+		                                     priv->capabilities,
 		                                     error))
 			return FALSE;
 	}
@@ -2888,6 +2889,7 @@ build_supplicant_config (NMDeviceWifi *self,
 	g_return_val_if_fail (s_wireless != NULL, NULL);
 
 	config = nm_supplicant_config_new (
+		(priv->capabilities & RSN_CAPS_PMF) &&
 		nm_supplicant_interface_get_pmf_support (priv->sup_iface) == NM_SUPPLICANT_FEATURE_YES,
 		nm_supplicant_interface_get_fils_support (priv->sup_iface) == NM_SUPPLICANT_FEATURE_YES,
 		nm_supplicant_interface_get_ft_support (priv->sup_iface) == NM_SUPPLICANT_FEATURE_YES,

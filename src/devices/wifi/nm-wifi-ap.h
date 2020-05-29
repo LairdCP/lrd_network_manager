@@ -55,6 +55,7 @@ gboolean          nm_wifi_ap_check_compatible         (NMWifiAP *self,
 gboolean          nm_wifi_ap_complete_connection      (NMWifiAP *self,
                                                        NMConnection *connection,
                                                        gboolean lock_bssid,
+                                                       NMDeviceWifiCapabilities dev_cap,
                                                        GError **error);
 
 const char *      nm_wifi_ap_get_supplicant_path      (NMWifiAP *ap);
