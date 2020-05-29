@@ -1213,15 +1213,29 @@ nm_wifi_ap_check_compatible (NMWifiAP *self,
 	                                                   dev_caps);
 }
 
+#define RSN_CAPS_PMF (NM_WIFI_DEVICE_CAP_CIPHER_CMAC_128 |	\
+					  NM_WIFI_DEVICE_CAP_CIPHER_CMAC_256 |	\
+					  NM_WIFI_DEVICE_CAP_CIPHER_GMAC_128 |	\
+					  NM_WIFI_DEVICE_CAP_CIPHER_GMAC_256)
+
 gboolean
 nm_wifi_ap_complete_connection (NMWifiAP *self,
                                 NMConnection *connection,
                                 gboolean lock_bssid,
+                                NMDeviceWifiCapabilities dev_cap,
                                 GError **error)
 {
+	guint32 rsn_flags;
 	NMWifiAPPrivate *priv = NM_WIFI_AP_GET_PRIVATE (self);
 
 	g_return_val_if_fail (connection != NULL, FALSE);
+
+	// check device capabilities
+	rsn_flags = priv->rsn_flags;
+	if (!(dev_cap & RSN_CAPS_PMF)) {
+		// do not select SAE if device does not support PMF
+		rsn_flags &= ~(NM_802_11_AP_SEC_KEY_MGMT_SAE);
+	}
 
 	return nm_wifi_utils_complete_connection (priv->ssid,
 	                                          priv->address,
@@ -1229,7 +1243,7 @@ nm_wifi_ap_complete_connection (NMWifiAP *self,
 	                                          priv->freq,
 	                                          priv->flags,
 	                                          priv->wpa_flags,
-	                                          priv->rsn_flags,
+	                                          rsn_flags,
 	                                          connection,
 	                                          lock_bssid,
 	                                          error);

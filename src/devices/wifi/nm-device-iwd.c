@@ -860,6 +860,7 @@ complete_connection (NMDevice *device,
 		if (!nm_wifi_ap_complete_connection (ap,
 		                                     connection,
 		                                     nm_wifi_utils_is_manf_default_ssid (ssid),
+		                                     priv->capabilities,
 		                                     error))
 			return FALSE;
 	}
