@@ -50,9 +50,9 @@ static const struct validate_entry validate_table[] = {
 };
 
 static const char *const pairwise_allowed[] = { "CCMP", "TKIP", "NONE",
-												"CCMP-256", "GCMP", "GCMP-256", NULL };
+                                                "CCMP-256", "GCMP", "GCMP-256", NULL };
 static const char *const group_allowed[] =    { "CCMP", "TKIP", "WEP104", "WEP40",
-												"CCMP-256", "GCMP", "GCMP-256", NULL };
+                                                "CCMP-256", "GCMP", "GCMP-256", NULL };
 static const char *const group_mgmt_allowed[] = { "AES-128-CMAC", "BIP-CMAC-256","BIP-GMAC-128","BIP-GMAC-256", NULL };
 static const char *const proto_allowed[] =    { "WPA", "RSN", "WPA3", NULL };
 static const char *const key_mgmt_allowed[] = { "WPA-PSK", "WPA-PSK-SHA256", "FT-PSK",
@@ -60,7 +60,7 @@ static const char *const key_mgmt_allowed[] = { "WPA-PSK", "WPA-PSK-SHA256", "FT
                                                 "CCKM",
                                                 "FILS-SHA256", "FILS-SHA384",
                                                 "IEEE8021X", "SAE", "FT-SAE",
-						"WPA-EAP-SUITE-B", "WPA-EAP-SUITE-B-192", "OWE",
+                                                "WPA-EAP-SUITE-B", "WPA-EAP-SUITE-B-192", "OWE",
                                                 "NONE", NULL };
 static const char *const auth_alg_allowed[] = { "OPEN", "SHARED", "LEAP", NULL };
 static const char *const eap_allowed[] =      { "LEAP", "MD5", "TLS", "PEAP", "TTLS", "SIM",
