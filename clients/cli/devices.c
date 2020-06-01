@@ -1231,7 +1231,7 @@ fill_output_access_point (gpointer data, gpointer user_data)
 		   || (rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_CCKM)
 		   || (rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_SUITE_B)
 		   || (rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_SUITE_B_192)
-	    || (rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_802_1X)) {
+		   || (rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_802_1X)) {
 		g_string_append   (security_str, "802.1X ");
 	}
 

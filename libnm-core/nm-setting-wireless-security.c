@@ -968,7 +968,7 @@ verify (NMSetting *setting, NMConnection *connection, GError **error)
 	NMSettingWirelessSecurity *self = NM_SETTING_WIRELESS_SECURITY (setting);
 	NMSettingWirelessSecurityPrivate *priv = NM_SETTING_WIRELESS_SECURITY_GET_PRIVATE (self);
 	const char *_valid_key_mgmt[] = { "none", "ieee8021x", "wpa-none", "wpa-psk", "wpa-eap", "sae",
-									  "cckm", "wpa-eap-suite-b", "wpa-eap-suite-b-192", "owe", "owe-only", NULL };
+	                                  "cckm", "wpa-eap-suite-b", "wpa-eap-suite-b-192", "owe", "owe-only", NULL };
 	const char *valid_auth_algs[] = { "open", "shared", "leap", NULL };
 	const char *_valid_protos[] = { "wpa", "rsn", NULL };
 	const char *_valid_pairwise[] = { "tkip", "ccmp", "ccmp-256", "gcmp", "gcmp-256", NULL };
@@ -1253,8 +1253,7 @@ verify (NMSetting *setting, NMConnection *connection, GError **error)
 	if (   NM_IN_SET (priv->pmf,
 	                  NM_SETTING_WIRELESS_SECURITY_PMF_OPTIONAL,
 	                  NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED)
-		   && !NM_IN_STRSET (priv->key_mgmt, "wpa-eap", "wpa-psk", "sae",
-							 "cckm")
+	                  && !NM_IN_STRSET (priv->key_mgmt, "wpa-eap", "wpa-psk", "sae", "cckm")
 		) {
 		g_set_error (error,
 		             NM_CONNECTION_ERROR,
