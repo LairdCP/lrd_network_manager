@@ -1830,6 +1830,18 @@ device_state_changed (NMDevice *device,
 					block_no_secrets = TRUE;
 			}
 
+			// LAIRD: BZ16785 - do not block autoconnect if infinite retries
+			if (block_no_secrets)
+			{
+				tries = nm_settings_connection_autoconnect_retries_get (sett_conn);
+				if (tries < 0) {
+					_LOGD (LOGD_DEVICE, "connection '%s' -- do not block infinite autoconnect (no secrets)",
+						   nm_settings_connection_get_id (sett_conn));
+					block_no_secrets = FALSE;
+				}
+			}
+			// === LAIRD
+
 			if (block_no_secrets) {
 				_LOGD (LOGD_DEVICE, "connection '%s' now blocked from autoconnect due to no secrets",
 				       nm_settings_connection_get_id (sett_conn));
