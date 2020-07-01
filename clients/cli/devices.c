@@ -1280,6 +1280,7 @@ fill_output_access_point (gpointer data, gpointer user_data)
 	set_val_str  (arr, 2, ssid_hex_str);
 	set_val_strc (arr, 3, bssid);
 	set_val_strc (arr, 4, mode == NM_802_11_MODE_ADHOC ? _("Ad-Hoc")
+	                    : (flags & NM_802_11_AP_FLAGS_P2P_IE) ? _("P2P")
 	                    : mode == NM_802_11_MODE_INFRA ? _("Infra")
 	                    : mode == NM_802_11_MODE_MESH ? _("Mesh")
 	                    : _("N/A"));
