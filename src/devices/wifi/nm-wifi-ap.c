@@ -841,6 +841,41 @@ has_owe_element (const guint8 *bytes, gsize len)
 	return FALSE;
 }
 
+has_p2p_element (const guint8 *bytes, gsize len)
+{
+	guint8 id, elem_len;
+	guint32 max_rate = 0;
+
+	while (len) {
+		guint32 m;
+
+		if (len < 2)
+			return 0;
+
+		id = *bytes++;
+		elem_len = *bytes++;
+		len -= 2;
+
+		if (elem_len > len)
+			return 0;
+
+		if (id == 221) {
+			if (elem_len > 4) {
+				if (bytes[0] == 0x50 &&
+					bytes[1] == 0x6F &&
+					bytes[2] == 0x9A &&
+					bytes[3] == 0x09)
+					return TRUE;
+			}
+		}
+
+		len -= elem_len;
+		bytes += elem_len;
+	}
+
+	return FALSE;
+}
+
 /*****************************************************************************/
 
 gboolean
@@ -943,6 +978,10 @@ nm_wifi_ap_update_from_properties (NMWifiAP *ap,
 		// OWE: look for owe-transition element
 		if (has_owe_element(bytes, len)) {
 			changed |= nm_wifi_ap_set_flags (ap, priv->flags | NM_802_11_AP_FLAGS_OWE_IE);
+		}
+		// P2P: look for p2p element
+		if (has_p2p_element(bytes, len)) {
+			changed |= nm_wifi_ap_set_flags (ap, priv->flags | NM_802_11_AP_FLAGS_P2P_IE);
 		}
 		g_variant_unref (v);
 	}
