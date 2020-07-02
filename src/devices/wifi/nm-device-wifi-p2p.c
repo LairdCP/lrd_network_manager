@@ -68,6 +68,10 @@ typedef struct {
 	guint peer_missing_id;
 
 	bool is_waiting_for_supplicant:1;
+
+	bool force_find:1;
+	int  connect_timeouts;
+
 } NMDeviceWifiP2PPrivate;
 
 struct _NMDeviceWifiP2P {
@@ -396,7 +400,9 @@ act_stage1_prepare (NMDevice *device, NMDeviceStateReason *out_failure_reason)
 	g_return_val_if_fail (s_wifi_p2p, NM_ACT_STAGE_RETURN_FAILURE);
 
 	peer = nm_wifi_p2p_peers_find_first_compatible (&priv->peers_lst_head, connection);
-	if (!peer) {
+	if (!peer || priv->force_find) {
+		priv->force_find = 0;
+		priv->connect_timeouts = 0;
 		/* Set up a timeout on the find attempt and run a find for the same period of time */
 		priv->sup_timeout_id = g_timeout_add_seconds (10,
 		                                              supplicant_find_timeout_cb,
@@ -441,6 +447,11 @@ supplicant_connection_timeout_cb (gpointer user_data)
 	NMDeviceWifiP2PPrivate *priv = NM_DEVICE_WIFI_P2P_GET_PRIVATE (self);
 
 	priv->sup_timeout_id = 0;
+	priv->connect_timeouts++;
+	if (priv->connect_timeouts >= 2) {
+		priv->connect_timeouts = 0;
+		priv->force_find = 1;
+	}
 
 	nm_supplicant_interface_p2p_cancel_connect (priv->mgmt_iface);
 
@@ -497,7 +508,7 @@ act_stage2_config (NMDevice *device, NMDeviceStateReason *out_failure_reason)
 	                                     nm_setting_wifi_p2p_get_frequency (s_wifi_p2p));
 
 	/* Set up a timeout on the connect attempt */
-	priv->sup_timeout_id = g_timeout_add_seconds (45,
+	priv->sup_timeout_id = g_timeout_add_seconds (10,
 	                                              supplicant_connection_timeout_cb,
 	                                              self);
 
@@ -601,6 +612,11 @@ act_stage3_ip_config_start (NMDevice *device,
 	gboolean indicate_addressing_running;
 	NMConnection *connection;
 	const char *method;
+
+	NMDeviceWifiP2P *self = NM_DEVICE_WIFI_P2P (device);
+	NMDeviceWifiP2PPrivate *priv = NM_DEVICE_WIFI_P2P_GET_PRIVATE (self);
+
+	priv->connect_timeouts = 0;
 
 	connection = nm_device_get_applied_connection (device);
 
