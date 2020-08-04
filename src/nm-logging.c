@@ -390,7 +390,7 @@ nm_logging_setup (const char  *level,
 		}
 	}
 
-	g_clear_pointer (&gl_main.logging_domains_to_string, g_free);
+	nm_clear_g_free (&gl_main.logging_domains_to_string);
 
 	had_platform_debug = _nm_logging_enabled_lockfree (LOGL_DEBUG, LOGD_PLATFORM);
 
@@ -729,33 +729,36 @@ _nm_log_impl (const char *file,
 			struct iovec *iov = iov_data;
 			char *iov_free_data[5];
 			char **iov_free = iov_free_data;
+			const LogDesc *diter;
+			NMLogDomain dom_all;
+			char s_log_domains_buf[NM_STRLEN ("NM_LOG_DOMAINS=") + sizeof (_all_logging_domains_to_str)];
+			char *s_log_domains;
+			gsize l_log_domains;
 
-			now = nm_utils_get_monotonic_timestamp_ns ();
+			now = nm_utils_get_monotonic_timestamp_nsec ();
 			boottime = nm_utils_monotonic_timestamp_as_boottime (now, 1);
 
 			_iovec_set_format_a (iov++, 30, "PRIORITY=%d", level_desc[level].syslog_level);
 			_iovec_set_format (iov++, iov_free++, "MESSAGE="MESSAGE_FMT, MESSAGE_ARG (g->prefix, tv, msg));
 			_iovec_set_string (iov++, syslog_identifier_full (g->syslog_identifier));
 			_iovec_set_format_a (iov++, 30, "SYSLOG_PID=%ld", (long) getpid ());
-			{
-				const LogDesc *diter;
-				NMLogDomain dom_all = domain;
-				char s_log_domains_buf[NM_STRLEN ("NM_LOG_DOMAINS=") + sizeof (_all_logging_domains_to_str)];
-				char *s_log_domains = s_log_domains_buf;
-				gsize l_log_domains = sizeof (s_log_domains_buf);
 
-				nm_utils_strbuf_append_str (&s_log_domains, &l_log_domains, "NM_LOG_DOMAINS=");
-				for (diter = &domain_desc[0]; dom_all != 0 && diter->name; diter++) {
-					if (!NM_FLAGS_ANY (dom_all, diter->num))
-						continue;
-					if (dom_all != domain)
-						nm_utils_strbuf_append_c (&s_log_domains, &l_log_domains, ',');
-					nm_utils_strbuf_append_str (&s_log_domains, &l_log_domains, diter->name);
-					dom_all &= ~diter->num;
-				}
-				nm_assert (l_log_domains > 0);
-				_iovec_set (iov++, s_log_domains_buf, s_log_domains - s_log_domains_buf);
+			dom_all = domain;
+			s_log_domains = s_log_domains_buf;
+			l_log_domains = sizeof (s_log_domains_buf);
+
+			nm_utils_strbuf_append_str (&s_log_domains, &l_log_domains, "NM_LOG_DOMAINS=");
+			for (diter = &domain_desc[0]; dom_all != 0 && diter->name; diter++) {
+				if (!NM_FLAGS_ANY (dom_all, diter->num))
+					continue;
+				if (dom_all != domain)
+					nm_utils_strbuf_append_c (&s_log_domains, &l_log_domains, ',');
+				nm_utils_strbuf_append_str (&s_log_domains, &l_log_domains, diter->name);
+				dom_all &= ~diter->num;
 			}
+			nm_assert (l_log_domains > 0);
+			_iovec_set (iov++, s_log_domains_buf, s_log_domains - s_log_domains_buf);
+
 			G_STATIC_ASSERT_EXPR (LOG_FAC (LOG_DAEMON) == 3);
 			_iovec_set_string_literal (iov++, "SYSLOG_FACILITY=3");
 			_iovec_set_format_str_a (iov++, 15, "NM_LOG_LEVEL=%s", level_desc[level].name);
@@ -763,8 +766,8 @@ _nm_log_impl (const char *file,
 				_iovec_set_format (iov++, iov_free++, "CODE_FUNC=%s", func);
 			_iovec_set_format (iov++, iov_free++, "CODE_FILE=%s", file ?: "");
 			_iovec_set_format_a (iov++, 20, "CODE_LINE=%u", line);
-			_iovec_set_format_a (iov++, 60, "TIMESTAMP_MONOTONIC=%lld.%06lld", (long long) (now / NM_UTILS_NS_PER_SECOND), (long long) ((now % NM_UTILS_NS_PER_SECOND) / 1000));
-			_iovec_set_format_a (iov++, 60, "TIMESTAMP_BOOTTIME=%lld.%06lld", (long long) (boottime / NM_UTILS_NS_PER_SECOND), (long long) ((boottime % NM_UTILS_NS_PER_SECOND) / 1000));
+			_iovec_set_format_a (iov++, 60, "TIMESTAMP_MONOTONIC=%lld.%06lld", (long long) (now / NM_UTILS_NSEC_PER_SEC), (long long) ((now % NM_UTILS_NSEC_PER_SEC) / 1000));
+			_iovec_set_format_a (iov++, 60, "TIMESTAMP_BOOTTIME=%lld.%06lld", (long long) (boottime / NM_UTILS_NSEC_PER_SEC), (long long) ((boottime % NM_UTILS_NSEC_PER_SEC) / 1000));
 			if (error != 0)
 				_iovec_set_format_a (iov++, 30, "ERRNO=%d", error);
 			if (ifname)
@@ -865,7 +868,7 @@ nm_log_handler (const char *log_domain,
 		{
 			gint64 now, boottime;
 
-			now = nm_utils_get_monotonic_timestamp_ns ();
+			now = nm_utils_get_monotonic_timestamp_nsec ();
 			boottime = nm_utils_monotonic_timestamp_as_boottime (now, 1);
 
 			sd_journal_send ("PRIORITY=%d", syslog_priority,
@@ -875,8 +878,8 @@ nm_log_handler (const char *log_domain,
 			                 "SYSLOG_FACILITY=3",
 			                 "GLIB_DOMAIN=%s", log_domain ?: "",
 			                 "GLIB_LEVEL=%d", (int) (level & G_LOG_LEVEL_MASK),
-			                 "TIMESTAMP_MONOTONIC=%lld.%06lld", (long long) (now / NM_UTILS_NS_PER_SECOND), (long long) ((now % NM_UTILS_NS_PER_SECOND) / 1000),
-			                 "TIMESTAMP_BOOTTIME=%lld.%06lld", (long long) (boottime / NM_UTILS_NS_PER_SECOND), (long long) ((boottime % NM_UTILS_NS_PER_SECOND) / 1000),
+			                 "TIMESTAMP_MONOTONIC=%lld.%06lld", (long long) (now / NM_UTILS_NSEC_PER_SEC), (long long) ((now % NM_UTILS_NSEC_PER_SEC) / 1000),
+			                 "TIMESTAMP_BOOTTIME=%lld.%06lld", (long long) (boottime / NM_UTILS_NSEC_PER_SEC), (long long) ((boottime % NM_UTILS_NSEC_PER_SEC) / 1000),
 			                 NULL);
 		}
 		break;
@@ -996,7 +999,7 @@ nm_logging_init (const char *logging_backend, gboolean debug)
 	if (fetch_monotonic_timestamp) {
 		/* ensure we read a monotonic timestamp. Reading the timestamp the first
 		 * time causes a logging message. We don't want to do that during _nm_log_impl. */
-		nm_utils_get_monotonic_timestamp_ns ();
+		nm_utils_get_monotonic_timestamp_nsec ();
 	}
 
 	if (obsolete_debug_backend)

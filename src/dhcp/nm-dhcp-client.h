@@ -12,8 +12,8 @@
 #include "nm-ip6-config.h"
 #include "nm-dhcp-utils.h"
 
-#define NM_DHCP_TIMEOUT_DEFAULT ((guint32) 45) /* default DHCP timeout, in seconds */
-#define NM_DHCP_TIMEOUT_INFINITY G_MAXINT32
+#define NM_DHCP_TIMEOUT_DEFAULT  ((guint32) 45) /* default DHCP timeout, in seconds */
+#define NM_DHCP_TIMEOUT_INFINITY ((guint32) G_MAXINT32)
 
 #define NM_TYPE_DHCP_CLIENT            (nm_dhcp_client_get_type ())
 #define NM_DHCP_CLIENT(obj)            (G_TYPE_CHECK_INSTANCE_CAST ((obj), NM_TYPE_DHCP_CLIENT, NMDhcpClient))
@@ -30,6 +30,7 @@
 #define NM_DHCP_CLIENT_INTERFACE        "iface"
 #define NM_DHCP_CLIENT_MULTI_IDX        "multi-idx"
 #define NM_DHCP_CLIENT_HOSTNAME         "hostname"
+#define NM_DHCP_CLIENT_MUD_URL          "mud-url"
 #define NM_DHCP_CLIENT_ROUTE_METRIC     "route-metric"
 #define NM_DHCP_CLIENT_ROUTE_TABLE      "route-table"
 #define NM_DHCP_CLIENT_TIMEOUT          "timeout"
@@ -43,7 +44,8 @@
 
 typedef enum {
 	NM_DHCP_STATE_UNKNOWN = 0,
-	NM_DHCP_STATE_BOUND,        /* new lease or lease changed */
+	NM_DHCP_STATE_BOUND,        /* new lease */
+	NM_DHCP_STATE_EXTENDED,     /* lease extended */
 	NM_DHCP_STATE_TIMEOUT,      /* timed out contacting server */
 	NM_DHCP_STATE_DONE,         /* client quit or stopped */
 	NM_DHCP_STATE_EXPIRE,       /* lease expired or NAKed */
@@ -140,6 +142,7 @@ gboolean nm_dhcp_client_get_iaid_explicit (NMDhcpClient *self);
 GBytes *nm_dhcp_client_get_client_id (NMDhcpClient *self);
 
 const char *nm_dhcp_client_get_hostname (NMDhcpClient *self);
+const char *nm_dhcp_client_get_mud_url (NMDhcpClient *self);
 
 NMDhcpHostnameFlags nm_dhcp_client_get_hostname_flags (NMDhcpClient *self);
 

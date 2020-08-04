@@ -11,7 +11,8 @@
 #include "nm-config.h"
 #include "devices/nm-device.h"
 #include "nm-core-internal.h"
-#include "nm-keyfile-internal.h"
+#include "nm-keyfile/nm-keyfile-internal.h"
+#include "nm-keyfile/nm-keyfile-utils.h"
 
 /*****************************************************************************/
 
@@ -116,14 +117,6 @@ G_DEFINE_TYPE (NMConfigData, nm_config_data, G_TYPE_OBJECT)
 
 /*****************************************************************************/
 
-#define _HAS_PREFIX(str, prefix) \
-	({ \
-		const char *_str = (str); \
-		g_str_has_prefix ( _str, ""prefix"") && _str[NM_STRLEN(prefix)] != '\0'; \
-	})
-
-/*****************************************************************************/
-
 const char *
 nm_config_data_get_config_main_file (const NMConfigData *self)
 {
@@ -215,6 +208,7 @@ nm_config_data_get_value_int64 (const NMConfigData *self, const char *group, con
 char **
 nm_config_data_get_plugins (const NMConfigData *self, gboolean allow_default)
 {
+	gs_free_error GError *error = NULL;
 	const NMConfigDataPrivate *priv;
 	char **list;
 
@@ -222,8 +216,9 @@ nm_config_data_get_plugins (const NMConfigData *self, gboolean allow_default)
 
 	priv = NM_CONFIG_DATA_GET_PRIVATE (self);
 
-	list = g_key_file_get_string_list (priv->keyfile, NM_CONFIG_KEYFILE_GROUP_MAIN, "plugins", NULL, NULL);
-	if (!list && allow_default) {
+	list = g_key_file_get_string_list (priv->keyfile, NM_CONFIG_KEYFILE_GROUP_MAIN, "plugins", NULL, &error);
+	if (   nm_keyfile_error_is_not_found (error)
+	    && allow_default) {
 		gs_unref_keyfile GKeyFile *kf = nm_config_create_keyfile ();
 
 		/* let keyfile split the default string according to its own escaping rules. */
@@ -550,14 +545,14 @@ _merge_keyfiles (GKeyFile *keyfile_user, GKeyFile *keyfile_intern)
 				continue;
 
 			if (   !is_intern && !is_atomic
-			    && _HAS_PREFIX (key, NM_CONFIG_KEYFILE_KEYPREFIX_WAS)) {
+			    && NM_STR_HAS_PREFIX_WITH_MORE (key, NM_CONFIG_KEYFILE_KEYPREFIX_WAS)) {
 				const char *key_base = &key[NM_STRLEN (NM_CONFIG_KEYFILE_KEYPREFIX_WAS)];
 
 				if (!g_key_file_has_key (keyfile_intern, group, key_base, NULL))
 					g_key_file_remove_key (keyfile, group, key_base, NULL);
 				continue;
 			}
-			if (!is_intern && !is_atomic && _HAS_PREFIX (key, NM_CONFIG_KEYFILE_KEYPREFIX_SET))
+			if (!is_intern && !is_atomic && NM_STR_HAS_PREFIX_WITH_MORE (key, NM_CONFIG_KEYFILE_KEYPREFIX_SET))
 				continue;
 
 			value = g_key_file_get_value (keyfile_intern, group, key, NULL);
@@ -1024,8 +1019,8 @@ load_global_dns (GKeyFile *keyfile, gboolean internal)
 		if (strv) {
 			_nm_utils_strv_cleanup (strv, TRUE, TRUE, TRUE);
 			for (i = 0, j = 0; strv[i]; i++) {
-				if (   nm_utils_ipaddr_valid (AF_INET, strv[i])
-				    || nm_utils_ipaddr_valid (AF_INET6, strv[i]))
+				if (   nm_utils_ipaddr_is_valid (AF_INET, strv[i])
+				    || nm_utils_ipaddr_is_valid (AF_INET6, strv[i]))
 					strv[j++] = strv[i];
 				else
 					g_free (strv[i]);
@@ -1147,8 +1142,8 @@ global_dns_domain_from_dbus (char *name, GVariant *variant)
 			strv = g_variant_dup_strv (val, NULL);
 			_nm_utils_strv_cleanup (strv, TRUE, TRUE, TRUE);
 			for (i = 0, j = 0; strv && strv[i]; i++) {
-				if (   nm_utils_ipaddr_valid (AF_INET, strv[i])
-				    || nm_utils_ipaddr_valid (AF_INET6, strv[i]))
+				if (   nm_utils_ipaddr_is_valid (AF_INET, strv[i])
+				    || nm_utils_ipaddr_is_valid (AF_INET6, strv[i]))
 					strv[j++] = strv[i];
 				else
 					g_free (strv[i]);
@@ -1875,7 +1870,7 @@ nm_config_data_new_update_no_auto_default (const NMConfigData *base,
 static void
 finalize (GObject *gobject)
 {
-	NMConfigDataPrivate *priv = NM_CONFIG_DATA_GET_PRIVATE ((NMConfigData *) gobject);
+	NMConfigDataPrivate *priv = NM_CONFIG_DATA_GET_PRIVATE (gobject);
 
 	g_free (priv->config_main_file);
 	g_free (priv->config_description);

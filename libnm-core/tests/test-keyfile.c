@@ -5,8 +5,8 @@
 
 #include "nm-default.h"
 
-#include "nm-keyfile-utils.h"
-#include "nm-keyfile-internal.h"
+#include "nm-keyfile/nm-keyfile-utils.h"
+#include "nm-keyfile/nm-keyfile-internal.h"
 #include "nm-simple-connection.h"
 #include "nm-setting-connection.h"
 #include "nm-setting-wired.h"
@@ -99,7 +99,7 @@ test_encode_key (void)
 		GKeyFile **_keyfile = (keyfile); \
 		\
 		g_clear_object (_con); \
-		g_clear_pointer (_keyfile, g_key_file_unref); \
+		nm_clear_pointer (_keyfile, g_key_file_unref); \
 	} G_STMT_END
 
 static void
@@ -143,7 +143,7 @@ _nm_keyfile_write (NMConnection *connection,
 
 	g_assert (NM_IS_CONNECTION (connection));
 
-	kf = nm_keyfile_write (connection, handler, user_data, &error);
+	kf = nm_keyfile_write (connection, NM_KEYFILE_HANDLER_FLAGS_NONE, handler, user_data, &error);
 	g_assert_no_error (error);
 	g_assert (kf);
 	return kf;
@@ -167,7 +167,7 @@ _nm_keyfile_read (GKeyFile *keyfile,
 	base_dir = g_path_get_dirname (keyfile_name);
 	filename = g_path_get_basename (keyfile_name);
 
-	con = nm_keyfile_read (keyfile, base_dir, read_handler, read_data, &error);
+	con = nm_keyfile_read (keyfile, base_dir, NM_KEYFILE_HANDLER_FLAGS_NONE, read_handler, read_data, &error);
 	g_assert_no_error (error);
 	g_assert (NM_IS_CONNECTION (con));
 

@@ -3,6 +3,9 @@
  * Copyright (C) 2014 - 2015 Red Hat, Inc.
  */
 
+#ifndef __NM_TEST_LIBNM_UTILS_H__
+#define __NM_TEST_LIBNM_UTILS_H__
+
 #include "NetworkManager.h"
 
 #include "nm-utils/nm-test-utils.h"
@@ -67,4 +70,20 @@ void nmtstc_service_update_connection_variant (NMTstcServiceInfo *sinfo,
                                                GVariant *connection,
                                                gboolean verify_connection);
 
-NMClient *nmtstc_client_new (gboolean allow_iterate_main_context);
+gpointer nmtstc_context_object_new_valist (GType gtype,
+                                           gboolean allow_iterate_main_context,
+                                           const char *first_property_name,
+                                           va_list var_args);
+
+gpointer nmtstc_context_object_new (GType gtype,
+                                    gboolean allow_iterate_main_context,
+                                    const char *first_property_name,
+                                    ...);
+
+static inline NMClient *
+nmtstc_client_new (gboolean allow_iterate_main_context)
+{
+	return nmtstc_context_object_new (NM_TYPE_CLIENT, allow_iterate_main_context, NULL);
+}
+
+#endif /* __NM_TEST_LIBNM_UTILS_H__ */

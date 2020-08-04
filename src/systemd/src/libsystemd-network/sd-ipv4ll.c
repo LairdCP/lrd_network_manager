@@ -243,7 +243,7 @@ static int ipv4ll_start_internal(sd_ipv4ll *ll, bool reset_generation) {
                 picked_address = true;
         }
 
-        r = sd_ipv4acd_start(ll->acd);
+        r = sd_ipv4acd_start(ll->acd, reset_generation);
         if (r < 0) {
 
                 /* We couldn't start? If so, let's forget the picked address again, the user might make a change and
@@ -254,12 +254,14 @@ static int ipv4ll_start_internal(sd_ipv4ll *ll, bool reset_generation) {
                 return r;
         }
 
-        return 0;
+        return 1;
 }
 
 int sd_ipv4ll_start(sd_ipv4ll *ll) {
         assert_return(ll, -EINVAL);
-        assert_return(sd_ipv4ll_is_running(ll) == 0, -EBUSY);
+
+        if (sd_ipv4ll_is_running(ll))
+                return 0;
 
         return ipv4ll_start_internal(ll, true);
 }

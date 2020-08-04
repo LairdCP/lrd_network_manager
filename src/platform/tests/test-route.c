@@ -19,7 +19,7 @@
 
 static void
 _wait_for_ipv4_addr_device_route (NMPlatform *platform,
-                                  gint64 timeout_ms,
+                                  gint64 timeout_msec,
                                   int ifindex,
                                   in_addr_t addr,
                                   guint8 plen)
@@ -55,7 +55,7 @@ _wait_for_ipv4_addr_device_route (NMPlatform *platform,
 
 static void
 _wait_for_ipv6_addr_non_tentative (NMPlatform *platform,
-                                   gint64 timeout_ms,
+                                   gint64 timeout_msec,
                                    int ifindex,
                                    guint addr_n,
                                    const struct in6_addr *addrs)
@@ -67,7 +67,7 @@ _wait_for_ipv6_addr_non_tentative (NMPlatform *platform,
 	 * small amount of time, which prevents the immediate addition of the route
 	 * with RTA_PREFSRC */
 
-	NMTST_WAIT_ASSERT (timeout_ms, {
+	NMTST_WAIT_ASSERT (timeout_msec, {
 		gboolean should_wait = FALSE;
 		const NMPlatformIP6Address *plt_addr;
 
@@ -319,7 +319,7 @@ test_ip6_route (void)
 	guint8 plen = 64;
 	struct in6_addr gateway, pref_src;
 	/* Choose a high metric so that we hopefully don't conflict. */
-	int metric = 22987;
+	const int metric = 22987;
 	int mss = 1000;
 
 	inet_pton (AF_INET6, "2001:db8:a:b:0:0:0:0", &network);
@@ -328,13 +328,13 @@ test_ip6_route (void)
 
 	g_assert (nm_platform_ip6_address_add (NM_PLATFORM_GET, ifindex, pref_src, 128, in6addr_any,
 	                                       NM_PLATFORM_LIFETIME_PERMANENT, NM_PLATFORM_LIFETIME_PERMANENT, 0));
-	accept_signals (route_added, 0, 1);
+	accept_signals (route_added, 0, 3);
 
 	_wait_for_ipv6_addr_non_tentative (NM_PLATFORM_GET, 200, ifindex, 1, &pref_src);
 
 	/* Add route to gateway */
 	nmtstp_ip6_route_add (NM_PLATFORM_GET, ifindex, NM_IP_CONFIG_SOURCE_USER, gateway, 128, in6addr_any, in6addr_any, metric, mss);
-	accept_signal (route_added);
+	accept_signals (route_added, 0, 3);
 
 	/* Add route */
 	g_assert (!nmtstp_ip6_route_get (NM_PLATFORM_GET, ifindex, &network, plen, metric, NULL, 0));
@@ -365,7 +365,7 @@ test_ip6_route (void)
 	rts[0].ifindex = ifindex;
 	rts[0].gateway = in6addr_any;
 	rts[0].pref_src = in6addr_any;
-	rts[0].metric = nm_utils_ip6_route_metric_normalize (metric);
+	rts[0].metric = metric;
 	rts[0].mss = mss;
 	rts[1].rt_source = nmp_utils_ip_config_source_round_trip_rtprot (NM_IP_CONFIG_SOURCE_USER);
 	rts[1].network = network;
@@ -373,7 +373,7 @@ test_ip6_route (void)
 	rts[1].ifindex = ifindex;
 	rts[1].gateway = gateway;
 	rts[1].pref_src = pref_src;
-	rts[1].metric = nm_utils_ip6_route_metric_normalize (metric);
+	rts[1].metric = metric;
 	rts[1].mss = mss;
 	rts[2].rt_source = nmp_utils_ip_config_source_round_trip_rtprot (NM_IP_CONFIG_SOURCE_USER);
 	rts[2].network = in6addr_any;
@@ -381,7 +381,7 @@ test_ip6_route (void)
 	rts[2].ifindex = ifindex;
 	rts[2].gateway = gateway;
 	rts[2].pref_src = in6addr_any;
-	rts[2].metric = nm_utils_ip6_route_metric_normalize (metric);
+	rts[2].metric = metric;
 	rts[2].mss = mss;
 	g_assert_cmpint (routes->len, ==, 3);
 	nmtst_platform_ip6_routes_equal_aptr ((const NMPObject *const*) routes->pdata, rts, routes->len, TRUE);
@@ -544,6 +544,7 @@ test_ip4_route_options (gconstpointer test_data)
 		                                       a->address,
 		                                       a->plen,
 		                                       a->peer_address,
+		                                       nm_platform_ip4_broadcast_address_create (a->address, a->plen),
 		                                       a->lifetime,
 		                                       a->preferred,
 		                                       a->n_ifa_flags,
@@ -585,7 +586,13 @@ test_ip6_route_get (void)
 
 	NMTST_WAIT_ASSERT (100, {
 		nmtstp_wait_for_signal (NM_PLATFORM_GET, 10);
-		if (nmtstp_ip6_route_get (NM_PLATFORM_GET, ifindex, nmtst_inet6_from_string ("fd01:abcd::"), 64, 0, NULL, 0))
+		if (nmtstp_ip6_route_get (NM_PLATFORM_GET,
+		                          ifindex,
+		                          nmtst_inet6_from_string ("fd01:abcd::"),
+		                          64,
+		                          NM_PLATFORM_ROUTE_METRIC_DEFAULT_IP6,
+		                          NULL,
+		                          0))
 			break;
 	});
 
@@ -1238,7 +1245,7 @@ again_uid_range:
 	rr->uid_range.end   = nmtst_rand_select (0u, uids.uid, uids.euid);
 	if (rr->uid_range_has) {
 		if (rr->uid_range.end < rr->uid_range.start)
-			NMTST_SWAP (rr->uid_range.start, rr->uid_range.end);
+			NM_SWAP (rr->uid_range.start, rr->uid_range.end);
 		if (   rr->uid_range.start == ((guint32) -1)
 		    || rr->uid_range.end   == ((guint32) -1))
 			goto again_uid_range;
@@ -1258,7 +1265,7 @@ again_uid_range:
 				range->start = nmtst_rand_select (1u, 0xFFFEu, ((p      ) % 0xFFFEu) + 1);
 				range->end   = nmtst_rand_select (1u, 0xFFFEu, ((p >> 16) % 0xFFFEu) + 1, range->start);
 				if (range->end < range->start)
-					NMTST_SWAP (range->start, range->end);
+					NM_SWAP (range->start, range->end);
 			}
 		}
 	}

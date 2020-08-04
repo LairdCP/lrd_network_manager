@@ -1,16 +1,18 @@
+# SPDX-License-Identifier: LGPL-2.1+
+
 project(
   'NetworkManager', 'c',
 # NOTE: When incrementing version also:
 #  - add corresponding NM_VERSION_x_y_z macros in
 #    "shared/nm-version-macros.h.in"
 #  - update number in configure.ac
-  version: '1.22.0',
+  version: '1.26.0',
   license: 'GPL2+',
   default_options: [
     'buildtype=debugoptimized',
     'c_std=gnu11',
   ],
-  meson_version: '>= 0.44.0',
+  meson_version: '>= 0.47.2',
 )
 
 nm_name = meson.project_name()
@@ -110,8 +112,18 @@ use_sys_random = cc.has_function('getrandom', prefix: '#include <sys/random.h>')
 config_h.set10('USE_SYS_RANDOM_H', use_sys_random)
 config_h.set10('HAVE_GETRANDOM', use_sys_random or cc.has_function('getrandom', prefix: '#include <linux/random.h>'))
 
-# functions
-# FIXME secure_getenv check is not useful?
+config_h.set10('HAVE_PIDFD_OPEN', cc.has_function('pidfd_open', prefix: '''#include <stdlib.h>
+                                                                           #include <unistd.h>
+                                                                           #include <signal.h>
+                                                                           #include <sys/wait.h>'''))
+config_h.set10('HAVE_PIDFD_SEND_SIGNAL', cc.has_function('pidfd_send_signal', prefix: '''#include <stdlib.h>
+                                                                                         #include <unistd.h>
+                                                                                         #include <signal.h>
+                                                                                         #include <sys/wait.h>'''))
+config_h.set10('HAVE_RT_SIGQUEUEINFO', cc.has_function('rt_sigqueueinfo', prefix: '''#include <stdlib.h>
+                                                                                     #include <unistd.h>
+                                                                                     #include <signal.h>
+                                                                                     #include <sys/wait.h>'''))
 config_h.set('HAVE_SECURE_GETENV', cc.has_function('secure_getenv'))
 config_h.set('HAVE___SECURE_GETENV', cc.has_function('__secure_getenv'))
 config_h.set10('HAVE_DECL_REALLOCARRAY', cc.has_function('reallocarray', prefix: '#include <malloc.h>'))
@@ -127,10 +139,6 @@ config_h.set('SIZEOF_INO_T', cc.sizeof('ino_t', prefix : '#include <sys/types.h>
 config_h.set('SIZEOF_TIME_T', cc.sizeof('time_t', prefix : '#include <sys/time.h>'))
 config_h.set('SIZEOF_RLIM_T', cc.sizeof('rlim_t', prefix : '#include <sys/resource.h>'))
 
-if not cc.has_type('pid_t', prefix: '#include <sys/types.h>')
-  config_h.set('pid_t', 'int')
-endif
-
 # compiler flags
 common_flags = []
 common_ldflags = []
@@ -144,8 +152,12 @@ if enable_ld_gc
 
   test_ldflags = ['-Wl,--gc-sections']
 
-  foreach cflag: test_c_flags + test_ldflags
+  foreach cflag: test_c_flags
     assert(cc.has_argument(cflag), 'Unused symbol eviction requested but not supported. Use -Dld_gc=false to build without it.')
+  endforeach
+
+  foreach ldflag: test_ldflags
+    assert(cc.has_link_argument(ldflag), 'Linker garbage collection requested but not supported. Use -Dld_gc=false to build without it.')
   endforeach
 
   common_flags += test_c_flags
@@ -163,20 +175,32 @@ endif
 
 if nm_debug
   common_flags += cc.get_supported_arguments([
+    '-Wall',
+    '-Wextra',
     '-Wdeclaration-after-statement',
     '-Wfloat-equal',
-    '-Wimplicit-fallthrough',
+    '-Wformat-nonliteral',
+    '-Wformat-security',
+    '-Wimplicit-function-declaration',
     '-Winit-self',
     '-Wlogical-op',
     '-Wmissing-declarations',
     '-Wmissing-include-dirs',
     '-Wmissing-prototypes',
+    '-Wpointer-arith',
+    '-Wshadow',
+    '-Wshift-negative-value',
+    '-Wstrict-prototypes',
+    '-Wundef',
+    '-Wvla',
     '-Wno-duplicate-decl-specifier',
     '-Wno-format-truncation',
+    '-Wno-format-y2k',
     '-Wno-gnu-variable-sized-type-not-at-end',
     '-Wno-missing-field-initializers',
     '-Wno-pragmas',
     '-Wno-sign-compare',
+    '-Wno-tautological-constant-out-of-range-compare',
     '-Wno-unknown-pragmas',
     '-Wno-unused-parameter',
     '-Wparentheses-equality',
@@ -188,6 +212,28 @@ if nm_debug
     '-Wunknown-attributes',
     '-fno-strict-aliasing',
   ])
+
+  if cc.has_argument('-Wimplicit-fallthrough')
+    if cc.compiles('''
+                   int main(int argc, char **argv) {
+                       int r = 0;
+                       switch (argc) {
+                       case 0:
+                           r++;
+                           /* fall-through */
+                       case 1:
+                           r++;
+                           break;
+                       }
+                       return r;
+                   }
+                   ''',
+                   args: '-Werror=implicit-fallthrough',
+                   name: '-Werror=implicit-fallthrough')
+      common_flags += '-Wimplicit-fallthrough'
+    endif
+  endif
+
 endif
 
 add_project_arguments(common_flags, language: 'c')
@@ -472,11 +518,12 @@ config_h.set_quoted('NM_CONFIG_DEFAULT_MAIN_AUTH_POLKIT', config_auth_polkit_def
 
 enable_modify_system = get_option('modify_system')
 
-enable_polkit_agent = get_option('polkit_agent')
-if enable_polkit_agent
-  polkit_agent_dep = dependency('polkit-agent-1', version: '>= 0.97')
+polkit_agent_dep = dependency('polkit-agent-1', version: '>= 0.97', required : false)
+if polkit_agent_dep.found()
+	config_h.set_quoted('POLKIT_PACKAGE_PREFIX', polkit_agent_dep.get_pkgconfig_variable('prefix'))
+else
+	config_h.set_quoted('POLKIT_PACKAGE_PREFIX', '/usr')
 endif
-config_h.set10('WITH_POLKIT_AGENT', enable_polkit_agent)
 
 
 crypto = get_option('crypto')
@@ -502,6 +549,9 @@ endif
 
 dbus_interfaces_dir = dbus_dep.get_pkgconfig_variable('interfaces_dir',  define_variable: ['datadir', nm_datadir])
 dbus_system_bus_services_dir = dbus_dep.get_pkgconfig_variable('system_bus_services_dir', define_variable: ['datadir', nm_datadir])
+
+enable_firewalld_zone = get_option('firewalld_zone')
+config_h.set10('WITH_FIREWALLD_ZONE', enable_firewalld_zone)
 
 # pppd
 enable_ppp = get_option('ppp')
@@ -598,7 +648,7 @@ foreach prog_name : ['resolvconf', 'netconfig']
       prog = find_program(prog_name,
                           '/usr/' + prog_name,
                           '/usr/sbin/' + prog_name,
-                          '/usr/local/sbin' + prog_name,
+                          '/usr/local/sbin/' + prog_name,
                           required : false)
       if prog.found()
         prog_path = prog.path()
@@ -935,6 +985,7 @@ output += '  nmstatedir: ' + nm_pkgstatedir + '\n'
 output += '  nmrundir: ' + nm_pkgrundir + '\n'
 output += '  nmvpndir: ' + nm_vpndir + '\n'
 output += '  nmplugindir: ' + nm_plugindir + '\n'
+output += '  system-ca-path: ' + system_ca_path + '\n'
 output += '\nPlatform:\n'
 output += '  session tracking: ' + ','.join(session_trackers) + '\n'
 output += '  suspend/resume: ' + suspend_resume + '\n'
@@ -949,7 +1000,6 @@ if enable_polkit
   output += ' modify.system)'
 endif
 output += '\n'
-output += '  polkit agent: ' + enable_polkit_agent.to_string() + '\n'
 output += '  selinux: ' + enable_selinux.to_string() + '\n'
 output += '  systemd-journald: ' + enable_systemd_journal.to_string() + ' (default: logging.backend=' + config_logging_backend_default + ')\n'
 output += '  hostname persist: ' + hostname_persist + '\n'
@@ -982,6 +1032,7 @@ output += '\n'
 output += '\nMiscellaneous:\n'
 output += '  have introspection: ' + enable_introspection.to_string() + '\n'
 output += '  build documentation and manpages: ' + enable_docs.to_string() + '\n'
+output += '  firewalld zone for shared mode: ' + enable_firewalld_zone.to_string() + '\n'
 # FIXME
 #output += '  install pregenerated documentation and manpages: no
 output += '  tests: ' + tests + '\n'

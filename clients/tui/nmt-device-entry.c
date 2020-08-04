@@ -103,7 +103,7 @@ device_entry_parse (NmtDeviceEntry  *deventry,
 		return TRUE;
 
 	if (priv->hardware_type == G_TYPE_NONE && !priv->device_filter) {
-		if (nm_utils_is_valid_iface_name (text, NULL)) {
+		if (nm_utils_ifname_valid_kernel (text, NULL)) {
 			*interface_name = g_strdup (text);
 			return TRUE;
 		} else
@@ -127,12 +127,12 @@ device_entry_parse (NmtDeviceEntry  *deventry,
 
 	len = nm_utils_hwaddr_len (priv->arptype);
 	if (   nm_utils_hwaddr_aton (words[0], buf, len)
-	    && (!words[1] || nm_utils_is_valid_iface_name (words[1], NULL))) {
+	    && (!words[1] || nm_utils_ifname_valid_kernel (words[1], NULL))) {
 		*mac_address = words[0];
 		*interface_name = NULL;
 		g_free (words);
 		return TRUE;
-	} else if (   nm_utils_is_valid_iface_name (words[0], NULL)
+	} else if (   nm_utils_ifname_valid_kernel (words[0], NULL)
 	           && (!words[1] || nm_utils_hwaddr_aton (words[1], buf, len))) {
 		*interface_name = words[0];
 		*mac_address = NULL;
@@ -299,7 +299,7 @@ nmt_device_entry_set_mac_address (NmtDeviceEntry *deventry,
 		priv->mac_address = g_strdup (mac_address);
 		changed = TRUE;
 	} else if (!mac_address && priv->mac_address) {
-		g_clear_pointer (&priv->mac_address, g_free);
+		nm_clear_g_free (&priv->mac_address);
 		changed = TRUE;
 	} else if (   mac_address && priv->mac_address
 	           && !nm_utils_hwaddr_matches (mac_address, -1, priv->mac_address, -1)) {

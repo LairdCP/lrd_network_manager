@@ -103,7 +103,7 @@ NMSettingsConnection **nm_manager_get_activatable_connections (NMManager *manage
                                                                guint *out_len);
 
 void          nm_manager_write_device_state_all (NMManager *manager);
-gboolean      nm_manager_write_device_state (NMManager *manager, NMDevice *device);
+gboolean      nm_manager_write_device_state (NMManager *manager, NMDevice *device, int *out_ifindex);
 
 /* Device handling */
 
@@ -192,5 +192,17 @@ void nm_manager_dbus_set_property_handle (NMDBusObject *obj,
 NMMetered nm_manager_get_metered (NMManager *self);
 
 void nm_manager_notify_device_availibility_maybe_changed (NMManager *self);
+
+/*****************************************************************************/
+
+void nm_manager_device_auth_request (NMManager *self,
+                                     NMDevice *device,
+                                     GDBusMethodInvocation *context,
+                                     NMConnection *connection,
+                                     const char *permission,
+                                     gboolean allow_interaction,
+                                     GCancellable *cancellable,
+                                     NMManagerDeviceAuthRequestFunc callback,
+                                     gpointer user_data);
 
 #endif /* __NETWORKMANAGER_MANAGER_H__ */

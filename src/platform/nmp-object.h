@@ -287,6 +287,10 @@ typedef struct {
 } NMPObjectLnkVlan;
 
 typedef struct {
+	NMPlatformLnkVrf _public;
+} NMPObjectLnkVrf;
+
+typedef struct {
 	NMPlatformLnkVxlan _public;
 } NMPObjectLnkVxlan;
 
@@ -365,6 +369,9 @@ struct _NMPObject {
 
 		NMPlatformLnkVlan       lnk_vlan;
 		NMPObjectLnkVlan        _lnk_vlan;
+
+		NMPlatformLnkVrf        lnk_vrf;
+		NMPObjectLnkVrf         _lnk_vrf;
 
 		NMPlatformLnkVxlan      lnk_vxlan;
 		NMPObjectLnkVxlan       _lnk_vxlan;
@@ -493,13 +500,20 @@ _NMP_OBJECT_TYPE_IS_OBJ_WITH_IFINDEX (NMPObjectType obj_type)
 	case NMP_OBJECT_TYPE_LNK_SIT:
 	case NMP_OBJECT_TYPE_LNK_TUN:
 	case NMP_OBJECT_TYPE_LNK_VLAN:
+	case NMP_OBJECT_TYPE_LNK_VRF:
 	case NMP_OBJECT_TYPE_LNK_VXLAN:
 	case NMP_OBJECT_TYPE_LNK_WIREGUARD:
 		return TRUE;
-	default:
-		nm_assert (nmp_class_from_type (obj_type));
+
+	case NMP_OBJECT_TYPE_ROUTING_RULE:
 		return FALSE;
+
+	case NMP_OBJECT_TYPE_UNKNOWN:
+	case __NMP_OBJECT_TYPE_LAST:
+		break;
 	}
+	nm_assert_not_reached ();
+	return FALSE;
 }
 
 #define NMP_OBJECT_CAST_OBJECT(obj) \

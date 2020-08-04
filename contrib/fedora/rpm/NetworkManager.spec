@@ -29,10 +29,10 @@
 
 %global _hardened_build 1
 
-%if "x%{?snapshot}" != x
+%if "x%{?snapshot}" != "x"
 %global snapshot_dot .%{snapshot}
 %endif
-%if "x%{?git_sha}" != x
+%if "x%{?git_sha}" != "x"
 %global git_sha_dot .%{git_sha}
 %endif
 
@@ -81,6 +81,11 @@
 %else
 %bcond_without iwd
 %endif
+%if 0%{?fedora} > 31 || 0%{?rhel} > 7
+%bcond_without firewalld_zone
+%else
+%bcond_with firewalld_zone
+%endif
 
 ###############################################################################
 
@@ -120,9 +125,9 @@
 # bpf(BPF_MAP_CREATE, ...) randomly fails with EPERM. That might
 # be related to `ulimit -l`. Anyway, this is not usable at the
 # moment.
-%global ebpf_enabled no
+%global ebpf_enabled "no"
 %else
-%global ebpf_enabled no
+%global ebpf_enabled "no"
 %endif
 
 ###############################################################################
@@ -238,9 +243,16 @@ BuildRequires: polkit-devel
 BuildRequires: jansson-devel
 %if %{with sanitizer}
 BuildRequires: libasan
-%if 0%{?fedora}
+%if 0%{?fedora} || 0%{?rhel} >= 8
 BuildRequires: libubsan
 %endif
+%endif
+%if %{with firewalld_zone}
+BuildRequires: firewalld-filesystem
+%endif
+BuildRequires: iproute
+%if 0%{?fedora} || 0%{?rhel} > 7
+BuildRequires: iproute-tc
 %endif
 
 Provides: %{name}-dispatcher%{?_isa} = %{epoch}:%{version}-%{release}
@@ -389,19 +401,18 @@ This package contains NetworkManager support for PPP.
 
 
 %package libnm
-Summary: Libraries for adding NetworkManager support to applications (new API).
+Summary: Libraries for adding NetworkManager support to applications.
 Group: Development/Libraries
 Conflicts: NetworkManager-glib < %{epoch}:%{version}-%{release}
 License: LGPLv2+
 
 %description libnm
 This package contains the libraries that make it easier to use some
-NetworkManager functionality from applications.  This is the new
-NetworkManager API.  See also NetworkManager-glib.
+NetworkManager functionality from applications.
 
 
 %package libnm-devel
-Summary: Header files for adding NetworkManager support to applications (new API).
+Summary: Header files for adding NetworkManager support to applications.
 Group: Development/Libraries
 Requires: %{name}-libnm%{?_isa} = %{epoch}:%{version}-%{release}
 Requires: glib2-devel
@@ -410,8 +421,7 @@ License: LGPLv2+
 
 %description libnm-devel
 This package contains the header and pkg-config files for development
-applications using NetworkManager functionality from applications.  This
-is the new NetworkManager API. See also NetworkManager-glib-devel.
+applications using NetworkManager functionality from applications.
 
 
 %if %{with connectivity_fedora}
@@ -586,7 +596,6 @@ This tool is still experimental.
 	-Dselinux=true \
 	-Dpolkit=true  \
 	-Dconfig_auth_polkit_default=true \
-	-Dpolkit_agent=true \
 	-Dmodify_system=true \
 	-Dconcheck=true \
 %if 0%{?fedora}
@@ -594,7 +603,7 @@ This tool is still experimental.
 %else
 	-Dlibpsl=false \
 %endif
-%if %{ebpf_enabled} != yes
+%if %{ebpf_enabled} != "yes"
 	-Debpf=false \
 %else
 	-Debpf=true \
@@ -611,6 +620,11 @@ This tool is still experimental.
 %if %{with ppp}
 	-Dpppd_plugin_dir=%{_libdir}/pppd/%{ppp_version} \
 	-Dppp=true \
+%endif
+%if %{with firewalld_zone}
+	-Dfirewalld_zone=true \
+%else
+	-Dfirewalld_zone=false \
 %endif
 	-Ddist_version=%{version}-%{release} \
 	-Dconfig_plugins_default=%{config_plugins_default} \
@@ -642,8 +656,10 @@ intltoolize --automake --copy --force
 %endif
 %if %{with sanitizer}
 	--with-address-sanitizer=exec \
-%if 0%{?fedora}
+%if 0%{?fedora} || 0%{?rhel} >= 8
 	--enable-undefined-sanitizer \
+%else
+	--disable-undefined-sanitizer \
 %endif
 %else
 	--with-address-sanitizer=no \
@@ -717,7 +733,6 @@ intltoolize --automake --copy --force
 %endif
 	--with-selinux=yes \
 	--enable-polkit=yes \
-	--enable-polkit-agent \
 	--enable-modify-system=yes \
 	--enable-concheck \
 %if 0%{?fedora}
@@ -743,6 +758,11 @@ intltoolize --automake --copy --force
 %if %{with ppp}
 	--with-pppd-plugin-dir=%{_libdir}/pppd/%{ppp_version} \
 	--enable-ppp=yes \
+%endif
+%if %{with firewalld_zone}
+	--enable-firewalld-zone \
+%else
+	--disable-firewalld-zone \
 %endif
 	--with-dist-version=%{version}-%{release} \
 	--with-config-plugins-default=%{config_plugins_default} \
@@ -826,6 +846,9 @@ fi
 %post
 /usr/bin/udevadm control --reload-rules || :
 /usr/bin/udevadm trigger --subsystem-match=net || :
+%if %{with firewalld_zone}
+%firewalld_reload
+%endif
 
 %systemd_post %{systemd_units}
 
@@ -867,6 +890,9 @@ fi
 %postun
 /usr/bin/udevadm control --reload-rules || :
 /usr/bin/udevadm trigger --subsystem-match=net || :
+%if %{with firewalld_zone}
+%firewalld_reload
+%endif
 
 %systemd_postun %{systemd_units}
 
@@ -932,6 +958,9 @@ fi
 %{_datadir}/dbus-1/system-services/org.freedesktop.nm_dispatcher.service
 %{_datadir}/polkit-1/actions/*.policy
 %{_prefix}/lib/udev/rules.d/*.rules
+%if %{with firewalld_zone}
+%{_prefix}/lib/firewalld/zones/nm-shared.xml
+%endif
 # systemd stuff
 %{systemd_dir}/NetworkManager.service
 %{systemd_dir}/NetworkManager-wait-online.service

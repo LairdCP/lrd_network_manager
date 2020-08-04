@@ -61,6 +61,7 @@
 #include "nm-setting-tun.h"
 #include "nm-setting-vlan.h"
 #include "nm-setting-vpn.h"
+#include "nm-setting-vrf.h"
 #include "nm-setting-vxlan.h"
 #include "nm-setting-wifi-p2p.h"
 #include "nm-setting-wimax.h"
@@ -77,23 +78,82 @@
 #include "nm-libnm-core-intern/nm-libnm-core-utils.h"
 
 /* IEEE 802.1D-1998 timer values */
-#define NM_BR_MIN_HELLO_TIME    1
-#define NM_BR_MAX_HELLO_TIME    10
+#define NM_BRIDGE_HELLO_TIME_MIN 1u
+#define NM_BRIDGE_HELLO_TIME_DEF 2u
+#define NM_BRIDGE_HELLO_TIME_MAX 10u
 
-#define NM_BR_MIN_FORWARD_DELAY 2
-#define NM_BR_MAX_FORWARD_DELAY 30
+#define NM_BRIDGE_FORWARD_DELAY_MIN 2u
+#define NM_BRIDGE_FORWARD_DELAY_DEF 15u
+#define NM_BRIDGE_FORWARD_DELAY_MAX 30u
 
-#define NM_BR_MIN_MAX_AGE       6
-#define NM_BR_MAX_MAX_AGE       40
+#define NM_BRIDGE_MAX_AGE_MIN 6u
+#define NM_BRIDGE_MAX_AGE_DEF 20u
+#define NM_BRIDGE_MAX_AGE_MAX 40u
 
 /* IEEE 802.1D-1998 Table 7.4 */
-#define NM_BR_MIN_AGEING_TIME   0
-#define NM_BR_MAX_AGEING_TIME   1000000
+#define NM_BRIDGE_AGEING_TIME_MIN 0u
+#define NM_BRIDGE_AGEING_TIME_DEF 300u
+#define NM_BRIDGE_AGEING_TIME_MAX 1000000u
 
-#define NM_BR_PORT_MAX_PRIORITY 63
-#define NM_BR_PORT_DEF_PRIORITY 32
+#define NM_BRIDGE_PORT_PRIORITY_MIN 0u
+#define NM_BRIDGE_PORT_PRIORITY_DEF 32u
+#define NM_BRIDGE_PORT_PRIORITY_MAX 63u
 
-#define NM_BR_PORT_MAX_PATH_COST 65535
+#define NM_BRIDGE_PORT_PATH_COST_MIN 0u
+#define NM_BRIDGE_PORT_PATH_COST_DEF 100u
+#define NM_BRIDGE_PORT_PATH_COST_MAX 65535u
+
+#define NM_BRIDGE_MULTICAST_HASH_MAX_MIN 1u
+#define NM_BRIDGE_MULTICAST_HASH_MAX_DEF 4096u
+#define NM_BRIDGE_MULTICAST_HASH_MAX_MAX ((guint) G_MAXUINT32)
+
+#define NM_BRIDGE_STP_DEF TRUE
+
+#define NM_BRIDGE_PRIORITY_MIN 0u
+#define NM_BRIDGE_PRIORITY_DEF 0x8000u
+#define NM_BRIDGE_PRIORITY_MAX ((guint) G_MAXUINT16)
+
+#define NM_BRIDGE_MULTICAST_LAST_MEMBER_COUNT_MIN 0u
+#define NM_BRIDGE_MULTICAST_LAST_MEMBER_COUNT_DEF 2u
+#define NM_BRIDGE_MULTICAST_LAST_MEMBER_COUNT_MAX ((guint) G_MAXUINT32)
+
+#define NM_BRIDGE_MULTICAST_LAST_MEMBER_INTERVAL_MIN ((guint64) 0)
+#define NM_BRIDGE_MULTICAST_LAST_MEMBER_INTERVAL_DEF ((guint64) 100)
+#define NM_BRIDGE_MULTICAST_LAST_MEMBER_INTERVAL_MAX G_MAXUINT64
+
+#define NM_BRIDGE_MULTICAST_MEMBERSHIP_INTERVAL_MIN ((guint64) 0)
+#define NM_BRIDGE_MULTICAST_MEMBERSHIP_INTERVAL_DEF ((guint64) 26000)
+#define NM_BRIDGE_MULTICAST_MEMBERSHIP_INTERVAL_MAX G_MAXUINT64
+
+#define NM_BRIDGE_MULTICAST_QUERIER_INTERVAL_MIN ((guint64) 0)
+#define NM_BRIDGE_MULTICAST_QUERIER_INTERVAL_DEF ((guint64) 25500)
+#define NM_BRIDGE_MULTICAST_QUERIER_INTERVAL_MAX G_MAXUINT64
+
+#define NM_BRIDGE_MULTICAST_QUERIER_DEF FALSE
+
+#define NM_BRIDGE_MULTICAST_QUERY_INTERVAL_MIN ((guint64) 0)
+#define NM_BRIDGE_MULTICAST_QUERY_INTERVAL_DEF ((guint64) 12500)
+#define NM_BRIDGE_MULTICAST_QUERY_INTERVAL_MAX G_MAXUINT64
+
+#define NM_BRIDGE_MULTICAST_QUERY_RESPONSE_INTERVAL_MIN ((guint64) 0)
+#define NM_BRIDGE_MULTICAST_QUERY_RESPONSE_INTERVAL_DEF ((guint64) 1000)
+#define NM_BRIDGE_MULTICAST_QUERY_RESPONSE_INTERVAL_MAX G_MAXUINT64
+
+#define NM_BRIDGE_MULTICAST_QUERY_USE_IFADDR_DEF FALSE
+
+#define NM_BRIDGE_MULTICAST_SNOOPING_DEF TRUE
+
+#define NM_BRIDGE_MULTICAST_STARTUP_QUERY_COUNT_MIN 0u
+#define NM_BRIDGE_MULTICAST_STARTUP_QUERY_COUNT_DEF 2u
+#define NM_BRIDGE_MULTICAST_STARTUP_QUERY_COUNT_MAX ((guint) G_MAXUINT32)
+
+#define NM_BRIDGE_MULTICAST_STARTUP_QUERY_INTERVAL_MIN ((guint64) 0)
+#define NM_BRIDGE_MULTICAST_STARTUP_QUERY_INTERVAL_DEF ((guint64) 3125)
+#define NM_BRIDGE_MULTICAST_STARTUP_QUERY_INTERVAL_MAX G_MAXUINT64
+
+#define NM_BRIDGE_VLAN_STATS_ENABLED_DEF FALSE
+
+#define NM_BRIDGE_VLAN_DEFAULT_PVID_DEF 1u
 
 /* NM_SETTING_COMPARE_FLAG_INFERRABLE: check whether a device-generated
  * connection can be replaced by a already-defined connection. This flag only
@@ -250,29 +310,18 @@ gboolean _nm_setting_get_property (NMSetting *setting, const char *name, GValue 
 
 /*****************************************************************************/
 
-GHashTable *_nm_setting_gendata_hash (NMSetting *setting,
-                                      gboolean create_if_necessary);
+GHashTable *_nm_setting_option_hash (NMSetting *setting,
+                                     gboolean create_if_necessary);
 
-void _nm_setting_gendata_notify (NMSetting *setting,
-                                 gboolean keys_changed);
+void _nm_setting_option_notify (NMSetting *setting,
+                                gboolean keys_changed);
 
-guint _nm_setting_gendata_get_all (NMSetting *setting,
-                                   const char *const**out_names,
-                                   GVariant *const**out_values);
+guint _nm_setting_option_get_all (NMSetting *setting,
+                                  const char *const**out_names,
+                                  GVariant *const**out_values);
 
-gboolean _nm_setting_gendata_reset_from_hash (NMSetting *setting,
-                                              GHashTable *new);
-
-void _nm_setting_gendata_to_gvalue (NMSetting *setting,
-                                    GValue *value);
-
-GVariant *nm_setting_gendata_get (NMSetting *setting,
-                                  const char *name);
-
-const char *const*nm_setting_gendata_get_all_names (NMSetting *setting,
-                                                    guint *out_len);
-
-GVariant *const*nm_setting_gendata_get_all_values (NMSetting *setting);
+gboolean _nm_setting_option_clear (NMSetting *setting,
+                                   const char *optname);
 
 /*****************************************************************************/
 
@@ -298,7 +347,7 @@ const char **_nm_ip_address_get_attribute_names (const NMIPAddress *addr, gboole
 
 void _nm_setting_wired_clear_s390_options (NMSettingWired *setting);
 
-gboolean _nm_ip_route_attribute_validate_all (const NMIPRoute *route);
+gboolean _nm_ip_route_attribute_validate_all (const NMIPRoute *route, GError **error);
 const char **_nm_ip_route_get_attribute_names (const NMIPRoute *route, gboolean sorted, guint *out_length);
 GHashTable *_nm_ip_route_get_attributes (NMIPRoute *route);
 
@@ -387,15 +436,6 @@ gulong _nm_dbus_signal_connect_data (GDBusProxy *proxy,
 GVariant *_nm_dbus_proxy_call_finish (GDBusProxy           *proxy,
                                       GAsyncResult         *res,
                                       const GVariantType   *reply_type,
-                                      GError              **error);
-
-GVariant *_nm_dbus_proxy_call_sync   (GDBusProxy           *proxy,
-                                      const char           *method_name,
-                                      GVariant             *parameters,
-                                      const GVariantType   *reply_type,
-                                      GDBusCallFlags        flags,
-                                      int                   timeout_msec,
-                                      GCancellable         *cancellable,
                                       GError              **error);
 
 GVariant * _nm_dbus_connection_call_finish (GDBusConnection *dbus_connection,
@@ -495,15 +535,15 @@ NMSettingIPConfig *nm_connection_get_setting_ip_config (NMConnection *connection
 
 typedef enum {
 	NM_BOND_OPTION_TYPE_INT,
-	NM_BOND_OPTION_TYPE_STRING,
 	NM_BOND_OPTION_TYPE_BOTH,
 	NM_BOND_OPTION_TYPE_IP,
 	NM_BOND_OPTION_TYPE_MAC,
 	NM_BOND_OPTION_TYPE_IFNAME,
 } NMBondOptionType;
 
-NMBondOptionType
-_nm_setting_bond_get_option_type (NMSettingBond *setting, const char *name);
+NMBondOptionType _nm_setting_bond_get_option_type (NMSettingBond *setting, const char *name);
+
+const char* nm_setting_bond_get_option_or_default (NMSettingBond *self, const char *option);
 
 /*****************************************************************************/
 
@@ -527,51 +567,11 @@ NMConnectionMultiConnect _nm_connection_get_multi_connect (NMConnection *connect
 
 /*****************************************************************************/
 
-typedef enum {
-	NM_BOND_MODE_UNKNOWN = 0,
-	NM_BOND_MODE_ROUNDROBIN,
-	NM_BOND_MODE_ACTIVEBACKUP,
-	NM_BOND_MODE_XOR,
-	NM_BOND_MODE_BROADCAST,
-	NM_BOND_MODE_8023AD,
-	NM_BOND_MODE_TLB,
-	NM_BOND_MODE_ALB,
-} NMBondMode;
-
-NMBondMode _nm_setting_bond_mode_from_string (const char *str);
 gboolean _nm_setting_bond_option_supported (const char *option, NMBondMode mode);
 
 /*****************************************************************************/
 
 NMSettingBluetooth *_nm_connection_get_setting_bluetooth_for_nap (NMConnection *connection);
-
-/*****************************************************************************/
-
-const char *nm_utils_inet_ntop (int addr_family, gconstpointer addr, char *dst);
-
-static inline char *
-nm_utils_inet4_ntop_dup (in_addr_t addr)
-{
-	char buf[NM_UTILS_INET_ADDRSTRLEN];
-
-	return g_strdup (nm_utils_inet4_ntop (addr, buf));
-}
-
-static inline char *
-nm_utils_inet6_ntop_dup (const struct in6_addr *addr)
-{
-	char buf[NM_UTILS_INET_ADDRSTRLEN];
-
-	return g_strdup (nm_utils_inet6_ntop (addr, buf));
-}
-
-static inline char *
-nm_utils_inet_ntop_dup (int addr_family, gconstpointer addr)
-{
-	char buf[NM_UTILS_INET_ADDRSTRLEN];
-
-	return g_strdup (nm_utils_inet_ntop (addr_family, addr, buf));
-}
 
 gboolean _nm_utils_inet6_is_token (const struct in6_addr *in6addr);
 
@@ -901,4 +901,9 @@ gboolean _nmtst_variant_attribute_spec_assert_sorted (const NMVariantAttributeSp
 const NMVariantAttributeSpec *_nm_variant_attribute_spec_find_binary_search (const NMVariantAttributeSpec *const*array,
                                                                              gsize len,
                                                                              const char *name);
+
+/*****************************************************************************/
+
+gboolean _nm_ip_tunnel_mode_is_layer2 (NMIPTunnelMode mode);
+
 #endif

@@ -200,7 +200,7 @@ nm_vpn_service_plugin_disconnect (NMVpnServicePlugin *plugin, GError **err)
 		break;
 	case NM_VPN_SERVICE_STATE_STARTING:
 		_emit_failure (plugin, NM_VPN_PLUGIN_FAILURE_CONNECT_FAILED);
-		/* fall through */
+		/* fall-through */
 	case NM_VPN_SERVICE_STATE_STARTED:
 		nm_vpn_service_plugin_set_state (plugin, NM_VPN_SERVICE_STATE_STOPPING);
 		ret = NM_VPN_SERVICE_PLUGIN_GET_CLASS (plugin)->disconnect (plugin, err);
@@ -1145,10 +1145,10 @@ finalize (GObject *object)
 	nm_vpn_service_plugin_set_connection (plugin, NULL);
 	g_free (priv->dbus_service_name);
 
-	g_clear_pointer (&priv->banner, g_variant_unref);
-	g_clear_pointer (&priv->tundev, g_variant_unref);
-	g_clear_pointer (&priv->gateway, g_variant_unref);
-	g_clear_pointer (&priv->mtu, g_variant_unref);
+	nm_clear_pointer (&priv->banner, g_variant_unref);
+	nm_clear_pointer (&priv->tundev, g_variant_unref);
+	nm_clear_pointer (&priv->gateway, g_variant_unref);
+	nm_clear_pointer (&priv->mtu, g_variant_unref);
 
 	G_OBJECT_CLASS (nm_vpn_service_plugin_parent_class)->finalize (object);
 }

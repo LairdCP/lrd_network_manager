@@ -29,7 +29,7 @@ static gboolean
 validate_opt (const char *detail,
               GVariant *config,
               const char *key,
-              OptType val_type,
+              NMSupplOptType val_type,
               gconstpointer expected)
 {
 	char *config_key;
@@ -44,12 +44,12 @@ validate_opt (const char *detail,
 		if (!strcmp (key, config_key)) {
 			found = TRUE;
 			switch (val_type) {
-			case TYPE_INT: {
+			case NM_SUPPL_OPT_TYPE_INT: {
 				g_assert (g_variant_is_of_type (config_value, G_VARIANT_TYPE_INT32));
 				g_assert_cmpint (g_variant_get_int32 (config_value), ==, GPOINTER_TO_INT (expected));
 				break;
 			}
-			case TYPE_BYTES: {
+			case NM_SUPPL_OPT_TYPE_BYTES: {
 				const guint8 *expected_bytes;
 				gsize expected_len = 0;
 				const guint8 *config_bytes;
@@ -61,8 +61,8 @@ validate_opt (const char *detail,
 				g_assert_cmpmem (config_bytes, config_len, expected_bytes, expected_len);
 				break;
 			}
-			case TYPE_KEYWORD:
-			case TYPE_STRING: {
+			case NM_SUPPL_OPT_TYPE_KEYWORD:
+			case NM_SUPPL_OPT_TYPE_STRING: {
 				const char *expected_str = expected;
 				const char *config_str;
 
@@ -86,8 +86,7 @@ static GVariant *
 build_supplicant_config (NMConnection *connection,
                          guint mtu,
                          guint fixed_freq,
-                         gboolean support_pmf,
-                         gboolean support_fils)
+                         NMSupplCapMask capabilities)
 {
 	gs_unref_object NMSupplicantConfig *config = NULL;
 	gs_free_error GError *error = NULL;
@@ -96,7 +95,7 @@ build_supplicant_config (NMConnection *connection,
 	NMSetting8021x *s_8021x;
 	gboolean success;
 
-	config = nm_supplicant_config_new (support_pmf, support_fils, FALSE, FALSE);
+	config = nm_supplicant_config_new (capabilities);
 
 	s_wifi = nm_connection_get_setting_wireless (connection);
 	g_assert (s_wifi);
@@ -197,14 +196,14 @@ test_wifi_open (void)
 	NMTST_EXPECT_NM_INFO ("Config: added 'bssid' value '11:22:33:44:55:66'*");
 	NMTST_EXPECT_NM_INFO ("Config: added 'freq_list' value *");
 	NMTST_EXPECT_NM_INFO ("Config: added 'key_mgmt' value 'NONE'");
-	config_dict = build_supplicant_config (connection, 1500, 0, TRUE, TRUE);
+	config_dict = build_supplicant_config (connection, 1500, 0, NM_SUPPL_CAP_MASK_T_PMF_YES | NM_SUPPL_CAP_MASK_T_FILS_YES);
 	g_test_assert_expected_messages ();
 	g_assert (config_dict);
 
-	validate_opt ("wifi-open", config_dict, "scan_ssid", TYPE_INT, GINT_TO_POINTER (1));
-	validate_opt ("wifi-open", config_dict, "ssid", TYPE_BYTES, ssid);
-	validate_opt ("wifi-open", config_dict, "bssid", TYPE_KEYWORD, bssid_str);
-	validate_opt ("wifi-open", config_dict, "key_mgmt", TYPE_KEYWORD, "NONE");
+	validate_opt ("wifi-open", config_dict, "scan_ssid", NM_SUPPL_OPT_TYPE_INT, GINT_TO_POINTER (1));
+	validate_opt ("wifi-open", config_dict, "ssid", NM_SUPPL_OPT_TYPE_BYTES, ssid);
+	validate_opt ("wifi-open", config_dict, "bssid", NM_SUPPL_OPT_TYPE_KEYWORD, bssid_str);
+	validate_opt ("wifi-open", config_dict, "key_mgmt", NM_SUPPL_OPT_TYPE_KEYWORD, "NONE");
 }
 
 static void
@@ -254,20 +253,20 @@ test_wifi_wep_key (const char *detail,
 	if (!test_bssid)
 		NMTST_EXPECT_NM_INFO ("Config: added 'bgscan' value 'simple:30:-70:86400'*");
 
-	config_dict = build_supplicant_config (connection, 1500, 0, TRUE, TRUE);
+	config_dict = build_supplicant_config (connection, 1500, 0, NM_SUPPL_CAP_MASK_T_PMF_YES | NM_SUPPL_CAP_MASK_T_FILS_YES);
 	g_test_assert_expected_messages ();
 	g_assert (config_dict);
 
-	validate_opt (detail, config_dict, "scan_ssid", TYPE_INT, GINT_TO_POINTER (1));
-	validate_opt (detail, config_dict, "ssid", TYPE_BYTES, ssid);
+	validate_opt (detail, config_dict, "scan_ssid", NM_SUPPL_OPT_TYPE_INT, GINT_TO_POINTER (1));
+	validate_opt (detail, config_dict, "ssid", NM_SUPPL_OPT_TYPE_BYTES, ssid);
 	if (test_bssid)
-		validate_opt (detail, config_dict, "bssid", TYPE_KEYWORD, bssid_str);
+		validate_opt (detail, config_dict, "bssid", NM_SUPPL_OPT_TYPE_KEYWORD, bssid_str);
 	else
-		validate_opt (detail, config_dict, "bgscan", TYPE_BYTES, bgscan);
+		validate_opt (detail, config_dict, "bgscan", NM_SUPPL_OPT_TYPE_BYTES, bgscan);
 
-	validate_opt (detail, config_dict, "key_mgmt", TYPE_KEYWORD, "NONE");
-	validate_opt (detail, config_dict, "wep_tx_keyidx", TYPE_INT, GINT_TO_POINTER (0));
-	validate_opt (detail, config_dict, "wep_key0", TYPE_BYTES, wep_key_bytes);
+	validate_opt (detail, config_dict, "key_mgmt", NM_SUPPL_OPT_TYPE_KEYWORD, "NONE");
+	validate_opt (detail, config_dict, "wep_tx_keyidx", NM_SUPPL_OPT_TYPE_INT, GINT_TO_POINTER (0));
+	validate_opt (detail, config_dict, "wep_key0", NM_SUPPL_OPT_TYPE_BYTES, wep_key_bytes);
 }
 
 static void
@@ -298,7 +297,7 @@ test_wifi_wep (void)
 
 static void
 test_wifi_wpa_psk (const char *detail,
-                   OptType key_type,
+                   NMSupplOptType key_type,
                    const char *key_data,
                    const unsigned char *expected,
                    size_t expected_size,
@@ -354,21 +353,21 @@ test_wifi_wpa_psk (const char *detail,
 	default:
 		break;
 	}
-	config_dict = build_supplicant_config (connection, 1500, 0, TRUE, TRUE);
+	config_dict = build_supplicant_config (connection, 1500, 0, NM_SUPPL_CAP_MASK_T_PMF_YES | NM_SUPPL_CAP_MASK_T_FILS_YES);
 
 	g_test_assert_expected_messages ();
 	g_assert (config_dict);
 
-	validate_opt (detail, config_dict, "scan_ssid", TYPE_INT, GINT_TO_POINTER (1));
-	validate_opt (detail, config_dict, "ssid", TYPE_BYTES, ssid);
-	validate_opt (detail, config_dict, "bssid", TYPE_KEYWORD, bssid_str);
-	validate_opt (detail, config_dict, "key_mgmt", TYPE_KEYWORD, "WPA-PSK WPA-PSK-SHA256");
-	validate_opt (detail, config_dict, "proto", TYPE_KEYWORD, "WPA RSN");
-	validate_opt (detail, config_dict, "pairwise", TYPE_KEYWORD, "TKIP CCMP");
-	validate_opt (detail, config_dict, "group", TYPE_KEYWORD, "TKIP CCMP");
-	if (key_type == TYPE_BYTES)
+	validate_opt (detail, config_dict, "scan_ssid", NM_SUPPL_OPT_TYPE_INT, GINT_TO_POINTER (1));
+	validate_opt (detail, config_dict, "ssid", NM_SUPPL_OPT_TYPE_BYTES, ssid);
+	validate_opt (detail, config_dict, "bssid", NM_SUPPL_OPT_TYPE_KEYWORD, bssid_str);
+	validate_opt (detail, config_dict, "key_mgmt", NM_SUPPL_OPT_TYPE_KEYWORD, "WPA-PSK WPA-PSK-SHA256");
+	validate_opt (detail, config_dict, "proto", NM_SUPPL_OPT_TYPE_KEYWORD, "WPA RSN");
+	validate_opt (detail, config_dict, "pairwise", NM_SUPPL_OPT_TYPE_KEYWORD, "TKIP CCMP");
+	validate_opt (detail, config_dict, "group", NM_SUPPL_OPT_TYPE_KEYWORD, "TKIP CCMP");
+	if (key_type == NM_SUPPL_OPT_TYPE_BYTES)
 		validate_opt (detail, config_dict, "psk", key_type, wpa_psk_bytes);
-	else if (key_type == TYPE_STRING)
+	else if (key_type == NM_SUPPL_OPT_TYPE_STRING)
 		validate_opt (detail, config_dict, "psk", key_type, expected);
 	else
 		g_assert_not_reached ();
@@ -418,22 +417,22 @@ test_wifi_sae_psk (const char *psk)
 	NMTST_EXPECT_NM_INFO ("Config: added 'proto' value 'RSN'");
 	NMTST_EXPECT_NM_INFO ("Config: added 'pairwise' value 'TKIP CCMP'");
 	NMTST_EXPECT_NM_INFO ("Config: added 'group' value 'TKIP CCMP'");
-	config_dict = build_supplicant_config (connection, 1500, 0, TRUE, TRUE);
+	config_dict = build_supplicant_config (connection, 1500, 0, NM_SUPPL_CAP_MASK_T_PMF_YES | NM_SUPPL_CAP_MASK_T_FILS_YES);
 
 	g_test_assert_expected_messages ();
 	g_assert (config_dict);
 
-	validate_opt ("wifi-sae", config_dict, "scan_ssid", TYPE_INT, GINT_TO_POINTER (1));
-	validate_opt ("wifi-sae", config_dict, "ssid", TYPE_BYTES, ssid);
-	validate_opt ("wifi-sae", config_dict, "bssid", TYPE_KEYWORD, bssid_str);
-	validate_opt ("wifi-sae", config_dict, "key_mgmt", TYPE_KEYWORD, "SAE");
-	validate_opt ("wifi-sae", config_dict, "proto", TYPE_KEYWORD, "RSN");
-	validate_opt ("wifi-sae", config_dict, "pairwise", TYPE_KEYWORD, "TKIP CCMP");
-	validate_opt ("wifi-sae", config_dict, "group", TYPE_KEYWORD, "TKIP CCMP");
+	validate_opt ("wifi-sae", config_dict, "scan_ssid", NM_SUPPL_OPT_TYPE_INT, GINT_TO_POINTER (1));
+	validate_opt ("wifi-sae", config_dict, "ssid", NM_SUPPL_OPT_TYPE_BYTES, ssid);
+	validate_opt ("wifi-sae", config_dict, "bssid", NM_SUPPL_OPT_TYPE_KEYWORD, bssid_str);
+	validate_opt ("wifi-sae", config_dict, "key_mgmt", NM_SUPPL_OPT_TYPE_KEYWORD, "SAE");
+	validate_opt ("wifi-sae", config_dict, "proto", NM_SUPPL_OPT_TYPE_KEYWORD, "RSN");
+	validate_opt ("wifi-sae", config_dict, "pairwise", NM_SUPPL_OPT_TYPE_KEYWORD, "TKIP CCMP");
+	validate_opt ("wifi-sae", config_dict, "group", NM_SUPPL_OPT_TYPE_KEYWORD, "TKIP CCMP");
 	if (short_psk)
-		validate_opt ("wifi-sae", config_dict, "sae_password", TYPE_KEYWORD, psk);
+		validate_opt ("wifi-sae", config_dict, "sae_password", NM_SUPPL_OPT_TYPE_KEYWORD, psk);
 	else
-		validate_opt ("wifi-sae", config_dict, "psk", TYPE_KEYWORD, psk);
+		validate_opt ("wifi-sae", config_dict, "psk", NM_SUPPL_OPT_TYPE_KEYWORD, psk);
 }
 
 static void
@@ -453,11 +452,11 @@ test_wifi_wpa_psk_types (void)
 	                                        0x6c, 0x2f, 0x11, 0x60, 0x5a, 0x16, 0x08, 0x93 };
 	const char *key2 = "r34lly l33t wp4 p4ssphr4s3 for t3st1ng";
 
-	test_wifi_wpa_psk ("wifi-wpa-psk-hex", TYPE_BYTES, key1, key1_expected,
+	test_wifi_wpa_psk ("wifi-wpa-psk-hex", NM_SUPPL_OPT_TYPE_BYTES, key1, key1_expected,
 	                   sizeof (key1_expected), NM_SETTING_WIRELESS_SECURITY_PMF_OPTIONAL);
-	test_wifi_wpa_psk ("wifi-wep-psk-passphrase", TYPE_STRING, key2,
+	test_wifi_wpa_psk ("wifi-wep-psk-passphrase", NM_SUPPL_OPT_TYPE_STRING, key2,
 	                   (gconstpointer) key2, strlen (key2), NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED);
-	test_wifi_wpa_psk ("pmf-disabled", TYPE_STRING, key2,
+	test_wifi_wpa_psk ("pmf-disabled", NM_SUPPL_OPT_TYPE_STRING, key2,
 	                   (gconstpointer) key2, strlen (key2), NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE);
 }
 
@@ -526,19 +525,19 @@ test_wifi_eap_locked_bssid (void)
 	NMTST_EXPECT_NM_INFO ("Config: added 'ca_cert' value '*/test-ca-cert.pem'");
 	NMTST_EXPECT_NM_INFO ("Config: added 'private_key' value '*/test-cert.p12'");
 	NMTST_EXPECT_NM_INFO ("Config: added 'proactive_key_caching' value '1'");
-	config_dict = build_supplicant_config (connection, mtu, 0, FALSE, FALSE);
+	config_dict = build_supplicant_config (connection, mtu, 0, NM_SUPPL_CAP_MASK_NONE);
 	g_test_assert_expected_messages ();
 	g_assert (config_dict);
 
-	validate_opt ("wifi-eap", config_dict, "scan_ssid", TYPE_INT, GINT_TO_POINTER (1));
-	validate_opt ("wifi-eap", config_dict, "ssid", TYPE_BYTES, ssid);
-	validate_opt ("wifi-eap", config_dict, "bssid", TYPE_KEYWORD, bssid_str);
-	validate_opt ("wifi-eap", config_dict, "key_mgmt", TYPE_KEYWORD, "WPA-EAP");
-	validate_opt ("wifi-eap", config_dict, "eap", TYPE_KEYWORD, "TLS");
-	validate_opt ("wifi-eap", config_dict, "proto", TYPE_KEYWORD, "WPA RSN");
-	validate_opt ("wifi-eap", config_dict, "pairwise", TYPE_KEYWORD, "TKIP CCMP");
-	validate_opt ("wifi-eap", config_dict, "group", TYPE_KEYWORD, "TKIP CCMP");
-	validate_opt ("wifi-eap", config_dict, "fragment_size", TYPE_INT, GINT_TO_POINTER(mtu-14));
+	validate_opt ("wifi-eap", config_dict, "scan_ssid", NM_SUPPL_OPT_TYPE_INT, GINT_TO_POINTER (1));
+	validate_opt ("wifi-eap", config_dict, "ssid", NM_SUPPL_OPT_TYPE_BYTES, ssid);
+	validate_opt ("wifi-eap", config_dict, "bssid", NM_SUPPL_OPT_TYPE_KEYWORD, bssid_str);
+	validate_opt ("wifi-eap", config_dict, "key_mgmt", NM_SUPPL_OPT_TYPE_KEYWORD, "WPA-EAP");
+	validate_opt ("wifi-eap", config_dict, "eap", NM_SUPPL_OPT_TYPE_KEYWORD, "TLS");
+	validate_opt ("wifi-eap", config_dict, "proto", NM_SUPPL_OPT_TYPE_KEYWORD, "WPA RSN");
+	validate_opt ("wifi-eap", config_dict, "pairwise", NM_SUPPL_OPT_TYPE_KEYWORD, "TKIP CCMP");
+	validate_opt ("wifi-eap", config_dict, "group", NM_SUPPL_OPT_TYPE_KEYWORD, "TKIP CCMP");
+	validate_opt ("wifi-eap", config_dict, "fragment_size", NM_SUPPL_OPT_TYPE_INT, GINT_TO_POINTER(mtu-14));
 }
 
 static void
@@ -567,19 +566,19 @@ test_wifi_eap_unlocked_bssid (void)
 	NMTST_EXPECT_NM_INFO ("Config: added 'private_key' value '*/test-cert.p12'");
 	NMTST_EXPECT_NM_INFO ("Config: added 'proactive_key_caching' value '1'");
 	NMTST_EXPECT_NM_INFO ("Config: added 'bgscan' value 'simple:30:-65:300'");
-	config_dict = build_supplicant_config (connection, mtu, 0, FALSE, TRUE);
+	config_dict = build_supplicant_config (connection, mtu, 0, NM_SUPPL_CAP_MASK_T_FILS_YES);
 	g_test_assert_expected_messages ();
 	g_assert (config_dict);
 
-	validate_opt ("wifi-eap", config_dict, "scan_ssid", TYPE_INT, GINT_TO_POINTER (1));
-	validate_opt ("wifi-eap", config_dict, "ssid", TYPE_BYTES, ssid);
-	validate_opt ("wifi-eap", config_dict, "key_mgmt", TYPE_KEYWORD, "FILS-SHA256 FILS-SHA384");
-	validate_opt ("wifi-eap", config_dict, "eap", TYPE_KEYWORD, "TLS");
-	validate_opt ("wifi-eap", config_dict, "proto", TYPE_KEYWORD, "WPA RSN");
-	validate_opt ("wifi-eap", config_dict, "pairwise", TYPE_KEYWORD, "TKIP CCMP");
-	validate_opt ("wifi-eap", config_dict, "group", TYPE_KEYWORD, "TKIP CCMP");
-	validate_opt ("wifi-eap", config_dict, "fragment_size", TYPE_INT, GINT_TO_POINTER(mtu-14));
-	validate_opt ("wifi-eap", config_dict, "bgscan", TYPE_BYTES, bgscan);
+	validate_opt ("wifi-eap", config_dict, "scan_ssid", NM_SUPPL_OPT_TYPE_INT, GINT_TO_POINTER (1));
+	validate_opt ("wifi-eap", config_dict, "ssid", NM_SUPPL_OPT_TYPE_BYTES, ssid);
+	validate_opt ("wifi-eap", config_dict, "key_mgmt", NM_SUPPL_OPT_TYPE_KEYWORD, "FILS-SHA256 FILS-SHA384");
+	validate_opt ("wifi-eap", config_dict, "eap", NM_SUPPL_OPT_TYPE_KEYWORD, "TLS");
+	validate_opt ("wifi-eap", config_dict, "proto", NM_SUPPL_OPT_TYPE_KEYWORD, "WPA RSN");
+	validate_opt ("wifi-eap", config_dict, "pairwise", NM_SUPPL_OPT_TYPE_KEYWORD, "TKIP CCMP");
+	validate_opt ("wifi-eap", config_dict, "group", NM_SUPPL_OPT_TYPE_KEYWORD, "TKIP CCMP");
+	validate_opt ("wifi-eap", config_dict, "fragment_size", NM_SUPPL_OPT_TYPE_INT, GINT_TO_POINTER(mtu-14));
+	validate_opt ("wifi-eap", config_dict, "bgscan", NM_SUPPL_OPT_TYPE_BYTES, bgscan);
 }
 
 static void
@@ -608,20 +607,58 @@ test_wifi_eap_fils_disabled (void)
 	NMTST_EXPECT_NM_INFO ("Config: added 'private_key' value '*/test-cert.p12'");
 	NMTST_EXPECT_NM_INFO ("Config: added 'proactive_key_caching' value '1'");
 	NMTST_EXPECT_NM_INFO ("Config: added 'bgscan' value 'simple:30:-65:300'");
-	config_dict = build_supplicant_config (connection, mtu, 0, TRUE, TRUE);
+	config_dict = build_supplicant_config (connection, mtu, 0, NM_SUPPL_CAP_MASK_T_PMF_YES | NM_SUPPL_CAP_MASK_T_FILS_YES);
 	g_test_assert_expected_messages ();
 	g_assert (config_dict);
 
-	validate_opt ("wifi-eap", config_dict, "scan_ssid", TYPE_INT, GINT_TO_POINTER (1));
-	validate_opt ("wifi-eap", config_dict, "ssid", TYPE_BYTES, ssid);
-	validate_opt ("wifi-eap", config_dict, "key_mgmt", TYPE_KEYWORD, "WPA-EAP WPA-EAP-SHA256");
-	validate_opt ("wifi-eap", config_dict, "eap", TYPE_KEYWORD, "TLS");
-	validate_opt ("wifi-eap", config_dict, "proto", TYPE_KEYWORD, "WPA RSN");
-	validate_opt ("wifi-eap", config_dict, "pairwise", TYPE_KEYWORD, "TKIP CCMP");
-	validate_opt ("wifi-eap", config_dict, "group", TYPE_KEYWORD, "TKIP CCMP");
-	validate_opt ("wifi-eap", config_dict, "fragment_size", TYPE_INT, GINT_TO_POINTER(mtu-14));
-	validate_opt ("wifi-eap", config_dict, "bgscan", TYPE_BYTES, bgscan);
+	validate_opt ("wifi-eap", config_dict, "scan_ssid", NM_SUPPL_OPT_TYPE_INT, GINT_TO_POINTER (1));
+	validate_opt ("wifi-eap", config_dict, "ssid", NM_SUPPL_OPT_TYPE_BYTES, ssid);
+	validate_opt ("wifi-eap", config_dict, "key_mgmt", NM_SUPPL_OPT_TYPE_KEYWORD, "WPA-EAP WPA-EAP-SHA256");
+	validate_opt ("wifi-eap", config_dict, "eap", NM_SUPPL_OPT_TYPE_KEYWORD, "TLS");
+	validate_opt ("wifi-eap", config_dict, "proto", NM_SUPPL_OPT_TYPE_KEYWORD, "WPA RSN");
+	validate_opt ("wifi-eap", config_dict, "pairwise", NM_SUPPL_OPT_TYPE_KEYWORD, "TKIP CCMP");
+	validate_opt ("wifi-eap", config_dict, "group", NM_SUPPL_OPT_TYPE_KEYWORD, "TKIP CCMP");
+	validate_opt ("wifi-eap", config_dict, "fragment_size", NM_SUPPL_OPT_TYPE_INT, GINT_TO_POINTER(mtu-14));
+	validate_opt ("wifi-eap", config_dict, "bgscan", NM_SUPPL_OPT_TYPE_BYTES, bgscan);
 }
+
+/*****************************************************************************/
+
+static void
+test_suppl_cap_mask (void)
+{
+	NMSupplCapType type;
+
+	g_assert_cmpint (NM_SUPPL_CAP_MASK_GET (NM_SUPPL_CAP_MASK_T_AP_NO,  NM_SUPPL_CAP_TYPE_AP), ==, NM_TERNARY_FALSE);
+	g_assert_cmpint (NM_SUPPL_CAP_MASK_GET (NM_SUPPL_CAP_MASK_T_AP_YES, NM_SUPPL_CAP_TYPE_AP), ==, NM_TERNARY_TRUE);
+	g_assert_cmpint (NM_SUPPL_CAP_MASK_GET (NM_SUPPL_CAP_MASK_NONE,     NM_SUPPL_CAP_TYPE_AP), ==, NM_TERNARY_DEFAULT);
+
+	g_assert_cmpint (NM_SUPPL_CAP_MASK_GET (NM_SUPPL_CAP_MASK_T_FILS_NO,  NM_SUPPL_CAP_TYPE_FILS), ==, NM_TERNARY_FALSE);
+	g_assert_cmpint (NM_SUPPL_CAP_MASK_GET (NM_SUPPL_CAP_MASK_T_FILS_YES, NM_SUPPL_CAP_TYPE_FILS), ==, NM_TERNARY_TRUE);
+	g_assert_cmpint (NM_SUPPL_CAP_MASK_GET (NM_SUPPL_CAP_MASK_NONE,       NM_SUPPL_CAP_TYPE_FILS), ==, NM_TERNARY_DEFAULT);
+
+	for (type = 0; type < _NM_SUPPL_CAP_TYPE_NUM; type++) {
+		NMTernary value;
+		NMSupplCapMask feature;
+		NMSupplCapMask feature2;
+
+		feature =   nmtst_get_rand_bool ()
+		          ? 0u
+		          : nmtst_get_rand_uint64 ();
+		feature &= NM_SUPPL_CAP_MASK_ALL;
+
+		value = nmtst_rand_select (NM_TERNARY_DEFAULT,
+		                           NM_TERNARY_FALSE,
+		                           NM_TERNARY_TRUE);
+
+		feature2 = NM_SUPPL_CAP_MASK_SET (feature, type, value);
+
+		g_assert_cmpint (NM_SUPPL_CAP_MASK_GET (feature2, type), ==, value);
+		g_assert_cmpint (feature & ~NM_SUPPL_CAP_MASK_MASK (type), ==, feature2 & ~NM_SUPPL_CAP_MASK_MASK (type));
+	}
+}
+
+/*****************************************************************************/
 
 NMTST_DEFINE ();
 
@@ -636,6 +673,7 @@ int main (int argc, char **argv)
 	g_test_add_func ("/supplicant-config/wifi-eap/unlocked-bssid", test_wifi_eap_unlocked_bssid);
 	g_test_add_func ("/supplicant-config/wifi-eap/fils-disabled", test_wifi_eap_fils_disabled);
 	g_test_add_func ("/supplicant-config/wifi-sae", test_wifi_sae);
+	g_test_add_func ("/supplicant-config/test_suppl_cap_mask", test_suppl_cap_mask);
 
 	return g_test_run ();
 }

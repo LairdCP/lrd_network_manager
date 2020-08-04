@@ -22,7 +22,7 @@
 
 #include "nm-libnm-core-intern/nm-common-macros.h"
 #include "nm-glib-aux/nm-keyfile-aux.h"
-#include "nm-keyfile-internal.h"
+#include "nm-keyfile/nm-keyfile-internal.h"
 #include "nm-dbus-interface.h"
 #include "nm-connection.h"
 #include "nm-setting-8021x.h"
@@ -54,7 +54,7 @@
 #include "nm-settings-plugin.h"
 #include "nm-dbus-manager.h"
 #include "nm-auth-utils.h"
-#include "nm-auth-subject.h"
+#include "nm-libnm-core-intern/nm-auth-subject.h"
 #include "nm-session-monitor.h"
 #include "plugins/keyfile/nms-keyfile-plugin.h"
 #include "plugins/keyfile/nms-keyfile-storage.h"
@@ -67,7 +67,11 @@
 
 /*****************************************************************************/
 
-static NM_CACHED_QUARK_FCN ("default-wired-connection", _default_wired_connection_quark)
+static
+NM_CACHED_QUARK_FCN ("default-wired-connection", _default_wired_connection_quark)
+
+static
+NM_CACHED_QUARK_FCN ("default-wired-connection-blocked", _default_wired_connection_blocked_quark)
 
 /*****************************************************************************/
 
@@ -548,7 +552,7 @@ _startup_complete_check (NMSettings *self,
 		goto ready;
 
 	if (!now_us)
-		now_us = nm_utils_get_monotonic_timestamp_us ();
+		now_us = nm_utils_get_monotonic_timestamp_usec ();
 
 	next_expiry = 0;
 
@@ -654,7 +658,7 @@ _startup_complete_notify_connection (NMSettings *self,
 		} else
 			scd = g_hash_table_lookup (priv->startup_complete_idx, &sett_conn);
 		if (!scd) {
-			now_us = nm_utils_get_monotonic_timestamp_us ();
+			now_us = nm_utils_get_monotonic_timestamp_usec ();
 			scd = g_slice_new (StartupCompleteData);
 			*scd = (StartupCompleteData) {
 				.sett_conn = g_object_ref (sett_conn),
@@ -1087,12 +1091,14 @@ _connection_changed_update (NMSettings *self,
 	else {
 		nm_assert (!NM_FLAGS_HAS (sett_flags, NM_SETTINGS_CONNECTION_INT_FLAGS_UNSAVED));
 
-		/* Profiles that don't reside in /run, are never nm-generated
-		 * and never volatile. */
+		/* Profiles that don't reside in /run, are never nm-generated,
+		 * volatile, and external. */
 		sett_mask |= (  NM_SETTINGS_CONNECTION_INT_FLAGS_NM_GENERATED
-		              | NM_SETTINGS_CONNECTION_INT_FLAGS_VOLATILE);
+		              | NM_SETTINGS_CONNECTION_INT_FLAGS_VOLATILE
+		              | NM_SETTINGS_CONNECTION_INT_FLAGS_EXTERNAL);
 		sett_flags &= ~(  NM_SETTINGS_CONNECTION_INT_FLAGS_NM_GENERATED
-		                | NM_SETTINGS_CONNECTION_INT_FLAGS_VOLATILE);
+		                | NM_SETTINGS_CONNECTION_INT_FLAGS_VOLATILE
+		                | NM_SETTINGS_CONNECTION_INT_FLAGS_EXTERNAL);
 	}
 
 	nm_settings_connection_set_flags_full (sett_conn,
@@ -1196,7 +1202,8 @@ _connection_changed_delete (NMSettings *self,
 
 	nm_settings_connection_set_flags (sett_conn,
 	                                    NM_SETTINGS_CONNECTION_INT_FLAGS_VISIBLE
-	                                  | NM_SETTINGS_CONNECTION_INT_FLAGS_VOLATILE,
+	                                  | NM_SETTINGS_CONNECTION_INT_FLAGS_VOLATILE
+	                                  | NM_SETTINGS_CONNECTION_INT_FLAGS_EXTERNAL,
 	                                  FALSE);
 
 	_emit_connection_removed (self, sett_conn);
@@ -1487,6 +1494,7 @@ _add_connection_to_first_plugin (NMSettings *self,
 			                                             in_memory,
 			                                             NM_FLAGS_HAS (sett_flags, NM_SETTINGS_CONNECTION_INT_FLAGS_NM_GENERATED),
 			                                             NM_FLAGS_HAS (sett_flags, NM_SETTINGS_CONNECTION_INT_FLAGS_VOLATILE),
+			                                             NM_FLAGS_HAS (sett_flags, NM_SETTINGS_CONNECTION_INT_FLAGS_EXTERNAL),
 			                                             shadowed_storage,
 			                                             shadowed_owned,
 			                                             &storage,
@@ -1497,6 +1505,7 @@ _add_connection_to_first_plugin (NMSettings *self,
 				continue;
 			nm_assert (!NM_FLAGS_HAS (sett_flags, NM_SETTINGS_CONNECTION_INT_FLAGS_NM_GENERATED));
 			nm_assert (!NM_FLAGS_HAS (sett_flags, NM_SETTINGS_CONNECTION_INT_FLAGS_VOLATILE));
+			nm_assert (!NM_FLAGS_HAS (sett_flags, NM_SETTINGS_CONNECTION_INT_FLAGS_EXTERNAL));
 			success = nm_settings_plugin_add_connection (plugin,
 			                                             new_connection,
 			                                             &storage,
@@ -1574,6 +1583,7 @@ _update_connection_to_plugin (NMSettings *self,
 		                                                connection,
 		                                                NM_FLAGS_HAS (sett_flags, NM_SETTINGS_CONNECTION_INT_FLAGS_NM_GENERATED),
 		                                                NM_FLAGS_HAS (sett_flags, NM_SETTINGS_CONNECTION_INT_FLAGS_VOLATILE),
+		                                                NM_FLAGS_HAS (sett_flags, NM_SETTINGS_CONNECTION_INT_FLAGS_EXTERNAL),
 		                                                shadowed_storage,
 		                                                shadowed_owned,
 		                                                force_rename,
@@ -1689,8 +1699,9 @@ nm_settings_add_connection (NMSettings *self,
 
 	nm_assert (!NM_FLAGS_ANY (sett_flags, ~_NM_SETTINGS_CONNECTION_INT_FLAGS_PERSISTENT_MASK));
 
-	if (NM_FLAGS_ANY (sett_flags,   NM_SETTINGS_CONNECTION_INT_FLAGS_VOLATILE
-	                              | NM_SETTINGS_CONNECTION_INT_FLAGS_NM_GENERATED)) {
+	if (NM_FLAGS_ANY (sett_flags,   NM_SETTINGS_CONNECTION_INT_FLAGS_NM_GENERATED
+	                              | NM_SETTINGS_CONNECTION_INT_FLAGS_VOLATILE
+	                              | NM_SETTINGS_CONNECTION_INT_FLAGS_EXTERNAL)) {
 		nm_assert (new_in_memory);
 		new_in_memory = TRUE;
 	}
@@ -1985,10 +1996,10 @@ nm_settings_update_connection (NMSettings *self,
 		 */
 		device = nm_settings_connection_default_wired_get_device (sett_conn);
 		if (device) {
+
 			nm_assert (cur_in_memory);
-			nm_assert (!NM_FLAGS_ANY (nm_settings_connection_get_flags (sett_conn),
-			                            NM_SETTINGS_CONNECTION_INT_FLAGS_NM_GENERATED
-			                          | NM_SETTINGS_CONNECTION_INT_FLAGS_VOLATILE));
+			nm_assert (NM_FLAGS_HAS (nm_settings_connection_get_flags (sett_conn),
+			                         NM_SETTINGS_CONNECTION_INT_FLAGS_NM_GENERATED));
 
 			default_wired_clear_tag (self, device, sett_conn, FALSE);
 
@@ -2007,11 +2018,13 @@ nm_settings_update_connection (NMSettings *self,
 
 	if (   persist_mode == NM_SETTINGS_CONNECTION_PERSIST_MODE_NO_PERSIST
 	    && NM_FLAGS_ANY (sett_mask,   NM_SETTINGS_CONNECTION_INT_FLAGS_NM_GENERATED
-	                                | NM_SETTINGS_CONNECTION_INT_FLAGS_VOLATILE)
+	                                | NM_SETTINGS_CONNECTION_INT_FLAGS_VOLATILE
+	                                | NM_SETTINGS_CONNECTION_INT_FLAGS_EXTERNAL)
 	    && NM_FLAGS_ANY ((sett_flags ^ nm_settings_connection_get_flags (sett_conn)) & sett_mask,
 	                       NM_SETTINGS_CONNECTION_INT_FLAGS_NM_GENERATED
-	                     | NM_SETTINGS_CONNECTION_INT_FLAGS_VOLATILE)) {
-		/* we update the nm-generated/volatile setting of a profile (which is inherrently
+	                     | NM_SETTINGS_CONNECTION_INT_FLAGS_VOLATILE
+	                     | NM_SETTINGS_CONNECTION_INT_FLAGS_EXTERNAL)) {
+		/* we update the nm-generated/volatile setting of a profile (which is inherently
 		 * in-memory. The caller did not request to persist this to disk, however we need
 		 * to store the flags in run. */
 		nm_assert (cur_in_memory);
@@ -2039,11 +2052,14 @@ nm_settings_update_connection (NMSettings *self,
 		 * the nm-generated flag after restart/reload, and that cannot be right. If a profile
 		 * ends up on disk, the information who created it gets lost. */
 		nm_assert (!NM_FLAGS_ANY (sett_flags,   NM_SETTINGS_CONNECTION_INT_FLAGS_NM_GENERATED
-		                                      | NM_SETTINGS_CONNECTION_INT_FLAGS_VOLATILE));
+		                                      | NM_SETTINGS_CONNECTION_INT_FLAGS_VOLATILE
+		                                      | NM_SETTINGS_CONNECTION_INT_FLAGS_EXTERNAL));
 		sett_mask |=   NM_SETTINGS_CONNECTION_INT_FLAGS_NM_GENERATED
-		             | NM_SETTINGS_CONNECTION_INT_FLAGS_VOLATILE;
+		             | NM_SETTINGS_CONNECTION_INT_FLAGS_VOLATILE
+		             | NM_SETTINGS_CONNECTION_INT_FLAGS_EXTERNAL;
 		sett_flags &= ~(  NM_SETTINGS_CONNECTION_INT_FLAGS_NM_GENERATED
-		                | NM_SETTINGS_CONNECTION_INT_FLAGS_VOLATILE);
+		                | NM_SETTINGS_CONNECTION_INT_FLAGS_VOLATILE
+		                | NM_SETTINGS_CONNECTION_INT_FLAGS_EXTERNAL);
 	}
 
 	if (persist_mode == NM_SETTINGS_CONNECTION_PERSIST_MODE_NO_PERSIST) {
@@ -2574,7 +2590,7 @@ settings_add_connection_helper (NMSettings *self,
 		return;
 	}
 
-	subject = nm_auth_subject_new_unix_process_from_context (context);
+	subject = nm_dbus_manager_new_auth_subject_from_context (context);
 	if (!subject) {
 		g_dbus_method_invocation_return_error_literal (context,
 		                                               NM_SETTINGS_ERROR,
@@ -2918,7 +2934,7 @@ impl_settings_get_connection_by_uuid (NMDBusObject *obj,
 		goto error;
 	}
 
-	subject = nm_auth_subject_new_unix_process_from_context (invocation);
+	subject = nm_dbus_manager_new_auth_subject_from_context (invocation);
 	if (!subject) {
 		error = g_error_new_literal (NM_SETTINGS_ERROR,
 		                             NM_SETTINGS_ERROR_PERMISSION_DENIED,
@@ -3370,7 +3386,8 @@ have_connection_for_device (NMSettings *self, NMDevice *device)
 			continue;
 
 		if (NM_FLAGS_ANY (nm_settings_connection_get_flags (sett_conn),
-		                  NM_SETTINGS_CONNECTION_INT_FLAGS_VOLATILE))
+		                    NM_SETTINGS_CONNECTION_INT_FLAGS_VOLATILE
+		                  | NM_SETTINGS_CONNECTION_INT_FLAGS_EXTERNAL))
 			continue;
 
 		return TRUE;
@@ -3431,8 +3448,12 @@ device_realized (NMDevice *device, GParamSpec *pspec, NMSettings *self)
 	 */
 	if (   !NM_DEVICE_GET_CLASS (device)->new_default_connection
 	    || !nm_device_get_managed (device, FALSE)
-	    || g_object_get_qdata (G_OBJECT (device), _default_wired_connection_quark ()))
+	    || g_object_get_qdata (G_OBJECT (device), _default_wired_connection_blocked_quark ()))
 		return;
+
+	/* we only check once whether to create the auto-default connection. If we reach this point,
+	 * we mark the creation of the default-wired-connection as blocked. */
+	g_object_set_qdata (G_OBJECT (device), _default_wired_connection_blocked_quark (), device);
 
 	if (nm_config_get_no_auto_default_for_device (priv->config, device)) {
 		_LOGT ("auto-default: cannot create auto-default connection for device %s: disabled by \"no-auto-default\"",

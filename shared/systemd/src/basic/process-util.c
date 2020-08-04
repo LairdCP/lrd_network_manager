@@ -26,6 +26,7 @@
 #include "alloc-util.h"
 #include "architecture.h"
 #include "env-util.h"
+#include "errno-util.h"
 #include "escape.h"
 #include "fd-util.h"
 #include "fileio.h"
@@ -44,6 +45,7 @@
 #include "rlimit-util.h"
 #include "signal-util.h"
 #include "stat-util.h"
+#include "stdio-util.h"
 #include "string-table.h"
 #include "string-util.h"
 #include "terminal-util.h"
@@ -210,50 +212,12 @@ int get_process_cmdline(pid_t pid, size_t max_columns, ProcessCmdlineFlags flags
         return 0;
 }
 
-int rename_process(const char name[]) {
-        static size_t mm_size = 0;
-        static char *mm = NULL;
-        bool truncated = false;
-        size_t l;
+static int update_argv(const char name[], size_t l) {
+        static int can_do = -1;
 
-        /* This is a like a poor man's setproctitle(). It changes the comm field, argv[0], and also the glibc's
-         * internally used name of the process. For the first one a limit of 16 chars applies; to the second one in
-         * many cases one of 10 (i.e. length of "/sbin/init") — however if we have CAP_SYS_RESOURCES it is unbounded;
-         * to the third one 7 (i.e. the length of "systemd". If you pass a longer string it will likely be
-         * truncated.
-         *
-         * Returns 0 if a name was set but truncated, > 0 if it was set but not truncated. */
-
-        if (isempty(name))
-                return -EINVAL; /* let's not confuse users unnecessarily with an empty name */
-
-        if (!is_main_thread())
-                return -EPERM; /* Let's not allow setting the process name from other threads than the main one, as we
-                                * cache things without locking, and we make assumptions that PR_SET_NAME sets the
-                                * process name that isn't correct on any other threads */
-
-        l = strlen(name);
-
-        /* First step, change the comm field. The main thread's comm is identical to the process comm. This means we
-         * can use PR_SET_NAME, which sets the thread name for the calling thread. */
-        if (prctl(PR_SET_NAME, name) < 0)
-                log_debug_errno(errno, "PR_SET_NAME failed: %m");
-        if (l >= TASK_COMM_LEN) /* Linux userspace process names can be 15 chars at max */
-                truncated = true;
-
-        /* Second step, change glibc's ID of the process name. */
-        if (program_invocation_name) {
-                size_t k;
-
-                k = strlen(program_invocation_name);
-                strncpy(program_invocation_name, name, k);
-                if (l > k)
-                        truncated = true;
-        }
-
-        /* Third step, completely replace the argv[] array the kernel maintains for us. This requires privileges, but
-         * has the advantage that the argv[] array is exactly what we want it to be, and not filled up with zeros at
-         * the end. This is the best option for changing /proc/self/cmdline. */
+        if (can_do == 0)
+                return 0;
+        can_do = false; /* We'll set it to true only if the whole process works */
 
         /* Let's not bother with this if we don't have euid == 0. Strictly speaking we should check for the
          * CAP_SYS_RESOURCE capability which is independent of the euid. In our own code the capability generally is
@@ -261,22 +225,29 @@ int rename_process(const char name[]) {
          * PR_SET_MM_ARG_{START,END} fails with EPERM later on anyway. After all geteuid() is dead cheap to call, but
          * mmap() is not. */
         if (geteuid() != 0)
-                log_debug("Skipping PR_SET_MM, as we don't have privileges.");
-        else if (mm_size < l+1) {
+                return log_debug_errno(SYNTHETIC_ERRNO(EPERM),
+                                       "Skipping PR_SET_MM, as we don't have privileges.");
+
+        static size_t mm_size = 0;
+        static char *mm = NULL;
+        int r;
+
+        if (mm_size < l+1) {
                 size_t nn_size;
                 char *nn;
 
                 nn_size = PAGE_ALIGN(l+1);
                 nn = mmap(NULL, nn_size, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
-                if (nn == MAP_FAILED) {
-                        log_debug_errno(errno, "mmap() failed: %m");
-                        goto use_saved_argv;
-                }
+                if (nn == MAP_FAILED)
+                        return log_debug_errno(errno, "mmap() failed: %m");
 
                 strncpy(nn, name, nn_size);
 
                 /* Now, let's tell the kernel about this new memory */
                 if (prctl(PR_SET_MM, PR_SET_MM_ARG_START, (unsigned long) nn, 0, 0) < 0) {
+                        if (ERRNO_IS_PRIVILEGE(errno))
+                                return log_debug_errno(errno, "PR_SET_MM_ARG_START failed: %m");
+
                         /* HACK: prctl() API is kind of dumb on this point.  The existing end address may already be
                          * below the desired start address, in which case the kernel may have kicked this back due
                          * to a range-check failure (see linux/kernel/sys.c:validate_prctl_map() to see this in
@@ -288,15 +259,13 @@ int rename_process(const char name[]) {
                         log_debug_errno(errno, "PR_SET_MM_ARG_START failed, attempting PR_SET_MM_ARG_END hack: %m");
 
                         if (prctl(PR_SET_MM, PR_SET_MM_ARG_END, (unsigned long) nn + l + 1, 0, 0) < 0) {
-                                log_debug_errno(errno, "PR_SET_MM_ARG_END hack failed, proceeding without: %m");
+                                r = log_debug_errno(errno, "PR_SET_MM_ARG_END hack failed, proceeding without: %m");
                                 (void) munmap(nn, nn_size);
-                                goto use_saved_argv;
+                                return r;
                         }
 
-                        if (prctl(PR_SET_MM, PR_SET_MM_ARG_START, (unsigned long) nn, 0, 0) < 0) {
-                                log_debug_errno(errno, "PR_SET_MM_ARG_START still failed, proceeding without: %m");
-                                goto use_saved_argv;
-                        }
+                        if (prctl(PR_SET_MM, PR_SET_MM_ARG_START, (unsigned long) nn, 0, 0) < 0)
+                                return log_debug_errno(errno, "PR_SET_MM_ARG_START still failed, proceeding without: %m");
                 } else {
                         /* And update the end pointer to the new end, too. If this fails, we don't really know what
                          * to do, it's pretty unlikely that we can rollback, hence we'll just accept the failure,
@@ -318,13 +287,56 @@ int rename_process(const char name[]) {
                         log_debug_errno(errno, "PR_SET_MM_ARG_END failed, proceeding without: %m");
         }
 
-use_saved_argv:
+        can_do = true;
+        return 0;
+}
+
+int rename_process(const char name[]) {
+        bool truncated = false;
+
+        /* This is a like a poor man's setproctitle(). It changes the comm field, argv[0], and also the glibc's
+         * internally used name of the process. For the first one a limit of 16 chars applies; to the second one in
+         * many cases one of 10 (i.e. length of "/sbin/init") — however if we have CAP_SYS_RESOURCES it is unbounded;
+         * to the third one 7 (i.e. the length of "systemd". If you pass a longer string it will likely be
+         * truncated.
+         *
+         * Returns 0 if a name was set but truncated, > 0 if it was set but not truncated. */
+
+        if (isempty(name))
+                return -EINVAL; /* let's not confuse users unnecessarily with an empty name */
+
+        if (!is_main_thread())
+                return -EPERM; /* Let's not allow setting the process name from other threads than the main one, as we
+                                * cache things without locking, and we make assumptions that PR_SET_NAME sets the
+                                * process name that isn't correct on any other threads */
+
+        size_t l = strlen(name);
+
+        /* First step, change the comm field. The main thread's comm is identical to the process comm. This means we
+         * can use PR_SET_NAME, which sets the thread name for the calling thread. */
+        if (prctl(PR_SET_NAME, name) < 0)
+                log_debug_errno(errno, "PR_SET_NAME failed: %m");
+        if (l >= TASK_COMM_LEN) /* Linux userspace process names can be 15 chars at max */
+                truncated = true;
+
+        /* Second step, change glibc's ID of the process name. */
+        if (program_invocation_name) {
+                size_t k;
+
+                k = strlen(program_invocation_name);
+                strncpy(program_invocation_name, name, k);
+                if (l > k)
+                        truncated = true;
+        }
+
+        /* Third step, completely replace the argv[] array the kernel maintains for us. This requires privileges, but
+         * has the advantage that the argv[] array is exactly what we want it to be, and not filled up with zeros at
+         * the end. This is the best option for changing /proc/self/cmdline. */
+        (void) update_argv(name, l);
+
         /* Fourth step: in all cases we'll also update the original argv[], so that our own code gets it right too if
          * it still looks here */
-
         if (saved_argc > 0) {
-                int i;
-
                 if (saved_argv[0]) {
                         size_t k;
 
@@ -334,7 +346,7 @@ use_saved_argv:
                                 truncated = true;
                 }
 
-                for (i = 1; i < saved_argc; i++) {
+                for (int i = 1; i < saved_argc; i++) {
                         if (!saved_argv[i])
                                 break;
 
@@ -630,6 +642,23 @@ int get_process_ppid(pid_t pid, pid_t *_ppid) {
         *_ppid = (pid_t) ppid;
 
         return 0;
+}
+
+int get_process_umask(pid_t pid, mode_t *umask) {
+        _cleanup_free_ char *m = NULL;
+        const char *p;
+        int r;
+
+        assert(umask);
+        assert(pid >= 0);
+
+        p = procfs_file_alloca(pid, "status");
+
+        r = get_proc_field(p, "Umask", WHITESPACE, &m);
+        if (r == -ENOENT)
+                return -ESRCH;
+
+        return parse_mode(m, umask);
 }
 
 int wait_for_terminate(pid_t pid, siginfo_t *status) {
@@ -1186,6 +1215,11 @@ int must_be_root(void) {
         return log_error_errno(SYNTHETIC_ERRNO(EPERM), "Need to be root.");
 }
 
+static void restore_sigsetp(sigset_t **ssp) {
+        if (*ssp)
+                (void) sigprocmask(SIG_SETMASK, *ssp, NULL);
+}
+
 int safe_fork_full(
                 const char *name,
                 const int except_fds[],
@@ -1195,7 +1229,8 @@ int safe_fork_full(
 
         pid_t original_pid, pid;
         sigset_t saved_ss, ss;
-        bool block_signals = false;
+        _cleanup_(restore_sigsetp) sigset_t *saved_ssp = NULL;
+        bool block_signals = false, block_all = false;
         int prio, r;
 
         /* A wrapper around fork(), that does a couple of important initializations in addition to mere forking. Always
@@ -1210,7 +1245,7 @@ int safe_fork_full(
                  * be sure that SIGTERMs are not lost we might send to the child. */
 
                 assert_se(sigfillset(&ss) >= 0);
-                block_signals = true;
+                block_signals = block_all = true;
 
         } else if (flags & FORK_WAIT) {
                 /* Let's block SIGCHLD at least, so that we can safely watch for the child process */
@@ -1220,37 +1255,37 @@ int safe_fork_full(
                 block_signals = true;
         }
 
-        if (block_signals)
+        if (block_signals) {
                 if (sigprocmask(SIG_SETMASK, &ss, &saved_ss) < 0)
                         return log_full_errno(prio, errno, "Failed to set signal mask: %m");
+                saved_ssp = &saved_ss;
+        }
 
         if (flags & FORK_NEW_MOUNTNS)
                 pid = raw_clone(SIGCHLD|CLONE_NEWNS);
         else
                 pid = fork();
-        if (pid < 0) {
-                r = -errno;
-
-                if (block_signals) /* undo what we did above */
-                        (void) sigprocmask(SIG_SETMASK, &saved_ss, NULL);
-
-                return log_full_errno(prio, r, "Failed to fork: %m");
-        }
+        if (pid < 0)
+                return log_full_errno(prio, errno, "Failed to fork: %m");
         if (pid > 0) {
                 /* We are in the parent process */
 
                 log_debug("Successfully forked off '%s' as PID " PID_FMT ".", strna(name), pid);
 
                 if (flags & FORK_WAIT) {
+                        if (block_all) {
+                                /* undo everything except SIGCHLD */
+                                ss = saved_ss;
+                                assert_se(sigaddset(&ss, SIGCHLD) >= 0);
+                                (void) sigprocmask(SIG_SETMASK, &ss, NULL);
+                        }
+
                         r = wait_for_terminate_and_check(name, pid, (flags & FORK_LOG ? WAIT_LOG : 0));
                         if (r < 0)
                                 return r;
                         if (r != EXIT_SUCCESS) /* exit status > 0 should be treated as failure, too */
                                 return -EPROTO;
                 }
-
-                if (block_signals) /* undo what we did above */
-                        (void) sigprocmask(SIG_SETMASK, &saved_ss, NULL);
 
                 if (ret_pid)
                         *ret_pid = pid;
@@ -1259,6 +1294,9 @@ int safe_fork_full(
         }
 
         /* We are in the child process */
+
+        /* Restore signal mask manually */
+        saved_ssp = NULL;
 
         if (flags & FORK_REOPEN_LOG) {
                 /* Close the logs if requested, before we log anything. And make sure we reopen it if needed. */
@@ -1273,8 +1311,8 @@ int safe_fork_full(
                                        r, "Failed to rename process, ignoring: %m");
         }
 
-        if (flags & FORK_DEATHSIG)
-                if (prctl(PR_SET_PDEATHSIG, SIGTERM) < 0) {
+        if (flags & (FORK_DEATHSIG|FORK_DEATHSIG_SIGINT))
+                if (prctl(PR_SET_PDEATHSIG, (flags & FORK_DEATHSIG_SIGINT) ? SIGINT : SIGTERM) < 0) {
                         log_full_errno(prio, errno, "Failed to set death signal: %m");
                         _exit(EXIT_FAILURE);
                 }
@@ -1345,6 +1383,12 @@ int safe_fork_full(
                 r = make_null_stdio();
                 if (r < 0) {
                         log_full_errno(prio, r, "Failed to connect stdin/stdout to /dev/null: %m");
+                        _exit(EXIT_FAILURE);
+                }
+
+        } else if (flags & FORK_STDOUT_TO_STDERR) {
+                if (dup2(STDERR_FILENO, STDOUT_FILENO) < 0) {
+                        log_full_errno(prio, errno, "Failed to connect stdout to stderr: %m");
                         _exit(EXIT_FAILURE);
                 }
         }
@@ -1496,6 +1540,94 @@ int set_oom_score_adjust(int value) {
 
         return write_string_file("/proc/self/oom_score_adj", t,
                                  WRITE_STRING_FILE_VERIFY_ON_FAILURE|WRITE_STRING_FILE_DISABLE_BUFFER);
+}
+
+int pidfd_get_pid(int fd, pid_t *ret) {
+        char path[STRLEN("/proc/self/fdinfo/") + DECIMAL_STR_MAX(int)];
+        _cleanup_free_ char *fdinfo = NULL;
+        char *p;
+        int r;
+
+        if (fd < 0)
+                return -EBADF;
+
+        xsprintf(path, "/proc/self/fdinfo/%i", fd);
+
+        r = read_full_file(path, &fdinfo, NULL);
+        if (r == -ENOENT) /* if fdinfo doesn't exist we assume the process does not exist */
+                return -ESRCH;
+        if (r < 0)
+                return r;
+
+        p = startswith(fdinfo, "Pid:");
+        if (!p) {
+                p = strstr(fdinfo, "\nPid:");
+                if (!p)
+                        return -ENOTTY; /* not a pidfd? */
+
+                p += 5;
+        }
+
+        p += strspn(p, WHITESPACE);
+        p[strcspn(p, WHITESPACE)] = 0;
+
+        return parse_pid(p, ret);
+}
+
+static int rlimit_to_nice(rlim_t limit) {
+        if (limit <= 1)
+                return PRIO_MAX-1; /* i.e. 19 */
+
+        if (limit >= -PRIO_MIN + PRIO_MAX)
+                return PRIO_MIN; /* i.e. -20 */
+
+        return PRIO_MAX - (int) limit;
+}
+
+int setpriority_closest(int priority) {
+        int current, limit, saved_errno;
+        struct rlimit highest;
+
+        /* Try to set requested nice level */
+        if (setpriority(PRIO_PROCESS, 0, priority) >= 0)
+                return 1;
+
+        /* Permission failed */
+        saved_errno = -errno;
+        if (!ERRNO_IS_PRIVILEGE(saved_errno))
+                return saved_errno;
+
+        errno = 0;
+        current = getpriority(PRIO_PROCESS, 0);
+        if (errno != 0)
+                return -errno;
+
+        if (priority == current)
+                return 1;
+
+       /* Hmm, we'd expect that raising the nice level from our status quo would always work. If it doesn't,
+        * then the whole setpriority() system call is blocked to us, hence let's propagate the error
+        * right-away */
+        if (priority > current)
+                return saved_errno;
+
+        if (getrlimit(RLIMIT_NICE, &highest) < 0)
+                return -errno;
+
+        limit = rlimit_to_nice(highest.rlim_cur);
+
+        /* We are already less nice than limit allows us */
+        if (current < limit) {
+                log_debug("Cannot raise nice level, permissions and the resource limit do not allow it.");
+                return 0;
+        }
+
+        /* Push to the allowed limit */
+        if (setpriority(PRIO_PROCESS, 0, limit) < 0)
+                return -errno;
+
+        log_debug("Cannot set requested nice level (%i), used next best (%i).", priority, limit);
+        return 0;
 }
 
 static const char *const ioprio_class_table[] = {

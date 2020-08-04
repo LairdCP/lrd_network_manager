@@ -25,8 +25,7 @@ typedef struct _NMSupplicantConfigClass NMSupplicantConfigClass;
 
 GType nm_supplicant_config_get_type (void);
 
-NMSupplicantConfig *nm_supplicant_config_new (gboolean support_pmf, gboolean support_fils,
-                                              gboolean support_ft, gboolean support_sha384);
+NMSupplicantConfig *nm_supplicant_config_new (NMSupplCapMask capabilities);
 
 guint32 nm_supplicant_config_get_ap_scan (NMSupplicantConfig *self);
 
@@ -37,8 +36,6 @@ guint32 nm_supplicant_config_get_scan_passive_dwell (NMSupplicantConfig *self);
 guint32 nm_supplicant_config_get_scan_suspend_time (NMSupplicantConfig *self);
 guint32 nm_supplicant_config_get_scan_roam_delta (NMSupplicantConfig *self);
 guint32 nm_supplicant_config_get_frequency_dfs (NMSupplicantConfig *self);
-gboolean nm_supplicant_config_set_laird_support (NMSupplicantConfig *self,
-												 NMSupplicantFeature laird_support);
 
 gboolean nm_supplicant_config_fast_required (NMSupplicantConfig *self);
 

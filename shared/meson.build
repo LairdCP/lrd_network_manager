@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: LGPL-2.1+
+
 shared_inc = include_directories('.')
 
 nm_default_dep = declare_dependency(include_directories: [top_inc, shared_inc])
@@ -105,12 +107,6 @@ nm_version_macro_header = configure_file(
   configuration: data_conf,
 )
 
-nm_ethtool_utils_source = files('nm-libnm-core-intern/nm-ethtool-utils.c')
-
-nm_libnm_core_aux_source = files('nm-libnm-core-aux/nm-libnm-core-aux.c')
-
-nm_libnm_core_utils_source = files('nm-libnm-core-intern/nm-libnm-core-utils.c')
-
 nm_meta_setting_source = files('nm-meta-setting.c')
 
 nm_test_utils_impl_source = files('nm-test-utils-impl.c')
@@ -168,15 +164,14 @@ libnm_utils_base_dep = declare_dependency(
   link_with: libnm_utils_base,
 )
 
-deps = [
-  glib_nm_default_dep,
-  libudev_dep,
-]
 
 libnm_udev_aux = static_library(
   'nm-udev-aux',
   sources: 'nm-udev-aux/nm-udev-utils.c',
-  dependencies: deps,
+  dependencies: [
+    glib_nm_default_dep,
+    libudev_dep,
+  ],
   c_args: c_flags,
 )
 
@@ -186,10 +181,11 @@ libnm_udev_aux_dep = declare_dependency(
 )
 
 sources = files(
+  'systemd/nm-sd-utils-shared.c',
   'systemd/src/basic/alloc-util.c',
-  'systemd/src/basic/escape.c',
   'systemd/src/basic/env-file.c',
   'systemd/src/basic/env-util.c',
+  'systemd/src/basic/escape.c',
   'systemd/src/basic/ether-addr-util.c',
   'systemd/src/basic/extract-word.c',
   'systemd/src/basic/fd-util.c',
@@ -209,6 +205,7 @@ sources = files(
   'systemd/src/basic/prioq.c',
   'systemd/src/basic/process-util.c',
   'systemd/src/basic/random-util.c',
+  'systemd/src/basic/signal-util.c',
   'systemd/src/basic/socket-util.c',
   'systemd/src/basic/stat-util.c',
   'systemd/src/basic/string-table.c',
@@ -220,7 +217,7 @@ sources = files(
   'systemd/src/basic/utf8.c',
   'systemd/src/basic/util.c',
   'systemd/src/shared/dns-domain.c',
-  'systemd/nm-sd-utils-shared.c',
+  'systemd/src/shared/web-util.c',
 )
 
 incs = include_directories(
@@ -256,5 +253,5 @@ libnm_systemd_logging_stub = static_library(
 )
 
 if enable_tests
-  subdir('nm-utils/tests')
+  subdir('nm-glib-aux/tests')
 endif

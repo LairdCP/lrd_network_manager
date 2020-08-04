@@ -20,9 +20,22 @@
 
 #define NM_MODEM_BROADBAND_MODEM "modem"
 
-#define MODEM_CAPS_3GPP(caps) (caps & (MM_MODEM_CAPABILITY_GSM_UMTS |    \
-                                       MM_MODEM_CAPABILITY_LTE |         \
-                                       MM_MODEM_CAPABILITY_LTE_ADVANCED))
+static gboolean
+MODEM_CAPS_3GPP (MMModemCapability caps)
+{
+	G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+	/* MM_MODEM_CAPABILITY_LTE_ADVANCED is marked as deprecated since ModemManager 1.14.0.
+	 *
+	 * The flag probably was never used, it certainly isn't used since 1.14.0.
+	 *
+	 * Still, just to be sure, there is no harm in checking it here. Suppress the
+	 * warning, it should have no bad effect.
+	 */
+	return NM_FLAGS_ANY (caps, (  MM_MODEM_CAPABILITY_GSM_UMTS
+	                            | MM_MODEM_CAPABILITY_LTE
+	                            | MM_MODEM_CAPABILITY_LTE_ADVANCED));
+	G_GNUC_END_IGNORE_DEPRECATIONS
+}
 
 #define MODEM_CAPS_3GPP2(caps) (caps & (MM_MODEM_CAPABILITY_CDMA_EVDO))
 
@@ -324,7 +337,7 @@ connect_context_clear (NMModemBroadband *self)
 		ConnectContext *ctx = self->_priv.ctx;
 
 		g_clear_error (&ctx->first_error);
-		g_clear_pointer (&ctx->ip_types, g_array_unref);
+		nm_clear_pointer (&ctx->ip_types, g_array_unref);
 		nm_clear_g_cancellable (&ctx->cancellable);
 		g_clear_object (&ctx->connection);
 		g_clear_object (&ctx->connect_properties);
@@ -548,7 +561,7 @@ connect_context_step (NMModemBroadband *self)
 	switch (ctx->step) {
 	case CONNECT_STEP_FIRST:
 		ctx->step++;
-		/* fall through */
+		/* fall-through */
 
 	case CONNECT_STEP_WAIT_FOR_SIM:
 		if (MODEM_CAPS_3GPP (ctx->caps) && !self->_priv.sim_iface) {
@@ -556,7 +569,7 @@ connect_context_step (NMModemBroadband *self)
 			break;
 		}
 		ctx->step++;
-		/* fall through */
+		/* fall-through */
 
 	case CONNECT_STEP_UNLOCK:
 		if (   MODEM_CAPS_3GPP (ctx->caps)
@@ -577,7 +590,7 @@ connect_context_step (NMModemBroadband *self)
 			break;
 		}
 		ctx->step++;
-		/* fall through */
+		/* fall-through */
 	case CONNECT_STEP_WAIT_FOR_READY: {
 		GError *error = NULL;
 
@@ -605,7 +618,7 @@ connect_context_step (NMModemBroadband *self)
 
 		ctx->step++;
 	}
-		/* fall through */
+		/* fall-through */
 	case CONNECT_STEP_CONNECT:
 		if (!ctx->connect_properties)
 			break;
@@ -639,7 +652,7 @@ connect_context_step (NMModemBroadband *self)
 		}
 
 		ctx->step++;
-		/* fall through */
+		/* fall-through */
 
 	case CONNECT_STEP_LAST:
 		if (self->_priv.ipv4_config || self->_priv.ipv6_config)
@@ -954,6 +967,7 @@ static_stage3_ip4_done (NMModemBroadband *self)
 	guint i;
 	guint32 ip4_route_table, ip4_route_metric;
 	NMPlatformIP4Route *r;
+	guint32 mtu_n;
 
 	g_return_val_if_fail (self->_priv.ipv4_config, FALSE);
 	g_return_val_if_fail (self->_priv.bearer, FALSE);
@@ -1024,6 +1038,14 @@ static_stage3_ip4_done (NMModemBroadband *self)
 			_LOGI ("  DNS %s", dns[i]);
 		}
 	}
+
+#if MM_CHECK_VERSION(1, 4, 0)
+	mtu_n = mm_bearer_ip_config_get_mtu (self->_priv.ipv4_config);
+	if (mtu_n) {
+		nm_ip4_config_set_mtu (config, mtu_n, NM_IP_CONFIG_SOURCE_WWAN);
+		_LOGI ("  MTU %u", mtu_n);
+	}
+#endif
 
 out:
 	g_signal_emit_by_name (self, NM_MODEM_IP4_CONFIG_RESULT, config, error);
@@ -1254,9 +1276,9 @@ disconnect (NMModem *modem,
 	/* Already cancelled or no simple-iface? We are done. */
 	if (   !ctx->self->_priv.simple_iface
 	    || g_cancellable_is_cancelled (cancellable)) {
-		nm_utils_invoke_on_idle (disconnect_context_complete_on_idle,
-		                         ctx,
-		                         cancellable);
+		nm_utils_invoke_on_idle (cancellable,
+		                         disconnect_context_complete_on_idle,
+		                         ctx);
 		return;
 	}
 

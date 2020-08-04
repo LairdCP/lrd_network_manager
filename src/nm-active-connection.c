@@ -14,7 +14,7 @@
 #include "nm-simple-connection.h"
 #include "nm-auth-utils.h"
 #include "nm-auth-manager.h"
-#include "nm-auth-subject.h"
+#include "nm-libnm-core-intern/nm-auth-subject.h"
 #include "nm-keep-alive.h"
 #include "NetworkManagerUtils.h"
 #include "nm-core-internal.h"
@@ -138,7 +138,8 @@ static void auth_complete (NMActiveConnection *self, gboolean result, const char
 
 /*****************************************************************************/
 
-NM_UTILS_LOOKUP_STR_DEFINE_STATIC (_state_to_string, NMActiveConnectionState,
+static
+NM_UTILS_LOOKUP_STR_DEFINE (_state_to_string, NMActiveConnectionState,
 	NM_UTILS_LOOKUP_DEFAULT (NULL),
 	NM_UTILS_LOOKUP_STR_ITEM (NM_ACTIVE_CONNECTION_STATE_UNKNOWN,      "unknown"),
 	NM_UTILS_LOOKUP_STR_ITEM (NM_ACTIVE_CONNECTION_STATE_ACTIVATING,   "activating"),
@@ -152,7 +153,8 @@ NM_UTILS_LOOKUP_STR_DEFINE_STATIC (_state_to_string, NMActiveConnectionState,
 /* the maximum required buffer size for _state_flags_to_string(). */
 #define _NM_ACTIVATION_STATE_FLAG_TO_STRING_BUFSIZE (255)
 
-NM_UTILS_FLAGS2STR_DEFINE_STATIC (_state_flags_to_string, NMActivationStateFlags,
+static
+NM_UTILS_FLAGS2STR_DEFINE (_state_flags_to_string, NMActivationStateFlags,
 	NM_UTILS_FLAGS2STR (NM_ACTIVATION_STATE_FLAG_NONE,                                 "none"),
 	NM_UTILS_FLAGS2STR (NM_ACTIVATION_STATE_FLAG_IS_MASTER,                            "is-master"),
 	NM_UTILS_FLAGS2STR (NM_ACTIVATION_STATE_FLAG_IS_SLAVE,                             "is-slave"),
@@ -161,6 +163,7 @@ NM_UTILS_FLAGS2STR_DEFINE_STATIC (_state_flags_to_string, NMActivationStateFlags
 	NM_UTILS_FLAGS2STR (NM_ACTIVATION_STATE_FLAG_IP6_READY,                            "ip6-ready"),
 	NM_UTILS_FLAGS2STR (NM_ACTIVATION_STATE_FLAG_MASTER_HAS_SLAVES,                    "master-has-slaves"),
 	NM_UTILS_FLAGS2STR (NM_ACTIVATION_STATE_FLAG_LIFETIME_BOUND_TO_PROFILE_VISIBILITY, "lifetime-bound-to-profile-visibility"),
+	NM_UTILS_FLAGS2STR (NM_ACTIVATION_STATE_FLAG_EXTERNAL,                             "external"),
 );
 
 /*****************************************************************************/
@@ -279,7 +282,7 @@ nm_active_connection_set_state (NMActiveConnection *self,
 		    priv->pending_activation_id)
 		{
 			nm_device_remove_pending_action (priv->device, priv->pending_activation_id, TRUE);
-			g_clear_pointer (&priv->pending_activation_id, g_free);
+			nm_clear_g_free (&priv->pending_activation_id);
 		}
 	}
 
@@ -338,7 +341,12 @@ nm_active_connection_set_state_fail (NMActiveConnection *self,
 NMActivationStateFlags
 nm_active_connection_get_state_flags (NMActiveConnection *self)
 {
-	return NM_ACTIVE_CONNECTION_GET_PRIVATE (self)->state_flags;
+	NMActiveConnectionPrivate *priv = NM_ACTIVE_CONNECTION_GET_PRIVATE (self);
+
+	return   priv->state_flags
+	       | (  priv->activation_type == NM_ACTIVATION_TYPE_EXTERNAL
+	          ? NM_ACTIVATION_STATE_FLAG_EXTERNAL
+	          : NM_ACTIVATION_STATE_FLAG_NONE);
 }
 
 void
@@ -348,6 +356,8 @@ nm_active_connection_set_state_flags_full (NMActiveConnection *self,
 {
 	NMActiveConnectionPrivate *priv = NM_ACTIVE_CONNECTION_GET_PRIVATE (self);
 	NMActivationStateFlags f;
+
+	nm_assert (!NM_FLAGS_HAS (mask, NM_ACTIVATION_STATE_FLAG_EXTERNAL));
 
 	f = (priv->state_flags & ~mask) | (state_flags & mask);
 	if (f != priv->state_flags) {
@@ -598,7 +608,9 @@ nm_active_connection_get_user_requested (NMActiveConnection *self)
 {
 	g_return_val_if_fail (NM_IS_ACTIVE_CONNECTION (self), FALSE);
 
-	return nm_auth_subject_is_unix_process (NM_ACTIVE_CONNECTION_GET_PRIVATE (self)->subject);
+	return nm_auth_subject_get_subject_type (
+	           NM_ACTIVE_CONNECTION_GET_PRIVATE (self)->subject
+	           ) == NM_AUTH_SUBJECT_TYPE_UNIX_PROCESS;
 }
 
 NMDevice *
@@ -865,9 +877,13 @@ _set_activation_type (NMActiveConnection *self,
                       NMActivationType activation_type)
 {
 	NMActiveConnectionPrivate *priv = NM_ACTIVE_CONNECTION_GET_PRIVATE (self);
+	gboolean state_flags_changed;
 
 	if (priv->activation_type == activation_type)
 		return;
+
+	state_flags_changed =    (priv->activation_type == NM_ACTIVATION_TYPE_EXTERNAL)
+	                      != (activation_type == NM_ACTIVATION_TYPE_EXTERNAL);
 
 	priv->activation_type = activation_type;
 
@@ -877,6 +893,9 @@ _set_activation_type (NMActiveConnection *self,
 		else
 			g_signal_handlers_disconnect_by_func (priv->settings_connection.obj, _settings_connection_flags_changed, self);
 	}
+
+	if (state_flags_changed)
+		_notify (self, PROP_STATE_FLAGS);
 }
 
 static void
@@ -941,7 +960,7 @@ static void
 _settings_connection_flags_changed (NMSettingsConnection *settings_connection,
                                     NMActiveConnection *self)
 {
-	GError *error = NULL;
+	NMDevice *device;
 
 	nm_assert (NM_IS_ACTIVE_CONNECTION (self));
 	nm_assert (NM_IS_SETTINGS_CONNECTION (settings_connection));
@@ -949,16 +968,21 @@ _settings_connection_flags_changed (NMSettingsConnection *settings_connection,
 	nm_assert (NM_ACTIVE_CONNECTION_GET_PRIVATE (self)->settings_connection.obj == settings_connection);
 
 	if (NM_FLAGS_HAS (nm_settings_connection_get_flags (settings_connection),
-	                  NM_SETTINGS_CONNECTION_INT_FLAGS_NM_GENERATED))
+	                  NM_SETTINGS_CONNECTION_INT_FLAGS_EXTERNAL))
 		return;
 
 	_set_activation_type_managed (self);
-	if (!nm_device_reapply (nm_active_connection_get_device (self),
-	                        nm_settings_connection_get_connection ((nm_active_connection_get_settings_connection (self))),
-	                        &error)) {
-		_LOGW ("failed to reapply new device settings on previously externally managed device: %s",
-		       error->message);
-		g_error_free (error);
+
+	device = nm_active_connection_get_device (self);
+	if (device) {
+		gs_free_error GError *error = NULL;
+
+		if (!nm_device_reapply (device,
+		                        nm_settings_connection_get_connection (nm_active_connection_get_settings_connection (self)),
+		                        &error)) {
+			_LOGW ("failed to reapply new device settings on previously externally managed device: %s",
+			       error->message);
+		}
 	}
 }
 
@@ -987,7 +1011,9 @@ parent_state_cb (NMActiveConnection *parent_ac,
 		return;
 
 	unwatch_parent (self, TRUE);
-	g_signal_emit (self, signals[PARENT_ACTIVE], 0, parent_ac);
+
+	if (parent_state == NM_ACTIVE_CONNECTION_STATE_ACTIVATED)
+		g_signal_emit (self, signals[PARENT_ACTIVE], 0, parent_ac);
 }
 
 static void
@@ -1230,7 +1256,7 @@ _device_cleanup (NMActiveConnection *self)
 
 	if (priv->pending_activation_id) {
 		nm_device_remove_pending_action (priv->device, priv->pending_activation_id, TRUE);
-		g_clear_pointer (&priv->pending_activation_id, g_free);
+		nm_clear_g_free (&priv->pending_activation_id);
 	}
 
 	g_clear_object (&priv->device);
@@ -1242,7 +1268,8 @@ static void
 get_property (GObject *object, guint prop_id,
               GValue *value, GParamSpec *pspec)
 {
-	NMActiveConnectionPrivate *priv = NM_ACTIVE_CONNECTION_GET_PRIVATE ((NMActiveConnection *) object);
+	NMActiveConnection *self = NM_ACTIVE_CONNECTION (object);
+	NMActiveConnectionPrivate *priv = NM_ACTIVE_CONNECTION_GET_PRIVATE (self);
 	char **strv;
 	NMDevice *master_device = NULL;
 
@@ -1289,7 +1316,7 @@ get_property (GObject *object, guint prop_id,
 		}
 		break;
 	case PROP_STATE_FLAGS:
-		g_value_set_uint (value, priv->state_flags);
+		g_value_set_uint (value, nm_active_connection_get_state_flags (self));
 		break;
 	case PROP_DEFAULT:
 		g_value_set_boolean (value, priv->is_default);
@@ -1396,7 +1423,7 @@ set_property (GObject *object, guint prop_id,
 	case PROP_SPECIFIC_OBJECT:
 		/* construct-only */
 		tmp = g_value_get_string (value);
-		tmp = nm_utils_dbus_normalize_object_path (tmp);
+		tmp = nm_dbus_path_not_empty (tmp);
 		priv->specific_object = g_strdup (tmp);
 		break;
 	case PROP_DEFAULT:

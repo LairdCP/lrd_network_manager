@@ -98,7 +98,7 @@ _detect_get_meta_data_done_cb (GObject *source,
 	                                          NULL,
 	                                          &get_error);
 
-	if (nm_utils_error_is_cancelled (get_error, FALSE)) {
+	if (nm_utils_error_is_cancelled (get_error)) {
 		g_task_return_error (task, g_steal_pointer (&get_error));
 		return;
 	}
@@ -138,6 +138,7 @@ detect (NMCSProvider *provider,
 	                         256*1024,
 	                         7000,
 	                         1000,
+	                         NULL,
 	                         g_task_get_cancellable (task),
 	                         _detect_get_meta_data_check_cb,
 	                         NULL,
@@ -168,7 +169,7 @@ _get_config_task_return (GetConfigIfaceData *iface_data,
 	nm_g_slice_free (iface_data);
 
 	if (error_take) {
-		if (nm_utils_error_is_cancelled (error_take, FALSE))
+		if (nm_utils_error_is_cancelled (error_take))
 			_LOGD ("get-config: cancelled");
 		else
 			_LOGD ("get-config: failed: %s", error_take->message);
@@ -204,7 +205,7 @@ _get_config_fetch_done_cb (NMHttpClient *http_client,
 	                                          NULL,
 	                                          &response_data,
 	                                          &error);
-	if (nm_utils_error_is_cancelled (error, FALSE))
+	if (nm_utils_error_is_cancelled (error))
 		return;
 
 	get_config_data = iface_data->get_config_data;
@@ -327,7 +328,7 @@ _get_config_metadata_ready_cb (GObject *source,
 		.n_pending       = 0,
 	};
 
-	if (nm_utils_error_is_cancelled (error, FALSE)) {
+	if (nm_utils_error_is_cancelled (error)) {
 		_get_config_task_return (iface_data, g_steal_pointer (&error));
 		return;
 	}
@@ -396,6 +397,7 @@ _get_config_metadata_ready_cb (GObject *source,
 		                         512*1024,
 		                         10000,
 		                         1000,
+		                         NULL,
 		                         iface_data->cancellable,
 		                         NULL,
 		                         NULL,
@@ -413,6 +415,7 @@ _get_config_metadata_ready_cb (GObject *source,
 		                         512*1024,
 		                         10000,
 		                         1000,
+		                         NULL,
 		                         iface_data->cancellable,
 		                         NULL,
 		                         NULL,
@@ -529,6 +532,7 @@ get_config (NMCSProvider *provider,
 	                         256 * 1024,
 	                         15000,
 	                         1000,
+	                         NULL,
 	                         g_task_get_cancellable (get_config_data->task),
 	                         _get_config_metadata_ready_check,
 	                         metadata_data,

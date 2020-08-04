@@ -156,8 +156,13 @@ double nm_utils_exp10 (gint16 e);
  * nm_utils_ip6_route_metric_normalize:
  * @metric: the route metric
  *
- * For IPv6 route, kernel treats the value 0 as IP6_RT_PRIO_USER (1024).
- * Thus, when comparing metric (values), we want to treat zero as NM_PLATFORM_ROUTE_METRIC_DEFAULT_IP6.
+ * For IPv6 route, when adding a route via netlink, kernel treats the value 0 as IP6_RT_PRIO_USER (1024).
+ * So, user space cannot add routes with such a metric, and 0 gets "normalized"
+ * to NM_PLATFORM_ROUTE_METRIC_DEFAULT_IP6.
+ *
+ * Note that kernel itself can add IPv6 routes with metric zero. Also, you can delete
+ * them, but mostly because with `ip -6 route delete ... metric 0` the 0 acts as a wildcard
+ * and kills the first matching route.
  *
  * Returns: @metric, if @metric is not zero, otherwise 1024.
  */
@@ -174,9 +179,8 @@ nm_utils_ip_route_metric_normalize (int addr_family, guint32 metric)
 }
 
 static inline guint32
-nm_utils_ip_route_metric_penalize (int addr_family, guint32 metric, guint32 penalty)
+nm_utils_ip_route_metric_penalize (guint32 metric, guint32 penalty)
 {
-	metric = nm_utils_ip_route_metric_normalize (addr_family, metric);
 	if (metric < G_MAXUINT32 - penalty)
 		return metric + penalty;
 	return G_MAXUINT32;
@@ -230,6 +234,11 @@ gboolean nm_wildcard_match_check (const char *str,
                                   const char *const *patterns,
                                   guint num_patterns);
 
+gboolean nm_utils_kernel_cmdline_match_check (const char *const*proc_cmdline,
+                                              const char *const*patterns,
+                                              guint num_patterns,
+                                              GError **error);
+
 /*****************************************************************************/
 
 gboolean nm_utils_connection_has_default_route (NMConnection *connection,
@@ -267,6 +276,8 @@ gboolean nm_utils_machine_id_is_fake (void);
 
 const char *nm_utils_boot_id_str (void);
 const struct _NMUuid *nm_utils_boot_id_bin (void);
+const char *nm_utils_proc_cmdline (void);
+const char *const*nm_utils_proc_cmdline_split (void);
 
 gboolean nm_utils_host_id_get (const guint8 **out_host_id,
                                gsize *out_host_id_len);
@@ -316,7 +327,7 @@ gboolean nm_utils_ipv6_interface_identifier_get_from_token (NMUtilsIPv6IfaceId *
                                                            const char *token);
 
 const char *nm_utils_inet6_interface_identifier_to_token (NMUtilsIPv6IfaceId iid,
-                                                         char *buf);
+                                                          char buf[static INET6_ADDRSTRLEN]);
 
 gboolean nm_utils_get_ipv6_interface_identifier (NMLinkType link_type,
                                                  const guint8 *hwaddr,
@@ -470,6 +481,16 @@ const char *nm_activation_type_to_string (NMActivationType activation_type);
 /*****************************************************************************/
 
 const char *nm_utils_parse_dns_domain (const char *domain, gboolean *is_routing);
+
+/*****************************************************************************/
+
+void nm_wifi_utils_parse_ies (const guint8 *bytes,
+                              gsize len,
+                              guint32 *out_max_rate,
+                              gboolean *out_metered,
+                              gboolean *out_owe_transition_mode);
+
+guint8 nm_wifi_utils_level_to_quality (int val);
 
 /*****************************************************************************/
 

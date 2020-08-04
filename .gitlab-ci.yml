@@ -7,14 +7,20 @@
 stages:
   - test
   - deploy
+  - triage
 
 .fedora_install: &fedora_install
   before_script:
 
-    # enable EPEL on CentOS
-    - date '+%Y%m%d-%H%M%S'; ! grep -q '^NAME=.*\(CentOS\)' /etc/os-release || yum install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm
+    - date '+%Y%m%d-%H%M%S'; ! ( grep -q '^NAME=.*\(CentOS\)' /etc/os-release && grep -q '^VERSION_ID=.*\<7\>' /etc/os-release ) || yum install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm
+    - date '+%Y%m%d-%H%M%S'; ! ( grep -q '^NAME=.*\(CentOS\)' /etc/os-release && grep -q '^VERSION_ID=.*\<7\>' /etc/os-release ) || yum install -y glibc-common
+    - date '+%Y%m%d-%H%M%S'; ! ( grep -q '^NAME=.*\(CentOS\)' /etc/os-release && grep -q '^VERSION_ID=.*\<7\>' /etc/os-release ) || localedef -c -i pl_PL -f UTF-8 pl_PL.UTF-8 && locale -a
+    - date '+%Y%m%d-%H%M%S'; ! ( grep -q '^NAME=.*\(CentOS\)' /etc/os-release && grep -q '^VERSION_ID=.*\<7\>' /etc/os-release ) || yum install -y python36-dbus python36-gobject-base
 
-    - date '+%Y%m%d-%H%M%S'; ! grep -q '^NAME=.*\(CentOS\)' /etc/os-release || (yum install -y glibc-common && localedef -c -i pl_PL -f UTF-8 pl_PL.UTF-8 && locale -a)
+    - date '+%Y%m%d-%H%M%S'; ! ( grep -q '^NAME=.*\(CentOS\)' /etc/os-release && grep -q '^VERSION_ID=.*\<8\>' /etc/os-release ) || dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm
+    - date '+%Y%m%d-%H%M%S'; ! ( grep -q '^NAME=.*\(CentOS\)' /etc/os-release && grep -q '^VERSION_ID=.*\<8\>' /etc/os-release ) || dnf install -y 'dnf-command(config-manager)'
+    - date '+%Y%m%d-%H%M%S'; ! ( grep -q '^NAME=.*\(CentOS\)' /etc/os-release && grep -q '^VERSION_ID=.*\<8\>' /etc/os-release ) || dnf config-manager --set-enabled PowerTools
+    - date '+%Y%m%d-%H%M%S'; ! ( grep -q '^NAME=.*\(CentOS\)' /etc/os-release && grep -q '^VERSION_ID=.*\<8\>' /etc/os-release ) || curl https://copr.fedorainfracloud.org/coprs/nmstate/nm-build-deps/repo/epel-8/nmstate-nm-build-deps-epel-8.repo > /etc/yum.repos.d/nmstate-nm-build-deps-epel-8.repo
 
     - date '+%Y%m%d-%H%M%S'; NM_NO_EXTRA=1 NM_INSTALL="yum install -y" ./contrib/fedora/REQUIRED_PACKAGES
     - date '+%Y%m%d-%H%M%S'; yum install -y glibc-langpack-pl ccache clang which
@@ -22,8 +28,6 @@ stages:
     # containers have "tsflags=nodocs" in /etc/dnf/dnf.conf. We need /usr/shared/gtk-doc/html
     # to generate proper documentation.
     - date '+%Y%m%d-%H%M%S'; yum reinstall -y --setopt='tsflags=' glib2-doc
-
-    - date '+%Y%m%d-%H%M%S'; ! grep -q '^NAME=.*\(CentOS\)' /etc/os-release || yum install -y python36-dbus python36-gobject-base
 
     - date '+%Y%m%d-%H%M%S'; ! which dnf || dnf install -y python3-dnf-plugins-core
     - date '+%Y%m%d-%H%M%S'; ! which dnf || dnf debuginfo-install -y glib2
@@ -35,12 +39,13 @@ stages:
 
 .debian_install: &debian_install
   before_script:
-    - date '+%Y%m%d-%H%M%S'; apt-get update
-    - date '+%Y%m%d-%H%M%S'; NM_INSTALL="apt-get -qq install -y" ./contrib/debian/REQUIRED_PACKAGES
+    - date '+%Y%m%d-%H%M%S'; DEBIAN_FRONTEND=noninteractive apt-get update
+    - date '+%Y%m%d-%H%M%S'; DEBIAN_FRONTEND=noninteractive NM_INSTALL="apt-get -qq install -y" ./contrib/debian/REQUIRED_PACKAGES
     - date '+%Y%m%d-%H%M%S'; dbus-uuidgen --ensure
     - date '+%Y%m%d-%H%M%S'; sed -i 's/^# \(pl_PL.UTF-8 .*\)$/\1/p' /etc/locale.gen ; true
     - date '+%Y%m%d-%H%M%S'; locale-gen pl_PL.UTF-8
-    - date '+%Y%m%d-%H%M%S'; pip3 install meson
+    - date '+%Y%m%d-%H%M%S'; grep -q "VERSION=.16.04.6 LTS" /etc/os-release && pip3 install meson==0.53.2
+    - date '+%Y%m%d-%H%M%S'; grep -q "VERSION=.16.04.6 LTS" /etc/os-release || pip3 install meson
     - date '+%Y%m%d-%H%M%S'; contrib/scripts/nm-ci-install-valgrind-in-ubuntu1604.sh
 
     # iproute2 5.2.0 on debian:sid causes our unit tests to fail.
@@ -63,17 +68,18 @@ stages:
     - date '+%Y%m%d-%H%M%S'; git clean -fdx ; BUILD_TYPE=meson     CC=clang WITH_DOCS=0 contrib/scripts/nm-ci-run.sh
     - date '+%Y%m%d-%H%M%S'; git clean -fdx ; ! grep -q '^NAME=.*\(Fedora\|CentOS\)' /etc/os-release || ./contrib/fedora/rpm/build_clean.sh -g -w crypto_gnutls -w debug -w iwd -w test -W meson
     - date '+%Y%m%d-%H%M%S'; git clean -fdx ; ! grep -q '^NAME=.*\(Fedora\)'         /etc/os-release || ./contrib/fedora/rpm/build_clean.sh -g -w crypto_gnutls -w debug -w iwd -w test -w meson
-    - date '+%Y%m%d-%H%M%S'; git clean -fdx ; test "$NM_BUILD_TARBALL" != 1 || ( ./contrib/fedora/rpm/build_clean.sh -r && mv ./NetworkManager-1*.tar.xz /tmp/ && mv ./contrib/fedora/rpm/latest/SRPMS/NetworkManager-1*.src.rpm /tmp/ )
+    - date '+%Y%m%d-%H%M%S'; git clean -fdx ; test "$NM_BUILD_TARBALL" != 1 || ( SIGN_SOURCE=0 ./contrib/fedora/rpm/build_clean.sh -r && mv ./NetworkManager-1*.tar.xz /tmp/ && mv ./contrib/fedora/rpm/latest/SRPMS/NetworkManager-1*.src.rpm /tmp/ )
     - date '+%Y%m%d-%H%M%S'; git clean -fdx
     - date '+%Y%m%d-%H%M%S'; mv /tmp/nm-docs-html ./docs-html
     - date '+%Y%m%d-%H%M%S'; test "$NM_BUILD_TARBALL" != 1 || mv /tmp/NetworkManager-1*.tar.xz /tmp/NetworkManager-1*.src.rpm ./
 
 checkpatch:
-  image: fedora:29
+  image: fedora:32
   stage: test
   script:
-    - date '+%Y%m%d-%H%M%S'; dnf install -y git
+    - date '+%Y%m%d-%H%M%S'; dnf install -y git black
     - date '+%Y%m%d-%H%M%S'; NM_CHECKPATCH_FETCH_UPSTREAM=1 contrib/scripts/checkpatch-feature-branch.sh 2>&1 | tee checkpatch-out.txt
+    - date '+%Y%m%d-%H%M%S'; black --check .
   allow_failure: true
   artifacts:
     when: on_failure
@@ -96,6 +102,12 @@ t_fedora:30:
   <<: *fedora_install
   image: fedora:30
   <<: *do_build
+  when: manual
+
+t_fedora:31:
+  <<: *fedora_install
+  image: fedora:31
+  <<: *do_build
   variables:
     NM_BUILD_TARBALL: 1
   artifacts:
@@ -105,9 +117,9 @@ t_fedora:30:
       - NetworkManager-1*.tar.xz
       - NetworkManager-1*.src.rpm
 
-t_fedora:31:
+t_fedora:32:
   <<: *fedora_install
-  image: fedora:31
+  image: fedora:32
   <<: *do_build
   when: manual
 
@@ -127,6 +139,24 @@ t_centos:7.5.1804:
 t_centos:7.6.1810:
   <<: *fedora_install
   image: centos:7.6.1810
+  <<: *do_build
+  when: manual
+
+t_centos:7.7.1908:
+  <<: *fedora_install
+  image: centos:7.7.1908
+  <<: *do_build
+  when: manual
+
+t_centos:7.8.2003:
+  <<: *fedora_install
+  image: centos:7.8.2003
+  <<: *do_build
+  when: manual
+
+t_centos:8.1.1911:
+  <<: *fedora_install
+  image: centos:8.1.1911
   <<: *do_build
   when: manual
 
@@ -181,7 +211,7 @@ t_debian:sid:
 pages:
   stage: deploy
   dependencies:
-    - t_fedora:30
+    - t_fedora:31
   script:
     - mv docs-html public
   artifacts:
@@ -190,3 +220,12 @@ pages:
       - public
   only:
     - master
+
+triage:issues:
+  stage: triage
+  image: ruby:2.7
+  script:
+    - gem install gitlab-triage
+    - gitlab-triage -d --token $API_TOKEN --source-id $SOURCE_ID
+  only:
+    - schedules

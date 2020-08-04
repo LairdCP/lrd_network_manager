@@ -399,7 +399,9 @@ make_connection_setting (const char *file,
 	if (v) {
 		GError *error = NULL;
 
-		if (nm_utils_is_valid_iface_name (v, &error)) {
+		/* Only validate for NMU_IFACE_KERNEL, because ifcfg plugin anyway
+		 * doesn't support OVS types. */
+		if (nm_utils_ifname_valid (v, NMU_IFACE_KERNEL, &error)) {
 			g_object_set (s_con,
 			              NM_SETTING_CONNECTION_INTERFACE_NAME, v,
 			              NULL);
@@ -429,8 +431,8 @@ make_connection_setting (const char *file,
 	              (int) svGetValueInt64 (ifcfg, "AUTOCONNECT_RETRIES", 10,
 	                                      -1, G_MAXINT32, -1),
 	              NM_SETTING_CONNECTION_MULTI_CONNECT,
-	              (gint) svGetValueInt64 (ifcfg, "MULTI_CONNECT", 10,
-	                                      G_MININT32, G_MAXINT32, NM_CONNECTION_MULTI_CONNECT_DEFAULT),
+	              (int) svGetValueInt64 (ifcfg, "MULTI_CONNECT", 10,
+	                                     G_MININT32, G_MAXINT32, NM_CONNECTION_MULTI_CONNECT_DEFAULT),
 	              NM_SETTING_CONNECTION_AUTOCONNECT_SLAVES,
 	              svGetValueBoolean (ifcfg, "AUTOCONNECT_SLAVES", NM_SETTING_CONNECTION_AUTOCONNECT_SLAVES_DEFAULT),
 	              NM_SETTING_CONNECTION_LLDP, lldp,
@@ -502,6 +504,24 @@ make_connection_setting (const char *file,
 	}
 
 	nm_clear_g_free (&value);
+	v = svGetValueStr (ifcfg, "VRF_UUID", &value);
+	if (!v)
+		v = svGetValueStr (ifcfg, "VRF", &value);
+	if (v) {
+		const char *old_value;
+
+		if ((old_value = nm_setting_connection_get_master (s_con))) {
+			PARSE_WARNING ("Already configured as slave of %s. Ignoring VRF{_UUID}=\"%s\"",
+			               old_value, v);
+		} else {
+			g_object_set (s_con, NM_SETTING_CONNECTION_MASTER, v, NULL);
+			g_object_set (s_con, NM_SETTING_CONNECTION_SLAVE_TYPE,
+			              NM_SETTING_VRF_SETTING_NAME, NULL);
+		}
+	}
+
+
+	nm_clear_g_free (&value);
 	v = svGetValueStr (ifcfg, "GATEWAY_PING_TIMEOUT", &value);
 	if (v) {
 		gint64 tmp;
@@ -530,16 +550,18 @@ make_connection_setting (const char *file,
 	g_object_set (s_con, NM_SETTING_CONNECTION_AUTH_RETRIES, (int) vint64, NULL);
 
 	nm_clear_g_free (&value);
-	v = svGetValueStr (ifcfg, "DEVTIMEOUT", &value);
+	v = svGetValue (ifcfg, "DEVTIMEOUT", &value);
 	if (v) {
+		v = nm_str_skip_leading_spaces (v);
 		vint64 = _nm_utils_ascii_str_to_int64 (v, 10, 0, ((gint64) G_MAXINT32) / 1000, -1);
 		if (vint64 != -1)
 			vint64 *= 1000;
-		else {
+		else if (v[0] != '\0') {
 			char *endptr;
 			double d;
 
-			d = g_ascii_strtod (v, &endptr);
+			d = nm_g_ascii_strtod (v, &endptr);
+			endptr = nm_str_skip_leading_spaces (endptr);
 			if (   errno == 0
 			    && endptr[0] == '\0'
 			    && d >= 0.0) {
@@ -559,6 +581,11 @@ make_connection_setting (const char *file,
 		else
 			g_object_set (s_con, NM_SETTING_CONNECTION_WAIT_DEVICE_TIMEOUT, (int) vint64, NULL);
 	}
+
+	nm_clear_g_free (&value);
+	v = svGetValue (ifcfg, "MUD_URL", &value);
+	if (v)
+		g_object_set (s_con, NM_SETTING_CONNECTION_MUD_URL, v, NULL);
 
 	i_val = NM_SETTING_CONNECTION_MDNS_DEFAULT;
 	if (!svGetValueEnum (ifcfg, "MDNS",
@@ -709,7 +736,7 @@ read_full_ip4_address (shvarFile *ifcfg,
 			else {
 				/* Try to autodetermine the prefix for the address' class */
 				prefix = _nm_utils_ip4_get_default_prefix (ipaddr);
-				PARSE_WARNING ("missing %s, assuming %s/%d", prefix_tag, nm_utils_inet4_ntop (ipaddr, inet_buf), prefix);
+				PARSE_WARNING ("missing %s, assuming %s/%d", prefix_tag, _nm_utils_inet4_ntop (ipaddr, inet_buf), prefix);
 			}
 		}
 	}
@@ -773,6 +800,7 @@ typedef struct {
 	union {
 		guint8 uint8;
 		guint32 uint32;
+		const char *str;
 		struct {
 			guint32 uint32;
 			bool lock:1;
@@ -788,6 +816,7 @@ typedef struct {
 
 enum {
 	/* route attributes */
+	PARSE_LINE_ATTR_ROUTE_TYPE,
 	PARSE_LINE_ATTR_ROUTE_TABLE,
 	PARSE_LINE_ATTR_ROUTE_SRC,
 	PARSE_LINE_ATTR_ROUTE_FROM,
@@ -817,6 +846,7 @@ enum {
 #define PARSE_LINE_TYPE_IFNAME            'i'
 #define PARSE_LINE_TYPE_FLAG              'f'
 #define PARSE_LINE_TYPE_ROUTE_SCOPE       'S'
+#define PARSE_LINE_TYPE_STRING            's'
 
 /**
  * parse_route_line:
@@ -848,6 +878,8 @@ parse_route_line (const char *line,
                   GError **error)
 {
 	static const ParseLineInfo parse_infos[] = {
+		[PARSE_LINE_ATTR_ROUTE_TYPE]      = { .key = NM_IP_ROUTE_ATTRIBUTE_TYPE,
+		                                      .type = PARSE_LINE_TYPE_STRING, },
 		[PARSE_LINE_ATTR_ROUTE_TABLE]     = { .key = NM_IP_ROUTE_ATTRIBUTE_TABLE,
 		                                      .type = PARSE_LINE_TYPE_UINT32, },
 		[PARSE_LINE_ATTR_ROUTE_SRC]       = { .key = NM_IP_ROUTE_ATTRIBUTE_SRC,
@@ -981,6 +1013,23 @@ parse_route_line (const char *line,
 			default:
 				nm_assert_not_reached ();
 			}
+		}
+
+		p_info = &parse_infos[PARSE_LINE_ATTR_ROUTE_TYPE];
+		p_data = &parse_datas[PARSE_LINE_ATTR_ROUTE_TYPE];
+		if (   !p_data->has
+		    && NM_IN_STRSET (w,
+		                     "local",
+		                     "unicast",
+		                     "broadcast"
+		                     "multicast",
+		                     "throw",
+		                     "unreachable",
+		                     "prohibit",
+		                     "blackhole",
+		                     "nat")) {
+			p_data->has = TRUE;
+			goto parse_line_type_string;
 		}
 
 		/* "to" is also accepted unqualified... (once) */
@@ -1133,6 +1182,15 @@ parse_line_type_addr_with_prefix:
 		i_words++;
 		goto next;
 
+parse_line_type_string:
+		s = words[i_words];
+		if (!s)
+			goto err_word_missing_argument;
+
+		p_data->v.str = s;
+		i_words++;
+		goto next;
+
 err_word_missing_argument:
 		g_set_error (error, NM_SETTINGS_ERROR, NM_SETTINGS_ERROR_INVALID_CONNECTION,
 		             "Missing argument for \"%s\"", w);
@@ -1226,13 +1284,18 @@ next:
 			                           p_info->key,
 			                           g_variant_new_boolean (TRUE));
 			break;
+		case PARSE_LINE_TYPE_STRING:
+			nm_ip_route_set_attribute (route,
+			                           p_info->key,
+			                           g_variant_new_string (p_data->v.str));
+			break;
 		default:
 			nm_assert_not_reached ();
 			break;
 		}
 	}
 
-	nm_assert (_nm_ip_route_attribute_validate_all (route));
+	nm_assert (_nm_ip_route_attribute_validate_all (route, NULL));
 
 	NM_SET_OUT (out_route, g_steal_pointer (&route));
 	return 0;
@@ -1287,7 +1350,7 @@ read_one_ip4_route (shvarFile *ifcfg,
 		prefix = nm_utils_ip4_netmask_to_prefix (netmask);
 		if (netmask != _nm_utils_ip4_prefix_to_netmask (prefix)) {
 			g_set_error (error, NM_SETTINGS_ERROR, NM_SETTINGS_ERROR_INVALID_CONNECTION,
-			             "Invalid IP4 netmask '%s' \"%s\"", netmask_tag, nm_utils_inet4_ntop (netmask, inet_buf));
+			             "Invalid IP4 netmask '%s' \"%s\"", netmask_tag, _nm_utils_inet4_ntop (netmask, inet_buf));
 			return FALSE;
 		}
 	} else {
@@ -1318,7 +1381,7 @@ read_one_ip4_route (shvarFile *ifcfg,
 	v = svGetValueStr (ifcfg, numbered_tag (tag, "OPTIONS", which), &value);
 	if (v) {
 		if (parse_route_line (v, AF_INET, *out_route, NULL, error) < 0) {
-			g_clear_pointer (out_route, nm_ip_route_unref);
+			nm_clear_pointer (out_route, nm_ip_route_unref);
 			return FALSE;
 		}
 	}
@@ -1327,39 +1390,40 @@ read_one_ip4_route (shvarFile *ifcfg,
 }
 
 static gboolean
-read_route_file (int addr_family,
-                 const char *filename,
-                 NMSettingIPConfig *s_ip,
-                 GError **error)
+read_route_file_parse (int addr_family,
+                       const char *filename,
+                       const char *contents,
+                       gsize len,
+                       NMSettingIPConfig *s_ip,
+                       GError **error)
 {
-	gs_free char *contents = NULL;
-	char *contents_rest = NULL;
-	const char *line;
-	gsize len = 0;
 	gsize line_num;
 
-	g_return_val_if_fail (filename, FALSE);
-	g_return_val_if_fail (   (addr_family == AF_INET  && NM_IS_SETTING_IP4_CONFIG (s_ip))
-	                      || (addr_family == AF_INET6 && NM_IS_SETTING_IP6_CONFIG (s_ip)), FALSE);
-	g_return_val_if_fail (!error || !*error, FALSE);
+	nm_assert (filename);
+	nm_assert (addr_family == nm_setting_ip_config_get_addr_family (s_ip));
+	nm_assert (!error || !*error);
 
-	if (   !g_file_get_contents (filename, &contents, &len, NULL)
-	    || !len) {
+	if (len <= 0)
 		return TRUE;  /* missing/empty = success */
-	}
 
 	line_num = 0;
-	for (line = strtok_r (contents, "\n", &contents_rest);
-	     line;
-	     line = strtok_r (NULL, "\n", &contents_rest)) {
+	while (TRUE) {
 		nm_auto_unref_ip_route NMIPRoute *route = NULL;
 		gs_free_error GError *local = NULL;
+		const char *line = contents;
+		char *eol;
 		int e;
+
+		eol = strchr (contents, '\n');
+		if (eol) {
+			eol[0] = '\0';
+			contents = &eol[1];
+		}
 
 		line_num++;
 
 		if (parse_route_line_is_comment (line))
-			continue;
+			goto next;
 
 		e = parse_route_line (line, addr_family, NULL, &route, &local);
 
@@ -1371,14 +1435,38 @@ read_route_file (int addr_family,
 				 * entire connection. */
 				PARSE_WARNING ("ignoring invalid route at \"%s\" (%s:%lu): %s", line, filename, (long unsigned) line_num, local->message);
 			}
-			continue;
+			goto next;
 		}
 
 		if (!nm_setting_ip_config_add_route (s_ip, route))
 			PARSE_WARNING ("duplicate IPv%c route", addr_family == AF_INET ? '4' : '6');
-	}
 
-	return TRUE;
+next:
+		if (!eol)
+			return TRUE;
+
+		/* restore original content. */
+		eol[0] = '\n';
+	}
+}
+
+static gboolean
+read_route_file (int addr_family,
+                 const char *filename,
+                 NMSettingIPConfig *s_ip,
+                 GError **error)
+{
+	gs_free char *contents = NULL;
+	gsize len;
+
+	nm_assert (filename);
+	nm_assert (addr_family == nm_setting_ip_config_get_addr_family (s_ip));
+	nm_assert (!error || !*error);
+
+	if (!g_file_get_contents (filename, &contents, &len, NULL))
+		return TRUE;  /* missing/empty = success */
+
+	return read_route_file_parse (addr_family, filename, contents, len, s_ip, error);
 }
 
 static void
@@ -1485,29 +1573,45 @@ make_user_setting (shvarFile *ifcfg)
 	       : NULL;
 }
 
-static NMSetting *
-make_match_setting (shvarFile *ifcfg)
-{
-	NMSettingMatch *s_match = NULL;
-	gs_free const char **strv = NULL;
-	gs_free char *value = NULL;
-	const char *v;
-	gsize i;
 
-	v = svGetValueStr (ifcfg, "MATCH_INTERFACE_NAME", &value);
-	if (!v)
-		return NULL;
+static void
+make_match_setting_prop (const char *v,
+                         NMSettingMatch **s_match,
+                         void (*add_fcn) (NMSettingMatch *s_match, const char *value))
+{
+	gs_free const char **strv = NULL;
+	gsize i;
 
 	strv = nm_utils_escaped_tokens_split (v, NM_ASCII_SPACES);
 	if (strv) {
 		for (i = 0; strv[i]; i++) {
-			if (!s_match)
-				s_match = (NMSettingMatch *) nm_setting_match_new ();
-			nm_setting_match_add_interface_name (s_match, strv[i]);
+			if (!(*s_match))
+				*s_match = NM_SETTING_MATCH (nm_setting_match_new ());
+			add_fcn (*s_match, strv[i]);
 		}
 	}
+}
 
-	return (NMSetting *) s_match;
+static NMSetting *
+make_match_setting (shvarFile *ifcfg)
+{
+	NMSettingMatch *s_match = NULL;
+	gs_free char *value_ifn = NULL;
+	gs_free char *value_kcl = NULL;
+	gs_free char *value_d = NULL;
+	gs_free char *value_p = NULL;
+	const char *v;
+
+	v = svGetValueStr (ifcfg, "MATCH_INTERFACE_NAME", &value_ifn);
+	make_match_setting_prop (v, &s_match, nm_setting_match_add_interface_name);
+	v = svGetValueStr (ifcfg, "MATCH_KERNEL_COMMAND_LINE", &value_kcl);
+	make_match_setting_prop (v, &s_match, nm_setting_match_add_kernel_command_line);
+	v = svGetValueStr (ifcfg, "MATCH_DRIVER", &value_d);
+	make_match_setting_prop (v, &s_match, nm_setting_match_add_driver);
+	v = svGetValueStr (ifcfg, "MATCH_PATH", &value_p);
+	make_match_setting_prop (v, &s_match, nm_setting_match_add_path);
+
+	return NM_SETTING (s_match);
 }
 
 static NMSetting *
@@ -1577,7 +1681,6 @@ make_ip4_setting (shvarFile *ifcfg,
 	int i;
 	guint32 a;
 	gboolean has_key;
-	shvarFile *route_ifcfg;
 	gboolean never_default;
 	gint64 i64;
 	int priority;
@@ -1692,7 +1795,7 @@ make_ip4_setting (shvarFile *ifcfg,
 
 	g_object_set (s_ip4,
 	              NM_SETTING_IP_CONFIG_DHCP_SEND_HOSTNAME, svGetValueBoolean (ifcfg, "DHCP_SEND_HOSTNAME", TRUE),
-	              NM_SETTING_IP_CONFIG_DHCP_TIMEOUT, svGetValueInt64 (ifcfg, "IPV4_DHCP_TIMEOUT", 10, 0, G_MAXINT32, 0),
+	              NM_SETTING_IP_CONFIG_DHCP_TIMEOUT, (int) svGetValueInt64 (ifcfg, "IPV4_DHCP_TIMEOUT", 10, 0, G_MAXINT32, 0),
 	              NULL);
 
 	nm_clear_g_free (&value);
@@ -1771,10 +1874,10 @@ make_ip4_setting (shvarFile *ifcfg,
 			nm_clear_g_free (&value);
 			v = svGetValueStr (ifcfg, tag, &value);
 			if (v) {
-				if (nm_utils_ipaddr_valid (AF_INET, v)) {
+				if (nm_utils_ipaddr_is_valid (AF_INET, v)) {
 					if (!nm_setting_ip_config_add_dns (s_ip4, v))
 						PARSE_WARNING ("duplicate DNS server %s", tag);
-				} else if (nm_utils_ipaddr_valid (AF_INET6, v)) {
+				} else if (nm_utils_ipaddr_is_valid (AF_INET6, v)) {
 					/* Ignore IPv6 addresses */
 				} else {
 					PARSE_WARNING ("invalid DNS server address %s", v);
@@ -1814,32 +1917,34 @@ make_ip4_setting (shvarFile *ifcfg,
 	/* Static routes  - route-<name> file */
 	route_path = utils_get_route_path (svFileGetName (ifcfg));
 
-	if (!routes_read) {
-		/* NOP */
-	} else if (utils_has_route_file_new_syntax (route_path)) {
-		/* Parse route file in new syntax */
-		route_ifcfg = utils_get_route_ifcfg (svFileGetName (ifcfg), FALSE);
-		if (route_ifcfg) {
-			for (i = 0;; i++) {
-				NMIPRoute *route = NULL;
+	if (routes_read) {
+		gs_free char *contents = NULL;
+		gsize len;
 
-				if (!read_one_ip4_route (route_ifcfg, i, &route, error)) {
-					svCloseFile (route_ifcfg);
+		if (!g_file_get_contents (route_path, &contents, &len, NULL))
+			len = 0;
+
+		if (utils_has_route_file_new_syntax_content (contents, len)) {
+			nm_auto_shvar_file_close shvarFile *route_ifcfg = NULL;
+
+			/* Parse route file in new syntax */
+			route_ifcfg = svFile_new (route_path, -1, contents);
+			for (i = 0;; i++) {
+				nm_auto_unref_ip_route NMIPRoute *route = NULL;
+
+				if (!read_one_ip4_route (route_ifcfg, i, &route, error))
 					return NULL;
-				}
 
 				if (!route)
 					break;
 
 				if (!nm_setting_ip_config_add_route (s_ip4, route))
 					PARSE_WARNING ("duplicate IP4 route");
-				nm_ip_route_unref (route);
 			}
-			svCloseFile (route_ifcfg);
+		} else {
+			if (!read_route_file_parse (AF_INET, route_path, contents, len, s_ip4, error))
+				return NULL;
 		}
-	} else {
-		if (!read_route_file (AF_INET, route_path, s_ip4, error))
-			return NULL;
 	}
 
 	/* Legacy value NM used for a while but is incorrect (rh #459370) */
@@ -2159,9 +2264,11 @@ make_ip6_setting (shvarFile *ifcfg,
 	if (v)
 		g_object_set (s_ip6, NM_SETTING_IP_CONFIG_DHCP_HOSTNAME, v, NULL);
 
-	g_object_set (s_ip6, NM_SETTING_IP_CONFIG_DHCP_SEND_HOSTNAME,
-	              svGetValueBoolean (ifcfg, "DHCPV6_SEND_HOSTNAME", TRUE), NULL);
-
+	g_object_set (s_ip6,
+	              NM_SETTING_IP_CONFIG_DHCP_SEND_HOSTNAME, svGetValueBoolean (ifcfg, "DHCPV6_SEND_HOSTNAME", TRUE),
+	              NM_SETTING_IP_CONFIG_DHCP_TIMEOUT, (int) svGetValueInt64 (ifcfg, "IPV6_DHCP_TIMEOUT", 10, 0, G_MAXINT32, 0),
+	              NM_SETTING_IP6_CONFIG_RA_TIMEOUT, (int) svGetValueInt64 (ifcfg, "IPV6_RA_TIMEOUT", 10, 0, G_MAXINT32, 0),
+	              NULL);
 
 	i64 = svGetValueInt64 (ifcfg, "DHCPV6_HOSTNAME_FLAGS", 10, 0, G_MAXUINT32, -1);
 	if (i64 > -1) {
@@ -2212,7 +2319,7 @@ make_ip6_setting (shvarFile *ifcfg,
 			char *ptr;
 			if ((ptr = strchr (v, '%')) != NULL)
 				*ptr = '\0';  /* remove %interface prefix if present */
-			if (!nm_utils_ipaddr_valid (AF_INET6, v)) {
+			if (!nm_utils_ipaddr_is_valid (AF_INET6, v)) {
 				g_set_error (error, NM_SETTINGS_ERROR, NM_SETTINGS_ERROR_INVALID_CONNECTION,
 				             "Invalid IP6 address '%s'", v);
 				return NULL;
@@ -2251,10 +2358,10 @@ make_ip6_setting (shvarFile *ifcfg,
 			break;
 		}
 
-		if (nm_utils_ipaddr_valid (AF_INET6, v)) {
+		if (nm_utils_ipaddr_is_valid (AF_INET6, v)) {
 			if (!nm_setting_ip_config_add_dns (s_ip6, v))
 				PARSE_WARNING ("duplicate DNS server %s", tag);
-		} else if (nm_utils_ipaddr_valid (AF_INET, v)) {
+		} else if (nm_utils_ipaddr_is_valid (AF_INET, v)) {
 			/* Ignore IPv4 addresses */
 		} else {
 			PARSE_WARNING ("invalid DNS server address %s", v);
@@ -2408,7 +2515,7 @@ make_tc_setting (shvarFile *ifcfg)
 		NMTCTfilter *tfilter = NULL;
 		gs_free char *value_to_free = NULL;
 		const char *value = NULL;
-		GError *local = NULL;
+		gs_free_error GError *local = NULL;
 
 		value = svGetValueStr (ifcfg, numbered_tag (tag, "FILTER", i), &value_to_free);
 		if (!value)
@@ -3621,13 +3728,35 @@ next:
 	v = svGetValueStr (ifcfg, "IEEE_8021X_PHASE2_DOMAIN_SUFFIX_MATCH", &value);
 	g_object_set (s_8021x, NM_SETTING_802_1X_PHASE2_DOMAIN_SUFFIX_MATCH, v, NULL);
 
+	nm_clear_g_free (&value);
+	v = svGetValueStr (ifcfg, "IEEE_8021X_DOMAIN_MATCH", &value);
+	g_object_set (s_8021x, NM_SETTING_802_1X_DOMAIN_MATCH, v, NULL);
+
+	nm_clear_g_free (&value);
+	v = svGetValueStr (ifcfg, "IEEE_8021X_PHASE2_DOMAIN_MATCH", &value);
+	g_object_set (s_8021x, NM_SETTING_802_1X_PHASE2_DOMAIN_MATCH, v, NULL);
+
 	timeout = svGetValueInt64 (ifcfg, "IEEE_8021X_AUTH_TIMEOUT", 10, 0, G_MAXINT32, 0);
 	g_object_set (s_8021x, NM_SETTING_802_1X_AUTH_TIMEOUT, (int) timeout, NULL);
+
+	nm_clear_g_free (&value);
+	v = svGetValueStr (ifcfg, "IEEE_8021X_CA_PATH", &value);
+	g_object_set (s_8021x, NM_SETTING_802_1X_CA_PATH, v, NULL);
+
+	nm_clear_g_free (&value);
+	v = svGetValueStr (ifcfg, "IEEE_8021X_PHASE2_CA_PATH", &value);
+	g_object_set (s_8021x, NM_SETTING_802_1X_PHASE2_CA_PATH, v, NULL);
 
 	g_object_set (s_8021x,
 	              NM_SETTING_802_1X_OPTIONAL,
 	              svGetValueBoolean (ifcfg, "IEEE_8021X_OPTIONAL", FALSE),
 	              NULL);
+
+	_secret_set_from_ifcfg (s_8021x,
+	                        ifcfg,
+	                        keys_ifcfg,
+	                        "IEEE_8021X_PIN",
+	                        NM_SETTING_802_1X_PIN);
 
 	return g_steal_pointer (&s_8021x);
 }
@@ -3643,7 +3772,7 @@ make_wpa_setting (shvarFile *ifcfg,
 	gs_unref_object NMSettingWirelessSecurity *wsec = NULL;
 	gs_free char *value = NULL;
 	const char *v;
-	gboolean wpa_psk = FALSE, wpa_sae = FALSE, wpa_eap = FALSE, ieee8021x = FALSE;
+	gboolean wpa_psk = FALSE, wpa_sae = FALSE, wpa_owe = FALSE, wpa_eap = FALSE, ieee8021x = FALSE;
 	int i_val;
 	GError *local = NULL;
 
@@ -3652,11 +3781,13 @@ make_wpa_setting (shvarFile *ifcfg,
 	v = svGetValueStr (ifcfg, "KEY_MGMT", &value);
 	wpa_psk = nm_streq0 (v, "WPA-PSK");
 	wpa_sae = nm_streq0 (v, "SAE");
+	wpa_owe = nm_streq0 (v, "OWE");
 	wpa_eap = nm_streq0 (v, "WPA-EAP")
 		|| nm_streq0 (v, "WPA-EAP-SUITE-B") || nm_streq0 (v, "WPA-EAP-SUITE-B-192");
 	ieee8021x = nm_streq0 (v, "IEEE8021X");
 	if (   !wpa_psk
 	    && !wpa_sae
+	    && !wpa_owe
 	    && !wpa_eap
 	    && !ieee8021x)
 		return NULL; /* Not WPA or Dynamic WEP */
@@ -3672,7 +3803,7 @@ make_wpa_setting (shvarFile *ifcfg,
 	              NULL);
 
 	/* Pairwise and Group ciphers (only relevant for WPA/RSN) */
-	if (wpa_psk || wpa_sae || wpa_eap) {
+	if (wpa_psk || wpa_sae || wpa_owe || wpa_eap) {
 		fill_wpa_ciphers (ifcfg, wsec, FALSE, adhoc);
 		fill_wpa_ciphers (ifcfg, wsec, TRUE, adhoc);
 	}
@@ -3721,7 +3852,7 @@ make_wpa_setting (shvarFile *ifcfg,
 			g_object_set (wsec, NM_SETTING_WIRELESS_SECURITY_KEY_MGMT, "sae", NULL);
 		}
 	} else {
-		nm_assert (wpa_eap || ieee8021x);
+		nm_assert (wpa_eap || ieee8021x || wpa_owe);
 
 		/* Adhoc mode is mutually exclusive with any 802.1x-based authentication */
 		if (adhoc) {
@@ -3730,14 +3861,17 @@ make_wpa_setting (shvarFile *ifcfg,
 			return NULL;
 		}
 
-		*s_8021x = fill_8021x (ifcfg, file, v, TRUE, error);
-		if (!*s_8021x)
-			return NULL;
+		if (wpa_owe) {
+			g_object_set (wsec, NM_SETTING_WIRELESS_SECURITY_KEY_MGMT, "owe", NULL);
+		} else {
+			*s_8021x = fill_8021x (ifcfg, file, v, TRUE, error);
+			if (!*s_8021x)
+				return NULL;
 
-		{
-			gs_free char *lower = g_ascii_strdown (v, -1);
-
-			g_object_set (wsec, NM_SETTING_WIRELESS_SECURITY_KEY_MGMT, lower, NULL);
+			{
+				gs_free char *lower = g_ascii_strdown (v, -1);
+				g_object_set (wsec, NM_SETTING_WIRELESS_SECURITY_KEY_MGMT, lower, NULL);
+			}
 		}
 	}
 
@@ -3788,7 +3922,7 @@ make_leap_setting (shvarFile *ifcfg,
 	nm_clear_g_free (&value);
 
 	value = svGetValueStr_cp (ifcfg, "SECURITYMODE");
-	if (!value || strcasecmp (value, "leap"))
+	if (!value || g_ascii_strcasecmp (value, "leap"))
 		return NULL; /* Not LEAP */
 	nm_clear_g_free (&value);
 
@@ -4192,6 +4326,130 @@ wireless_connection_from_ifcfg (const char *file,
 	return connection;
 }
 
+typedef struct {
+	const char *optname;
+	union {
+		guint32 u32;
+		NMTernary nmternary;
+	} v;
+	gboolean has_value;
+} NMEthtoolIfcfgOption;
+
+/* returns an 'iterator' to words
+ * pointing to the next unprocessed option or NULL
+ * in case of failure */
+static const char **
+_next_ethtool_options_nmternary (const char **words,
+                                 NMEthtoolType ethtool_type,
+                                 NMEthtoolIfcfgOption *out_value)
+{
+	const char *opt;
+	const char *opt_val;
+	const NMEthtoolData *d = NULL;
+	NMTernary onoff = NM_TERNARY_DEFAULT;
+
+	nm_assert (out_value);
+
+	out_value->has_value = FALSE;
+	out_value->optname = NULL;
+
+	if (   !words
+	    || !words[0]
+	    || !words[1])
+		return NULL;
+
+	opt = *words;
+	opt_val = *(++words);
+
+	if (nm_streq0 (opt_val, "on"))
+		onoff = NM_TERNARY_TRUE;
+	else if (nm_streq0 (opt_val, "off"))
+		onoff = NM_TERNARY_FALSE;
+
+	d = nms_ifcfg_rh_utils_get_ethtool_by_name (opt, ethtool_type);
+	if (!d) {
+		if (onoff != NM_TERNARY_DEFAULT) {
+			/* the next value is just the on/off argument. Skip it too. */
+			++words;
+		}
+
+		/* silently ignore unsupported offloading features. */
+		return words;
+	}
+
+	if (onoff == NM_TERNARY_DEFAULT) {
+		PARSE_WARNING ("Expects on/off argument for feature '%s'", opt);
+		return words;
+	}
+
+	out_value->has_value = TRUE;
+	out_value->optname = d->optname;
+	out_value->v.nmternary = onoff;
+
+	return ++words;
+}
+
+/* returns an 'iterator' to words
+ * pointing to the next unprocessed option or NULL
+ * in case of failure */
+static const char **
+_next_ethtool_options_uint32 (const char **words,
+                              NMEthtoolType ethtool_type,
+                              NMEthtoolIfcfgOption *out_value)
+{
+	gint64 i64;
+	const char *opt;
+	const char *opt_val;
+	const NMEthtoolData *d = NULL;
+
+	nm_assert (out_value);
+
+	out_value->has_value = FALSE;
+	out_value->optname = NULL;
+
+	if (   !words
+	    || !words[0]
+	    || !words[1])
+		return NULL;
+
+	opt = *words;
+	opt_val = *(++words);
+
+	i64 = _nm_utils_ascii_str_to_int64 (opt_val, 10, 0, G_MAXUINT32, -1);
+
+	d = nms_ifcfg_rh_utils_get_ethtool_by_name (opt, ethtool_type);
+	if (!d) {
+		if (i64 != -1) {
+			/* the next value is just the on/off argument. Skip it too. */
+			++words;
+		}
+
+		/* silently ignore unsupported offloading features. */
+		return words;
+	}
+
+	out_value->has_value = TRUE;
+	out_value->optname = d->optname;
+	out_value->v.u32 = (guint32) i64;
+
+	return ++words;
+}
+
+static
+NM_UTILS_STRING_TABLE_LOOKUP_DEFINE (
+	_get_ethtool_type_by_name,
+	NMEthtoolType,
+	{ nm_assert (name); },
+	{ return NM_ETHTOOL_TYPE_UNKNOWN; },
+	{ "--coalesce", NM_ETHTOOL_TYPE_COALESCE    },
+	{ "--features", NM_ETHTOOL_TYPE_FEATURE     },
+	{ "--offload",  NM_ETHTOOL_TYPE_FEATURE     },
+	{ "--set-ring", NM_ETHTOOL_TYPE_RING        },
+	{ "-C",         NM_ETHTOOL_TYPE_COALESCE    },
+	{ "-G",         NM_ETHTOOL_TYPE_RING        },
+	{ "-K",         NM_ETHTOOL_TYPE_FEATURE     },
+);
+
 static void
 parse_ethtool_option (const char *value,
                       NMSettingWiredWakeOnLan *out_flags,
@@ -4201,59 +4459,58 @@ parse_ethtool_option (const char *value,
                       const char **out_duplex,
                       NMSettingEthtool **out_s_ethtool)
 {
-	gs_free const char **words = NULL;
 	guint i;
+	const char **w_iter;
+	NMEthtoolIfcfgOption ifcfg_option;
+	gs_free const char **words = NULL;
+	NMEthtoolType ethtool_type = NM_ETHTOOL_TYPE_UNKNOWN;
 
 	words = nm_utils_strsplit_set (value, " \t\n");
 	if (!words)
 		return;
 
-	if (words[0] && words[0][0] == '-') {
-		/* /sbin/ethtool $opts */
-		if (NM_IN_STRSET (words[0], "-K", "--features", "--offload")) {
-			if (!words[1]) {
-				/* first argument must be the interface name. This is invalid. */
-				return;
+	if (words[0])
+		ethtool_type = _get_ethtool_type_by_name (words[0]);
+
+	if (ethtool_type != NM_ETHTOOL_TYPE_UNKNOWN) {
+		if (!words[1]) {
+			/* first argument must be the interface name. This is invalid. */
+			return;
+		}
+
+		if (!*out_s_ethtool)
+			*out_s_ethtool = NM_SETTING_ETHTOOL (nm_setting_ethtool_new ());
+
+		/* skip ethtool type && interface name */
+		w_iter = &words[2];
+
+		while (w_iter && *w_iter) {
+			if (ethtool_type == NM_ETHTOOL_TYPE_FEATURE) {
+				w_iter = _next_ethtool_options_nmternary (w_iter,
+				                                          ethtool_type,
+				                                          &ifcfg_option);
+
+				if (ifcfg_option.has_value) {
+					nm_setting_option_set_boolean (NM_SETTING (*out_s_ethtool),
+					                               ifcfg_option.optname,
+					                               ifcfg_option.v.nmternary != NM_TERNARY_FALSE);
+				}
 			}
+			if (NM_IN_SET (ethtool_type,
+			               NM_ETHTOOL_TYPE_COALESCE,
+			               NM_ETHTOOL_TYPE_RING)) {
+				w_iter = _next_ethtool_options_uint32 (w_iter,
+				                                       ethtool_type,
+				                                       &ifcfg_option);
 
-			if (!*out_s_ethtool)
-				*out_s_ethtool = NM_SETTING_ETHTOOL (nm_setting_ethtool_new ());
-
-			for (i = 2; words[i]; ) {
-				const char *opt = words[i];
-				const char *opt_val = words[++i];
-				const NMEthtoolData *d = NULL;
-				NMTernary onoff = NM_TERNARY_DEFAULT;
-
-				if (nm_streq0 (opt_val, "on"))
-					onoff = NM_TERNARY_TRUE;
-				else if (nm_streq0 (opt_val, "off"))
-					onoff = NM_TERNARY_FALSE;
-
-				d = nms_ifcfg_rh_utils_get_ethtool_by_name (opt);
-
-				if (!d) {
-					if (onoff != NM_TERNARY_DEFAULT) {
-						/* the next value is just the on/off argument. Skip it too. */
-						i++;
-					}
-
-					/* silently ignore unsupported offloading features. */
-					continue;
+				if (ifcfg_option.has_value) {
+					nm_setting_option_set_uint32 (NM_SETTING (*out_s_ethtool),
+					                              ifcfg_option.optname,
+					                              ifcfg_option.v.u32);
 				}
-
-				i++;
-
-				if (onoff == NM_TERNARY_DEFAULT) {
-					PARSE_WARNING ("Expects on/off argument for feature '%s'", opt);
-					continue;
-				}
-
-				nm_setting_ethtool_set_feature (*out_s_ethtool,
-				                                d->optname,
-				                                onoff);
 			}
 		}
+
 		return;
 	}
 
@@ -4362,7 +4619,7 @@ parse_ethtool_option (const char *value,
 			i++;
 
 			if (nm_utils_hwaddr_valid (opt_val, ETH_ALEN)) {
-				g_clear_pointer (out_password, g_free);
+				nm_clear_g_free (out_password);
 				*out_password = g_strdup (opt_val);
 			} else
 				PARSE_WARNING ("Wake-on-LAN password '%s' is invalid", opt_val);
@@ -5114,18 +5371,33 @@ handle_bridge_option (NMSetting *setting,
 		gboolean only_with_stp;
 		gboolean extended_bool;
 	} m/*etadata*/[] = {
-		{ "DELAY",              NM_SETTING_BRIDGE_FORWARD_DELAY,      BRIDGE_OPT_TYPE_MAIN,   .only_with_stp = TRUE },
-		{ "priority",           NM_SETTING_BRIDGE_PRIORITY,           BRIDGE_OPT_TYPE_OPTION, .only_with_stp = TRUE },
-		{ "hello_time",         NM_SETTING_BRIDGE_HELLO_TIME,         BRIDGE_OPT_TYPE_OPTION, .only_with_stp = TRUE },
-		{ "max_age",            NM_SETTING_BRIDGE_MAX_AGE,            BRIDGE_OPT_TYPE_OPTION, .only_with_stp = TRUE },
-		{ "ageing_time",        NM_SETTING_BRIDGE_AGEING_TIME,        BRIDGE_OPT_TYPE_OPTION },
-		{ "multicast_snooping", NM_SETTING_BRIDGE_MULTICAST_SNOOPING, BRIDGE_OPT_TYPE_OPTION },
-		{ "vlan_filtering",     NM_SETTING_BRIDGE_VLAN_FILTERING,     BRIDGE_OPT_TYPE_OPTION },
-		{ "default_pvid",       NM_SETTING_BRIDGE_VLAN_DEFAULT_PVID,  BRIDGE_OPT_TYPE_OPTION },
-		{ "group_fwd_mask",     NM_SETTING_BRIDGE_GROUP_FORWARD_MASK, BRIDGE_OPT_TYPE_OPTION },
-		{ "priority",           NM_SETTING_BRIDGE_PORT_PRIORITY,      BRIDGE_OPT_TYPE_PORT_OPTION },
-		{ "path_cost",          NM_SETTING_BRIDGE_PORT_PATH_COST,     BRIDGE_OPT_TYPE_PORT_OPTION },
-		{ "hairpin_mode",       NM_SETTING_BRIDGE_PORT_HAIRPIN_MODE,  BRIDGE_OPT_TYPE_PORT_OPTION, .extended_bool = TRUE, },
+		{ "DELAY",                             NM_SETTING_BRIDGE_FORWARD_DELAY,                     BRIDGE_OPT_TYPE_MAIN,        .only_with_stp = TRUE },
+		{ "priority",                          NM_SETTING_BRIDGE_PRIORITY,                          BRIDGE_OPT_TYPE_OPTION,      .only_with_stp = TRUE },
+		{ "hello_time",                        NM_SETTING_BRIDGE_HELLO_TIME,                        BRIDGE_OPT_TYPE_OPTION,      .only_with_stp = TRUE },
+		{ "max_age",                           NM_SETTING_BRIDGE_MAX_AGE,                           BRIDGE_OPT_TYPE_OPTION,      .only_with_stp = TRUE },
+		{ "ageing_time",                       NM_SETTING_BRIDGE_AGEING_TIME,                       BRIDGE_OPT_TYPE_OPTION },
+		{ "multicast_last_member_count",       NM_SETTING_BRIDGE_MULTICAST_LAST_MEMBER_COUNT,       BRIDGE_OPT_TYPE_OPTION },
+		{ "multicast_last_member_interval",    NM_SETTING_BRIDGE_MULTICAST_LAST_MEMBER_INTERVAL,    BRIDGE_OPT_TYPE_OPTION },
+		{ "multicast_membership_interval",     NM_SETTING_BRIDGE_MULTICAST_MEMBERSHIP_INTERVAL,     BRIDGE_OPT_TYPE_OPTION },
+		{ "multicast_hash_max",                NM_SETTING_BRIDGE_MULTICAST_HASH_MAX,                BRIDGE_OPT_TYPE_OPTION },
+		{ "multicast_querier",                 NM_SETTING_BRIDGE_MULTICAST_QUERIER,                 BRIDGE_OPT_TYPE_OPTION },
+		{ "multicast_querier_interval",        NM_SETTING_BRIDGE_MULTICAST_QUERIER_INTERVAL,        BRIDGE_OPT_TYPE_OPTION },
+		{ "multicast_query_interval",          NM_SETTING_BRIDGE_MULTICAST_QUERY_INTERVAL,          BRIDGE_OPT_TYPE_OPTION },
+		{ "multicast_query_response_interval", NM_SETTING_BRIDGE_MULTICAST_QUERY_RESPONSE_INTERVAL, BRIDGE_OPT_TYPE_OPTION },
+		{ "multicast_query_use_ifaddr",        NM_SETTING_BRIDGE_MULTICAST_QUERY_USE_IFADDR,        BRIDGE_OPT_TYPE_OPTION },
+		{ "multicast_snooping",                NM_SETTING_BRIDGE_MULTICAST_SNOOPING,                BRIDGE_OPT_TYPE_OPTION },
+		{ "multicast_router",                  NM_SETTING_BRIDGE_MULTICAST_ROUTER,                  BRIDGE_OPT_TYPE_OPTION },
+		{ "multicast_startup_query_count",     NM_SETTING_BRIDGE_MULTICAST_STARTUP_QUERY_COUNT,     BRIDGE_OPT_TYPE_OPTION },
+		{ "multicast_startup_query_interval",  NM_SETTING_BRIDGE_MULTICAST_STARTUP_QUERY_INTERVAL,  BRIDGE_OPT_TYPE_OPTION },
+		{ "vlan_filtering",                    NM_SETTING_BRIDGE_VLAN_FILTERING,                    BRIDGE_OPT_TYPE_OPTION },
+		{ "default_pvid",                      NM_SETTING_BRIDGE_VLAN_DEFAULT_PVID,                 BRIDGE_OPT_TYPE_OPTION },
+		{ "group_address",                     NM_SETTING_BRIDGE_GROUP_ADDRESS,                     BRIDGE_OPT_TYPE_OPTION },
+		{ "group_fwd_mask",                    NM_SETTING_BRIDGE_GROUP_FORWARD_MASK,                BRIDGE_OPT_TYPE_OPTION },
+		{ "vlan_protocol",                     NM_SETTING_BRIDGE_VLAN_PROTOCOL,                     BRIDGE_OPT_TYPE_OPTION },
+		{ "vlan_stats_enabled",                NM_SETTING_BRIDGE_VLAN_STATS_ENABLED,                BRIDGE_OPT_TYPE_OPTION },
+		{ "priority",                          NM_SETTING_BRIDGE_PORT_PRIORITY,                     BRIDGE_OPT_TYPE_PORT_OPTION },
+		{ "path_cost",                         NM_SETTING_BRIDGE_PORT_PATH_COST,                    BRIDGE_OPT_TYPE_PORT_OPTION },
+		{ "hairpin_mode",                      NM_SETTING_BRIDGE_PORT_HAIRPIN_MODE,                 BRIDGE_OPT_TYPE_PORT_OPTION, .extended_bool = TRUE, },
 	};
 	const char *error_message = NULL;
 	int i;
@@ -5147,9 +5419,9 @@ handle_bridge_option (NMSetting *setting,
 		switch (param_spec->value_type) {
 		case G_TYPE_BOOLEAN:
 			if (m[i].extended_bool) {
-				if (!strcasecmp (value, "on") || !strcasecmp (value, "yes") || !strcmp (value, "1"))
+				if (!g_ascii_strcasecmp (value, "on") || !g_ascii_strcasecmp (value, "yes") || !strcmp (value, "1"))
 					v = TRUE;
-				else if (!strcasecmp (value, "off") || !strcasecmp (value, "no"))
+				else if (!g_ascii_strcasecmp (value, "off") || !g_ascii_strcasecmp (value, "no"))
 					v = FALSE;
 				else {
 					error_message = "is not a boolean";
@@ -5177,6 +5449,19 @@ handle_bridge_option (NMSetting *setting,
 				error_message = "number is out of range";
 				goto warn;
 			}
+			return;
+		case G_TYPE_UINT64: {
+				guint64 vu64;
+
+				vu64 = _nm_utils_ascii_str_to_uint64 (value, 10, 0, G_MAXUINT64, 0);
+				if (!nm_g_object_set_property_uint64 (G_OBJECT (setting), m[i].property_name, vu64, NULL)) {
+					error_message = "number is out of range";
+					goto warn;
+				}
+			}
+			return;
+		case G_TYPE_STRING:
+			nm_g_object_set_property_string (G_OBJECT (setting), m[i].property_name, value, NULL);
 			return;
 		default:
 			nm_assert_not_reached ();
@@ -5282,11 +5567,11 @@ make_bridge_setting (shvarFile *ifcfg,
 
 	value = svGetValueStr (ifcfg, "STP", &value_to_free);
 	if (value) {
-		if (!strcasecmp (value, "on") || !strcasecmp (value, "yes")) {
+		if (!g_ascii_strcasecmp (value, "on") || !g_ascii_strcasecmp (value, "yes")) {
 			g_object_set (s_bridge, NM_SETTING_BRIDGE_STP, TRUE, NULL);
 			stp = TRUE;
 			stp_set = TRUE;
-		} else if (!strcasecmp (value, "off") || !strcasecmp (value, "no")) {
+		} else if (!g_ascii_strcasecmp (value, "off") || !g_ascii_strcasecmp (value, "no")) {
 			g_object_set (s_bridge, NM_SETTING_BRIDGE_STP, FALSE, NULL);
 			stp_set = TRUE;
 		} else
@@ -5797,9 +6082,9 @@ connection_from_file_full (const char *filename,
 
 	devtype = svGetValueStr_cp (main_ifcfg, "DEVICETYPE");
 	if (devtype) {
-		if (!strcasecmp (devtype, TYPE_TEAM))
+		if (!g_ascii_strcasecmp (devtype, TYPE_TEAM))
 			type = g_strdup (TYPE_TEAM);
-		else if (!strcasecmp (devtype, TYPE_TEAM_PORT)) {
+		else if (!g_ascii_strcasecmp (devtype, TYPE_TEAM_PORT)) {
 			gs_free char *device = NULL;
 
 			type = svGetValueStr_cp (main_ifcfg, "TYPE");
@@ -5933,26 +6218,26 @@ connection_from_file_full (const char *filename,
 	}
 
 	if (svGetValueBoolean (main_ifcfg, "BONDING_MASTER", FALSE) &&
-	    strcasecmp (type, TYPE_BOND)) {
+	    g_ascii_strcasecmp (type, TYPE_BOND)) {
 		g_set_error (error, NM_SETTINGS_ERROR, NM_SETTINGS_ERROR_INVALID_CONNECTION,
 		             "BONDING_MASTER=yes key only allowed in TYPE=bond connections");
 		return NULL;
 	}
 
 	/* Construct the connection */
-	if (!strcasecmp (type, TYPE_ETHERNET))
+	if (!g_ascii_strcasecmp (type, TYPE_ETHERNET))
 		connection = wired_connection_from_ifcfg (filename, main_ifcfg, error);
-	else if (!strcasecmp (type, TYPE_WIRELESS))
+	else if (!g_ascii_strcasecmp (type, TYPE_WIRELESS))
 		connection = wireless_connection_from_ifcfg (filename, main_ifcfg, error);
-	else if (!strcasecmp (type, TYPE_INFINIBAND))
+	else if (!g_ascii_strcasecmp (type, TYPE_INFINIBAND))
 		connection = infiniband_connection_from_ifcfg (filename, main_ifcfg, error);
-	else if (!strcasecmp (type, TYPE_BOND))
+	else if (!g_ascii_strcasecmp (type, TYPE_BOND))
 		connection = bond_connection_from_ifcfg (filename, main_ifcfg, error);
-	else if (!strcasecmp (type, TYPE_TEAM))
+	else if (!g_ascii_strcasecmp (type, TYPE_TEAM))
 		connection = team_connection_from_ifcfg (filename, main_ifcfg, error);
-	else if (!strcasecmp (type, TYPE_VLAN))
+	else if (!g_ascii_strcasecmp (type, TYPE_VLAN))
 		connection = vlan_connection_from_ifcfg (filename, main_ifcfg, error);
-	else if (!strcasecmp (type, TYPE_BRIDGE))
+	else if (!g_ascii_strcasecmp (type, TYPE_BRIDGE))
 		connection = bridge_connection_from_ifcfg (filename, main_ifcfg, error);
 	else {
 		connection = create_unhandled_connection (filename, main_ifcfg, "unrecognized", out_unhandled);

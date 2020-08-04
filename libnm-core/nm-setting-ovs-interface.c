@@ -64,27 +64,29 @@ nm_setting_ovs_interface_get_interface_type (NMSettingOvsInterface *self)
 
 int
 _nm_setting_ovs_interface_verify_interface_type (NMSettingOvsInterface *self,
+                                                 const char *type,
                                                  NMConnection *connection,
                                                  gboolean normalize,
                                                  gboolean *out_modified,
+                                                 const char **out_normalized_type,
                                                  GError **error)
 {
-	const char *type;
 	const char *type_from_setting = NULL;
 	const char *type_setting = NULL;
 	const char *connection_type;
 	gboolean is_ovs_connection_type;
 
-	g_return_val_if_fail (NM_IS_SETTING_OVS_INTERFACE (self), FALSE);
 	if (normalize) {
+		g_return_val_if_fail (NM_IS_SETTING_OVS_INTERFACE (self), FALSE);
 		g_return_val_if_fail (NM_IS_CONNECTION (connection), FALSE);
 		nm_assert (self == nm_connection_get_setting_ovs_interface (connection));
-	} else
+	} else {
+		g_return_val_if_fail (!self || NM_IS_SETTING_OVS_INTERFACE (self), FALSE);
 		g_return_val_if_fail (!connection || NM_IS_CONNECTION (connection), FALSE);
+	}
 
 	NM_SET_OUT (out_modified, FALSE);
-
-	type = self ? self->type : NULL;
+	NM_SET_OUT (out_normalized_type, NULL);
 
 	if (   type
 	    && !NM_IN_STRSET (type, "internal", "system", "patch", "dpdk")) {
@@ -97,8 +99,10 @@ _nm_setting_ovs_interface_verify_interface_type (NMSettingOvsInterface *self,
 		return FALSE;
 	}
 
-	if (!connection)
+	if (!connection) {
+		NM_SET_OUT (out_normalized_type, type);
 		return TRUE;
+	}
 
 	connection_type = nm_connection_get_connection_type (connection);
 	if (!connection_type) {
@@ -189,6 +193,7 @@ _nm_setting_ovs_interface_verify_interface_type (NMSettingOvsInterface *self,
 				g_prefix_error (error, "%s.%s: ", NM_SETTING_OVS_INTERFACE_SETTING_NAME, NM_SETTING_OVS_INTERFACE_TYPE);
 				return FALSE;
 			}
+			NM_SET_OUT (out_normalized_type, type);
 			return TRUE;
 		}
 		type = type_from_setting;
@@ -205,13 +210,18 @@ _nm_setting_ovs_interface_verify_interface_type (NMSettingOvsInterface *self,
 		}
 	}
 
-	if (type)
+	if (type) {
+		NM_SET_OUT (out_normalized_type, type);
 		return TRUE;
+	}
 
 	if (is_ovs_connection_type)
 		type = "internal";
 	else
 		type = "system";
+
+	NM_SET_OUT (out_normalized_type, type);
+
 normalize:
 	if (!normalize) {
 		if (!self) {
@@ -246,9 +256,9 @@ static int
 verify (NMSetting *setting, NMConnection *connection, GError **error)
 {
 	NMSettingOvsInterface *self = NM_SETTING_OVS_INTERFACE (setting);
+	NMSettingConnection *s_con = NULL;
 
 	if (connection) {
-		NMSettingConnection *s_con;
 		const char *slave_type;
 
 		s_con = nm_connection_get_setting_connection (connection);
@@ -287,8 +297,10 @@ verify (NMSetting *setting, NMConnection *connection, GError **error)
 	}
 
 	return _nm_setting_ovs_interface_verify_interface_type (self,
+	                                                        self->type,
 	                                                        connection,
 	                                                        FALSE,
+	                                                        NULL,
 	                                                        NULL,
 	                                                        error);
 }
@@ -383,7 +395,6 @@ nm_setting_ovs_interface_class_init (NMSettingOvsInterfaceClass *klass)
 	    g_param_spec_string (NM_SETTING_OVS_INTERFACE_TYPE, "", "",
 	                         NULL,
 	                         G_PARAM_READWRITE |
-	                         G_PARAM_CONSTRUCT |
 	                         NM_SETTING_PARAM_INFERRABLE |
 	                         G_PARAM_STATIC_STRINGS);
 

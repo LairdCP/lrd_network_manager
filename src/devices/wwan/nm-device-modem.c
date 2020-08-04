@@ -156,7 +156,7 @@ modem_prepare_result (NMModem *modem,
 	}
 
 	priv->stage1_state = NM_DEVICE_STAGE_STATE_COMPLETED;
-	nm_device_activate_schedule_stage1_device_prepare (device);
+	nm_device_activate_schedule_stage1_device_prepare (device, FALSE);
 }
 
 static void
@@ -191,7 +191,7 @@ modem_auth_result (NMModem *modem, GError *error, gpointer user_data)
 	}
 
 	priv->stage1_state = NM_DEVICE_STAGE_STATE_INIT;
-	nm_device_activate_schedule_stage1_device_prepare (device);
+	nm_device_activate_schedule_stage1_device_prepare (device, FALSE);
 }
 
 static void
@@ -383,6 +383,15 @@ modem_state_cb (NMModem *modem,
 		 * device's enabled/disabled state.
 		 */
 		nm_modem_set_mm_enabled (priv->modem, priv->rf_enabled);
+
+		if (dev_state == NM_DEVICE_STATE_NEED_AUTH) {
+			/* The modem was unlocked externally to NetworkManager,
+			   deactivate so the default connection can be
+			   automatically activated again */
+			nm_device_state_changed (device,
+			                         NM_DEVICE_STATE_DEACTIVATING,
+			                         NM_DEVICE_STATE_REASON_MODEM_AVAILABLE);
+		}
 
 		/* Now allow connections without a PIN to be available */
 		nm_device_recheck_available_connections (device);
@@ -605,7 +614,6 @@ static NMActStageReturn
 act_stage2_config (NMDevice *device, NMDeviceStateReason *out_failure_reason)
 {
 	nm_modem_act_stage2_config (NM_DEVICE_MODEM_GET_PRIVATE (device)->modem);
-
 	return NM_ACT_STAGE_RETURN_SUCCESS;
 }
 
@@ -732,7 +740,7 @@ set_modem (NMDeviceModem *self, NMModem *modem)
 }
 
 static guint32
-get_dhcp_timeout (NMDevice *device, int addr_family)
+get_dhcp_timeout_for_device (NMDevice *device, int addr_family)
 {
 	/* DHCP is always done by the modem firmware, not by the network, and
 	 * by the time we get around to DHCP the firmware should already know
@@ -843,9 +851,9 @@ dispose (GObject *object)
 		nm_clear_pointer (&priv->modem, nm_modem_unclaim);
 	}
 
-	g_clear_pointer (&priv->device_id, g_free);
-	g_clear_pointer (&priv->operator_code, g_free);
-	g_clear_pointer (&priv->apn, g_free);
+	nm_clear_g_free (&priv->device_id);
+	nm_clear_g_free (&priv->operator_code);
+	nm_clear_g_free (&priv->apn);
 
 	G_OBJECT_CLASS (nm_device_modem_parent_class)->dispose (object);
 }
@@ -897,7 +905,7 @@ nm_device_modem_class_init (NMDeviceModemClass *klass)
 	device_class->is_available = is_available;
 	device_class->get_ip_iface_identifier = get_ip_iface_identifier;
 	device_class->get_configured_mtu = nm_modem_get_configured_mtu;
-	device_class->get_dhcp_timeout = get_dhcp_timeout;
+	device_class->get_dhcp_timeout_for_device = get_dhcp_timeout_for_device;
 
 	device_class->state_changed = device_state_changed;
 

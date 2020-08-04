@@ -228,10 +228,24 @@ if [[ -n "$BUILDDIR" ]]; then
     fi
 fi
 
+export ASAN_OPTIONS="$NM_TEST_ASAN_OPTIONS"
+export LSAN_OPTIONS="$NM_TEST_LSAN_OPTIONS"
+export UBSAN_OPTIONS="$NM_TEST_UBSAN_OPTIONS"
+if [ -z "${NM_TEST_ASAN_OPTIONS+x}" ]; then
+    ASAN_OPTIONS="fast_unwind_on_malloc=false detect_leaks=1"
+fi
+if [ -z "${NM_TEST_LSAN_OPTIONS+x}" ]; then
+    LSAN_OPTIONS="suppressions=$SCRIPT_PATH/../lsan.suppressions"
+fi
+if [ -z "${NM_TEST_UBSAN_OPTIONS+x}" ]; then
+    UBSAN_OPTIONS="print_stacktrace=1:halt_on_error=1"
+fi
+
 if ! _is_true "$NMTST_USE_VALGRIND" 0; then
     export NM_TEST_UNDER_VALGRIND=0
     exec "${NMTST_DBUS_RUN_SESSION[@]}" \
     "$TEST" "$@"
+    die "exec \"$TEST\" failed"
 fi
 
 if [[ -z "${NMTST_VALGRIND}" ]]; then
@@ -295,12 +309,19 @@ fi
 if [ $HAS_ERRORS -eq 0 ]; then
     # valgrind doesn't support setns syscall and spams the logfile.
     # hack around it...
-    if [ "$TEST_NAME" = 'test-link-linux' -o \
-         "$TEST_NAME" = 'test-acd' ]; then
-        if [ -z "$(sed -e '/^--[0-9]\+-- WARNING: unhandled .* syscall: /,/^--[0-9]\+-- it at http.*\.$/d' "$LOGFILE")" ]; then
-            HAS_ERRORS=1
-        fi
-    fi
+    case "$TEST_NAME" in
+        'test-config' | \
+        'test-link-linux' | \
+        'test-acd' | \
+        'test-service-providers' | \
+        'test-remote-settings-client' | \
+        'test-secret-agent' | \
+        'test-nm-client' )
+            if [ -z "$(sed -e '/^--[0-9]\+-- WARNING: unhandled .* syscall: /,/^--[0-9]\+-- it at http.*\.$/d' "$LOGFILE")" ]; then
+                HAS_ERRORS=1
+            fi
+            ;;
+    esac
 fi
 
 if [ $HAS_ERRORS -eq 0 ]; then

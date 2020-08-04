@@ -436,7 +436,7 @@ static const char *
 _kc_waited_to_string (char *buf, gint64 wait_start_us)
 #define _kc_waited_to_string(buf, wait_start_us) ( G_STATIC_ASSERT_EXPR(sizeof (buf) == KC_WAITED_TO_STRING && sizeof ((buf)[0]) == 1), _kc_waited_to_string (buf, wait_start_us) )
 {
-	g_snprintf (buf, KC_WAITED_TO_STRING, " (%ld usec elapsed)", (long) (nm_utils_get_monotonic_timestamp_us () - wait_start_us));
+	g_snprintf (buf, KC_WAITED_TO_STRING, " (%ld usec elapsed)", (long) (nm_utils_get_monotonic_timestamp_usec () - wait_start_us));
 	return buf;
 }
 
@@ -476,7 +476,7 @@ _kc_cb_timeout_grace_period (void *user_data)
 		}
 	} else {
 		nm_log_dbg (data->log_domain, "%s: process not terminated after %ld usec. Sending SIGKILL signal",
-		            data->log_name, (long) (nm_utils_get_monotonic_timestamp_us () - data->async.wait_start_us));
+		            data->log_name, (long) (nm_utils_get_monotonic_timestamp_usec () - data->async.wait_start_us));
 	}
 
 	return G_SOURCE_REMOVE;
@@ -591,7 +591,7 @@ nm_utils_kill_child_async (pid_t pid, int sig, NMLogDomain log_domain,
 	}
 
 	data = _kc_async_data_alloc (pid, log_domain, log_name, callback, user_data);
-	data->async.wait_start_us = nm_utils_get_monotonic_timestamp_us ();
+	data->async.wait_start_us = nm_utils_get_monotonic_timestamp_usec ();
 
 	if (sig != SIGKILL && wait_before_kill_msec > 0) {
 		data->async.source_timeout_kill_id = g_timeout_add (wait_before_kill_msec, _kc_cb_timeout_grace_period, data);
@@ -694,7 +694,7 @@ nm_utils_kill_child_sync (pid_t pid, int sig, NMLogDomain log_domain, const char
 		goto out;
 	}
 
-	wait_start_us = nm_utils_get_monotonic_timestamp_us ();
+	wait_start_us = nm_utils_get_monotonic_timestamp_usec ();
 
 	/* wait for the process to terminated... */
 	if (sig != SIGKILL) {
@@ -728,7 +728,7 @@ nm_utils_kill_child_sync (pid_t pid, int sig, NMLogDomain log_domain, const char
 			if (!wait_until)
 				break;
 
-			now = nm_utils_get_monotonic_timestamp_us ();
+			now = nm_utils_get_monotonic_timestamp_usec ();
 			if (now >= wait_until)
 				break;
 
@@ -871,7 +871,7 @@ nm_utils_kill_process_sync (pid_t pid, guint64 start_time, int sig, NMLogDomain 
 
 	/* wait for the process to terminate... */
 
-	wait_start_us = nm_utils_get_monotonic_timestamp_us ();
+	wait_start_us = nm_utils_get_monotonic_timestamp_usec ();
 
 	sleep_duration_usec = _sleep_duration_convert_ms_to_us (sleep_duration_msec);
 	if (sig != SIGKILL && wait_before_kill_msec)
@@ -922,7 +922,7 @@ nm_utils_kill_process_sync (pid_t pid, guint64 start_time, int sig, NMLogDomain 
 		}
 
 		sleep_time = sleep_duration_usec;
-		now = nm_utils_get_monotonic_timestamp_us ();
+		now = nm_utils_get_monotonic_timestamp_usec ();
 
 		if (   max_wait_until != 0
 		    && now >= max_wait_until) {
@@ -1698,31 +1698,161 @@ nm_match_spec_join (GSList *specs)
 	return g_string_free (str, FALSE);
 }
 
+static void
+_pattern_parse (const char *input,
+                const char **out_pattern,
+                gboolean *out_is_inverted,
+                gboolean *out_is_mandatory)
+{
+	gboolean is_inverted = FALSE;
+	gboolean is_mandatory = FALSE;
+
+	if (input[0] == '&') {
+		input++;
+		is_mandatory = TRUE;
+		if (input[0] == '!') {
+			input++;
+			is_inverted = TRUE;
+		}
+		goto out;
+	}
+
+	if (input[0] == '|') {
+		input++;
+		if (input[0] == '!') {
+			input++;
+			is_inverted = TRUE;
+		}
+		goto out;
+	}
+
+	if (input[0] == '!') {
+		input++;
+		is_inverted = TRUE;
+		is_mandatory = TRUE;
+		goto out;
+	}
+
+out:
+	if (input[0] == '\\')
+		input++;
+
+	*out_pattern = input;
+	*out_is_inverted = is_inverted;
+	*out_is_mandatory = is_mandatory;
+}
+
 gboolean
 nm_wildcard_match_check (const char *str,
                          const char *const *patterns,
                          guint num_patterns)
 {
-	guint i, neg = 0;
+	gboolean has_optional = FALSE;
+	gboolean has_any_optional = FALSE;
+	guint i;
 
 	for (i = 0; i < num_patterns; i++) {
-		if (patterns[i][0] == '!') {
-			neg++;
-			if (!fnmatch (patterns[i] + 1, str, 0))
+		gboolean is_inverted;
+		gboolean is_mandatory;
+		gboolean match;
+		const char *p;
+
+		_pattern_parse (patterns[i], &p, &is_inverted, &is_mandatory);
+
+		match = (fnmatch (p, str, 0) == 0);
+		if (is_inverted)
+			match = !match;
+
+		if (is_mandatory) {
+			if (!match)
 				return FALSE;
+		} else {
+			has_any_optional = TRUE;
+			if (match)
+				has_optional = TRUE;
 		}
 	}
 
-	if (neg == num_patterns)
-		return TRUE;
+	return    has_optional
+	       || !has_any_optional;
+}
 
-	for (i = 0; i < num_patterns; i++) {
-		if (   patterns[i][0] != '!'
-		    && !fnmatch (patterns[i], str, 0))
-			return TRUE;
+/*****************************************************************************/
+
+static gboolean
+_kernel_cmdline_match (const char *const*proc_cmdline,
+                       const char *pattern)
+{
+
+	if (proc_cmdline) {
+		gboolean has_equal = (!!strchr (pattern, '='));
+		gsize pattern_len = strlen (pattern);
+
+		for (; proc_cmdline[0]; proc_cmdline++) {
+			const char *c = proc_cmdline[0];
+
+			if (has_equal) {
+				/* if pattern contains '=' compare full key=value */
+				if (nm_streq (c, pattern))
+					return TRUE;
+				continue;
+			}
+
+			/* otherwise consider pattern as key only */
+			if (   strncmp (c, pattern, pattern_len) == 0
+			    && NM_IN_SET (c[pattern_len], '\0', '='))
+				return TRUE;
+		}
 	}
 
 	return FALSE;
+}
+
+gboolean
+nm_utils_kernel_cmdline_match_check (const char *const*proc_cmdline,
+                                     const char *const*patterns,
+                                     guint num_patterns,
+                                     GError **error)
+{
+	gboolean has_optional = FALSE;
+	gboolean has_any_optional = FALSE;
+	guint i;
+
+	for (i = 0; i < num_patterns; i++) {
+		const char *element = patterns[i];
+		gboolean is_inverted = FALSE;
+		gboolean is_mandatory = FALSE;
+		gboolean match;
+		const char *p;
+
+		_pattern_parse (element, &p, &is_inverted, &is_mandatory);
+
+		match = _kernel_cmdline_match (proc_cmdline, p);
+		if (is_inverted)
+			match = !match;
+
+		if (is_mandatory) {
+			if (!match) {
+				nm_utils_error_set (error, NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+				                    "device does not satisfy match.kernel-command-line property %s",
+				                    patterns[i]);
+				return FALSE;
+			}
+		} else {
+			has_any_optional = TRUE;
+			if (match)
+				has_optional = TRUE;
+		}
+	}
+
+	if (   !has_optional
+	    && has_any_optional) {
+		nm_utils_error_set (error, NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+		                    "device does not satisfy any match.kernel-command-line property");
+		return FALSE;
+	}
+
+	return TRUE;
 }
 
 /*****************************************************************************/
@@ -2145,7 +2275,7 @@ nm_utils_sysctl_ip_conf_path (int addr_family, char *buf, const char *ifname, co
 	nm_assert (buf);
 	nm_assert_addr_family (addr_family);
 
-	g_assert (nm_utils_is_valid_iface_name (ifname, NULL));
+	g_assert (nm_utils_ifname_valid_kernel (ifname, NULL));
 	property = NM_ASSERT_VALID_PATH_COMPONENT (property);
 
 	len = g_snprintf (buf,
@@ -2163,7 +2293,7 @@ nm_utils_sysctl_ip_conf_is_path (int addr_family, const char *path, const char *
 {
 	g_return_val_if_fail (path, FALSE);
 	NM_ASSERT_VALID_PATH_COMPONENT (property);
-	g_assert (!ifname || nm_utils_is_valid_iface_name (ifname, NULL));
+	g_assert (!ifname || nm_utils_ifname_valid_kernel (ifname, NULL));
 
 	if (addr_family == AF_INET) {
 		if (!g_str_has_prefix (path, IPV4_PROPERTY_DIR))
@@ -2196,7 +2326,7 @@ nm_utils_sysctl_ip_conf_is_path (int addr_family, const char *path, const char *
 			return FALSE;
 		memcpy (buf, path, l);
 		buf[l] = '\0';
-		if (!nm_utils_is_valid_iface_name (buf, NULL))
+		if (!nm_utils_ifname_valid_kernel (buf, NULL))
 			return FALSE;
 		path = slash + 1;
 	}
@@ -2434,7 +2564,7 @@ _host_id_read_timestamp (gboolean use_secret_key_file,
 	    && stat (SECRET_KEY_FILE, &st) == 0) {
 		/* don't check for overflow or timestamps in the future. We get whatever
 		 * (bogus) date is on the file. */
-		*out_timestamp_ns = nm_utils_timespec_to_ns (&st.st_mtim);
+		*out_timestamp_ns = nm_utils_timespec_to_nsec (&st.st_mtim);
 		return TRUE;
 	}
 
@@ -2453,13 +2583,13 @@ _host_id_read_timestamp (gboolean use_secret_key_file,
 	 * is not stable across restarts, but apparently neither is the host-id
 	 * nor the secret_key itself. */
 
-#define EPOCH_TWO_YEARS  (G_GINT64_CONSTANT (2 * 365 * 24 * 3600) * NM_UTILS_NS_PER_SECOND)
+#define EPOCH_TWO_YEARS  (G_GINT64_CONSTANT (2 * 365 * 24 * 3600) * NM_UTILS_NSEC_PER_SEC)
 
 	v = nm_hash_siphash42 (1156657133u, host_id, host_id_len);
 
 	now = time (NULL);
 	*out_timestamp_ns = NM_MAX ((gint64) 1,
-	                            (now * NM_UTILS_NS_PER_SECOND) - ((gint64) (v % ((guint64) (EPOCH_TWO_YEARS)))));
+	                            (now * NM_UTILS_NSEC_PER_SEC) - ((gint64) (v % ((guint64) (EPOCH_TWO_YEARS)))));
 	return FALSE;
 }
 
@@ -2741,6 +2871,53 @@ nm_utils_boot_id_bin (void)
 
 /*****************************************************************************/
 
+const char *
+nm_utils_proc_cmdline (void)
+{
+	static const char *volatile proc_cmdline_cached = NULL;
+	const char *proc_cmdline;
+
+again:
+	proc_cmdline = g_atomic_pointer_get (&proc_cmdline_cached);
+	if (G_UNLIKELY (!proc_cmdline)) {
+		gs_free char *str = NULL;
+
+		g_file_get_contents ("/proc/cmdline", &str, NULL, NULL);
+		str = nm_str_realloc (str);
+
+		proc_cmdline = str ?: "";
+		if (!g_atomic_pointer_compare_and_exchange (&proc_cmdline_cached, NULL, proc_cmdline))
+			goto again;
+
+		g_steal_pointer (&str);
+	}
+
+	return proc_cmdline;
+}
+
+const char *const*
+nm_utils_proc_cmdline_split (void)
+{
+	static const char *const*volatile proc_cmdline_cached = NULL;
+	const char *const*proc_cmdline;
+
+again:
+	proc_cmdline = g_atomic_pointer_get (&proc_cmdline_cached);
+	if (G_UNLIKELY (!proc_cmdline)) {
+		gs_strfreev char **split = NULL;
+
+		split = nm_utils_strsplit_quoted (nm_utils_proc_cmdline ());
+		if (!g_atomic_pointer_compare_and_exchange (&proc_cmdline_cached, NULL, (gpointer) split))
+			goto again;
+
+		proc_cmdline = (const char *const*) g_steal_pointer (&split);
+	}
+
+	return proc_cmdline;
+}
+
+/*****************************************************************************/
+
 /**
  * nm_utils_arp_type_detect_from_hwaddrlen:
  * @hwaddr_len: the length of the hardware address in bytes.
@@ -2999,12 +3176,14 @@ nm_utils_ipv6_interface_identifier_get_from_token (NMUtilsIPv6IfaceId *iid,
  * Returns: the input buffer filled with the id as string.
  */
 const char *
-nm_utils_inet6_interface_identifier_to_token (NMUtilsIPv6IfaceId iid, char *buf)
+nm_utils_inet6_interface_identifier_to_token (NMUtilsIPv6IfaceId iid,
+                                              char buf[static INET6_ADDRSTRLEN])
 {
 	struct in6_addr i6_token = { .s6_addr = { 0, } };
 
+	nm_assert (buf);
 	nm_utils_ipv6_addr_set_interface_identifier (&i6_token, iid);
-	return nm_utils_inet6_ntop (&i6_token, buf);
+	return _nm_utils_inet6_ntop (&i6_token, buf);
 }
 
 /*****************************************************************************/
@@ -3635,7 +3814,7 @@ nm_utils_ifname_cpy (char *dst, const char *name)
 	g_return_if_fail (dst);
 	g_return_if_fail (name && name[0]);
 
-	nm_assert (nm_utils_is_valid_iface_name (name, NULL));
+	nm_assert (nm_utils_ifname_valid_kernel (name, NULL));
 
 	/* ensures NUL padding of the entire IFNAMSIZ buffer. */
 
@@ -3721,7 +3900,7 @@ nm_utils_lifetime_get (guint32 timestamp,
 	}
 
 	if (now <= 0)
-		now = nm_utils_get_monotonic_timestamp_s ();
+		now = nm_utils_get_monotonic_timestamp_sec ();
 
 	t_lifetime = nm_utils_lifetime_rebase_relative_time_on_now (timestamp, lifetime, now);
 	if (!t_lifetime) {
@@ -4053,20 +4232,379 @@ GVariant *
 nm_utils_strdict_to_variant (GHashTable *options)
 {
 	GVariantBuilder builder;
-	gs_free const char **keys = NULL;
+	gs_free NMUtilsNamedValue *values = NULL;
 	guint i;
-	guint nkeys;
+	guint n;
 
-	keys = nm_utils_strdict_get_keys (options, TRUE, &nkeys);
+	values = nm_utils_named_values_from_str_dict (options, &n);
 
 	g_variant_builder_init (&builder, G_VARIANT_TYPE ("a{sv}"));
-	for (i = 0; i < nkeys; i++) {
+	for (i = 0; i < n; i++) {
 		g_variant_builder_add (&builder,
 		                       "{sv}",
-		                       keys[i],
-		                       g_variant_new_string (g_hash_table_lookup (options, keys[i])));
+		                       values[i].name,
+		                       g_variant_new_string (values[i].value_str));
 	}
 	return g_variant_builder_end (&builder);
+}
+
+/*****************************************************************************/
+
+static guint32
+get_max_rate_ht_20 (int mcs)
+{
+	switch (mcs) {
+	case 0:  return 6500000;
+	case 1:
+	case 8:  return 13000000;
+	case 2:
+	case 16: return 19500000;
+	case 3:
+	case 9:
+	case 24: return 26000000;
+	case 4:
+	case 10:
+	case 17: return 39000000;
+	case 5:
+	case 11:
+	case 25: return 52000000;
+	case 6:
+	case 18: return 58500000;
+	case 7:  return 65000000;
+	case 12:
+	case 19:
+	case 26: return 78000000;
+	case 13:
+	case 27: return 104000000;
+	case 14:
+	case 20: return 117000000;
+	case 15: return 130000000;
+	case 21:
+	case 28: return 156000000;
+	case 22: return 175500000;
+	case 23: return 195000000;
+	case 29: return 208000000;
+	case 30: return 234000000;
+	case 31: return 260000000;
+	}
+	return 0;
+}
+
+static guint32
+get_max_rate_ht_40 (int mcs)
+{
+	switch (mcs) {
+	case 0:  return 13500000;
+	case 1:
+	case 8:  return 27000000;
+	case 2:  return 40500000;
+	case 3:
+	case 9:
+	case 24: return 54000000;
+	case 4:
+	case 10:
+	case 17: return 81000000;
+	case 5:
+	case 11:
+	case 25: return 108000000;
+	case 6:
+	case 18: return 121500000;
+	case 7:  return 135000000;
+	case 12:
+	case 19:
+	case 26: return 162000000;
+	case 13:
+	case 27: return 216000000;
+	case 14:
+	case 20: return 243000000;
+	case 15: return 270000000;
+	case 16: return 40500000;
+	case 21:
+	case 28: return 324000000;
+	case 22: return 364500000;
+	case 23: return 405000000;
+	case 29: return 432000000;
+	case 30: return 486000000;
+	case 31: return 540000000;
+	}
+	return 0;
+}
+
+static guint32
+get_max_rate_vht_80_ss1 (int mcs)
+{
+	switch (mcs) {
+	case 0:  return 29300000;
+	case 1:  return 58500000;
+	case 2:  return 87800000;
+	case 3:  return 117000000;
+	case 4:  return 175500000;
+	case 5:  return 234000000;
+	case 6:  return 263300000;
+	case 7:  return 292500000;
+	case 8:  return 351000000;
+	case 9:  return 390000000;
+	}
+	return 0;
+}
+
+static guint32
+get_max_rate_vht_80_ss2 (int mcs)
+{
+	switch (mcs) {
+	case 0:  return 58500000;
+	case 1:  return 117000000;
+	case 2:  return 175500000;
+	case 3:  return 234000000;
+	case 4:  return 351000000;
+	case 5:  return 468000000;
+	case 6:  return 526500000;
+	case 7:  return 585000000;
+	case 8:  return 702000000;
+	case 9:  return 780000000;
+	}
+	return 0;
+}
+
+static guint32
+get_max_rate_vht_80_ss3 (int mcs)
+{
+	switch (mcs) {
+	case 0:  return 87800000;
+	case 1:  return 175500000;
+	case 2:  return 263300000;
+	case 3:  return 351000000;
+	case 4:  return 526500000;
+	case 5:  return 702000000;
+	case 6:  return 0;
+	case 7:  return 877500000;
+	case 8:  return 105300000;
+	case 9:  return 117000000;
+	}
+	return 0;
+}
+
+static guint32
+get_max_rate_vht_160_ss1 (int mcs)
+{
+	switch (mcs) {
+	case 0:  return 58500000;
+	case 1:  return 117000000;
+	case 2:  return 175500000;
+	case 3:  return 234000000;
+	case 4:  return 351000000;
+	case 5:  return 468000000;
+	case 6:  return 526500000;
+	case 7:  return 585000000;
+	case 8:  return 702000000;
+	case 9:  return 780000000;
+	}
+	return 0;
+}
+
+static guint32
+get_max_rate_vht_160_ss2 (int mcs)
+{
+	switch (mcs) {
+	case 0:  return 117000000;
+	case 1:  return 234000000;
+	case 2:  return 351000000;
+	case 3:  return 468000000;
+	case 4:  return 702000000;
+	case 5:  return 936000000;
+	case 6:  return 1053000000;
+	case 7:  return 1170000000;
+	case 8:  return 1404000000;
+	case 9:  return 1560000000;
+	}
+	return 0;
+}
+
+static guint32
+get_max_rate_vht_160_ss3 (int mcs)
+{
+	switch (mcs) {
+	case 0:  return 175500000;
+	case 1:  return 351000000;
+	case 2:  return 526500000;
+	case 3:  return 702000000;
+	case 4:  return 1053000000;
+	case 5:  return 1404000000;
+	case 6:  return 1579500000;
+	case 7:  return 1755000000;
+	case 8:  return 2106000000;
+	case 9:  return 0;
+	}
+	return 0;
+}
+
+static gboolean
+get_max_rate_ht (const guint8 *bytes, guint len, guint32 *out_maxrate)
+{
+	guint32 i;
+	guint8 ht_cap_info;
+	const guint8 *supported_mcs_set;
+	guint32 rate;
+
+	/* http://standards.ieee.org/getieee802/download/802.11-2012.pdf
+	 * https://mrncciew.com/2014/10/19/cwap-ht-capabilities-ie/
+	 */
+
+	if (len != 26)
+		return FALSE;
+
+	ht_cap_info = bytes[0];
+	supported_mcs_set = &bytes[3];
+	*out_maxrate = 0;
+
+	/* Find the maximum supported mcs rate */
+	for (i = 0; i <= 76; i++) {
+		const unsigned mcs_octet = i / 8;
+		const unsigned MCS_RATE_BIT = 1 << i % 8;
+
+		if (supported_mcs_set[mcs_octet] & MCS_RATE_BIT) {
+			/* Check for 40Mhz wide channel support */
+			if (ht_cap_info & (1 << 1))
+				rate = get_max_rate_ht_40 (i);
+			else
+				rate = get_max_rate_ht_20 (i);
+
+			if (rate > *out_maxrate)
+				*out_maxrate = rate;
+		}
+	}
+
+	return TRUE;
+}
+
+static gboolean
+get_max_rate_vht (const guint8 *bytes, guint len, guint32 *out_maxrate)
+{
+	guint32 mcs, m;
+	guint8 vht_cap, tx_map;
+
+	/* https://tda802dot11.blogspot.it/2014/10/vht-capabilities-element-vht.html
+	 * http://chimera.labs.oreilly.com/books/1234000001739/ch03.html#management_frames */
+
+	if (len != 12)
+		return FALSE;
+
+	vht_cap = bytes[0];
+	tx_map = bytes[8];
+
+	/* Check for mcs rates 8 and 9 support */
+	if (tx_map & 0x2a)
+		mcs = 9;
+	else if (tx_map & 0x15)
+		mcs = 8;
+	else
+		mcs = 7;
+
+	/* Check for 160Mhz wide channel support and
+	 * spatial stream support */
+	if (vht_cap & (1 << 2)) {
+		if (tx_map & 0x30)
+			m = get_max_rate_vht_160_ss3 (mcs);
+		else if (tx_map & 0x0C)
+			m = get_max_rate_vht_160_ss2 (mcs);
+		else
+			m = get_max_rate_vht_160_ss1 (mcs);
+	} else {
+		if (tx_map & 0x30)
+			m = get_max_rate_vht_80_ss3 (mcs);
+		else if (tx_map & 0x0C)
+			m = get_max_rate_vht_80_ss2 (mcs);
+		else
+			m = get_max_rate_vht_80_ss1 (mcs);
+	}
+
+	*out_maxrate = m;
+	return TRUE;
+}
+
+/* Management Frame Information Element IDs, ieee80211_eid */
+#define WLAN_EID_HT_CAPABILITY       45
+#define WLAN_EID_VHT_CAPABILITY     191
+#define WLAN_EID_VENDOR_SPECIFIC    221
+
+void
+nm_wifi_utils_parse_ies (const guint8 *bytes,
+                         gsize len,
+                         guint32 *out_max_rate,
+                         gboolean *out_metered,
+                         gboolean *out_owe_transition_mode)
+{
+	guint8 id, elem_len;
+	guint32 m;
+
+	NM_SET_OUT (out_max_rate, 0);
+	NM_SET_OUT (out_metered, FALSE);
+	NM_SET_OUT (out_owe_transition_mode, FALSE);
+
+	while (len) {
+		if (len < 2)
+			break;
+
+		id = *bytes++;
+		elem_len = *bytes++;
+		len -= 2;
+
+		if (elem_len > len)
+			break;
+
+		switch (id) {
+		case WLAN_EID_HT_CAPABILITY:
+			if (out_max_rate) {
+				if (get_max_rate_ht (bytes, elem_len, &m))
+					*out_max_rate = NM_MAX (*out_max_rate, m);
+			}
+			break;
+		case WLAN_EID_VHT_CAPABILITY:
+			if (out_max_rate) {
+				if (get_max_rate_vht (bytes, elem_len, &m))
+					*out_max_rate = NM_MAX (*out_max_rate, m);
+			}
+			break;
+		case WLAN_EID_VENDOR_SPECIFIC:
+			if (   len == 8
+			    && bytes[0] == 0x00            /* OUI: Microsoft */
+			    && bytes[1] == 0x50
+			    && bytes[2] == 0xf2
+			    && bytes[3] == 0x11)           /* OUI type: Network cost */
+				NM_SET_OUT (out_metered, (bytes[7] > 1)); /* Cost level > 1 */
+			if (   elem_len >= 10
+			    && bytes[0] == 0x50            /* OUI: WiFi Alliance */
+			    && bytes[1] == 0x6f
+			    && bytes[2] == 0x9a
+			    && bytes[3] == 0x1c)           /* OUI type: OWE Transition Mode */
+				NM_SET_OUT (out_owe_transition_mode, TRUE);
+			break;
+		}
+
+		len -= elem_len;
+		bytes += elem_len;
+	}
+}
+
+/*****************************************************************************/
+
+guint8
+nm_wifi_utils_level_to_quality (int val)
+{
+	if (val < 0) {
+		/* Assume dBm already; rough conversion: best = -40, worst = -100 */
+		val = abs (CLAMP (val, -100, -40) + 40);  /* normalize to 0 */
+		val = 100 - (int) ((100.0 * (double) val) / 60.0);
+	} else if (val > 110 && val < 256) {
+		/* assume old-style WEXT 8-bit unsigned signal level */
+		val -= 256;  /* subtract 256 to convert to dBm */
+		val = abs (CLAMP (val, -100, -40) + 40);  /* normalize to 0 */
+		val = 100 - (int) ((100.0 * (double) val) / 60.0);
+	} else {
+		/* Assume signal is a "quality" percentage */
+	}
+
+	return CLAMP (val, 0, 100);
 }
 
 /*****************************************************************************/

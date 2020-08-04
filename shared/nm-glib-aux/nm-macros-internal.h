@@ -337,52 +337,65 @@ _nm_auto_freev (gpointer ptr)
 
 /*****************************************************************************/
 
-/* http://stackoverflow.com/a/11172679 */
-#define  _NM_UTILS_MACRO_FIRST(...)                           __NM_UTILS_MACRO_FIRST_HELPER(__VA_ARGS__, throwaway)
-#define __NM_UTILS_MACRO_FIRST_HELPER(first, ...)             first
-
-#define  _NM_UTILS_MACRO_REST(...)                            __NM_UTILS_MACRO_REST_HELPER(__NM_UTILS_MACRO_REST_NUM(__VA_ARGS__), __VA_ARGS__)
-#define __NM_UTILS_MACRO_REST_HELPER(qty, ...)                __NM_UTILS_MACRO_REST_HELPER2(qty, __VA_ARGS__)
-#define __NM_UTILS_MACRO_REST_HELPER2(qty, ...)               __NM_UTILS_MACRO_REST_HELPER_##qty(__VA_ARGS__)
-#define __NM_UTILS_MACRO_REST_HELPER_ONE(first)
-#define __NM_UTILS_MACRO_REST_HELPER_TWOORMORE(first, ...)    , __VA_ARGS__
-#define __NM_UTILS_MACRO_REST_NUM(...) \
-    __NM_UTILS_MACRO_REST_SELECT_30TH(__VA_ARGS__, \
-                TWOORMORE, TWOORMORE, TWOORMORE, TWOORMORE, TWOORMORE,\
-                TWOORMORE, TWOORMORE, TWOORMORE, TWOORMORE, TWOORMORE,\
-                TWOORMORE, TWOORMORE, TWOORMORE, TWOORMORE, TWOORMORE,\
-                TWOORMORE, TWOORMORE, TWOORMORE, TWOORMORE, TWOORMORE,\
-                TWOORMORE, TWOORMORE, TWOORMORE, TWOORMORE, TWOORMORE,\
-                TWOORMORE, TWOORMORE, TWOORMORE, ONE, throwaway)
-#define __NM_UTILS_MACRO_REST_SELECT_30TH(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24, a25, a26, a27, a28, a29, a30, ...) a30
-
-/*****************************************************************************/
-
-/* http://stackoverflow.com/a/2124385/354393
- * https://stackoverflow.com/questions/11317474/macro-to-count-number-of-arguments
- */
-
-#define NM_NARG(...) \
-         _NM_NARG(, ##__VA_ARGS__, _NM_NARG_RSEQ_N())
-#define _NM_NARG(...) \
-         _NM_NARG_ARG_N(__VA_ARGS__)
-#define _NM_NARG_ARG_N( \
-          _0, \
+#define _NM_MACRO_SELECT_ARG_64( \
           _1, _2, _3, _4, _5, _6, _7, _8, _9,_10, \
          _11,_12,_13,_14,_15,_16,_17,_18,_19,_20, \
          _21,_22,_23,_24,_25,_26,_27,_28,_29,_30, \
          _31,_32,_33,_34,_35,_36,_37,_38,_39,_40, \
          _41,_42,_43,_44,_45,_46,_47,_48,_49,_50, \
          _51,_52,_53,_54,_55,_56,_57,_58,_59,_60, \
-         _61,_62,_63,N,...) N
-#define _NM_NARG_RSEQ_N() \
-         63,62,61,60,                   \
-         59,58,57,56,55,54,53,52,51,50, \
-         49,48,47,46,45,44,43,42,41,40, \
-         39,38,37,36,35,34,33,32,31,30, \
-         29,28,27,26,25,24,23,22,21,20, \
-         19,18,17,16,15,14,13,12,11,10, \
-         9,8,7,6,5,4,3,2,1,0
+         _61,_62,_63, N,...) N
+
+/* http://stackoverflow.com/a/2124385/354393
+ * https://stackoverflow.com/questions/11317474/macro-to-count-number-of-arguments
+ */
+
+#define NM_NARG(...) \
+    _NM_MACRO_SELECT_ARG_64(, ##__VA_ARGS__, \
+                                                 62,61,60, \
+                            59,58,57,56,55,54,53,52,51,50, \
+                            49,48,47,46,45,44,43,42,41,40, \
+                            39,38,37,36,35,34,33,32,31,30, \
+                            29,28,27,26,25,24,23,22,21,20, \
+                            19,18,17,16,15,14,13,12,11,10, \
+                             9, 8, 7, 6, 5, 4, 3, 2, 1, 0)
+#define NM_NARG_MAX1(...) \
+    _NM_MACRO_SELECT_ARG_64(, ##__VA_ARGS__, \
+                                                  1, 1, 1, \
+                             1, 1, 1, 1, 1, 1, 1, 1, 1, 1, \
+                             1, 1, 1, 1, 1, 1, 1, 1, 1, 1, \
+                             1, 1, 1, 1, 1, 1, 1, 1, 1, 1, \
+                             1, 1, 1, 1, 1, 1, 1, 1, 1, 1, \
+                             1, 1, 1, 1, 1, 1, 1, 1, 1, 1, \
+                             1, 1, 1, 1, 1, 1, 1, 1, 1, 0)
+#define NM_NARG_MAX2(...) \
+    _NM_MACRO_SELECT_ARG_64(, ##__VA_ARGS__, \
+                                                  2, 2, 2, \
+                             2, 2, 2, 2, 2, 2, 2, 2, 2, 2, \
+                             2, 2, 2, 2, 2, 2, 2, 2, 2, 2, \
+                             2, 2, 2, 2, 2, 2, 2, 2, 2, 2, \
+                             2, 2, 2, 2, 2, 2, 2, 2, 2, 2, \
+                             2, 2, 2, 2, 2, 2, 2, 2, 2, 2, \
+                             2, 2, 2, 2, 2, 2, 2, 2, 1, 0)
+
+#define _NM_MACRO_CALL(macro, ...) macro (__VA_ARGS__)
+
+/*****************************************************************************/
+
+#define _NM_MACRO_COMMA_IF_ARGS(...)       _NM_MACRO_CALL (G_PASTE (__NM_MACRO_COMMA_IF_ARGS_, NM_NARG_MAX1(__VA_ARGS__)), __VA_ARGS__)
+#define __NM_MACRO_COMMA_IF_ARGS_0()
+#define __NM_MACRO_COMMA_IF_ARGS_1(...)    ,
+
+/*****************************************************************************/
+
+/* http://stackoverflow.com/a/11172679 */
+#define  _NM_UTILS_MACRO_FIRST(...)                  __NM_UTILS_MACRO_FIRST_HELPER(__VA_ARGS__, throwaway)
+#define __NM_UTILS_MACRO_FIRST_HELPER(first, ...)    first
+
+#define  _NM_UTILS_MACRO_REST(...)                   _NM_MACRO_CALL (G_PASTE (__NM_UTILS_MACRO_REST_, NM_NARG_MAX2(__VA_ARGS__)), __VA_ARGS__)
+#define __NM_UTILS_MACRO_REST_0()
+#define __NM_UTILS_MACRO_REST_1(first)
+#define __NM_UTILS_MACRO_REST_2(first, ...)          , __VA_ARGS__
 
 /*****************************************************************************/
 
@@ -617,6 +630,14 @@ NM_G_ERROR_MSG (GError *error)
 		NM_CONSTCAST_FULL (type, (obj), _obj, GObject, ##__VA_ARGS__); \
 	})
 
+#define NM_ENSURE_NOT_NULL(ptr) \
+	({ \
+		typeof (ptr) _ptr = (ptr); \
+		\
+		nm_assert (_ptr != NULL); \
+		_ptr; \
+	})
+
 #if _NM_CC_SUPPORT_GENERIC
 /* returns @value, if the type of @value matches @type.
  * This requires support for C11 _Generic(). If no support is
@@ -741,6 +762,17 @@ NM_G_ERROR_MSG (GError *error)
  * with a cast). */
 #define NM_IN_SET_TYPED(type, x, ...)       _NM_IN_SET(||, type,       x, __VA_ARGS__)
 #define NM_IN_SET_SE_TYPED(type, x, ...)    _NM_IN_SET(|,  type,       x, __VA_ARGS__)
+
+/*****************************************************************************/
+
+#define NM_SWAP(a, b) \
+	G_STMT_START { \
+		typeof (a) _tmp; \
+		\
+		_tmp = (a); \
+		(a) = (b); \
+		(b) = _tmp; \
+	} G_STMT_END
 
 /*****************************************************************************/
 
@@ -905,21 +937,36 @@ nm_streq0 (const char *s1, const char *s2)
 
 #define NM_STR_HAS_PREFIX(str, prefix) \
 	({ \
-		const char *const _str = (str); \
+		const char *const _str_has_prefix = (str); \
 		\
-		_str && (strncmp ((str), ""prefix"", NM_STRLEN (prefix)) == 0); \
+		nm_assert (strlen (prefix) == NM_STRLEN (prefix)); \
+		\
+		   _str_has_prefix \
+		&& (strncmp (_str_has_prefix, ""prefix"", NM_STRLEN (prefix)) == 0); \
 	})
 
 #define NM_STR_HAS_SUFFIX(str, suffix) \
 	({ \
-		const char *_str; \
+		const char *const _str_has_suffix = (str); \
 		gsize _l; \
 		\
-		(   (_str = (str)) \
-		 && ((_l = strlen (_str)) >= NM_STRLEN (suffix)) \
-		 && (memcmp (&_str[_l - NM_STRLEN (suffix)], \
+		nm_assert (strlen (suffix) == NM_STRLEN (suffix)); \
+		\
+		(   _str_has_suffix \
+		 && ((_l = strlen (_str_has_suffix)) >= NM_STRLEN (suffix)) \
+		 && (memcmp (&_str_has_suffix[_l - NM_STRLEN (suffix)], \
 		             ""suffix"", \
 		             NM_STRLEN (suffix)) == 0)); \
+	})
+
+/* whether @str starts with the string literal @prefix and is followed by
+ * some other text. It is like NM_STR_HAS_PREFIX() && !nm_streq() together. */
+#define NM_STR_HAS_PREFIX_WITH_MORE(str, prefix) \
+	({ \
+		const char *const _str_has_prefix_with_more = (str); \
+		\
+		   NM_STR_HAS_PREFIX (_str_has_prefix_with_more, ""prefix"") \
+		&& _str_has_prefix_with_more[NM_STRLEN (prefix)] != '\0'; \
 	})
 
 /*****************************************************************************/
@@ -942,16 +989,23 @@ nm_gstring_add_space_delimiter (GString *str)
 	return str;
 }
 
+static inline gboolean
+nm_str_is_empty (const char *str)
+{
+	/* %NULL is also accepted, and also "empty". */
+	return !str || !str[0];
+}
+
 static inline const char *
 nm_str_not_empty (const char *str)
 {
-	return str && str[0] ? str : NULL;
+	return !nm_str_is_empty (str) ? str : NULL;
 }
 
 static inline char *
 nm_strdup_not_empty (const char *str)
 {
-	return str && str[0] ? g_strdup (str) : NULL;
+	return !nm_str_is_empty (str) ? g_strdup (str) : NULL;
 }
 
 static inline char *
@@ -980,6 +1034,7 @@ nm_str_realloc (char *str)
 	(cond) ? (str) : (str_else), \
 	(cond) ? (suffix) : ""
 #define NM_PRINT_FMT_QUOTE_STRING(arg) NM_PRINT_FMT_QUOTED((arg), "\"", (arg), "\"", "(null)")
+#define NM_PRINT_FMT_QUOTE_REF_STRING(arg) NM_PRINT_FMT_QUOTED((arg), "\"", (arg)->str, "\"", "(null)")
 
 /*****************************************************************************/
 
@@ -1009,19 +1064,37 @@ nm_str_realloc (char *str)
 #define nm_assert_not_reached() G_STMT_START { ; } G_STMT_END
 #endif
 
+/* Usage:
+ *
+ *   if (NM_MORE_ASSERT_ONCE (5)) { extra_check (); }
+ *
+ * This will only run the check once, and only if NM_MORE_ASSERT is >= than
+ * more_assert_level.
+ */
+#define NM_MORE_ASSERT_ONCE(more_assert_level) \
+	(   (NM_MORE_ASSERTS >= (more_assert_level)) \
+	 && ({ \
+	        static volatile int _assert_once = 0; \
+	        \
+	        G_STATIC_ASSERT_EXPR ((more_assert_level) > 0); \
+	        \
+	        G_UNLIKELY (   _assert_once == 0 \
+	                    && g_atomic_int_compare_and_exchange (&_assert_once, 0, 1)); \
+	    }))
+
 /*****************************************************************************/
 
-#define NM_GOBJECT_PROPERTIES_DEFINE_BASE(...) \
+#define NM_GOBJECT_PROPERTIES_DEFINE_BASE_FULL(suffix, ...) \
 typedef enum { \
-	PROP_0, \
+	PROP_0##suffix, \
 	__VA_ARGS__ \
-	_PROPERTY_ENUMS_LAST, \
-} _PropertyEnums; \
-static GParamSpec *obj_properties[_PROPERTY_ENUMS_LAST] = { NULL, }
+	_PROPERTY_ENUMS_LAST##suffix, \
+} _PropertyEnums##suffix; \
+static GParamSpec *obj_properties##suffix[_PROPERTY_ENUMS_LAST##suffix] = { NULL, }
 
-#define NM_GOBJECT_PROPERTIES_DEFINE_NOTIFY(obj_type, obj_properties, property_enums_type, prop_0) \
+#define NM_GOBJECT_PROPERTIES_DEFINE_NOTIFY(suffix, obj_type) \
 static inline void \
-_nm_gobject_notify_together_impl (obj_type *obj, guint n, const property_enums_type *props) \
+_nm_gobject_notify_together_impl##suffix (obj_type *obj, guint n, const _PropertyEnums##suffix *props) \
 { \
 	const gboolean freeze_thaw = (n > 1); \
 	\
@@ -1031,12 +1104,12 @@ _nm_gobject_notify_together_impl (obj_type *obj, guint n, const property_enums_t
 	if (freeze_thaw) \
 		g_object_freeze_notify ((GObject *) obj); \
 	while (n-- > 0) { \
-		const property_enums_type prop = *props++; \
+		const _PropertyEnums##suffix prop = *props++; \
 		\
-		if (prop != prop_0) { \
-			nm_assert ((gsize) prop < G_N_ELEMENTS (obj_properties)); \
-			nm_assert (obj_properties[prop]); \
-			g_object_notify_by_pspec ((GObject *) obj, obj_properties[prop]); \
+		if (prop != PROP_0##suffix) { \
+			nm_assert ((gsize) prop < G_N_ELEMENTS (obj_properties##suffix)); \
+			nm_assert (obj_properties##suffix[prop]); \
+			g_object_notify_by_pspec ((GObject *) obj, obj_properties##suffix[prop]); \
 		} \
 	} \
 	if (freeze_thaw) \
@@ -1044,20 +1117,29 @@ _nm_gobject_notify_together_impl (obj_type *obj, guint n, const property_enums_t
 } \
 \
 _nm_unused static inline void \
-_notify (obj_type *obj, property_enums_type prop) \
+_notify##suffix (obj_type *obj, _PropertyEnums##suffix prop) \
 { \
-	_nm_gobject_notify_together_impl (obj, 1, &prop); \
+	_nm_gobject_notify_together_impl##suffix (obj, 1, &prop); \
 } \
 
+#define NM_GOBJECT_PROPERTIES_DEFINE_BASE(...) \
+	NM_GOBJECT_PROPERTIES_DEFINE_BASE_FULL (, __VA_ARGS__); \
+
+#define NM_GOBJECT_PROPERTIES_DEFINE_FULL(suffix, obj_type, ...) \
+	NM_GOBJECT_PROPERTIES_DEFINE_BASE_FULL (suffix, __VA_ARGS__); \
+	NM_GOBJECT_PROPERTIES_DEFINE_NOTIFY (suffix, obj_type)
+
 #define NM_GOBJECT_PROPERTIES_DEFINE(obj_type, ...) \
-NM_GOBJECT_PROPERTIES_DEFINE_BASE (__VA_ARGS__); \
-NM_GOBJECT_PROPERTIES_DEFINE_NOTIFY (obj_type, obj_properties, _PropertyEnums, PROP_0)
+	NM_GOBJECT_PROPERTIES_DEFINE_FULL (, obj_type, __VA_ARGS__)
 
 /* invokes _notify() for all arguments (of type _PropertyEnums). Note, that if
  * there are more than one prop arguments, this will involve a freeze/thaw
  * of GObject property notifications. */
+#define nm_gobject_notify_together_full(suffix, obj, ...) \
+	_nm_gobject_notify_together_impl##suffix (obj, NM_NARG (__VA_ARGS__), (const _PropertyEnums##suffix[]) { __VA_ARGS__ })
+
 #define nm_gobject_notify_together(obj, ...) \
-	_nm_gobject_notify_together_impl (obj, NM_NARG (__VA_ARGS__), (const _PropertyEnums[]) { __VA_ARGS__ })
+	nm_gobject_notify_together_full (, obj, __VA_ARGS__)
 
 /*****************************************************************************/
 
@@ -1065,9 +1147,9 @@ NM_GOBJECT_PROPERTIES_DEFINE_NOTIFY (obj_type, obj_properties, _PropertyEnums, P
 #if _NM_CC_SUPPORT_AUTO_TYPE
 #define _NM_GET_PRIVATE_PTR(self, type, is_check, ...) \
 	({ \
-		_nm_auto_type _self = NM_GOBJECT_CAST_NON_NULL (type, (self), is_check, ##__VA_ARGS__); \
+		_nm_auto_type _self_get_private = NM_GOBJECT_CAST_NON_NULL (type, (self), is_check, ##__VA_ARGS__); \
 		\
-		NM_PROPAGATE_CONST (_self, _self->_priv); \
+		NM_PROPAGATE_CONST (_self_get_private, _self_get_private->_priv); \
 	})
 #else
 #define _NM_GET_PRIVATE_PTR(self, type, is_check, ...) (NM_GOBJECT_CAST_NON_NULL (type, (self), is_check, ##__VA_ARGS__)->_priv)
@@ -1348,8 +1430,8 @@ nm_g_variant_take_ref (GVariant *v)
 #define NM_UTILS_LOOKUP_ITEM_IGNORE(v)        (void) 0; case v: break; (void) 0
 #define NM_UTILS_LOOKUP_ITEM_IGNORE_OTHER()   (void) 0; default: break; (void) 0
 
-#define _NM_UTILS_LOOKUP_DEFINE(scope, fcn_name, lookup_type, result_type, unknown_val, ...) \
-scope result_type \
+#define NM_UTILS_LOOKUP_DEFINE(fcn_name, lookup_type, result_type, unknown_val, ...) \
+result_type \
 fcn_name (lookup_type val) \
 { \
 	switch (val) { \
@@ -1361,9 +1443,7 @@ fcn_name (lookup_type val) \
 }
 
 #define NM_UTILS_LOOKUP_STR_DEFINE(fcn_name, lookup_type, unknown_val, ...) \
-	_NM_UTILS_LOOKUP_DEFINE (, fcn_name, lookup_type, const char *, unknown_val, __VA_ARGS__)
-#define NM_UTILS_LOOKUP_STR_DEFINE_STATIC(fcn_name, lookup_type, unknown_val, ...) \
-	_NM_UTILS_LOOKUP_DEFINE (static, fcn_name, lookup_type, const char *, unknown_val, __VA_ARGS__)
+	NM_UTILS_LOOKUP_DEFINE (fcn_name, lookup_type, const char *, unknown_val, __VA_ARGS__)
 
 /* Call the string-lookup-table function @fcn_name. If the function returns
  * %NULL, the numeric index is converted to string using a alloca() buffer.
@@ -1415,6 +1495,14 @@ fcn_name (lookup_type val) \
 			: _flags & (~_val); \
 	})
 
+#define NM_FLAGS_ASSIGN_MASK(flags, mask, val)  ({ \
+		const typeof(flags) _flags = (flags); \
+		const typeof(flags) _mask = (mask); \
+		const typeof(flags) _val = (val); \
+		\
+		((_flags & ~_mask) | (_mask & _val)); \
+	})
+
 /*****************************************************************************/
 
 #define _NM_BACKPORT_SYMBOL_IMPL(version, return_type, orig_func, versioned_func, args_typed, args) \
@@ -1432,7 +1520,12 @@ _NM_BACKPORT_SYMBOL_IMPL(version, return_type, func, _##func##_##version, args_t
 /*****************************************************************************/
 
 /* mirrors g_ascii_isspace() and what we consider spaces in general. */
-#define NM_ASCII_SPACES "\t\n\f\r "
+#define NM_ASCII_SPACES      " \n\t\r\f"
+
+/* Like NM_ASCII_SPACES, but without "\f" (0x0c, Formfeed Page Break).
+ * This is what for example systemd calls WHITESPACE and what it uses to tokenize
+ * the kernel command line. */
+#define NM_ASCII_WHITESPACES " \n\t\r"
 
 #define nm_str_skip_leading_spaces(str) \
 	({ \
@@ -1507,6 +1600,17 @@ nm_strstrip_avoid_copy (const char *str, char **str_free)
 		\
 		_str_ssac; \
 	})
+
+static inline gboolean
+nm_str_is_stripped (const char *str)
+{
+	if (str && str[0]) {
+		if (   g_ascii_isspace (str[0])
+		    || g_ascii_isspace (str[strlen (str) - 1]))
+			return FALSE;
+	}
+	return TRUE;
+}
 
 /* g_ptr_array_sort()'s compare function takes pointers to the
  * value. Thus, you cannot use strcmp directly. You can use

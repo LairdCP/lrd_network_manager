@@ -76,6 +76,7 @@ typedef enum {
 	NM_META_COLOR_CONNECTION_ACTIVATING,
 	NM_META_COLOR_CONNECTION_DISCONNECTING,
 	NM_META_COLOR_CONNECTION_INVISIBLE,
+	NM_META_COLOR_CONNECTION_EXTERNAL,
 	NM_META_COLOR_CONNECTION_UNKNOWN,
 	NM_META_COLOR_CONNECTIVITY_FULL,
 	NM_META_COLOR_CONNECTIVITY_LIMITED,
@@ -89,6 +90,7 @@ typedef enum {
 	NM_META_COLOR_DEVICE_PLUGIN_MISSING,
 	NM_META_COLOR_DEVICE_UNAVAILABLE,
 	NM_META_COLOR_DEVICE_DISABLED,
+	NM_META_COLOR_DEVICE_EXTERNAL,
 	NM_META_COLOR_DEVICE_UNKNOWN,
 	NM_META_COLOR_MANAGER_RUNNING,
 	NM_META_COLOR_MANAGER_STARTING,
@@ -257,6 +259,7 @@ struct _NMMetaPropertyTypData {
 		} gobject_int;
 		struct {
 			const char *(*validate_fcn) (const char *value, char **out_to_free, GError **error);
+			bool handle_emptyunset:1;
 		} gobject_string;
 		struct {
 			bool legacy_format:1;
@@ -376,6 +379,7 @@ struct _NMMetaPropertyInfo {
 	bool is_secret:1;
 
 	bool is_cli_option:1;
+	bool hide_if_default:1;
 
 	const char *prompt;
 
@@ -516,7 +520,14 @@ struct _NMMetaPropertyTypDataNested  {
 	guint nested_len;
 };
 
-const NMMetaPropertyTypDataNested nm_meta_property_typ_data_bond;
+extern const NMMetaPropertyTypDataNested nm_meta_property_typ_data_bond;
+
+/*****************************************************************************/
+
+gboolean _nm_meta_setting_bond_add_option (NMSetting *setting,
+                                           const char *name,
+                                           const char *value,
+                                           GError **error);
 
 /*****************************************************************************/
 

@@ -17,7 +17,6 @@
 #include <unistd.h>
 
 #include "nm-core-internal.h"
-#include "platform/nm-platform.h"
 #include "NetworkManagerUtils.h"
 
 /*****************************************************************************/
@@ -185,12 +184,12 @@ ip_setting_add_from_block (GHashTable *nic,
 		return FALSE;
 	}
 
-	if (   (g_strcmp0 (s_origin, "3") == 0 && family == AF_INET)
-	    || (g_strcmp0 (s_origin, "4") == 0 && family == AF_INET)) {
+	if (   (nm_streq0 (s_origin, "3") && family == AF_INET)
+	    || (nm_streq0 (s_origin, "4") && family == AF_INET)) {
 		method = NM_SETTING_IP4_CONFIG_METHOD_AUTO;
-	} else if (g_strcmp0 (s_origin, "3") == 0 && family == AF_INET6) {
+	} else if (nm_streq0 (s_origin, "3") && family == AF_INET6) {
 		method = NM_SETTING_IP6_CONFIG_METHOD_DHCP;
-	} else if (g_strcmp0 (s_origin, "4") == 0 && family == AF_INET6) {
+	} else if (nm_streq0 (s_origin, "4") && family == AF_INET6) {
 		method = NM_SETTING_IP6_CONFIG_METHOD_AUTO;
 	} else if (family == AF_INET) {
 		method = NM_SETTING_IP4_CONFIG_METHOD_MANUAL;
@@ -200,23 +199,23 @@ ip_setting_add_from_block (GHashTable *nic,
 		g_return_val_if_reached (FALSE);
 	}
 	g_object_set (s_ip,
-                      NM_SETTING_IP_CONFIG_METHOD, method,
-                      NM_SETTING_IP_CONFIG_MAY_FAIL, FALSE,
+	              NM_SETTING_IP_CONFIG_METHOD, method,
+	              NM_SETTING_IP_CONFIG_MAY_FAIL, FALSE,
 	              NULL);
 
-	if (s_gateway && !nm_utils_ipaddr_valid (family, s_gateway)) {
+	if (s_gateway && !nm_utils_ipaddr_is_valid (family, s_gateway)) {
 		g_set_error (error, NM_SETTINGS_ERROR, NM_SETTINGS_ERROR_INVALID_CONNECTION,
 		             "iBFT: invalid IP gateway '%s'.", s_gateway);
 		return FALSE;
 	}
 
-	if (s_dns1 && !nm_utils_ipaddr_valid (family, s_dns1)) {
+	if (s_dns1 && !nm_utils_ipaddr_is_valid (family, s_dns1)) {
 		g_set_error (error, NM_SETTINGS_ERROR, NM_SETTINGS_ERROR_INVALID_CONNECTION,
 		             "iBFT: invalid DNS1 address '%s'.", s_dns1);
 		return FALSE;
 	}
 
-	if (s_dns2 && !nm_utils_ipaddr_valid (family, s_dns2)) {
+	if (s_dns2 && !nm_utils_ipaddr_is_valid (family, s_dns2)) {
 		g_set_error (error, NM_SETTINGS_ERROR, NM_SETTINGS_ERROR_INVALID_CONNECTION,
 		             "iBFT: invalid DNS2 address '%s'.", s_dns2);
 		return FALSE;
@@ -296,6 +295,7 @@ connection_setting_add (GHashTable *nic,
 	              NM_SETTING_CONNECTION_TYPE, type,
 	              NM_SETTING_CONNECTION_UUID, uuid,
 	              NM_SETTING_CONNECTION_ID, id,
+	              NM_SETTING_CONNECTION_INTERFACE_NAME, NULL,
 	              NULL);
 
 	g_free (uuid);

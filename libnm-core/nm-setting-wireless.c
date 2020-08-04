@@ -63,25 +63,23 @@ NM_GOBJECT_PROPERTIES_DEFINE (NMSettingWireless,
 
 typedef struct {
 	GBytes *ssid;
+	GArray *mac_address_blacklist;
+	GPtrArray *seen_bssids;
 	char *mode;
 	char *band;
-	guint32 channel;
-	char *channel_width;
+
 	char *bssid;
-	guint32 rate;
-	guint32 tx_power;
 	char *device_mac_address;
 	char *cloned_mac_address;
 	char *generate_mac_address_mask;
-	GArray *mac_address_blacklist;
-	GPtrArray *seen_bssids;
+	guint32 channel;
+	guint32 rate;
+	guint32 tx_power;
 	guint32 mtu;
-	gboolean hidden;
 	guint32 powersave;
-	NMSettingMacRandomization mac_address_randomization;
+
 	guint ccx;
 	char *client_name;
-
 	guint32 scan_delay;
 	guint32 scan_dwell;
 	guint32 scan_passive_dwell;
@@ -92,8 +90,12 @@ typedef struct {
 	char *frequency_list;
 	guint32 frequency_dfs;
 	guint32 max_scan_interval;
-	guint32 wowl;
 	guint32 dms;
+	char *channel_width;
+
+	guint32 wowl;
+	NMSettingMacRandomization mac_address_randomization;
+	bool hidden:1;
 } NMSettingWirelessPrivate;
 
 G_DEFINE_TYPE (NMSettingWireless, nm_setting_wireless, NM_TYPE_SETTING)
@@ -351,9 +353,9 @@ nm_setting_wireless_ap_security_compatible2 (NMSettingWireless *s_wireless,
 	    || !strcmp (key_mgmt, "wpa-eap")
 	    || !strcmp (key_mgmt, "wpa-eap-suite-b")
 	    || !strcmp (key_mgmt, "wpa-eap-suite-b-192")
-	    || !strcmp (key_mgmt, "owe")
 	    || !strcmp (key_mgmt, "owe-only")
-	    || !strcmp (key_mgmt, "sae")) {
+	    || !strcmp (key_mgmt, "sae")
+	    || !strcmp (key_mgmt, "owe")) {
 
 		if (!strcmp (key_mgmt, "wpa-psk")) {
 			if (wpa3_only) {
@@ -381,15 +383,14 @@ nm_setting_wireless_ap_security_compatible2 (NMSettingWireless *s_wireless,
 			if (   !(ap_wpa & NM_802_11_AP_SEC_KEY_MGMT_SAE)
 			    && !(ap_rsn & NM_802_11_AP_SEC_KEY_MGMT_SAE))
 				return FALSE;
+		} else if (!strcmp (key_mgmt, "owe") ||
+				   !strcmp (key_mgmt, "owe-only")) {
+			if (   !NM_FLAGS_ANY (ap_wpa, NM_802_11_AP_SEC_KEY_MGMT_OWE | NM_802_11_AP_SEC_KEY_MGMT_OWE_TM)
+			    && !NM_FLAGS_ANY (ap_rsn, NM_802_11_AP_SEC_KEY_MGMT_OWE | NM_802_11_AP_SEC_KEY_MGMT_OWE_TM))
+				return FALSE;
 		} else if (!strcmp (key_mgmt, "cckm")) {
 			if (   !(ap_wpa & NM_802_11_AP_SEC_KEY_MGMT_CCKM)
 			    && !(ap_rsn & NM_802_11_AP_SEC_KEY_MGMT_CCKM))
-				return FALSE;
-		} else if (!strcmp (key_mgmt, "owe") ||
-				   !strcmp (key_mgmt, "owe-only")) {
-			// note, for owe, an open ap was accepted above
-			if (   !(ap_wpa & NM_802_11_AP_SEC_KEY_MGMT_OWE)
-			    && !(ap_rsn & NM_802_11_AP_SEC_KEY_MGMT_OWE))
 				return FALSE;
 		} else if (!strcmp (key_mgmt, "wpa-eap-suite-b")) {
 			/* key_mgmt must only have suite-b */
@@ -1871,6 +1872,8 @@ nm_setting_wireless_init (NMSettingWireless *setting)
 	/* We use GArray rather than GPtrArray so it will automatically be NULL-terminated */
 	priv->mac_address_blacklist = g_array_new (TRUE, FALSE, sizeof (char *));
 	g_array_set_clear_func (priv->mac_address_blacklist, (GDestroyNotify) clear_blacklist_item);
+
+	priv->wowl = NM_SETTING_WIRELESS_WAKE_ON_WLAN_DEFAULT;
 }
 
 /**
@@ -2013,7 +2016,6 @@ nm_setting_wireless_class_init (NMSettingWirelessClass *klass)
 	    g_param_spec_uint (NM_SETTING_WIRELESS_CHANNEL, "", "",
 	                       0, G_MAXUINT32, 0,
 	                       G_PARAM_READWRITE |
-	                       G_PARAM_CONSTRUCT |
 	                       G_PARAM_STATIC_STRINGS);
 
 	/**
@@ -2055,7 +2057,7 @@ nm_setting_wireless_class_init (NMSettingWirelessClass *klass)
 	                         NULL,
 	                         G_PARAM_READWRITE |
 	                         G_PARAM_STATIC_STRINGS);
-	_nm_properties_override_gobj (properties_override, obj_properties[PROP_BSSID], &nm_sett_info_propert_type_mac_addrees);
+	_nm_properties_override_gobj (properties_override, obj_properties[PROP_BSSID], &nm_sett_info_propert_type_mac_address);
 
 	/**
 	 * NMSettingWireless:rate:
@@ -2075,7 +2077,6 @@ nm_setting_wireless_class_init (NMSettingWirelessClass *klass)
 	    g_param_spec_uint (NM_SETTING_WIRELESS_RATE, "", "",
 	                       0, G_MAXUINT32, 0,
 	                       G_PARAM_READWRITE |
-	                       G_PARAM_CONSTRUCT |
 	                       NM_SETTING_PARAM_FUZZY_IGNORE |
 	                       G_PARAM_STATIC_STRINGS);
 
@@ -2096,7 +2097,6 @@ nm_setting_wireless_class_init (NMSettingWirelessClass *klass)
 	    g_param_spec_uint (NM_SETTING_WIRELESS_TX_POWER, "", "",
 	                       0, G_MAXUINT32, 0,
 	                       G_PARAM_READWRITE |
-	                       G_PARAM_CONSTRUCT |
 	                       NM_SETTING_PARAM_FUZZY_IGNORE |
 	                       G_PARAM_STATIC_STRINGS);
 
@@ -2129,7 +2129,7 @@ nm_setting_wireless_class_init (NMSettingWirelessClass *klass)
 	                         NULL,
 	                         G_PARAM_READWRITE |
 	                         G_PARAM_STATIC_STRINGS);
-	_nm_properties_override_gobj (properties_override, obj_properties[PROP_MAC_ADDRESS], &nm_sett_info_propert_type_mac_addrees);
+	_nm_properties_override_gobj (properties_override, obj_properties[PROP_MAC_ADDRESS], &nm_sett_info_propert_type_mac_address);
 
 	/**
 	 * NMSettingWireless:cloned-mac-address:
@@ -2313,7 +2313,6 @@ nm_setting_wireless_class_init (NMSettingWirelessClass *klass)
 	    g_param_spec_uint (NM_SETTING_WIRELESS_MTU, "", "",
 	                       0, G_MAXUINT32, 0,
 	                       G_PARAM_READWRITE |
-	                       G_PARAM_CONSTRUCT |
 	                       NM_SETTING_PARAM_FUZZY_IGNORE |
 	                       G_PARAM_STATIC_STRINGS);
 
@@ -2383,7 +2382,7 @@ nm_setting_wireless_class_init (NMSettingWirelessClass *klass)
 	 * 'cloned-mac-address'.
 	 *
 	 * Since: 1.2
-	 * Deprecated: 1.4: Deprecated by NMSettingWireless:cloned-mac-address property
+	 * Deprecated: 1.4: Deprecated by NMSettingWireless:cloned-mac-address property.
 	 **/
 	/* ---ifcfg-rh---
 	 * property: mac-address-randomization
@@ -2645,7 +2644,6 @@ nm_setting_wireless_class_init (NMSettingWirelessClass *klass)
 	obj_properties[PROP_WAKE_ON_WLAN] =
 	    g_param_spec_uint (NM_SETTING_WIRELESS_WAKE_ON_WLAN, "", "",
 	                       0, G_MAXUINT32, NM_SETTING_WIRELESS_WAKE_ON_WLAN_DEFAULT,
-	                       G_PARAM_CONSTRUCT |
 	                       G_PARAM_READWRITE |
 	                       G_PARAM_STATIC_STRINGS);
 

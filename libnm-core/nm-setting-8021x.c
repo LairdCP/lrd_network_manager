@@ -92,6 +92,7 @@ NM_GOBJECT_PROPERTIES_DEFINE (NMSetting8021x,
 	PROP_SUBJECT_MATCH,
 	PROP_ALTSUBJECT_MATCHES,
 	PROP_DOMAIN_SUFFIX_MATCH,
+	PROP_DOMAIN_MATCH,
 	PROP_CLIENT_CERT,
 	PROP_CLIENT_CERT_PASSWORD,
 	PROP_CLIENT_CERT_PASSWORD_FLAGS,
@@ -108,6 +109,7 @@ NM_GOBJECT_PROPERTIES_DEFINE (NMSetting8021x,
 	PROP_PHASE2_SUBJECT_MATCH,
 	PROP_PHASE2_ALTSUBJECT_MATCHES,
 	PROP_PHASE2_DOMAIN_SUFFIX_MATCH,
+	PROP_PHASE2_DOMAIN_MATCH,
 	PROP_PHASE2_CLIENT_CERT,
 	PROP_PHASE2_CLIENT_CERT_PASSWORD,
 	PROP_PHASE2_CLIENT_CERT_PASSWORD_FLAGS,
@@ -137,47 +139,49 @@ typedef struct {
 	char *pac_file;
 	GBytes *ca_cert;
 	char *ca_cert_password;
-	NMSettingSecretFlags ca_cert_password_flags;
 	char *ca_path;
 	char *subject_match;
 	GSList *altsubject_matches;
 	char *domain_suffix_match;
+	char *domain_match;
 	GBytes *client_cert;
 	char *client_cert_password;
-	NMSettingSecretFlags client_cert_password_flags;
 	char *phase1_peapver;
 	char *phase1_peaplabel;
 	char *phase1_fast_provisioning;
-	NMSetting8021xAuthFlags phase1_auth_flags;
 	GSList *phase2_auth;
   	GSList *phase2_autheap;
 	GBytes *phase2_ca_cert;
 	char *phase2_ca_cert_password;
-	NMSettingSecretFlags phase2_ca_cert_password_flags;
 	char *phase2_ca_path;
 	char *phase2_subject_match;
 	GSList *phase2_altsubject_matches;
 	char *phase2_domain_suffix_match;
+	char *phase2_domain_match;
 	GBytes *phase2_client_cert;
 	char *phase2_client_cert_password;
-	NMSettingSecretFlags phase2_client_cert_password_flags;
 	char *password;
-	NMSettingSecretFlags password_flags;
 	GBytes *password_raw;
-	NMSettingSecretFlags password_raw_flags;
 	char *pin;
-	NMSettingSecretFlags pin_flags;
 	GBytes *private_key;
 	char *private_key_password;
-	NMSettingSecretFlags private_key_password_flags;
 	GBytes *phase2_private_key;
 	char *phase2_private_key_password;
-	NMSettingSecretFlags phase2_private_key_password_flags;
-	gboolean system_ca_certs;
 	int auth_timeout;
-	gboolean optional;
 	char *tls_disable_time_checks;
 	char *pac_file_password;
+	NMSetting8021xAuthFlags phase1_auth_flags;
+	NMSettingSecretFlags ca_cert_password_flags;
+	NMSettingSecretFlags client_cert_password_flags;
+	NMSettingSecretFlags phase2_ca_cert_password_flags;
+	NMSettingSecretFlags phase2_client_cert_password_flags;
+	NMSettingSecretFlags password_flags;
+	NMSettingSecretFlags password_raw_flags;
+	NMSettingSecretFlags pin_flags;
+	NMSettingSecretFlags private_key_password_flags;
+	NMSettingSecretFlags phase2_private_key_password_flags;
+	bool optional:1;
+	bool system_ca_certs:1;
 } NMSetting8021xPrivate;
 
 G_DEFINE_TYPE (NMSetting8021x, nm_setting_802_1x, NM_TYPE_SETTING)
@@ -1249,6 +1253,22 @@ nm_setting_802_1x_get_domain_suffix_match (NMSetting8021x *setting)
 }
 
 /**
+ * nm_setting_802_1x_get_domain_match:
+ * @setting: the #NMSetting8021x
+ *
+ * Returns: the #NMSetting8021x:domain-match property.
+ *
+ * Since: 1.24
+ **/
+const char *
+nm_setting_802_1x_get_domain_match (NMSetting8021x *setting)
+{
+	g_return_val_if_fail (NM_IS_SETTING_802_1X (setting), NULL);
+
+	return NM_SETTING_802_1X_GET_PRIVATE (setting)->domain_match;
+}
+
+/**
  * nm_setting_802_1x_get_client_cert_scheme:
  * @setting: the #NMSetting8021x
  *
@@ -1952,6 +1972,22 @@ nm_setting_802_1x_get_phase2_domain_suffix_match (NMSetting8021x *setting)
 	g_return_val_if_fail (NM_IS_SETTING_802_1X (setting), NULL);
 
 	return NM_SETTING_802_1X_GET_PRIVATE (setting)->phase2_domain_suffix_match;
+}
+
+/**
+ * nm_setting_802_1x_get_phase2_domain_match:
+ * @setting: the #NMSetting8021x
+ *
+ * Returns: the #NMSetting8021x:phase2-domain-match property.
+ *
+ * Since: 1.24
+ **/
+const char *
+nm_setting_802_1x_get_phase2_domain_match (NMSetting8021x *setting)
+{
+	g_return_val_if_fail (NM_IS_SETTING_802_1X (setting), NULL);
+
+	return NM_SETTING_802_1X_GET_PRIVATE (setting)->phase2_domain_match;
 }
 
 /**
@@ -3348,6 +3384,9 @@ get_property (GObject *object, guint prop_id,
 	case PROP_DOMAIN_SUFFIX_MATCH:
 		g_value_set_string (value, priv->domain_suffix_match);
 		break;
+	case PROP_DOMAIN_MATCH:
+		g_value_set_string (value, priv->domain_match);
+		break;
 	case PROP_CLIENT_CERT:
 		g_value_set_boxed (value, priv->client_cert);
 		break;
@@ -3395,6 +3434,9 @@ get_property (GObject *object, guint prop_id,
 		break;
 	case PROP_PHASE2_DOMAIN_SUFFIX_MATCH:
 		g_value_set_string (value, priv->phase2_domain_suffix_match);
+		break;
+	case PROP_PHASE2_DOMAIN_MATCH:
+		g_value_set_string (value, priv->phase2_domain_match);
 		break;
 	case PROP_PHASE2_CLIENT_CERT:
 		g_value_set_boxed (value, priv->phase2_client_cert);
@@ -3513,6 +3555,10 @@ set_property (GObject *object, guint prop_id,
 		g_free (priv->domain_suffix_match);
 		priv->domain_suffix_match = nm_strdup_not_empty (g_value_get_string (value));
 		break;
+	case PROP_DOMAIN_MATCH:
+		g_free (priv->domain_match);
+		priv->domain_match = nm_strdup_not_empty (g_value_get_string (value));
+		break;
 	case PROP_CLIENT_CERT:
 		g_bytes_unref (priv->client_cert);
 		priv->client_cert = g_value_dup_boxed (value);
@@ -3573,6 +3619,10 @@ set_property (GObject *object, guint prop_id,
 	case PROP_PHASE2_DOMAIN_SUFFIX_MATCH:
 		g_free (priv->phase2_domain_suffix_match);
 		priv->phase2_domain_suffix_match = nm_strdup_not_empty (g_value_get_string (value));
+		break;
+	case PROP_PHASE2_DOMAIN_MATCH:
+		g_free (priv->phase2_domain_match);
+		priv->phase2_domain_match = nm_strdup_not_empty (g_value_get_string (value));
 		break;
 	case PROP_PHASE2_CLIENT_CERT:
 		g_bytes_unref (priv->phase2_client_cert);
@@ -3635,7 +3685,7 @@ set_property (GObject *object, guint prop_id,
 		priv->auth_timeout = g_value_get_int (value);
 		break;
 	case PROP_OPTIONAL:
-		g_value_set_boolean (value, priv->optional);
+		priv->optional = g_value_get_boolean (value);
 		break;
 	case PROP_TLS_DISABLE_TIME_CHECKS:
 		g_free (priv->tls_disable_time_checks);
@@ -3814,14 +3864,17 @@ nm_setting_802_1x_class_init (NMSetting8021xClass *klass)
 	 * Contains the CA certificate if used by the EAP method specified in the
 	 * #NMSetting8021x:eap property.
 	 *
-	 * Certificate data is specified using a "scheme"; two are currently
-	 * supported: blob and path. When using the blob scheme (which is backwards
-	 * compatible with NM 0.7.x) this property should be set to the
-	 * certificate's DER encoded data. When using the path scheme, this property
-	 * should be set to the full UTF-8 encoded path of the certificate, prefixed
-	 * with the string "file://" and ending with a terminating NUL byte. This
-	 * property can be unset even if the EAP method supports CA certificates,
+	 * Certificate data is specified using a "scheme"; three are currently
+	 * supported: blob, path and pkcs#11 URL. When using the blob scheme this property
+	 * should be set to the certificate's DER encoded data. When using the path
+	 * scheme, this property should be set to the full UTF-8 encoded path of the
+	 * certificate, prefixed with the string "file://" and ending with a terminating
+	 * NUL byte.
+	 * This property can be unset even if the EAP method supports CA certificates,
 	 * but this allows man-in-the-middle attacks and is NOT recommended.
+	 *
+	 * Note that enabling NMSetting8021x:system-ca-certs will override this
+	 * setting to use the built-in path, if the built-in path is not a directory.
 	 *
 	 * Setting this property directly is discouraged; use the
 	 * nm_setting_802_1x_set_ca_cert() function instead.
@@ -3881,11 +3934,14 @@ nm_setting_802_1x_class_init (NMSetting8021xClass *klass)
 	 * UTF-8 encoded path to a directory containing PEM or DER formatted
 	 * certificates to be added to the verification chain in addition to the
 	 * certificate specified in the #NMSetting8021x:ca-cert property.
+	 *
+	 * If NMSetting8021x:system-ca-certs is enabled and the built-in CA
+	 * path is an existing directory, then this setting is ignored.
 	 **/
 	/* ---ifcfg-rh---
 	 * property: ca-path
-	 * variable: (none)
-	 * description: The property is not handled by ifcfg-rh plugin.
+	 * variable: IEEE_8021X_CA_PATH(+)
+	 * description: The search path for the certificate.
 	 * ---end---
 	 */
 	obj_properties[PROP_CA_PATH] =
@@ -3944,6 +4000,8 @@ nm_setting_802_1x_class_init (NMSetting8021xClass *klass)
 	 * the authentication server.  If a matching dNSName is found, this
 	 * constraint is met.  If no dNSName values are present, this constraint is
 	 * matched against SubjectName CN using same suffix match comparison.
+	 * Since version 1.24, multiple valid FQDNs can be passed as a ";" delimited
+	 * list.
 	 *
 	 * Since: 1.2
 	 **/
@@ -3955,6 +4013,30 @@ nm_setting_802_1x_class_init (NMSetting8021xClass *klass)
 	 */
 	obj_properties[PROP_DOMAIN_SUFFIX_MATCH] =
 	    g_param_spec_string (NM_SETTING_802_1X_DOMAIN_SUFFIX_MATCH, "", "",
+	                         NULL,
+	                         G_PARAM_READWRITE |
+	                         G_PARAM_STATIC_STRINGS);
+
+	/**
+	 * NMSetting8021x:domain-match:
+	 *
+	 * Constraint for server domain name. If set, this list of FQDNs is used as
+	 * a match requirement for dNSName element(s) of the certificate presented
+	 * by the authentication server.  If a matching dNSName is found, this
+	 * constraint is met.  If no dNSName values are present, this constraint is
+	 * matched against SubjectName CN using the same comparison.
+	 * Multiple valid FQDNs can be passed as a ";" delimited list.
+	 *
+	 * Since: 1.24
+	 **/
+	/* ---ifcfg-rh---
+	 * property: domain-match
+	 * description: Value to match domain of server certificate against.
+	 * variable: IEEE_8021X_DOMAIN_MATCH(+)
+	 * ---end---
+	 */
+	obj_properties[PROP_DOMAIN_MATCH] =
+	    g_param_spec_string (NM_SETTING_802_1X_DOMAIN_MATCH, "", "",
 	                         NULL,
 	                         G_PARAM_READWRITE |
 	                         G_PARAM_STATIC_STRINGS);
@@ -4116,7 +4198,6 @@ nm_setting_802_1x_class_init (NMSetting8021xClass *klass)
 	obj_properties[PROP_PHASE1_AUTH_FLAGS] =
 	    g_param_spec_uint (NM_SETTING_802_1X_PHASE1_AUTH_FLAGS, "", "",
 	                       0, G_MAXUINT32, NM_SETTING_802_1X_AUTH_FLAGS_NONE,
-	                       G_PARAM_CONSTRUCT |
 	                       G_PARAM_READWRITE |
 	                       G_PARAM_STATIC_STRINGS);
 
@@ -4177,14 +4258,17 @@ nm_setting_802_1x_class_init (NMSetting8021xClass *klass)
 	 * in the #NMSetting8021x:phase2-auth or #NMSetting8021x:phase2-autheap
 	 * properties.
 	 *
-	 * Certificate data is specified using a "scheme"; two are currently
-	 * supported: blob and path. When using the blob scheme (which is backwards
-	 * compatible with NM 0.7.x) this property should be set to the
-	 * certificate's DER encoded data. When using the path scheme, this property
-	 * should be set to the full UTF-8 encoded path of the certificate, prefixed
-	 * with the string "file://" and ending with a terminating NUL byte. This
-	 * property can be unset even if the EAP method supports CA certificates,
+	 * Certificate data is specified using a "scheme"; three are currently
+	 * supported: blob, path and pkcs#11 URL. When using the blob scheme this property
+	 * should be set to the certificate's DER encoded data. When using the path
+	 * scheme, this property should be set to the full UTF-8 encoded path of the
+	 * certificate, prefixed with the string "file://" and ending with a terminating
+	 * NUL byte.
+	 * This property can be unset even if the EAP method supports CA certificates,
 	 * but this allows man-in-the-middle attacks and is NOT recommended.
+	 *
+	 * Note that enabling NMSetting8021x:system-ca-certs will override this
+	 * setting to use the built-in path, if the built-in path is not a directory.
 	 *
 	 * Setting this property directly is discouraged; use the
 	 * nm_setting_802_1x_set_phase2_ca_cert() function instead.
@@ -4237,7 +4321,16 @@ nm_setting_802_1x_class_init (NMSetting8021xClass *klass)
 	 * UTF-8 encoded path to a directory containing PEM or DER formatted
 	 * certificates to be added to the verification chain in addition to the
 	 * certificate specified in the #NMSetting8021x:phase2-ca-cert property.
+	 *
+	 * If NMSetting8021x:system-ca-certs is enabled and the built-in CA
+	 * path is an existing directory, then this setting is ignored.
 	 **/
+	/* ---ifcfg-rh---
+	 * property: phase2-ca-path
+	 * variable: IEEE_8021X_PHASE2_CA_PATH(+)
+	 * description: The search path for the certificate.
+	 * ---end---
+	 */
 	obj_properties[PROP_PHASE2_CA_PATH] =
 	    g_param_spec_string (NM_SETTING_802_1X_PHASE2_CA_PATH, "", "",
 	                         NULL,
@@ -4295,6 +4388,8 @@ nm_setting_802_1x_class_init (NMSetting8021xClass *klass)
 	 * a matching dNSName is found, this constraint is met.  If no dNSName
 	 * values are present, this constraint is matched against SubjectName CN
 	 * using same suffix match comparison.
+	 * Since version 1.24, multiple valid FQDNs can be passed as a ";" delimited
+	 * list.
 	 *
 	 * Since: 1.2
 	 **/
@@ -4306,6 +4401,31 @@ nm_setting_802_1x_class_init (NMSetting8021xClass *klass)
 	 */
 	obj_properties[PROP_PHASE2_DOMAIN_SUFFIX_MATCH] =
 	    g_param_spec_string (NM_SETTING_802_1X_PHASE2_DOMAIN_SUFFIX_MATCH, "", "",
+	                         NULL,
+	                         G_PARAM_READWRITE |
+	                         G_PARAM_STATIC_STRINGS);
+
+	/**
+	 * NMSetting8021x:phase2-domain-match:
+	 *
+	 * Constraint for server domain name. If set, this list of FQDNs is used as
+	 * a match requirement for dNSName element(s) of the certificate presented
+	 * by the authentication server during the inner "phase 2" authentication.
+	 * If a matching dNSName is found, this constraint is met.  If no dNSName
+	 * values are present, this constraint is matched against SubjectName CN
+	 * using the same comparison.
+	 * Multiple valid FQDNs can be passed as a ";" delimited list.
+	 *
+	 * Since: 1.24
+	 **/
+	/* ---ifcfg-rh---
+	 * property: phase2-domain-match
+	 * description: Value to match domain of server certificate for phase 2 against.
+	 * variable: IEEE_8021X_PHASE2_DOMAIN_MATCH(+)
+	 * ---end---
+	 */
+	obj_properties[PROP_PHASE2_DOMAIN_MATCH] =
+	    g_param_spec_string (NM_SETTING_802_1X_PHASE2_DOMAIN_MATCH, "", "",
 	                         NULL,
 	                         G_PARAM_READWRITE |
 	                         G_PARAM_STATIC_STRINGS);
@@ -4448,8 +4568,8 @@ nm_setting_802_1x_class_init (NMSetting8021xClass *klass)
 	 **/
 	/* ---ifcfg-rh---
 	 * property: password-raw-flags
-	 * variable: (none)
-	 * description: The property is not handled by ifcfg-rh plugin.
+	 * variable: IEEE_8021X_PASSWORD_RAW_FLAGS(+)
+	 * description: The secret flags for password-raw.
 	 * ---end---
 	 */
 	obj_properties[PROP_PASSWORD_RAW_FLAGS] =
@@ -4637,8 +4757,8 @@ nm_setting_802_1x_class_init (NMSetting8021xClass *klass)
 	 **/
 	/* ---ifcfg-rh---
 	 * property: pin
-	 * variable: (none)
-	 * description: The property is not handled by ifcfg-rh plugin.
+	 * variable: IEEE_8021X_PIN(+)
+	 * description: The pin secret used for EAP authentication methods.
 	 * ---end---
 	 */
 	obj_properties[PROP_PIN] =
@@ -4655,8 +4775,8 @@ nm_setting_802_1x_class_init (NMSetting8021xClass *klass)
 	 **/
 	/* ---ifcfg-rh---
 	 * property: pin-flags
-	 * variable: (none)
-	 * description: The property is not handled by ifcfg-rh plugin.
+	 * variable: IEEE_8021X_PIN_FLAGS(+)
+	 * description: The secret flags for the pin property.
 	 * ---end---
 	 */
 	obj_properties[PROP_PIN_FLAGS] =
@@ -4681,15 +4801,14 @@ nm_setting_802_1x_class_init (NMSetting8021xClass *klass)
 	 **/
 	/* ---ifcfg-rh---
 	 * property: system-ca-certs
-	 * variable: (none)
-	 * description: The property is not handled by ifcfg-rh plugin.
+	 * variable: IEEE_8021X_SYSTEM_CA_CERTS(+)
+	 * description: a boolean value.
 	 * ---end---
 	 */
 	obj_properties[PROP_SYSTEM_CA_CERTS] =
 	    g_param_spec_boolean (NM_SETTING_802_1X_SYSTEM_CA_CERTS, "", "",
 	                          FALSE,
 	                          G_PARAM_READWRITE |
-	                          G_PARAM_CONSTRUCT |
 	                          G_PARAM_STATIC_STRINGS);
 
 	/**

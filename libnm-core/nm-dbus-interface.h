@@ -52,6 +52,7 @@
 #define NM_DBUS_INTERFACE_DEVICE_TUN           NM_DBUS_INTERFACE_DEVICE ".Tun"
 #define NM_DBUS_INTERFACE_DEVICE_VETH          NM_DBUS_INTERFACE_DEVICE ".Veth"
 #define NM_DBUS_INTERFACE_DEVICE_VLAN          NM_DBUS_INTERFACE_DEVICE ".Vlan"
+#define NM_DBUS_INTERFACE_DEVICE_VRF           NM_DBUS_INTERFACE_DEVICE ".Vrf"
 #define NM_DBUS_INTERFACE_DEVICE_VXLAN         NM_DBUS_INTERFACE_DEVICE ".Vxlan"
 #define NM_DBUS_INTERFACE_DEVICE_WIFI_P2P      NM_DBUS_INTERFACE_DEVICE ".WifiP2P"
 #define NM_DBUS_INTERFACE_DEVICE_WIMAX         NM_DBUS_INTERFACE_DEVICE ".WiMax"
@@ -89,7 +90,10 @@
 
 /**
  * NMCapability:
- * @NM_CAPABILITY_TEAM: Teams can be managed
+ * @NM_CAPABILITY_TEAM: Teams can be managed. This means the team device plugin
+ *   is loaded.
+ * @NM_CAPABILITY_OVS: OpenVSwitch can be managed. This means the OVS device plugin
+ *   is loaded. Since: 1.24
  *
  * #NMCapability names the numbers in the Capabilities property.
  * Capabilities are positive numbers. They are part of stable API
@@ -101,6 +105,7 @@
  */
 typedef enum {
 	NM_CAPABILITY_TEAM = 1,
+	NM_CAPABILITY_OVS  = 2,
 } NMCapability;
 
 /**
@@ -209,6 +214,7 @@ typedef enum {
  * @NM_DEVICE_TYPE_6LOWPAN: 6LoWPAN interface
  * @NM_DEVICE_TYPE_WIREGUARD: a WireGuard interface
  * @NM_DEVICE_TYPE_WIFI_P2P: an 802.11 Wi-Fi P2P device (Since: 1.16)
+ * @NM_DEVICE_TYPE_VRF: A VRF (Virtual Routing and Forwarding) interface (Since: 1.24)
  *
  * #NMDeviceType values indicate the type of hardware represented by a
  * device object.
@@ -245,6 +251,7 @@ typedef enum {
 	NM_DEVICE_TYPE_6LOWPAN       = 28,
 	NM_DEVICE_TYPE_WIREGUARD     = 29,
 	NM_DEVICE_TYPE_WIFI_P2P      = 30,
+	NM_DEVICE_TYPE_VRF           = 31,
 } NMDeviceType;
 
 /**
@@ -369,13 +376,15 @@ typedef enum { /*< underscore_name=nm_802_11_ap_flags, flags >*/
  * is supported
  * @NM_802_11_AP_SEC_KEY_MGMT_SAE: WPA/RSN Simultaneous Authentication of Equals is
  * supported
+ * @NM_802_11_AP_SEC_KEY_MGMT_OWE: WPA/RSN Opportunistic Wireless Encryption is
+ * supported
+ * @NM_802_11_AP_SEC_KEY_MGMT_OWE_TM: WPA/RSN Opportunistic Wireless Encryption
+ * transition mode is supported. Since: 1.26.
  * @NM_802_11_AP_SEC_KEY_MGMT_CCKM: CCKM authentication and key management
  * is supported
  * @NM_802_11_AP_SEC_KEY_MGMT_SUITE_B: Suite-B authentication and key management
  * is supported
  * @NM_802_11_AP_SEC_KEY_MGMT_SUITE_B_192: Suite-B-192 authentication and key management
- * is supported
- * @NM_802_11_AP_SEC_KEY_MGMT_OWE: OWE authentication and key management
  * is supported
  * @NM_802_11_AP_SEC_MGMT_GROUP_CMAC_128: BIP-CMAC-128 group management frame is supported
  * @NM_802_11_AP_SEC_MGMT_GROUP_CMAC_256: BIP-CMAC-256 group management frame is supported
@@ -399,20 +408,21 @@ typedef enum { /*< underscore_name=nm_802_11_ap_security_flags, flags >*/
 	NM_802_11_AP_SEC_KEY_MGMT_PSK    = 0x00000100,
 	NM_802_11_AP_SEC_KEY_MGMT_802_1X = 0x00000200,
 	NM_802_11_AP_SEC_KEY_MGMT_SAE    = 0x00000400,
-	NM_802_11_AP_SEC_KEY_MGMT_CCKM   = 0x00000800,
-	NM_802_11_AP_SEC_PAIR_CCMP_256        = 0x00001000,
-	NM_802_11_AP_SEC_PAIR_GCMP_128        = 0x00002000,
-	NM_802_11_AP_SEC_PAIR_GCMP_256        = 0x00004000,
-	NM_802_11_AP_SEC_GROUP_CCMP_256       = 0x00008000,
-	NM_802_11_AP_SEC_GROUP_GCMP_128       = 0x00010000,
-	NM_802_11_AP_SEC_GROUP_GCMP_256       = 0x00020000,
-	NM_802_11_AP_SEC_KEY_MGMT_SUITE_B     = 0x00040000,
-	NM_802_11_AP_SEC_KEY_MGMT_SUITE_B_192 = 0x00080000,
-	NM_802_11_AP_SEC_KEY_MGMT_OWE         = 0x00100000,
-	NM_802_11_AP_SEC_MGMT_GROUP_CMAC_128  = 0x00200000,
-	NM_802_11_AP_SEC_MGMT_GROUP_CMAC_256  = 0x00400000,
-	NM_802_11_AP_SEC_MGMT_GROUP_GMAC_128  = 0x00800000,
-	NM_802_11_AP_SEC_MGMT_GROUP_GMAC_256  = 0x01000000,
+	NM_802_11_AP_SEC_KEY_MGMT_OWE    = 0x00000800,
+	NM_802_11_AP_SEC_KEY_MGMT_OWE_TM = 0x00001000,
+	NM_802_11_AP_SEC_PAIR_CCMP_256        = 0x00010000,
+	NM_802_11_AP_SEC_PAIR_GCMP_128        = 0x00020000,
+	NM_802_11_AP_SEC_PAIR_GCMP_256        = 0x00040000,
+	NM_802_11_AP_SEC_GROUP_CCMP_256       = 0x00080000,
+	NM_802_11_AP_SEC_GROUP_GCMP_128       = 0x00100000,
+	NM_802_11_AP_SEC_GROUP_GCMP_256       = 0x00200000,
+	NM_802_11_AP_SEC_KEY_MGMT_SUITE_B     = 0x00400000,
+	NM_802_11_AP_SEC_KEY_MGMT_SUITE_B_192 = 0x00800000,
+	NM_802_11_AP_SEC_KEY_MGMT_CCKM        = 0x01000800,
+	NM_802_11_AP_SEC_MGMT_GROUP_CMAC_128  = 0x02000000,
+	NM_802_11_AP_SEC_MGMT_GROUP_CMAC_256  = 0x04000000,
+	NM_802_11_AP_SEC_MGMT_GROUP_GMAC_128  = 0x08000000,
+	NM_802_11_AP_SEC_MGMT_GROUP_GMAC_256  = 0x10000000,
 } NM80211ApSecurityFlags;
 
 #define	NM_802_11_AP_SEC_GROUP_CCMP_128 NM_802_11_AP_SEC_GROUP_CCMP
@@ -935,6 +945,7 @@ typedef enum /*< flags >*/ {
 #undef NM_AVAILABLE_IN_1_8
 #endif
 
+#define NM_LLDP_ATTR_RAW                     "raw"
 #define NM_LLDP_ATTR_DESTINATION             "destination"
 #define NM_LLDP_ATTR_CHASSIS_ID_TYPE         "chassis-id-type"
 #define NM_LLDP_ATTR_CHASSIS_ID              "chassis-id"
@@ -953,6 +964,8 @@ typedef enum /*< flags >*/ {
 #define NM_LLDP_ATTR_IEEE_802_3_MAC_PHY_CONF    "ieee-802-3-mac-phy-conf"
 #define NM_LLDP_ATTR_IEEE_802_3_POWER_VIA_MDI   "ieee-802-3-power-via-mdi"
 #define NM_LLDP_ATTR_IEEE_802_3_MAX_FRAME_SIZE  "ieee-802-3-max-frame-size"
+
+#define NM_LLDP_ATTR_MUD_URL                 "mud-url"
 
 /* These are deprecated in favor of NM_LLDP_ATTR_IEEE_802_1_VLANS,
  * which can report multiple VLANs */
@@ -1070,6 +1083,8 @@ typedef enum { /*< skip >*/
  *  currently active but deleted on disconnect. Volatile connections are
  *  always unsaved, but they are also no backing file on disk and are entirely
  *  in-memory only.
+ * @NM_SETTINGS_CONNECTION_FLAG_EXTERNAL: the profile was generated to represent
+ *  an external configuration of a networking device. Since: 1.26
  *
  * Flags describing the current activation state.
  *
@@ -1080,6 +1095,7 @@ typedef enum { /*< flags >*/
 	NM_SETTINGS_CONNECTION_FLAG_UNSAVED                    = 0x01,
 	NM_SETTINGS_CONNECTION_FLAG_NM_GENERATED               = 0x02,
 	NM_SETTINGS_CONNECTION_FLAG_VOLATILE                   = 0x04,
+	NM_SETTINGS_CONNECTION_FLAG_EXTERNAL                   = 0x08,
 } NMSettingsConnectionFlags;
 
 /**
@@ -1096,6 +1112,8 @@ typedef enum { /*< flags >*/
  *   of the activation is bound to the visilibity of the connection profile,
  *   which in turn depends on "connection.permissions" and whether a session
  *   for the user exists. Since: 1.16
+ * @NM_ACTIVATION_STATE_FLAG_EXTERNAL: the active connection was generated to
+ *  represent an external configuration of a networking device. Since: 1.26
  *
  * Flags describing the current activation state.
  *
@@ -1111,6 +1129,7 @@ typedef enum { /*< flags >*/
 	NM_ACTIVATION_STATE_FLAG_IP6_READY                            = 0x10,
 	NM_ACTIVATION_STATE_FLAG_MASTER_HAS_SLAVES                    = 0x20,
 	NM_ACTIVATION_STATE_FLAG_LIFETIME_BOUND_TO_PROFILE_VISIBILITY = 0x40,
+	NM_ACTIVATION_STATE_FLAG_EXTERNAL                             = 0x80,
 } NMActivationStateFlags;
 
 /**
@@ -1261,5 +1280,86 @@ typedef enum { /*< flags >*/
 	/* NM-specific flags */
 	NM_DEVICE_INTERFACE_FLAG_CARRIER     = 0x10000,
 } NMDeviceInterfaceFlags;
+
+/**
+ * NMClientPermission:
+ * @NM_CLIENT_PERMISSION_NONE: unknown or no permission
+ * @NM_CLIENT_PERMISSION_ENABLE_DISABLE_NETWORK: controls whether networking
+ *  can be globally enabled or disabled
+ * @NM_CLIENT_PERMISSION_ENABLE_DISABLE_WIFI: controls whether Wi-Fi can be
+ *  globally enabled or disabled
+ * @NM_CLIENT_PERMISSION_ENABLE_DISABLE_WWAN: controls whether WWAN (3G) can be
+ *  globally enabled or disabled
+ * @NM_CLIENT_PERMISSION_ENABLE_DISABLE_WIMAX: controls whether WiMAX can be
+ *  globally enabled or disabled
+ * @NM_CLIENT_PERMISSION_SLEEP_WAKE: controls whether the client can ask
+ *  NetworkManager to sleep and wake
+ * @NM_CLIENT_PERMISSION_NETWORK_CONTROL: controls whether networking connections
+ *  can be started, stopped, and changed
+ * @NM_CLIENT_PERMISSION_WIFI_SHARE_PROTECTED: controls whether a password
+ *  protected Wi-Fi hotspot can be created
+ * @NM_CLIENT_PERMISSION_WIFI_SHARE_OPEN: controls whether an open Wi-Fi hotspot
+ *  can be created
+ * @NM_CLIENT_PERMISSION_SETTINGS_MODIFY_SYSTEM: controls whether connections
+ *  that are available to all users can be modified
+ * @NM_CLIENT_PERMISSION_SETTINGS_MODIFY_OWN: controls whether connections
+ *  owned by the current user can be modified
+ * @NM_CLIENT_PERMISSION_SETTINGS_MODIFY_HOSTNAME: controls whether the
+ *  persistent hostname can be changed
+ * @NM_CLIENT_PERMISSION_SETTINGS_MODIFY_GLOBAL_DNS: modify persistent global
+ *  DNS configuration
+ * @NM_CLIENT_PERMISSION_RELOAD: controls access to Reload.
+ * @NM_CLIENT_PERMISSION_CHECKPOINT_ROLLBACK: permission to create checkpoints.
+ * @NM_CLIENT_PERMISSION_ENABLE_DISABLE_STATISTICS: controls whether device
+ *  statistics can be globally enabled or disabled
+ * @NM_CLIENT_PERMISSION_ENABLE_DISABLE_CONNECTIVITY_CHECK: controls whether
+ *  connectivity check can be enabled or disabled
+ * @NM_CLIENT_PERMISSION_WIFI_SCAN: controls whether wifi scans can be performed
+ * @NM_CLIENT_PERMISSION_LAST: a reserved boundary value
+ *
+ * #NMClientPermission values indicate various permissions that NetworkManager
+ * clients can obtain to perform certain tasks on behalf of the current user.
+ **/
+typedef enum {
+	NM_CLIENT_PERMISSION_NONE = 0,
+	NM_CLIENT_PERMISSION_ENABLE_DISABLE_NETWORK = 1,
+	NM_CLIENT_PERMISSION_ENABLE_DISABLE_WIFI = 2,
+	NM_CLIENT_PERMISSION_ENABLE_DISABLE_WWAN = 3,
+	NM_CLIENT_PERMISSION_ENABLE_DISABLE_WIMAX = 4,
+	NM_CLIENT_PERMISSION_SLEEP_WAKE = 5,
+	NM_CLIENT_PERMISSION_NETWORK_CONTROL = 6,
+	NM_CLIENT_PERMISSION_WIFI_SHARE_PROTECTED = 7,
+	NM_CLIENT_PERMISSION_WIFI_SHARE_OPEN = 8,
+	NM_CLIENT_PERMISSION_SETTINGS_MODIFY_SYSTEM = 9,
+	NM_CLIENT_PERMISSION_SETTINGS_MODIFY_OWN = 10,
+	NM_CLIENT_PERMISSION_SETTINGS_MODIFY_HOSTNAME = 11,
+	NM_CLIENT_PERMISSION_SETTINGS_MODIFY_GLOBAL_DNS = 12,
+	NM_CLIENT_PERMISSION_RELOAD = 13,
+	NM_CLIENT_PERMISSION_CHECKPOINT_ROLLBACK = 14,
+	NM_CLIENT_PERMISSION_ENABLE_DISABLE_STATISTICS = 15,
+	NM_CLIENT_PERMISSION_ENABLE_DISABLE_CONNECTIVITY_CHECK = 16,
+	NM_CLIENT_PERMISSION_WIFI_SCAN = 17,
+
+	NM_CLIENT_PERMISSION_LAST = 17,
+} NMClientPermission;
+
+/**
+ * NMClientPermissionResult:
+ * @NM_CLIENT_PERMISSION_RESULT_UNKNOWN: unknown or no authorization
+ * @NM_CLIENT_PERMISSION_RESULT_YES: the permission is available
+ * @NM_CLIENT_PERMISSION_RESULT_AUTH: authorization is necessary before the
+ *  permission is available
+ * @NM_CLIENT_PERMISSION_RESULT_NO: permission to perform the operation is
+ *  denied by system policy
+ *
+ * #NMClientPermissionResult values indicate what authorizations and permissions
+ * the user requires to obtain a given #NMClientPermission
+ **/
+typedef enum {
+	NM_CLIENT_PERMISSION_RESULT_UNKNOWN = 0,
+	NM_CLIENT_PERMISSION_RESULT_YES,
+	NM_CLIENT_PERMISSION_RESULT_AUTH,
+	NM_CLIENT_PERMISSION_RESULT_NO
+} NMClientPermissionResult;
 
 #endif /* __NM_DBUS_INTERFACE_H__ */

@@ -53,6 +53,7 @@ nm_device_state_reason_check (NMDeviceStateReason reason)
 }
 
 #define NM_PENDING_ACTION_AUTOACTIVATE              "autoactivate"
+#define NM_PENDING_ACTION_IN_STATE_CHANGE           "in-state-change"
 #define NM_PENDING_ACTION_RECHECK_AVAILABLE         "recheck-available"
 #define NM_PENDING_ACTION_CARRIER_WAIT              "carrier-wait"
 #define NM_PENDING_ACTION_WAITING_FOR_SUPPLICANT    "waiting-for-supplicant"
@@ -65,6 +66,7 @@ nm_device_state_reason_check (NMDeviceStateReason reason)
 
 /* Properties */
 #define NM_DEVICE_UDI              "udi"
+#define NM_DEVICE_PATH             "path"
 #define NM_DEVICE_IFACE            "interface"
 #define NM_DEVICE_IP_IFACE         "ip-interface"
 #define NM_DEVICE_DRIVER           "driver"
@@ -114,7 +116,6 @@ nm_device_state_reason_check (NMDeviceStateReason reason)
 #define NM_DEVICE_HAS_PENDING_ACTION "has-pending-action" /* Internal only */
 
 /* Internal signals */
-#define NM_DEVICE_AUTH_REQUEST          "auth-request"
 #define NM_DEVICE_IP4_CONFIG_CHANGED    "ip4-config-changed"
 #define NM_DEVICE_IP6_CONFIG_CHANGED    "ip6-config-changed"
 #define NM_DEVICE_IP6_PREFIX_DELEGATED  "ip6-prefix-delegated"
@@ -436,25 +437,24 @@ typedef struct _NMDeviceClass {
 	                                        NMConnection *con_old,
 	                                        NMConnection *con_new);
 
-	guint32         (* get_dhcp_timeout) (NMDevice *self,
-	                                      int addr_family);
+	guint32         (* get_dhcp_timeout_for_device) (NMDevice *self,
+	                                                 int addr_family);
 
 	gboolean        (* get_guessed_metered) (NMDevice *self);
 
-	/* Controls, whether to call act_stage2_config() callback also for assuming
-	 * a device or for external activations. In this case, act_stage2_config() must
+	gboolean        (* can_update_from_platform_link) (NMDevice *self, const NMPlatformLink *plink);
+
+	gboolean        (* set_platform_mtu) (NMDevice *self, guint32 mtu);
+
+	/* Control whether to call stage1 and stage2 callbacks also for assuming
+	 * a device or for external activations. In this case, the callback must
 	 * take care not to touch the device's configuration. */
+	bool act_stage1_prepare_also_for_external_or_assume:1;
 	bool act_stage2_config_also_for_external_or_assume:1;
 
 	bool act_stage1_prepare_set_hwaddr_ethernet:1;
 
 } NMDeviceClass;
-
-typedef void (*NMDeviceAuthRequestFunc) (NMDevice *device,
-                                         GDBusMethodInvocation *context,
-                                         NMAuthSubject *subject,
-                                         GError *error,
-                                         gpointer user_data);
 
 GType nm_device_get_type (void);
 
@@ -501,8 +501,7 @@ const char *    nm_device_get_initial_hw_address (NMDevice *dev);
 
 NMProxyConfig * nm_device_get_proxy_config      (NMDevice *dev);
 
-NMDhcp4Config * nm_device_get_dhcp4_config      (NMDevice *dev);
-NMDhcp6Config * nm_device_get_dhcp6_config      (NMDevice *dev);
+NMDhcpConfig *  nm_device_get_dhcp_config       (NMDevice *dev, int addr_family);
 NMIP4Config *   nm_device_get_ip4_config        (NMDevice *dev);
 void            nm_device_replace_vpn4_config   (NMDevice *dev,
                                                  NMIP4Config *old,
@@ -879,5 +878,7 @@ struct _NMBtVTableNetworkServer {
 
 const char *nm_device_state_to_str (NMDeviceState state);
 const char *nm_device_state_reason_to_str (NMDeviceStateReason reason);
+
+gboolean nm_device_is_vpn (NMDevice *self);
 
 #endif /* __NETWORKMANAGER_DEVICE_H__ */

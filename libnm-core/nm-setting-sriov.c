@@ -27,7 +27,7 @@ NM_GOBJECT_PROPERTIES_DEFINE (NMSettingSriov,
 /**
  * NMSettingSriov:
  *
- * SR-IOV settings.
+ * SR-IOV settings
  *
  * Since: 1.14
  */
@@ -99,13 +99,15 @@ nm_sriov_vf_new (guint index)
 {
 	NMSriovVF *vf;
 
-	vf = g_slice_new0 (NMSriovVF);
-	vf->refcount = 1;
-	vf->index = index;
-	vf->attributes = g_hash_table_new_full (nm_str_hash,
-	                                        g_str_equal,
-	                                        g_free,
-	                                        (GDestroyNotify) g_variant_unref);
+	vf = g_slice_new (NMSriovVF);
+	*vf = (NMSriovVF) {
+		.refcount   = 1,
+		.index      = index,
+		.attributes = g_hash_table_new_full (nm_str_hash,
+		                                     g_str_equal,
+		                                     g_free,
+		                                     (GDestroyNotify) g_variant_unref),
+	};
 	return vf;
 }
 
@@ -147,7 +149,7 @@ nm_sriov_vf_unref (NMSriovVF *vf)
 		if (vf->vlans)
 			g_hash_table_unref (vf->vlans);
 		g_free (vf->vlan_ids);
-		g_slice_free (NMSriovVF, vf);
+		nm_g_slice_free (vf);
 	}
 }
 
@@ -221,16 +223,18 @@ vf_add_vlan (NMSriovVF *vf,
 {
 	VFVlan *vlan;
 
-	vlan = g_slice_new0 (VFVlan);
-	vlan->id = vlan_id;
-	vlan->qos = qos;
-	vlan->protocol = protocol;
+	vlan = g_slice_new (VFVlan);
+	*vlan = (VFVlan) {
+		.id       = vlan_id,
+		.qos      = qos,
+		.protocol = protocol,
+	};
 
 	if (!vf->vlans)
 		vf->vlans = _vf_vlan_create_hash ();
 
 	g_hash_table_add (vf->vlans, vlan);
-	g_clear_pointer (&vf->vlan_ids, g_free);
+	nm_clear_g_free (&vf->vlan_ids);
 }
 
 /**
@@ -526,7 +530,7 @@ nm_sriov_vf_remove_vlan (NMSriovVF *vf, guint vlan_id)
 	    || !g_hash_table_remove (vf->vlans, &vlan_id))
 		return FALSE;
 
-	g_clear_pointer (&vf->vlan_ids, g_free);
+	nm_clear_g_free (&vf->vlan_ids);
 	return TRUE;
 }
 
@@ -550,7 +554,7 @@ vlan_id_compare (gconstpointer a, gconstpointer b, gpointer user_data)
  *
  * Returns the VLANs currently configured on the VF.
  *
- * Returns: (transfer none): a list of VLAN ids configured on the VF.
+ * Returns: (transfer none) (array length=length): a list of VLAN ids configured on the VF.
  *
  * Since: 1.14
  */
@@ -852,7 +856,7 @@ nm_setting_sriov_get_autoprobe_drivers (NMSettingSriov *setting)
 	return setting->autoprobe_drivers;
 }
 
-static gint
+static int
 vf_index_compare (gconstpointer a, gconstpointer b)
 {
 	NMSriovVF *vf_a = *(NMSriovVF **) a;
@@ -1213,6 +1217,8 @@ static void
 nm_setting_sriov_init (NMSettingSriov *setting)
 {
 	setting->vfs = g_ptr_array_new_with_free_func ((GDestroyNotify) nm_sriov_vf_unref);
+
+	setting->autoprobe_drivers = NM_TERNARY_DEFAULT;
 }
 
 /**
@@ -1261,7 +1267,8 @@ nm_setting_sriov_class_init (NMSettingSriovClass *klass)
 	 *
 	 * Note that when the sriov setting is present NetworkManager
 	 * enforces the number of virtual functions on the interface
-	 * also when it is zero. To prevent any changes to SR-IOV
+	 * (also when it is zero) during activation and resets it
+	 * upon deactivation. To prevent any changes to SR-IOV
 	 * parameters don't add a sriov setting to the connection.
 	 *
 	 * Since: 1.14
@@ -1278,7 +1285,6 @@ nm_setting_sriov_class_init (NMSettingSriovClass *klass)
 	                       0, G_MAXUINT32, 0,
 	                       NM_SETTING_PARAM_FUZZY_IGNORE |
 	                       G_PARAM_READWRITE |
-	                       G_PARAM_CONSTRUCT |
 	                       G_PARAM_STATIC_STRINGS);
 
 	/**
@@ -1366,7 +1372,6 @@ nm_setting_sriov_class_init (NMSettingSriovClass *klass)
 	                       NM_TERNARY_DEFAULT,
 	                       NM_SETTING_PARAM_FUZZY_IGNORE |
 	                       G_PARAM_READWRITE |
-	                       G_PARAM_CONSTRUCT |
 	                       G_PARAM_STATIC_STRINGS);
 
 	g_object_class_install_properties (object_class, _PROPERTY_ENUMS_LAST, obj_properties);

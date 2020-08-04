@@ -87,12 +87,16 @@ static inline bool ERRNO_IS_RESOURCE(int r) {
                       ENOMEM);
 }
 
-/* Three different errors for "operation/system call/ioctl not supported" */
+/* Seven different errors for "operation/system call/ioctl/socket feature not supported" */
 static inline bool ERRNO_IS_NOT_SUPPORTED(int r) {
         return IN_SET(abs(r),
                       EOPNOTSUPP,
                       ENOTTY,
-                      ENOSYS);
+                      ENOSYS,
+                      EAFNOSUPPORT,
+                      EPFNOSUPPORT,
+                      EPROTONOSUPPORT,
+                      ESOCKTNOSUPPORT);
 }
 
 /* Two different errors for access problems */
@@ -100,4 +104,12 @@ static inline bool ERRNO_IS_PRIVILEGE(int r) {
         return IN_SET(abs(r),
                       EACCES,
                       EPERM);
+}
+
+/* Three difference errors for "not enough disk space" */
+static inline bool ERRNO_IS_DISK_SPACE(int r) {
+        return IN_SET(abs(r),
+                      ENOSPC,
+                      EDQUOT,
+                      EFBIG);
 }

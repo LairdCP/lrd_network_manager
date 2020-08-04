@@ -64,6 +64,7 @@ static struct {
 	char *dhcp4_clientid;
 	char *dhcp4_hostname;
 	char *dhcp4_fqdn;
+	char *mud_url;
 	char *iid_str;
 	NMSettingIP6ConfigAddrGenMode addr_gen_mode;
 	char *logging_backend;
@@ -106,6 +107,7 @@ dhcp4_state_changed (NMDhcpClient *client,
 
 	switch (state) {
 	case NM_DHCP_STATE_BOUND:
+	case NM_DHCP_STATE_EXTENDED:
 		g_assert (ip4_config);
 		g_assert (nm_ip4_config_get_ifindex (ip4_config) == gl.ifindex);
 
@@ -447,7 +449,7 @@ main (int argc, char *argv[])
 		fprintf (stderr,
 		         _("Ignoring unrecognized log domain(s) '%s' passed on command line.\n"),
 		         bad_domains);
-		g_clear_pointer (&bad_domains, g_free);
+		nm_clear_g_free (&bad_domains);
 	}
 
 	if (global_opt.become_daemon && !global_opt.debug) {
@@ -522,6 +524,7 @@ main (int argc, char *argv[])
 		                                          global_opt.dhcp4_hostname,
 		                                          global_opt.dhcp4_fqdn,
 		                                          NM_DHCP_HOSTNAME_FLAGS_FQDN_DEFAULT_IP4,
+		                                          global_opt.mud_url,
 		                                          client_id,
 		                                          NM_DHCP_TIMEOUT_DEFAULT,
 		                                          NULL,
@@ -551,10 +554,14 @@ main (int argc, char *argv[])
 			stable_type = (global_opt.stable_id[0] - '0');
 			stable_id = &global_opt.stable_id[2];
 		}
-		ndisc = nm_lndp_ndisc_new (NM_PLATFORM_GET, gl.ifindex, global_opt.ifname,
-		                           stable_type, stable_id,
+		ndisc = nm_lndp_ndisc_new (NM_PLATFORM_GET,
+		                           gl.ifindex,
+		                           global_opt.ifname,
+		                           stable_type,
+		                           stable_id,
 		                           global_opt.addr_gen_mode,
 		                           NM_NDISC_NODE_TYPE_HOST,
+		                           NM_RA_TIMEOUT_DEFAULT,
 		                           NULL);
 		g_assert (ndisc);
 
@@ -572,7 +579,7 @@ main (int argc, char *argv[])
 		                  G_CALLBACK (ndisc_config_changed),
 		                  NULL);
 		g_signal_connect (ndisc,
-		                  NM_NDISC_RA_TIMEOUT,
+		                  NM_NDISC_RA_TIMEOUT_SIGNAL,
 		                  G_CALLBACK (ndisc_ra_timeout),
 		                  NULL);
 		nm_ndisc_start (ndisc);
@@ -591,7 +598,7 @@ main (int argc, char *argv[])
 	_LOGI (LOGD_CORE, "exiting");
 
 	nm_clear_g_source (&sd_id);
-	g_clear_pointer (&gl.main_loop, g_main_loop_unref);
+	nm_clear_pointer (&gl.main_loop, g_main_loop_unref);
 	return 0;
 }
 

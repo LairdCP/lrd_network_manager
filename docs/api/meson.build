@@ -1,10 +1,12 @@
+# SPDX-License-Identifier: LGPL-2.1+
+
 if enable_introspection
   settings = 'settings-spec'
   output = settings + '.xml'
 
   inputs = [
     settings + '.xsl',
-    nm_settings_docs,
+    nm_settings_docs_xml['dbus'],
   ]
 
   content_files += custom_target(

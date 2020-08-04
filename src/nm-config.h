@@ -243,7 +243,7 @@ struct _NMConfigDeviceStateData {
 
 	/* whether the device was nm-owned (0/1) or -1 for
 	 * non-software devices. */
-	int nm_owned:3;
+	NMTernary nm_owned:3;
 };
 
 NMConfigDeviceStateData *nm_config_device_state_load (int ifindex);
@@ -252,13 +252,14 @@ gboolean nm_config_device_state_write (int ifindex,
                                        NMConfigDeviceStateManagedType managed,
                                        const char *perm_hw_addr_fake,
                                        const char *connection_uuid,
-                                       int nm_owned,
+                                       NMTernary nm_owned,
                                        guint32 route_metric_default_aspired,
                                        guint32 route_metric_default_effective,
                                        const char *next_server,
                                        const char *root_path);
 
-void nm_config_device_state_prune_unseen (GHashTable *seen_ifindexes);
+void nm_config_device_state_prune_stale (GHashTable *preserve_ifindexes,
+                                         NMPlatform *preserve_in_platform);
 
 const GHashTable *nm_config_device_state_get_all (NMConfig *self);
 const NMConfigDeviceStateData *nm_config_device_state_get (NMConfig *self,

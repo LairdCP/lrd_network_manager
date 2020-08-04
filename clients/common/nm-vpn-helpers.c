@@ -103,63 +103,73 @@ nm_vpn_supports_ipv6 (NMConnection *connection)
 	return NM_FLAGS_HAS (capabilities, NM_VPN_EDITOR_PLUGIN_CAPABILITY_IPV6);
 }
 
-const VpnPasswordName *
+const NmcVpnPasswordName *
 nm_vpn_get_secret_names (const char *service_type)
 {
-	static const VpnPasswordName generic_vpn_secrets[] = {
-		{ "password", N_("Password") },
-		{ 0 }
-	};
-	static const VpnPasswordName openvpn_secrets[] = {
-		{ "password", N_("Password") },
-		{ "cert-pass", N_("Certificate password") },
-		{ "http-proxy-password", N_("HTTP proxy password") },
-		{ 0 }
-	};
-	static const VpnPasswordName vpnc_secrets[] = {
-		{ "Xauth password", N_("Password") },
-		{ "IPSec secret", N_("Group password") },
-		{ 0 }
-	};
-	static const VpnPasswordName swan_secrets[] = {
-		{ "xauthpassword", N_("Password") },
-		{ "pskvalue", N_("Group password") },
-		{ 0 }
-	};
-	static const VpnPasswordName openconnect_secrets[] = {
-		{ "gateway", N_("Gateway") },
-		{ "cookie", N_("Cookie") },
-		{ "gwcert", N_("Gateway certificate hash") },
-		{ 0 }
-	};
 	const char *type;
 
 	if (!service_type)
 		return NULL;
 
-	if (   !g_str_has_prefix (service_type, NM_DBUS_INTERFACE)
+	if (   !NM_STR_HAS_PREFIX (service_type, NM_DBUS_INTERFACE)
 	    || service_type[NM_STRLEN (NM_DBUS_INTERFACE)] != '.') {
 		/* all our well-known, hard-coded vpn-types start with NM_DBUS_INTERFACE. */
 		return NULL;
 	}
 
 	type = service_type + (NM_STRLEN (NM_DBUS_INTERFACE) + 1);
-	if (   !g_strcmp0 (type, "pptp")
-	    || !g_strcmp0 (type, "iodine")
-	    || !g_strcmp0 (type, "ssh")
-	    || !g_strcmp0 (type, "l2tp")
-	    || !g_strcmp0 (type, "fortisslvpn"))
-		 return generic_vpn_secrets;
-	else if (!g_strcmp0 (type, "openvpn"))
-		return openvpn_secrets;
-	else if (!g_strcmp0 (type, "vpnc"))
-		return vpnc_secrets;
-	else if (   !g_strcmp0 (type, "openswan")
-	         || !g_strcmp0 (type, "libreswan")
-	         || !g_strcmp0 (type, "strongswan"))
-		return swan_secrets;
-	else if (!g_strcmp0 (type, "openconnect"))
-		return openconnect_secrets;
+
+#define _VPN_PASSWORD_LIST(...) \
+	({ \
+		static const NmcVpnPasswordName _arr[] = { \
+			__VA_ARGS__ \
+			{ 0 }, \
+		}; \
+		_arr; \
+	})
+
+	if (NM_IN_STRSET (type, "pptp",
+	                        "iodine",
+	                        "ssh",
+	                        "l2tp",
+	                        "fortisslvpn")) {
+		return _VPN_PASSWORD_LIST (
+			{ "password", N_("Password") },
+		);
+	}
+
+	if (NM_IN_STRSET (type, "openvpn")) {
+		return _VPN_PASSWORD_LIST (
+			{ "password",            N_("Password") },
+			{ "cert-pass",           N_("Certificate password") },
+			{ "http-proxy-password", N_("HTTP proxy password") },
+		);
+	}
+
+	if (NM_IN_STRSET (type, "vpnc")) {
+		return _VPN_PASSWORD_LIST (
+			{ "Xauth password", N_("Password") },
+			{ "IPSec secret",   N_("Group password") },
+		);
+	};
+
+	if (NM_IN_STRSET (type, "openswan",
+	                        "libreswan",
+	                        "strongswan")) {
+		return _VPN_PASSWORD_LIST (
+			{ "xauthpassword", N_("Password") },
+			{ "pskvalue",      N_("Group password") },
+		);
+	};
+
+	if (NM_IN_STRSET (type, "openconnect")) {
+		return _VPN_PASSWORD_LIST (
+			{ "gateway", N_("Gateway") },
+			{ "cookie",  N_("Cookie") },
+			{ "gwcert",  N_("Gateway certificate hash") },
+		);
+	};
+
 	return NULL;
 }
 
@@ -339,6 +349,7 @@ nm_vpn_wireguard_import (const char *filename,
 	gsize line_nr;
 	gsize current_peer_start_line_nr = 0;
 	nm_auto_unref_wgpeer NMWireGuardPeer *current_peer = NULL;
+	gs_unref_ptrarray GPtrArray *data_dns_search = NULL;
 	gs_unref_ptrarray GPtrArray *data_dns_v4 = NULL;
 	gs_unref_ptrarray GPtrArray *data_dns_v6 = NULL;
 	gs_unref_ptrarray GPtrArray *data_addr_v4 = NULL;
@@ -368,13 +379,13 @@ nm_vpn_wireguard_import (const char *filename,
 			memcpy (ifname, cstr, len);
 			ifname[len] = '\0';
 
-			if (nm_utils_is_valid_iface_name (ifname, NULL))
+			if (nm_utils_ifname_valid (ifname, NMU_IFACE_KERNEL, NULL))
 				ifname_valid = TRUE;
 		}
 	}
 	if (!ifname_valid) {
 		nm_utils_error_set_literal (error, NM_UTILS_ERROR_UNKNOWN,
-		                            _("The WireGuard config file must be a valid interface name followed by \".conf\""));
+		                            _("The name of the WireGuard config must be a valid interface name followed by \".conf\""));
 		return FALSE;
 	}
 
@@ -524,25 +535,28 @@ nm_vpn_wireguard_import (const char *filename,
 				char *value_word;
 
 				while (value_split_word (&value, &value_word)) {
-					char addr_s[NM_CONST_MAX (INET_ADDRSTRLEN, INET6_ADDRSTRLEN)];
 					GPtrArray **p_data_dns;
 					NMIPAddr addr_bin;
 					int addr_family;
 
-					if (!nm_utils_parse_inaddr_bin (AF_UNSPEC,
-					                                value_word,
-					                                &addr_family,
-					                                &addr_bin))
-						goto fail_invalid_value;
+					if (nm_utils_parse_inaddr_bin (AF_UNSPEC,
+					                               value_word,
+					                               &addr_family,
+					                               &addr_bin)) {
+						p_data_dns =   (addr_family == AF_INET)
+						             ? &data_dns_v4
+						             : &data_dns_v6;
+						if (!*p_data_dns)
+							*p_data_dns = g_ptr_array_new_with_free_func (g_free);
 
-					p_data_dns =   (addr_family == AF_INET)
-					             ? &data_dns_v4
-					             : &data_dns_v6;
-					if (!*p_data_dns)
-						*p_data_dns = g_ptr_array_new_with_free_func (g_free);
+						g_ptr_array_add (*p_data_dns,
+						                 nm_utils_inet_ntop_dup (addr_family, &addr_bin));
+						continue;
+					}
 
-					inet_ntop (addr_family, &addr_bin, addr_s, sizeof (addr_s));
-					g_ptr_array_add (*p_data_dns, g_strdup (addr_s));
+					if (!data_dns_search)
+						data_dns_search = g_ptr_array_new_with_free_func (g_free);
+					g_ptr_array_add (data_dns_search, g_strdup (value_word));
 				}
 				continue;
 			}
@@ -730,6 +744,7 @@ fail_invalid_secret:
 		NMSettingIPConfig *s_ip     = is_v4 ? s_ip4                                 : s_ip6;
 		GPtrArray *data_dns         = is_v4 ? data_dns_v4                           : data_dns_v6;
 		GPtrArray *data_addr        = is_v4 ? data_addr_v4                          : data_addr_v6;
+		GPtrArray *data_dns_search2 = data_dns_search;
 
 		if (data_dns && !data_addr) {
 			/* When specifying "DNS", we also require an "Address" for the same address
@@ -738,11 +753,20 @@ fail_invalid_secret:
 			 *
 			 * We don't have addresses. Silently ignore the DNS setting. */
 			data_dns = NULL;
+			data_dns_search2 = NULL;
 		}
 
 		g_object_set (s_ip,
 		              NM_SETTING_IP_CONFIG_METHOD,
 		              data_addr ? method_manual : method_disabled,
+		              NULL);
+
+		/* For WireGuard profiles, always set dns-priority to a negative value,
+		 * so that DNS servers on other profiles get ignored. This is also what
+		 * wg-quick does, by calling `resolvconf -x`. */
+		g_object_set (s_ip,
+		              NM_SETTING_IP_CONFIG_DNS_PRIORITY,
+		              (int) -10,
 		              NULL);
 
 		if (data_addr) {
@@ -752,6 +776,15 @@ fail_invalid_secret:
 		if (data_dns) {
 			for (i = 0; i < data_dns->len; i++)
 				nm_setting_ip_config_add_dns (s_ip, data_dns->pdata[i]);
+
+			/* Of the wg-quick doesn't specify a search domain, assume the user
+			 * wants to use the domain server for all searches. */
+			if (!data_dns_search2)
+				nm_setting_ip_config_add_dns_search (s_ip, "~");
+		}
+		if (data_dns_search2) {
+			for (i = 0; i < data_dns_search2->len; i++)
+				nm_setting_ip_config_add_dns_search (s_ip, data_dns_search2->pdata[i]);
 		}
 
 		if (data_table == _TABLE_AUTO) {
@@ -765,9 +798,10 @@ fail_invalid_secret:
 			 *   yourself to "ipv4.routes" and "ipv6.routes".
 			 *
 			 * - With "auto", wg-quick also configures policy routing to handle default-routes (/0) to
-			 *   avoid routing loops. That is not yet solved by NetworkManager, you need to configure
-			 *   that explicitly (for example, by adding a direct route to the gateway on the interface
-			 *   that has the default-route, or by using a script (possibly dispatcher script).
+			 *   avoid routing loops.
+			 *   The imported connection profile will have wireguard.ip4-auto-default-route and
+			 *   wireguard.ip6-auto-default-route set to "default". It will thus configure wg-quick's
+			 *   policy routing if the profile has any AllowedIPs ranges with /0.
 			 */
 		} else if (data_table == _TABLE_OFF) {
 			if (is_v4) {

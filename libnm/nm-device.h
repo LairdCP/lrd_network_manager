@@ -24,6 +24,7 @@ G_BEGIN_DECLS
 
 #define NM_DEVICE_DEVICE_TYPE "device-type"
 #define NM_DEVICE_UDI "udi"
+#define NM_DEVICE_PATH "path"
 #define NM_DEVICE_INTERFACE "interface"
 #define NM_DEVICE_IP_INTERFACE "ip-interface"
 #define NM_DEVICE_DRIVER "driver"
@@ -55,6 +56,7 @@ _NM_DEPRECATED_SYNC_WRITABLE_PROPERTY
 #define NM_DEVICE_IP4_CONNECTIVITY "ip4-connectivity"
 #define NM_DEVICE_IP6_CONNECTIVITY "ip6-connectivity"
 #define NM_DEVICE_INTERFACE_FLAGS "interface-flags"
+#define NM_DEVICE_HW_ADDRESS "hw-address"
 
 /**
  * NMDevice:
@@ -69,6 +71,8 @@ const char *         nm_device_get_iface            (NMDevice *device);
 const char *         nm_device_get_ip_iface         (NMDevice *device);
 NMDeviceType         nm_device_get_device_type      (NMDevice *device);
 const char *         nm_device_get_udi              (NMDevice *device);
+NM_AVAILABLE_IN_1_26
+const char *         nm_device_get_path             (NMDevice *device);
 const char *         nm_device_get_driver           (NMDevice *device);
 const char *         nm_device_get_driver_version   (NMDevice *device);
 const char *         nm_device_get_firmware_version (NMDevice *device);

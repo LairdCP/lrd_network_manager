@@ -49,7 +49,7 @@ struct _NMDeviceMacvlanClass {
 
 G_DEFINE_TYPE (NMDeviceMacvlan, nm_device_macvlan, NM_TYPE_DEVICE)
 
-#define NM_DEVICE_MACVLAN_GET_PRIVATE(self) _NM_GET_PRIVATE (self, NMDeviceMacvlan, NM_IS_DEVICE_MACVLAN)
+#define NM_DEVICE_MACVLAN_GET_PRIVATE(self) _NM_GET_PRIVATE (self, NMDeviceMacvlan, NM_IS_DEVICE_MACVLAN, NMDevice)
 
 /*****************************************************************************/
 
@@ -292,7 +292,7 @@ is_available (NMDevice *device, NMDeviceCheckDevAvailableFlags flags)
 static gboolean
 check_connection_compatible (NMDevice *device, NMConnection *connection, GError **error)
 {
-	NMDeviceMacvlanPrivate *priv = NM_DEVICE_MACVLAN_GET_PRIVATE ((NMDeviceMacvlan *) device);
+	NMDeviceMacvlanPrivate *priv = NM_DEVICE_MACVLAN_GET_PRIVATE (device);
 	NMSettingMacvlan *s_macvlan;
 	const char *parent = NULL;
 
@@ -390,7 +390,7 @@ complete_connection (NMDevice *device,
 static void
 update_connection (NMDevice *device, NMConnection *connection)
 {
-	NMDeviceMacvlanPrivate *priv = NM_DEVICE_MACVLAN_GET_PRIVATE ((NMDeviceMacvlan *) device);
+	NMDeviceMacvlanPrivate *priv = NM_DEVICE_MACVLAN_GET_PRIVATE (device);
 	NMSettingMacvlan *s_macvlan = nm_connection_get_setting_macvlan (connection);
 	int new_mode;
 
@@ -422,7 +422,7 @@ static void
 get_property (GObject *object, guint prop_id,
               GValue *value, GParamSpec *pspec)
 {
-	NMDeviceMacvlanPrivate *priv = NM_DEVICE_MACVLAN_GET_PRIVATE ((NMDeviceMacvlan *) object);
+	NMDeviceMacvlanPrivate *priv = NM_DEVICE_MACVLAN_GET_PRIVATE (object);
 
 	switch (prop_id) {
 	case PROP_MODE:
@@ -444,7 +444,7 @@ static void
 set_property (GObject *object, guint prop_id,
               const GValue *value, GParamSpec *pspec)
 {
-	NMDeviceMacvlanPrivate *priv = NM_DEVICE_MACVLAN_GET_PRIVATE ((NMDeviceMacvlan *) object);
+	NMDeviceMacvlanPrivate *priv = NM_DEVICE_MACVLAN_GET_PRIVATE (object);
 
 	switch (prop_id) {
 	case PROP_TAP:
@@ -462,16 +462,16 @@ nm_device_macvlan_init (NMDeviceMacvlan *self)
 {
 }
 
+#if NM_MORE_ASSERTS
 static void
 dispose (GObject *object)
 {
-	NMDeviceMacvlanPrivate *priv = NM_DEVICE_MACVLAN_GET_PRIVATE (object);
-
 	G_OBJECT_CLASS (nm_device_macvlan_parent_class)->dispose (object);
 
-	nm_assert (priv->parent_state_id == 0);
-	nm_assert (priv->parent_mtu_id == 0);
+	nm_assert (NM_DEVICE_MACVLAN_GET_PRIVATE (object)->parent_state_id == 0);
+	nm_assert (NM_DEVICE_MACVLAN_GET_PRIVATE (object)->parent_mtu_id == 0);
 }
+#endif
 
 static const NMDBusInterfaceInfoExtended interface_info_device_macvlan = {
 	.parent = NM_DEFINE_GDBUS_INTERFACE_INFO_INIT (
@@ -496,7 +496,9 @@ nm_device_macvlan_class_init (NMDeviceMacvlanClass *klass)
 	NMDBusObjectClass *dbus_object_class = NM_DBUS_OBJECT_CLASS (klass);
 	NMDeviceClass *device_class = NM_DEVICE_CLASS (klass);
 
+#if NM_MORE_ASSERTS
 	object_class->dispose = dispose;
+#endif
 	object_class->get_property = get_property;
 	object_class->set_property = set_property;
 

@@ -302,7 +302,7 @@ add_wireless_secrets (RequestData *request,
 	const char *key_mgmt = nm_setting_wireless_security_get_key_mgmt (s_wsec);
 	NMSecretAgentSimpleSecret *secret;
 
-	if (!key_mgmt)
+	if (!key_mgmt || nm_streq (key_mgmt, "owe"))
 		return FALSE;
 
 	if (NM_IN_STRSET (key_mgmt, "wpa-psk", "sae")) {
@@ -422,7 +422,7 @@ add_vpn_secrets (RequestData *request,
                  char **msg)
 {
 	NMSettingVpn *s_vpn = nm_connection_get_setting_vpn (request->connection);
-	const VpnPasswordName *secret_names, *p;
+	const NmcVpnPasswordName *p;
 	const char *vpn_msg = NULL;
 	char **iter;
 
@@ -439,7 +439,7 @@ add_vpn_secrets (RequestData *request,
 	NM_SET_OUT (msg, g_strdup (vpn_msg));
 
 	/* Now add what client thinks might be required, because hints may be empty or incomplete */
-	p = secret_names = nm_vpn_get_secret_names (nm_setting_vpn_get_service_type (s_vpn));
+	p = nm_vpn_get_secret_names (nm_setting_vpn_get_service_type (s_vpn));
 	while (p && p->name) {
 		add_vpn_secret_helper (secrets, s_vpn, p->name, _(p->ui_name));
 		p++;
