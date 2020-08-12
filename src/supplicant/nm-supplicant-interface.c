@@ -887,6 +887,7 @@ _peer_info_destroy (NMSupplicantPeerInfo *peer_info)
 	g_free (peer_info->model);
 	g_free (peer_info->model_number);
 	g_free (peer_info->serial);
+	g_strfreev (peer_info->groups);
 	g_bytes_unref (peer_info->ies);
 
 	nm_g_slice_free (peer_info);
@@ -915,8 +916,23 @@ _peer_info_properties_changed (NMSupplicantInterface *self,
 	gint32 v_i32;
 	const guint8 *arr_data;
 	gsize arr_len;
+	char **groups;
 
 	peer_info->last_seen_msec = nm_utils_get_monotonic_timestamp_msec ();
+
+	// Laird: need Groups for matching peer in check_connection_peer_joined()
+	{
+		GVariant *v;
+		v = g_variant_lookup_value (properties, "Groups", G_VARIANT_TYPE_OBJECT_PATH_ARRAY);
+		if (v) {
+			const char **sv;
+			sv = g_variant_get_objv (v, NULL);
+			if (sv) {
+				peer_info->groups = g_strdupv ((char**)sv);
+			}
+			g_free (sv);
+		}
+	}
 
 	if (nm_g_variant_lookup (properties, "level", "i", &v_i32))
 		peer_info->signal_percent = nm_wifi_utils_level_to_quality (v_i32);
