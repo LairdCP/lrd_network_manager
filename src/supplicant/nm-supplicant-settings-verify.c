@@ -171,6 +171,7 @@ static const struct Opt opt_table[] = {
 	{ "vht",                TYPE_INT,     0, 1, FALSE,  NULL },
 	{ "max_oper_chwidth",   TYPE_INT,     0, 1, FALSE,  NULL },
 	{ "vht_center_freq1",   TYPE_INT,     2412, 5825, FALSE,  NULL },
+	{ "wps_disabled",       TYPE_INT,     0, 1, FALSE, NULL },
 };
 
 static gboolean
