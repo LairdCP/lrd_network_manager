@@ -10582,7 +10582,10 @@ start_sharing (NMDevice *self, NMIP4Config *config, GError **error)
 	network = ip4_addr->address & netmask;
 	nm_utils_inet4_ntop (network, str_addr);
 
-	if(0 == access(IPTABLES_PATH, F_OK)) {
+	if(0 == access("/sbin/firewalld", F_OK)) {
+		//Let firewalld define rules
+	}
+	else if(0 == access(IPTABLES_PATH, F_OK)) {
 		add_share_rule (req, "nat", "POSTROUTING --source %s/%s ! --destination %s/%s --jump MASQUERADE", str_addr, str_mask, str_addr, str_mask);
 		add_share_rule (req, "filter", "FORWARD --destination %s/%s --out-interface %s --match state --state ESTABLISHED,RELATED --jump ACCEPT", str_addr, str_mask, ip_iface);
 		add_share_rule (req, "filter", "FORWARD --source %s/%s --in-interface %s --jump ACCEPT", str_addr, str_mask, ip_iface);
@@ -10593,9 +10596,6 @@ start_sharing (NMDevice *self, NMIP4Config *config, GError **error)
 		add_share_rule (req, "filter", "INPUT --in-interface %s --protocol tcp --destination-port 67 --jump ACCEPT", ip_iface);
 		add_share_rule (req, "filter", "INPUT --in-interface %s --protocol udp --destination-port 53 --jump ACCEPT", ip_iface);
 		add_share_rule (req, "filter", "INPUT --in-interface %s --protocol tcp --destination-port 53 --jump ACCEPT", ip_iface);
-	}
-	else if(0 == access("/sbin/firewalld", F_OK)) {
-		//Let firewalld define rules
 	}
 	else if(0 == access("/sbin/nft", F_OK)) {
 		add_share_rule (req, "chain", "ip %s_filter output { type filter hook output priority 100; policy accept; }", ip_iface);
