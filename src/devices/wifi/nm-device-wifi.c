@@ -4070,25 +4070,6 @@ nm_device_wifi_init (NMDeviceWifi *self)
 	priv->wowlan_restore = NM_SETTING_WIRELESS_WAKE_ON_WLAN_IGNORE;
 }
 
-// BZ14601: DHCP renewal on wifi roam -- enable carrier detect support
-static NMDeviceCapabilities
-get_generic_capabilities (NMDevice *device)
-{
-	NMDeviceWifi *self = NM_DEVICE_WIFI (device);
-	int ifindex = nm_device_get_ifindex (device);
-
-	if (ifindex > 0) {
-		if (nm_platform_link_supports_carrier_detect (nm_device_get_platform (device), ifindex))
-			return NM_DEVICE_CAP_CARRIER_DETECT;
-		else {
-			_LOGI (LOGD_PLATFORM, "driver '%s' does not support carrier detection.",
-			       nm_device_get_driver (device));
-		}
-	}
-
-	return NM_DEVICE_CAP_NONE;
-}
-
 static void
 constructed (GObject *object)
 {
@@ -4178,9 +4159,6 @@ nm_device_wifi_class_init (NMDeviceWifiClass *klass)
 	device_class->connection_type_supported = NM_SETTING_WIRELESS_SETTING_NAME;
 	device_class->connection_type_check_compatible = NM_SETTING_WIRELESS_SETTING_NAME;
 	device_class->link_types = NM_DEVICE_DEFINE_LINK_TYPES (NM_LINK_TYPE_WIFI);
-
-	// BZ14601: DHCP renewal on wifi roam -- enable carrier detect support
-	device_class->get_generic_capabilities = get_generic_capabilities;
 
 	device_class->can_auto_connect = can_auto_connect;
 	device_class->get_autoconnect_allowed = get_autoconnect_allowed;
