@@ -51,6 +51,7 @@ static const struct Opt opt_table[] = {
     OPT_BYTES("client_cert", 65536),
     OPT_BYTES("client_cert2", 65536),
     OPT_INT("dms", 0, 6),
+    OPT_INT("acs", 0, 1),
     OPT_BYTES("domain_match", 0),
     OPT_BYTES("domain_match2", 0),
     OPT_BYTES("domain_suffix_match", 0),

@@ -878,6 +878,17 @@ nm_supplicant_config_add_setting_wireless(NMSupplicantConfig *self,
         }
     }
 
+    if (_get_capability_laird(priv)) {
+        guint32 acs;
+        acs = nm_setting_wireless_get_acs (setting);
+        if (acs) {
+            char buf[32];
+            snprintf (buf, sizeof (buf), "%d", acs);
+            if (!nm_supplicant_config_add_option (self, "acs", buf, -1, NULL, error))
+                return FALSE;
+        }
+    }
+
     return TRUE;
 }
 
