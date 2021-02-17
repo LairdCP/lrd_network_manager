@@ -73,6 +73,7 @@ NM_GOBJECT_PROPERTIES_DEFINE (NMSettingWireless,
 
 	PROP_WAKE_ON_WLAN,
 	PROP_DMS,
+	PROP_ACS,
 );
 
 typedef struct {
@@ -108,6 +109,7 @@ typedef struct {
 	guint32 max_scan_interval;
 	guint32 wowl;
 	guint32 dms;
+	guint32 acs;
 } NMSettingWirelessPrivate;
 
 G_DEFINE_TYPE (NMSettingWireless, nm_setting_wireless, NM_TYPE_SETTING)
@@ -1183,6 +1185,21 @@ nm_setting_wireless_get_dms (NMSettingWireless *setting)
 }
 
 /**
+ * nm_setting_wireless_get_acs:
+ * @setting: the #NMSettingWireless
+ *
+ * Returns: the #NMSettingWireless:acs property of the setting
+ **/
+guint32
+nm_setting_wireless_get_acs (NMSettingWireless *setting)
+{
+	g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), 0);
+
+	return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->acs;
+}
+
+
+/**
  * nm_setting_wireless_add_seen_bssid:
  * @setting: the #NMSettingWireless
  * @bssid: the new BSSID to add to the list
@@ -1721,6 +1738,9 @@ get_property (GObject *object, guint prop_id,
 	case PROP_DMS:
 		g_value_set_uint (value, nm_setting_wireless_get_dms (setting));
 		break;
+	case PROP_ACS:
+		g_value_set_uint (value, nm_setting_wireless_get_acs (setting));
+		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
 		break;
@@ -1875,6 +1895,9 @@ set_property (GObject *object, guint prop_id,
 		break;
 	case PROP_DMS:
 		priv->dms = g_value_get_uint (value);
+		break;
+	case PROP_ACS:
+		priv->acs = g_value_get_uint (value);
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -2639,6 +2662,23 @@ nm_setting_wireless_class_init (NMSettingWirelessClass *klass)
 	 **/
 	obj_properties[PROP_DMS] =
 		 g_param_spec_uint (NM_SETTING_WIRELESS_DMS, "", "",
+		                    0, G_MAXUINT32, 0,
+		                    G_PARAM_READWRITE |
+		                    G_PARAM_CONSTRUCT |
+		                    NM_SETTING_PARAM_FUZZY_IGNORE |
+		                    G_PARAM_STATIC_STRINGS);
+
+	/**
+	 * NMSettingWireless:acs:
+	 *
+	 * Auto channel selection:
+	 *          0: ACS is disabled
+	 *          1: best available ACS: script ACS for now
+	 *
+	 * Since: 1.12.0
+	 **/
+	obj_properties[PROP_ACS] =
+		 g_param_spec_uint (NM_SETTING_WIRELESS_ACS, "", "",
 		                    0, G_MAXUINT32, 0,
 		                    G_PARAM_READWRITE |
 		                    G_PARAM_CONSTRUCT |

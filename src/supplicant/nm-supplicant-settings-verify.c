@@ -166,6 +166,7 @@ static const struct Opt opt_table[] = {
 	{ "pac_file_password",  TYPE_BYTES,   0, 1024, FALSE,  NULL },
 	{ "ignore_broadcast_ssid", TYPE_INT,  0, 2, FALSE, NULL },
 	{ "dms",                TYPE_INT,     0, 6, FALSE, NULL },
+	{ "acs",                TYPE_INT,     0, 1, FALSE, NULL },
 	{ "owe_only",           TYPE_INT,     0, 1, FALSE,  NULL },
 	{ "ht40",               TYPE_INT,     -1, 1, FALSE,  NULL },
 	{ "vht",                TYPE_INT,     0, 1, FALSE,  NULL },

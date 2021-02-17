@@ -118,6 +118,7 @@ typedef enum { /*< flags >*/
 #define NM_SETTING_WIRELESS_WAKE_ON_WLAN "wake-on-wlan"
 
 #define NM_SETTING_WIRELESS_DMS         "dms"
+#define NM_SETTING_WIRELESS_ACS         "acs"
 /**
  * NM_SETTING_WIRELESS_MODE_ADHOC:
  *
@@ -253,6 +254,7 @@ const char       *nm_setting_wireless_get_frequency_list     (NMSettingWireless 
 guint32           nm_setting_wireless_get_frequency_dfs      (NMSettingWireless *setting);
 guint32           nm_setting_wireless_get_max_scan_interval     (NMSettingWireless *setting);
 guint32           nm_setting_wireless_get_dms                (NMSettingWireless *setting);
+guint32           nm_setting_wireless_get_acs                (NMSettingWireless *setting);
 
 gboolean          nm_setting_wireless_add_seen_bssid         (NMSettingWireless *setting,
                                                               const char *bssid);
