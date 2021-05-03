@@ -1300,7 +1300,8 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig *         
         if (pmf != NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE)
             g_string_append(key_mgmt_conf, " WPA-PSK-SHA256");
 
-        if (_get_capability(priv, NM_SUPPL_CAP_TYPE_SAE)) {
+        if (_get_capability(priv, NM_SUPPL_CAP_TYPE_SAE) &&
+            pmf != NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE) {
             g_string_append(key_mgmt_conf, " SAE");
             if (ft != NM_SETTING_WIRELESS_SECURITY_FT_DISABLE)
                 g_string_append(key_mgmt_conf, " FT-SAE");
@@ -1337,7 +1338,8 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig *         
                 && pmf == NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED)
                 g_string_append(key_mgmt_conf, " WPA-EAP-SUITE-B-192");
         }
-        if (fils == NM_SETTING_WIRELESS_SECURITY_FILS_DISABLE) {
+        if (fils == NM_SETTING_WIRELESS_SECURITY_FILS_DISABLE ||
+            pmf == NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE) {
             add_fils = add_fils_ft = false;
         }
         if (ft == NM_SETTING_WIRELESS_SECURITY_FT_DISABLE) {
