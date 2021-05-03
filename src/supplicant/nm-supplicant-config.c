@@ -1175,24 +1175,51 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
 	}
 
 	key_mgmt = nm_setting_wireless_security_get_key_mgmt (setting);
+
+	if (NM_IN_STRSET (key_mgmt, "wpa-eap-suite-b", "wpa-eap-suite-b-192"))
+	{
+		// pmf required for suite-b
+		pmf = NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED;
+	}
+	else if (wpa3_only) {
+
+		/* wpa3/wpa-psk (wpa3-sae transition): default to pmf optional */
+		/* wpa3/other: pmf required */
+		if (NM_IN_STRSET (key_mgmt, "wpa-psk")) {
+			// wpa3-sae transition mode: default to pmf optional
+			if (pmf != NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED)
+				pmf = NM_SETTING_WIRELESS_SECURITY_PMF_OPTIONAL;
+		} else {
+			// wpa3: pmf required
+			pmf = NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED;
+		}
+	}
+	else
+	/* Don't try to enable PMF on non-WPA/SAE networks */
+	if (!NM_IN_STRSET (key_mgmt, "wpa-eap", "wpa-psk", "sae", "owe", "owe-only"))
+		pmf = NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE;
+
 	key_mgmt_conf = g_string_new (key_mgmt);
 	if (nm_streq (key_mgmt, "wpa-psk")) {
-		if (priv->support_pmf)
+		if (priv->support_pmf &&
+			pmf != NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE)
 			g_string_append (key_mgmt_conf, " wpa-psk-sha256");
 		// wpa3-psk: must also enable sae
 		if (wpa3_only)
 			g_string_append (key_mgmt_conf, " sae");
 	} else if (nm_streq (key_mgmt, "wpa-eap")) {
-		if (priv->support_pmf)
+		if (priv->support_pmf &&
+			pmf != NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE)
 			g_string_append (key_mgmt_conf, " wpa-eap-sha256");
 		switch (fils) {
 		case NM_SETTING_WIRELESS_SECURITY_FILS_REQUIRED:
 			g_string_truncate (key_mgmt_conf, 0);
-			if (!priv->support_pmf)
-				g_string_assign (key_mgmt_conf, "fils-sha256 fils-sha384");
-			/* fall-through */
+			g_string_assign (key_mgmt_conf, "fils-sha256 fils-sha384");
+			break;
+			/* no longer fall through for ft -- see ft handling below */
 		case NM_SETTING_WIRELESS_SECURITY_FILS_OPTIONAL:
-			if (priv->support_pmf)
+			if (priv->support_pmf &&
+				pmf != NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE)
 				g_string_append (key_mgmt_conf, " fils-sha256 fils-sha384");
 			break;
 		default:
@@ -1254,10 +1281,13 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
 				break;
 			case NM_SETTING_WIRELESS_SECURITY_FILS_OPTIONAL:
 				g_string_append (key_mgmt_conf, " ft-eap");
-				if (priv->support_pmf)
+				if (priv->support_pmf &&
+					pmf != NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE)
+				{
 					g_string_append (key_mgmt_conf, " ft-fils-sha256");
-				if (priv->support_pmf && priv->support_sha384)
-					g_string_append (key_mgmt_conf, " ft-fils-sha384");
+					if (priv->support_sha384)
+						g_string_append (key_mgmt_conf, " ft-fils-sha384");
+				}
 				break;
 			default:
 				g_string_append (key_mgmt_conf, " ft-eap");
@@ -1326,30 +1356,6 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
 			return FALSE;
 		}
 	}
-
-	if (NM_IN_STRSET (key_mgmt, "wpa-eap-suite-b", "wpa-eap-suite-b-192"))
-	{
-		// pmf required for suite-b
-		pmf = NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED;
-	}
-	else if (wpa3_only) {
-
-		/* wpa3/wpa-psk (wpa3-sae transition): default to pmf optional */
-		/* wpa3/other: pmf required */
-		if (NM_IN_STRSET (key_mgmt, "wpa-psk")) {
-			// wpa3-sae transition mode: default to pmf optional
-			if (pmf != NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED)
-				pmf = NM_SETTING_WIRELESS_SECURITY_PMF_OPTIONAL;
-		} else {
-			// wpa3: pmf required
-			pmf = NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED;
-		}
-	}
-	else
-	/* Don't try to enable PMF on non-WPA networks */
-		if (!NM_IN_STRSET (key_mgmt, "wpa-eap", "wpa-psk", "sae",
-						   "owe", "owe-only"))
-		pmf = NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE;
 
 	/* Check if we actually support PMF */
 	set_pmf = TRUE;
