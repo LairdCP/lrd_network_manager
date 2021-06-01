@@ -2902,6 +2902,15 @@ supplicant_iface_state(NMDeviceWifi *             self,
         break;
     case NM_SUPPLICANT_INTERFACE_STATE_DISCONNECTED:
         if ((devstate == NM_DEVICE_STATE_ACTIVATED) || nm_device_is_activating(device)) {
+            /* For AP mode, it is unlikely an authentication problem. It is mostly a reg domain
+               change event when ACS scanning is completed, and supplicant requests network
+               disconnection.
+            */
+            if(priv->mode == NM_802_11_MODE_AP) {
+                _LOGW (LOGD_DEVICE | LOGD_WIFI, "Disconnected by supplicant");
+                nm_device_state_changed (device, NM_DEVICE_STATE_DISCONNECTED, NM_DEVICE_STATE_REASON_SUPPLICANT_DISCONNECT);
+                break;
+            }
             /* Disconnect of an 802.1x/LEAP connection during authentication,
              * or disconnect of a WPA-PSK connection during the 4-way handshake,
              * often means secrets are wrong. Not always the case, but until we
