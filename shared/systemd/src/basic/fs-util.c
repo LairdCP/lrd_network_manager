@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: LGPL-2.1+ */
+/* SPDX-License-Identifier: LGPL-2.1-or-later */
 
 #include "nm-sd-adapt-shared.h"
 
@@ -123,7 +123,7 @@ int rename_noreplace(int olddirfd, const char *oldpath, int newdirfd, const char
         if (!IN_SET(errno, EINVAL, ENOSYS, ENOTTY, EPERM)) /* FAT returns EPERM on link()… */
                 return -errno;
 
-        /* OK, neither RENAME_NOREPLACE nor linkat()+unlinkat() worked. Let's then fallback to the racy TOCTOU
+        /* OK, neither RENAME_NOREPLACE nor linkat()+unlinkat() worked. Let's then fall back to the racy TOCTOU
          * vulnerable accessat(F_OK) check followed by classic, replacing renameat(), we have nothing better. */
 
         if (faccessat(newdirfd, newpath, F_OK, AT_SYMLINK_NOFOLLOW) >= 0)
@@ -234,6 +234,7 @@ int chmod_and_chown(const char *path, mode_t mode, uid_t uid, gid_t gid) {
 int fchmod_and_chown(int fd, mode_t mode, uid_t uid, gid_t gid) {
         bool do_chown, do_chmod;
         struct stat st;
+        int r;
 
         /* Change ownership and access mode of the specified fd. Tries to do so safely, ensuring that at no
          * point in time the access mode is above the old access mode under the old ownership or the new
@@ -264,64 +265,22 @@ int fchmod_and_chown(int fd, mode_t mode, uid_t uid, gid_t gid) {
         if (do_chown && do_chmod) {
                 mode_t minimal = st.st_mode & mode; /* the subset of the old and the new mask */
 
-                if (((minimal ^ st.st_mode) & 07777) != 0)
-                        if (fchmod_opath(fd, minimal & 07777) < 0)
-                                return -errno;
+                if (((minimal ^ st.st_mode) & 07777) != 0) {
+                        r = fchmod_opath(fd, minimal & 07777);
+                        if (r < 0)
+                                return r;
+                }
         }
 
         if (do_chown)
                 if (fchownat(fd, "", uid, gid, AT_EMPTY_PATH) < 0)
                         return -errno;
 
-        if (do_chmod)
-                if (fchmod_opath(fd, mode & 07777) < 0)
-                        return -errno;
-
-        return do_chown || do_chmod;
-}
-
-int chmod_and_chown_unsafe(const char *path, mode_t mode, uid_t uid, gid_t gid) {
-        bool do_chown, do_chmod;
-        struct stat st;
-
-        assert(path);
-
-        /* Change ownership and access mode of the specified path, see description of fchmod_and_chown().
-         * Should only be used on trusted paths. */
-
-        if (lstat(path, &st) < 0)
-                return -errno;
-
-        do_chown =
-                (uid != UID_INVALID && st.st_uid != uid) ||
-                (gid != GID_INVALID && st.st_gid != gid);
-
-        do_chmod =
-                !S_ISLNK(st.st_mode) && /* chmod is not defined on symlinks */
-                ((mode != MODE_INVALID && ((st.st_mode ^ mode) & 07777) != 0) ||
-                 do_chown); /* If we change ownership, make sure we reset the mode afterwards, since chown()
-                             * modifies the access mode too */
-
-        if (mode == MODE_INVALID)
-                mode = st.st_mode; /* If we only shall do a chown(), save original mode, since chown() might break it. */
-        else if ((mode & S_IFMT) != 0 && ((mode ^ st.st_mode) & S_IFMT) != 0)
-                return -EINVAL; /* insist on the right file type if it was specified */
-
-        if (do_chown && do_chmod) {
-                mode_t minimal = st.st_mode & mode; /* the subset of the old and the new mask */
-
-                if (((minimal ^ st.st_mode) & 07777) != 0)
-                        if (chmod(path, minimal & 07777) < 0)
-                                return -errno;
+        if (do_chmod) {
+                r = fchmod_opath(fd, mode & 07777);
+                if (r < 0)
+                        return r;
         }
-
-        if (do_chown)
-                if (lchown(path, uid, gid) < 0)
-                        return -errno;
-
-        if (do_chmod)
-                if (chmod(path, mode & 07777) < 0)
-                        return -errno;
 
         return do_chown || do_chmod;
 }
@@ -346,6 +305,25 @@ int fchmod_opath(int fd, mode_t m) {
 
         xsprintf(procfs_path, "/proc/self/fd/%i", fd);
         if (chmod(procfs_path, m) < 0) {
+                if (errno != ENOENT)
+                        return -errno;
+
+                if (proc_mounted() == 0)
+                        return -ENOSYS; /* if we have no /proc/, the concept is not implementable */
+
+                return -ENOENT;
+        }
+
+        return 0;
+}
+
+int futimens_opath(int fd, const struct timespec ts[2]) {
+        char procfs_path[STRLEN("/proc/self/fd/") + DECIMAL_STR_MAX(int)];
+
+        /* Similar to fchmod_path() but for futimens() */
+
+        xsprintf(procfs_path, "/proc/self/fd/%i", fd);
+        if (utimensat(AT_FDCWD, procfs_path, ts, 0) < 0) {
                 if (errno != ENOENT)
                         return -errno;
 
@@ -771,7 +749,7 @@ static int log_unsafe_transition(int a, int b, const char *path, unsigned flags)
 
         return log_warning_errno(SYNTHETIC_ERRNO(ENOLINK),
                                  "Detected unsafe path transition %s %s %s during canonicalization of %s.",
-                                 n1, special_glyph(SPECIAL_GLYPH_ARROW), n2, path);
+                                 strna(n1), special_glyph(SPECIAL_GLYPH_ARROW), strna(n2), path);
 }
 
 static int log_autofs_mount_point(int fd, const char *path, unsigned flags) {
@@ -784,7 +762,7 @@ static int log_autofs_mount_point(int fd, const char *path, unsigned flags) {
 
         return log_warning_errno(SYNTHETIC_ERRNO(EREMOTE),
                                  "Detected autofs mount point %s during canonicalization of %s.",
-                                 n1, path);
+                                 strna(n1), path);
 }
 
 int chase_symlinks(const char *path, const char *original_root, unsigned flags, char **ret_path, int *ret_fd) {
@@ -843,7 +821,7 @@ int chase_symlinks(const char *path, const char *original_root, unsigned flags, 
          *
          * 3. With CHASE_STEP: in this case only a single step of the normalization is executed, i.e. only the first
          *    symlink or ".." component of the path is resolved, and the resulting path is returned. This is useful if
-         *    a caller wants to trace the a path through the file system verbosely. Returns < 0 on error, > 0 if the
+         *    a caller wants to trace the path through the file system verbosely. Returns < 0 on error, > 0 if the
          *    path is fully normalized, and == 0 for each normalization step. This may be combined with
          *    CHASE_NONEXISTENT, in which case 1 is returned when a component is not found.
          *
@@ -967,7 +945,7 @@ int chase_symlinks(const char *path, const char *original_root, unsigned flags, 
                         /* Preserve the trailing slash */
 
                         if (flags & CHASE_TRAIL_SLASH)
-                                if (!strextend(&done, "/", NULL))
+                                if (!strextend(&done, "/"))
                                         return -ENOMEM;
 
                         break;
@@ -1038,7 +1016,7 @@ int chase_symlinks(const char *path, const char *original_root, unsigned flags, 
                                 if (streq_ptr(done, "/"))
                                         *done = '\0';
 
-                                if (!strextend(&done, first, todo, NULL))
+                                if (!strextend(&done, first, todo))
                                         return -ENOMEM;
 
                                 exists = false;
@@ -1131,7 +1109,7 @@ int chase_symlinks(const char *path, const char *original_root, unsigned flags, 
                         if (streq(done, "/"))
                                 *done = '\0';
 
-                        if (!strextend(&done, first, NULL))
+                        if (!strextend(&done, first))
                                 return -ENOMEM;
                 }
 
@@ -1304,16 +1282,25 @@ int chase_symlinks_and_stat(
 
 int access_fd(int fd, int mode) {
         char p[STRLEN("/proc/self/fd/") + DECIMAL_STR_MAX(fd) + 1];
-        int r;
 
         /* Like access() but operates on an already open fd */
 
         xsprintf(p, "/proc/self/fd/%i", fd);
-        r = access(p, mode);
-        if (r < 0)
-                return -errno;
+        if (access(p, mode) < 0) {
+                if (errno != ENOENT)
+                        return -errno;
 
-        return r;
+                /* ENOENT can mean two things: that the fd does not exist or that /proc is not mounted. Let's
+                 * make things debuggable and distinguish the two. */
+
+                if (proc_mounted() == 0)
+                        return -ENOSYS;  /* /proc is not available or not set up properly, we're most likely in some chroot
+                                          * environment. */
+
+                return -EBADF; /* The directory exists, hence it's the fd that doesn't. */
+        }
+
+        return 0;
 }
 
 void unlink_tempfilep(char (*p)[]) {
@@ -1434,6 +1421,7 @@ int unlinkat_deallocate(int fd, const char *name, UnlinkDeallocateFlags flags) {
         return 0;
 }
 
+#if 0 /* NM_IGNORED */
 int fsync_directory_of_file(int fd) {
         _cleanup_free_ char *path = NULL;
         _cleanup_close_ int dfd = -1;
@@ -1447,9 +1435,9 @@ int fsync_directory_of_file(int fd) {
         if (r < 0) {
                 log_debug_errno(r, "Failed to query /proc/self/fd/%d%s: %m",
                                 fd,
-                                r == -EOPNOTSUPP ? ", ignoring" : "");
+                                r == -ENOSYS ? ", ignoring" : "");
 
-                if (r == -EOPNOTSUPP)
+                if (r == -ENOSYS)
                         /* If /proc is not available, we're most likely running in some
                          * chroot environment, and syncing the directory is not very
                          * important in that case. Let's just silently do nothing. */
@@ -1470,6 +1458,7 @@ int fsync_directory_of_file(int fd) {
 
         return 0;
 }
+#endif /* NM_IGNORED */
 
 int fsync_full(int fd) {
         int r, q;
@@ -1587,7 +1576,7 @@ static int blockdev_is_encrypted(const char *sysfs_path, unsigned depth_left) {
 
         d = opendir(p);
         if (!d) {
-                if (errno == ENOENT) /* Doesn't have slaves */
+                if (errno == ENOENT) /* Doesn't have underlying devices */
                         return false;
 
                 return -errno;
@@ -1603,7 +1592,7 @@ static int blockdev_is_encrypted(const char *sysfs_path, unsigned depth_left) {
                         if (errno != 0)
                                 return -errno;
 
-                        break; /* No more slaves */
+                        break; /* No more underlying devices */
                 }
 
                 q = path_join(p, de->d_name);
@@ -1636,5 +1625,82 @@ int path_is_encrypted(const char *path) {
         xsprintf_sys_block_path(p, NULL, devt);
 
         return blockdev_is_encrypted(p, 10 /* safety net: maximum recursion depth */);
+}
+
+int conservative_rename(
+                int olddirfd, const char *oldpath,
+                int newdirfd, const char *newpath) {
+
+        _cleanup_close_ int old_fd = -1, new_fd = -1;
+        struct stat old_stat, new_stat;
+
+        /* Renames the old path to thew new path, much like renameat() — except if both are regular files and
+         * have the exact same contents and basic file attributes already. In that case remove the new file
+         * instead. This call is useful for reducing inotify wakeups on files that are updated but don't
+         * actually change. This function is written in a style that we rather rename too often than suppress
+         * too much. i.e. whenever we are in doubt we rather rename than fail. After all reducing inotify
+         * events is an optimization only, not more. */
+
+        old_fd = openat(olddirfd, oldpath, O_CLOEXEC|O_RDONLY|O_NOCTTY|O_NOFOLLOW);
+        if (old_fd < 0)
+                goto do_rename;
+
+        new_fd = openat(newdirfd, newpath, O_CLOEXEC|O_RDONLY|O_NOCTTY|O_NOFOLLOW);
+        if (new_fd < 0)
+                goto do_rename;
+
+        if (fstat(old_fd, &old_stat) < 0)
+                goto do_rename;
+
+        if (!S_ISREG(old_stat.st_mode))
+                goto do_rename;
+
+        if (fstat(new_fd, &new_stat) < 0)
+                goto do_rename;
+
+        if (new_stat.st_ino == old_stat.st_ino &&
+            new_stat.st_dev == old_stat.st_dev)
+                goto is_same;
+
+        if (old_stat.st_mode != new_stat.st_mode ||
+            old_stat.st_size != new_stat.st_size ||
+            old_stat.st_uid != new_stat.st_uid ||
+            old_stat.st_gid != new_stat.st_gid)
+                goto do_rename;
+
+        for (;;) {
+                char buf1[16*1024];
+                char buf2[sizeof(buf1) + 1];
+                ssize_t l1, l2;
+
+                l1 = read(old_fd, buf1, sizeof(buf1));
+                if (l1 < 0)
+                        goto do_rename;
+
+                l2 = read(new_fd, buf2, l1 + 1);
+                if (l1 != l2)
+                        goto do_rename;
+
+                if (l1 == 0) /* EOF on both! And everything's the same so far, yay! */
+                        break;
+
+                if (memcmp(buf1, buf2, l1) != 0)
+                        goto do_rename;
+        }
+
+is_same:
+        /* Everything matches? Then don't rename, instead remove the source file, and leave the existing
+         * destination in place */
+
+        if (unlinkat(olddirfd, oldpath, 0) < 0)
+                goto do_rename;
+
+        return 0;
+
+do_rename:
+        if (renameat(olddirfd, oldpath, newdirfd, newpath) < 0)
+                return -errno;
+
+        return 1;
 }
 #endif /* NM_IGNORED */

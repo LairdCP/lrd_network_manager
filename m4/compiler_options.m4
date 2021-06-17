@@ -60,11 +60,25 @@ if test "$GCC" = "yes" -a "$set_more_warnings" != "no"; then
 
 	CFLAGS_MORE_WARNINGS="-Wall"
 
+	if test "x$enable_lto" = xyes; then
+		dnl With LTO and optimizations enabled, gcc 10.2.1-1.fc32 is really
+		dnl adamant to warn about correct uses of strncpy. Disable "-Wstringop-overflow".
+		_CFLAGS_MORE_WARNINGS_DISABLE_LTO="-Wno-stringop-overflow"
+
+		dnl We want to build with "-Wmaybe-uninitialized" enabled. With LTO that
+		dnl can easily lead to false positives. For manual testing, disable the
+		dnl warning here by uncommenting the following line.
+		dnl _CFLAGS_MORE_WARNINGS_DISABLE_LTO="$_CFLAGS_MORE_WARNINGS_DISABLE_LTO -Wno-error=maybe-uninitialized"
+	else
+		_CFLAGS_MORE_WARNINGS_DISABLE_LTO=
+	fi
+
 	if test "x$set_more_warnings" = xerror; then
 		CFLAGS_MORE_WARNINGS="$CFLAGS_MORE_WARNINGS -Werror"
 	fi
 
 	for option in \
+		      $_CFLAGS_MORE_WARNINGS_DISABLE_LTO \
 		      -Wextra \
 		      -Wdeclaration-after-statement \
 		      -Wfloat-equal \
@@ -93,7 +107,7 @@ if test "$GCC" = "yes" -a "$set_more_warnings" != "no"; then
 		      -Wno-unused-parameter \
 		      ; do
 		dnl GCC 4.4 does not warn when checking for -Wno-* flags (https://gcc.gnu.org/wiki/FAQ#wnowarning)
-		_NM_COMPILER_FLAG([-Wall $(printf '%s' "$option" | sed 's/^-Wno-/-W/')], [],
+		_NM_COMPILER_FLAG([-Wall $(printf '%s' "$option" | sed -e 's/^-W\(no-\|no-error=\)/-W/')], [],
 		                  [CFLAGS_MORE_WARNINGS="$CFLAGS_MORE_WARNINGS $option"], [])
 	done
 	unset option

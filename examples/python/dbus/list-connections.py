@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# SPDX-License-Identifier: GPL-2.0+
+# SPDX-License-Identifier: GPL-2.0-or-later
 #
 # Copyright (C) 2010 - 2011 Red Hat, Inc.
 #
@@ -18,7 +18,6 @@ def merge_secrets(proxy, config, setting_name):
         # returns a dict of dicts mapping name::setting, where setting is a dict
         # mapping key::value.  Each member of the 'setting' dict is a secret
         secrets = proxy.GetSecrets(setting_name)
-
         # Copy the secrets into our connection config
         for setting in secrets:
             for key in secrets[setting]:

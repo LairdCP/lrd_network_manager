@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: LGPL-2.1+ */
+/* SPDX-License-Identifier: LGPL-2.1-or-later */
 #pragma once
 
 #include <stdarg.h>
@@ -30,7 +30,7 @@ typedef enum LogTarget{
         LOG_TARGET_JOURNAL_OR_KMSG,
         LOG_TARGET_SYSLOG,
         LOG_TARGET_SYSLOG_OR_KMSG,
-        LOG_TARGET_AUTO, /* console if stderr is tty, JOURNAL_OR_KMSG otherwise */
+        LOG_TARGET_AUTO, /* console if stderr is not journal, JOURNAL_OR_KMSG otherwise */
         LOG_TARGET_NULL,
         _LOG_TARGET_MAX,
         _LOG_TARGET_INVALID = -1
@@ -44,9 +44,16 @@ typedef enum LogTarget{
 #define ERRNO_VALUE(val)                    (abs(val) & 255)
 
 void log_set_target(LogTarget target);
+
 void log_set_max_level_realm(LogRealm realm, int level);
+
 #define log_set_max_level(level)                \
         log_set_max_level_realm(LOG_REALM, (level))
+
+static inline void log_set_max_level_all_realms(int level) {
+        for (LogRealm realm = 0; realm < _LOG_REALM_MAX; realm++)
+                log_set_max_level_realm(realm, level);
+}
 
 void log_set_facility(int facility);
 
@@ -61,10 +68,13 @@ void log_show_location(bool b);
 bool log_get_show_location(void) _pure_;
 void log_show_time(bool b);
 bool log_get_show_time(void) _pure_;
+void log_show_tid(bool b);
+bool log_get_show_tid(void) _pure_;
 
 int log_show_color_from_string(const char *e);
 int log_show_location_from_string(const char *e);
 int log_show_time_from_string(const char *e);
+int log_show_tid_from_string(const char *e);
 
 LogTarget log_get_target(void) _pure_;
 #if 0 /* NM_IGNORED */
@@ -89,8 +99,11 @@ void log_close(void);
 void log_forget_fds(void);
 
 void log_parse_environment_realm(LogRealm realm);
+void log_parse_environment_cli_realm(LogRealm realm);
 #define log_parse_environment() \
         log_parse_environment_realm(LOG_REALM)
+#define log_parse_environment_cli() \
+        log_parse_environment_cli_realm(LOG_REALM)
 
 #if 0 /* NM_IGNORED */
 int log_dispatch_internal(
@@ -115,6 +128,31 @@ int log_internal_realm(
 #endif /* NM_IGNORED */
 #define log_internal(level, ...) \
         log_internal_realm(LOG_REALM_PLUS_LEVEL(LOG_REALM, (level)), __VA_ARGS__)
+
+#define log_object_internal(level,              \
+                            error,              \
+                            file,               \
+                            line,               \
+                            func,               \
+                            object_field,       \
+                            object,             \
+                            extra_field,        \
+                            extra,              \
+                            format,             \
+                            ...)                \
+    ({                                          \
+        const char *const _object = (object);   \
+                                                \
+        log_internal_realm((level),             \
+                           (error),             \
+                           file,                \
+                           (line),              \
+                           (func),              \
+                           "%s%s" format,       \
+                           _object ?: "",       \
+                           _object ? ": " : "", \
+                           ##__VA_ARGS__);        \
+    })
 
 #if 0 /* NM_IGNORED */
 int log_internalv_realm(
@@ -163,7 +201,7 @@ int log_struct_internal(
                 const char *format, ...) _printf_(6,0) _sentinel_;
 
 int log_oom_internal(
-                LogRealm realm,
+                int level,
                 const char *file,
                 int line,
                 const char *func);
@@ -245,12 +283,12 @@ void log_assert_failed_return_realm(
 #define log_full_errno(level, error, ...)                               \
         log_full_errno_realm(LOG_REALM, (level), (error), __VA_ARGS__)
 
-#define log_full(level, ...) log_full_errno((level), 0, __VA_ARGS__)
+#define log_full(level, ...) (void) log_full_errno((level), 0, __VA_ARGS__)
 
 int log_emergency_level(void);
 
 /* Normal logging */
-#define log_debug(...)     log_full(LOG_DEBUG,   __VA_ARGS__)
+#define log_debug(...)     log_full_errno(LOG_DEBUG, 0, __VA_ARGS__)
 #define log_info(...)      log_full(LOG_INFO,    __VA_ARGS__)
 #define log_notice(...)    log_full(LOG_NOTICE,  __VA_ARGS__)
 #define log_warning(...)   log_full(LOG_WARNING, __VA_ARGS__)
@@ -287,7 +325,8 @@ int log_emergency_level(void);
         log_dump_internal(LOG_REALM_PLUS_LEVEL(LOG_REALM, level), \
                           0, PROJECT_FILE, __LINE__, __func__, buffer)
 
-#define log_oom() log_oom_internal(LOG_REALM, PROJECT_FILE, __LINE__, __func__)
+#define log_oom() log_oom_internal(LOG_REALM_PLUS_LEVEL(LOG_REALM, LOG_ERR), PROJECT_FILE, __LINE__, __func__)
+#define log_oom_debug() log_oom_internal(LOG_REALM_PLUS_LEVEL(LOG_REALM, LOG_DEBUG), PROJECT_FILE, __LINE__, __func__)
 
 bool log_on_console(void) _pure_;
 
@@ -359,3 +398,4 @@ int log_syntax_invalid_utf8_internal(
 #define DEBUG_LOGGING _unlikely_(log_get_max_level() >= LOG_DEBUG)
 
 void log_setup_service(void);
+void log_setup_cli(void);

@@ -946,30 +946,71 @@
           <option>connection.type</option> property (or use the <option>type</option> alias)
           to one of known NetworkManager connection types:</para>
 
+          <!--
+            See also: nm_meta_setting_info_get_base_type_priority().
+
+              nmcli '-'-complete-args connection add type "" |
+              sort |
+              awk '
+                /^(bond|bridge|team)-slave$/ {
+                    printf "            <listitem><para><literal>%s</literal> (deprecated for ethernet with master)</para></listitem>\n", $0;
+                    next;
+                }
+                /^(wifi|ethernet|olpc-mash)$/ {
+                    next;
+                }
+                {
+                    alias = "";
+                    if ($0 == "802-11-wireless")  { alias = "wifi"; }
+                    if ($0 == "802-3-ethernet")   { alias = "ethernet"; }
+                    if ($0 == "802-11-olpc-mesh") { alias = "olpc-mesh"; }
+                    if (alias != "") {
+                        printf "            <listitem><para><literal>%s</literal> (alias <literal>%s</literal>)</para></listitem>\n", $0, alias;
+                    } else {
+                        printf "            <listitem><para><literal>%s</literal></para></listitem>\n", $0;
+                    }
+                }
+              '
+
+          -->
           <itemizedlist spacing='compact'>
-            <listitem><para><literal>ethernet</literal></para></listitem>
-            <listitem><para><literal>wifi</literal></para></listitem>
-            <listitem><para><literal>wimax</literal></para></listitem>
-            <listitem><para><literal>pppoe</literal></para></listitem>
-            <listitem><para><literal>gsm</literal></para></listitem>
-            <listitem><para><literal>cdma</literal></para></listitem>
-            <listitem><para><literal>infiniband</literal></para></listitem>
-            <listitem><para><literal>bluetooth</literal></para></listitem>
-            <listitem><para><literal>vlan</literal></para></listitem>
-            <listitem><para><literal>bond</literal></para></listitem>
-            <listitem><para><literal>bond-slave</literal></para></listitem>
-            <listitem><para><literal>team</literal></para></listitem>
-            <listitem><para><literal>team-slave</literal></para></listitem>
-            <listitem><para><literal>bridge</literal></para></listitem>
-            <listitem><para><literal>bridge-slave</literal></para></listitem>
-            <listitem><para><literal>vpn</literal></para></listitem>
-            <listitem><para><literal>olpc-mesh</literal></para></listitem>
+            <listitem><para><literal>6lowpan</literal></para></listitem>
+            <listitem><para><literal>802-11-olpc-mesh</literal> (alias <literal>olpc-mesh</literal>)</para></listitem>
+            <listitem><para><literal>802-11-wireless</literal> (alias <literal>wifi</literal>)</para></listitem>
+            <listitem><para><literal>802-3-ethernet</literal> (alias <literal>ethernet</literal>)</para></listitem>
             <listitem><para><literal>adsl</literal></para></listitem>
-            <listitem><para><literal>tun</literal></para></listitem>
-            <listitem><para><literal>ip-tunnel</literal></para></listitem>
-            <listitem><para><literal>macvlan</literal></para></listitem>
-            <listitem><para><literal>vxlan</literal></para></listitem>
+            <listitem><para><literal>bluetooth</literal></para></listitem>
+            <listitem><para><literal>bond</literal></para></listitem>
+            <listitem><para><literal>bond-slave</literal> (deprecated for ethernet with master)</para></listitem>
+            <listitem><para><literal>bridge</literal></para></listitem>
+            <listitem><para><literal>bridge-slave</literal> (deprecated for ethernet with master)</para></listitem>
+            <listitem><para><literal>cdma</literal></para></listitem>
             <listitem><para><literal>dummy</literal></para></listitem>
+            <listitem><para><literal>generic</literal></para></listitem>
+            <listitem><para><literal>gsm</literal></para></listitem>
+            <listitem><para><literal>infiniband</literal></para></listitem>
+            <listitem><para><literal>ip-tunnel</literal></para></listitem>
+            <listitem><para><literal>macsec</literal></para></listitem>
+            <listitem><para><literal>macvlan</literal></para></listitem>
+            <listitem><para><literal>olpc-mesh</literal></para></listitem>
+            <listitem><para><literal>ovs-bridge</literal></para></listitem>
+            <listitem><para><literal>ovs-dpdk</literal></para></listitem>
+            <listitem><para><literal>ovs-interface</literal></para></listitem>
+            <listitem><para><literal>ovs-patch</literal></para></listitem>
+            <listitem><para><literal>ovs-port</literal></para></listitem>
+            <listitem><para><literal>pppoe</literal></para></listitem>
+            <listitem><para><literal>team</literal></para></listitem>
+            <listitem><para><literal>team-slave</literal> (deprecated for ethernet with master)</para></listitem>
+            <listitem><para><literal>tun</literal></para></listitem>
+            <listitem><para><literal>veth</literal></para></listitem>
+            <listitem><para><literal>vlan</literal></para></listitem>
+            <listitem><para><literal>vpn</literal></para></listitem>
+            <listitem><para><literal>vrf</literal></para></listitem>
+            <listitem><para><literal>vxlan</literal></para></listitem>
+            <listitem><para><literal>wifi-p2p</literal></para></listitem>
+            <listitem><para><literal>wimax</literal></para></listitem>
+            <listitem><para><literal>wireguard</literal></para></listitem>
+            <listitem><para><literal>wpan</literal></para></listitem>
           </itemizedlist>
 
           <para>The most typical uses are described in the <link linkend='examples' endterm='examples.title' /> section.</para>
@@ -1506,7 +1547,7 @@
               <term><option>private</option></term>
               <listitem>
                 <para>if set to <literal>yes</literal>, the connection will only be visible
-                to the user who created it. Otherwise the connection is system-wide, which is
+                to the user who created it. Otherwise, the connection is system-wide, which is
                 the default.</para>
               </listitem>
             </varlistentry>
@@ -1514,7 +1555,7 @@
               <term><option>hidden</option></term>
               <listitem>
                 <para>set to <literal>yes</literal> when connecting for the first time to an
-                AP not broadcasting its SSID. Otherwise the SSID would not be found and the
+                AP not broadcasting its SSID. Otherwise, the SSID would not be found and the
                 connection attempt would fail.</para>
               </listitem>
             </varlistentry>
@@ -1671,7 +1712,7 @@
 
         <listitem>
           <para>Register <command>nmcli</command> as a NetworkManager secret agent and listen for secret
-          requests. You do usually not need this command, because <command>nmcli</command> can handle
+          requests. You usually do not need this command, because <command>nmcli</command> can handle
           secrets when connecting to networks. However, you may find the command useful
           when you use another tool for activating connections and you do not have a
           secret agent available (like nm-applet).</para>
@@ -1749,35 +1790,35 @@
       <varlistentry>
         <term><option>connectivity-full</option></term>
         <listitem>
-          <para>Conectivity state when Internet is reachable.</para>
+          <para>Connectivity state when Internet is reachable.</para>
         </listitem>
       </varlistentry>
 
       <varlistentry>
         <term><option>connectivity-limited</option></term>
         <listitem>
-          <para>Conectivity state when only a local network reachable.</para>
+          <para>Connectivity state when only a local network reachable.</para>
         </listitem>
       </varlistentry>
 
       <varlistentry>
         <term><option>connectivity-none</option></term>
         <listitem>
-          <para>Conectivity state when the network is disconnected.</para>
+          <para>Connectivity state when the network is disconnected.</para>
         </listitem>
       </varlistentry>
 
       <varlistentry>
         <term><option>connectivity-portal</option></term>
         <listitem>
-          <para>Conectivity state when a captive portal hijacked the connection.</para>
+          <para>Connectivity state when a captive portal hijacked the connection.</para>
         </listitem>
       </varlistentry>
 
       <varlistentry>
         <term><option>connectivity-unknown</option></term>
         <listitem>
-          <para>Conectivity state when a connectivity check didn't run.</para>
+          <para>Connectivity state when a connectivity check didn't run.</para>
         </listitem>
       </varlistentry>
 

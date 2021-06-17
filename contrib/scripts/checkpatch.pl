@@ -1,5 +1,5 @@
 #!/usr/bin/perl -n
-# SPDX-License-Identifier: GPL-2.0+
+# SPDX-License-Identifier: GPL-2.0-or-later
 #
 # Copyright (C) 2018 Red Hat, Inc.
 #
@@ -137,7 +137,7 @@ if ($is_patch) {
 	$check_line = 1;
 	$line = $_;
 	/^---$/ and $is_commit_message = 0;
-	/^Fixes: *(.*)/ and check_commit ($1, 1);
+	/^(Reverts|Fixes): *(.*)/ and check_commit ($2, 1);
 	/This reverts commit/ and next;
 	/cherry picked from/ and next;
 	/\bcommit (.*)/ and check_commit ($1, 0);
@@ -182,27 +182,15 @@ complain ('Trailing whitespace') if $line =~ /[ \t]$/;
 complain ('Don\'t use glib typedefs for char/short/int/long/float/double') if $line =~ /\bg(char|short|int|long|float|double)\b/;
 complain ("Don't use \"$1 $2\" instead of \"$2 $1\"") if $line =~ /\b(char|short|int|long) +(unsigned|signed)\b/;
 complain ("Don't use \"unsigned int\" but just use \"unsigned\"") if $line =~ /\b(unsigned) +(int)\b/;
-complain ("Please use LGPL-2.1+ SPDX tag for new files") if $is_patch and $line =~ /SPDX-License-Identifier/ and not /LGPL-2.1\+/;
+complain ("Please use LGPL-2.1-or-later SPDX tag for new files") if $is_patch and $line =~ /SPDX-License-Identifier/ and not /LGPL-2.1-or-later/;
 complain ("Use a SPDX-License-Identifier instead of Licensing boilerplate") if $is_patch and $line =~ /under the terms of/;
 complain ("Don't use space inside elvis operator ?:") if $line =~ /\?[\t ]+:/;
 complain ("Don't add Emacs editor formatting hints to source files") if $line_no == 1 and $line =~ /-\*-.+-\*-/;
 complain ("XXX marker are reserved for development while work-in-progress. Use TODO or FIXME comment instead?") if $line =~ /\bXXX\b/;
 complain ("This gtk-doc annotation looks wrong") if $line =~ /\*.*\( *(transfer-(none|container|full)|allow none) *\) *(:|\()/;
-complain ("Prefer nm_assert() or g_return*() to g_assert*()") if $line =~ /g_assert/ and not $filename =~ /\/tests\//;
+complain ("Prefer nm_assert() or g_return*() to g_assert*()") if $line =~ /g_assert/ and (not $filename =~ /\/tests\//) and (not $filename =~ /\/nm-test-/);
 complain ("Use gs_free_error with GError variables") if $line =~ /\bgs_free\b +GError *\*/;
-
-new_hunk if $_ eq '';
-my ($this_indent) = /^(\s*)/;
-if (defined $indent) {
-	my $this_tabs_before_spaces = length $1 if $this_indent =~ /^(\t*) +/;
-	my $tabs_before_spaces = length $1 if $indent =~ /^(\t*) +/;
-
-	complain ("Bad indentation")
-		if $this_indent =~ /^$indent\t+ +/
-		or (defined $tabs_before_spaces and defined $this_tabs_before_spaces
-			and $this_tabs_before_spaces != $tabs_before_spaces);
-}
-$indent = $this_indent if $_ ne '';
+#complain ("Use spaces instead of tabs") if $line =~ /\t/;
 
 # Further on we process stuff without comments.
 $_ = $line;
@@ -228,7 +216,7 @@ if (/^typedef*/) {
 
 	# A function name
 	my $name = $1;
-	complain ('A single space should follow the function name') unless $2 eq ' ';
+	complain ('No space between function name and arguments') unless $2 eq '';
 
 	# Determine which function must not be preceding this one
 	foreach my $func (reverse @order) {

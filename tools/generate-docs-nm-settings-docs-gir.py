@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# SPDX-License-Identifier: LGPL-2.1+
+# SPDX-License-Identifier: LGPL-2.1-or-later
 #
 # Copyright (C) 2009 - 2017 Red Hat, Inc.
 #
@@ -244,8 +244,12 @@ for settingxml in settings:
             "%s needs a gtk-doc block with one-line description" % setting.props.name
         )
     outfile.write(
-        '  <setting name="%s" description="%s" name_upper="%s" >\n'
-        % (setting.props.name, class_desc, get_setting_name_define(settingxml))
+        '  <setting name="%s" description=%s name_upper="%s" >\n'
+        % (
+            setting.props.name,
+            xml_quoteattr(class_desc),
+            get_setting_name_define(settingxml),
+        )
     )
 
     setting_properties = {

@@ -1,9 +1,9 @@
-// SPDX-License-Identifier: LGPL-2.1+
+/* SPDX-License-Identifier: LGPL-2.1-or-later */
 /*
  * Copyright (C) 2013 Red Hat, Inc.
  */
 
-#include "nm-default.h"
+#include "libnm-core/nm-default-libnm-core.h"
 
 #include "nm-setting-generic.h"
 
@@ -24,19 +24,19 @@
 /*****************************************************************************/
 
 typedef struct {
-	int dummy;
+    int dummy;
 } NMSettingGenericPrivate;
 
-G_DEFINE_TYPE (NMSettingGeneric, nm_setting_generic, NM_TYPE_SETTING)
+G_DEFINE_TYPE(NMSettingGeneric, nm_setting_generic, NM_TYPE_SETTING)
 
-#define NM_SETTING_GENERIC_GET_PRIVATE(o) (G_TYPE_INSTANCE_GET_PRIVATE ((o), NM_TYPE_SETTING_GENERIC, NMSettingGenericPrivate))
+#define NM_SETTING_GENERIC_GET_PRIVATE(o) \
+    (G_TYPE_INSTANCE_GET_PRIVATE((o), NM_TYPE_SETTING_GENERIC, NMSettingGenericPrivate))
 
 /*****************************************************************************/
 
 static void
-nm_setting_generic_init (NMSettingGeneric *setting)
-{
-}
+nm_setting_generic_init(NMSettingGeneric *setting)
+{}
 
 /**
  * nm_setting_generic_new:
@@ -46,17 +46,17 @@ nm_setting_generic_init (NMSettingGeneric *setting)
  * Returns: (transfer full): the new empty #NMSettingGeneric object
  **/
 NMSetting *
-nm_setting_generic_new (void)
+nm_setting_generic_new(void)
 {
-	return (NMSetting *) g_object_new (NM_TYPE_SETTING_GENERIC, NULL);
+    return g_object_new(NM_TYPE_SETTING_GENERIC, NULL);
 }
 
 static void
-nm_setting_generic_class_init (NMSettingGenericClass *klass)
+nm_setting_generic_class_init(NMSettingGenericClass *klass)
 {
-	NMSettingClass *setting_class = NM_SETTING_CLASS (klass);
+    NMSettingClass *setting_class = NM_SETTING_CLASS(klass);
 
-	g_type_class_add_private (klass, sizeof (NMSettingGenericPrivate));
+    g_type_class_add_private(klass, sizeof(NMSettingGenericPrivate));
 
-	_nm_setting_class_commit (setting_class, NM_META_SETTING_TYPE_GENERIC);
+    _nm_setting_class_commit(setting_class, NM_META_SETTING_TYPE_GENERIC);
 }

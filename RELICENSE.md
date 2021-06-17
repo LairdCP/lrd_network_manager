@@ -73,6 +73,7 @@ Consent/Disapproval List
 
 - [Y] Aleksander Morgado <aleksander@aleksander.es>
 - [Y] Alfonso Sánchez-Beato <alfonso.sanchez-beato@canonical.com> (Canonical, Ltd.)
+- [Y] Andrew Zaborowski <andrew.zaborowski@intel.com> (Intel Corporation)
 - [Y] Antoine Faure <antoine.faure@sigfox.com> (Sigfox)
 - [Y] Antony Mee <antony@onlymee.co.uk>
 - [Y] Atul Anand <atulhjp@gmail.com>
@@ -85,6 +86,7 @@ Consent/Disapproval List
 - [Y] Dan Williams <dcbw@redhat.com> (Red Hat, Inc.)
 - [Y] Dan Winship <danw@redhat.com> (Red Hat, Inc.)
 - [Y] Daniel Drake <dsd@laptop.org> (One Laptop per Child)
+- [Y] Daniel Gnoutcheff <daniel@gnoutcheff.name>
 - [Y] David Cantrell <dcantrell@redhat.com> (Red Hat, Inc.)
 - [Y] Evan Broder <evan@ebroder.net>
 - [Y] Florian Echtler <floe@butterbrot.org>
@@ -98,6 +100,7 @@ Consent/Disapproval List
 - [Y] Jan Tojnar <jtojnar@gmail.com>
 - [Y] Javier Arteaga <jarteaga@jbeta.is>
 - [Y] Jiří Klimeš <blueowl@centrum.cz> (Red Hat, Inc.)
+- [Y] Kjartan Maraas <kmaraas@gnome.org>
 - [Y] Lubomir Rintel <lkundrak@v3.sk> (Red Hat, Inc.)
 - [Y] Mario Sanchez Prada <mario@endlessm.com> (Endless Mobile, Inc.)
 - [Y] Marius Vollmer <mvollmer@redhat.com> (Red Hat, Inc.)
@@ -117,6 +120,7 @@ Consent/Disapproval List
 - [Y] Thomas Haller <thaller@redhat.com> (Red Hat, Inc.)
 - [Y] Timothy Redaelli <tredaelli@redhat.com> (Red Hat, Inc.)
 - [Y] Yuri Chornoivan <yurchor@ukr.net>
+- [Y] Zephaniah E. Loss-Cutler-Hull <warp@aehallh.com>
 - [Y] luz.paz <luzpaz@users.noreply.github.com>
 
 Copyright Held by Other Legal Entities
@@ -126,14 +130,14 @@ The contributors above may have contributed the code on behalf of a company
 that holds the copyright. This list tracks such legal entities. The contributor
 list above indicates whether a contributor provided code for a legal entity here.
 
-- [?] Intel Corporation
-- [?] Novell, Inc.
-- [?] SUSE
-
 - [Y] Canonical, Ltd.
 - [Y] Endless Mobile, Inc.
 - [Y] Endless OS LLC
+- [Y] Intel Corporation
+- [Y] Novell, Inc.
 - [Y] One Laptop per Child
 - [Y] Pengutronix
 - [Y] Red Hat, Inc.
+- [Y] SUSE
 - [Y] Sigfox
+- [Y] Ximian, Inc.

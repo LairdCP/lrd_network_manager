@@ -1,9 +1,9 @@
-/* SPDX-License-Identifier: LGPL-2.1+ */
+/* SPDX-License-Identifier: LGPL-2.1-or-later */
 #pragma once
 
 #include <grp.h>
 #if ENABLE_GSHADOW
-#include <gshadow.h>
+#  include <gshadow.h>
 #endif
 #include <pwd.h>
 #include <shadow.h>
@@ -61,32 +61,6 @@ int take_etc_passwd_lock(const char *root);
 
 #define ETC_PASSWD_LOCK_PATH "/etc/.pwd.lock"
 
-#if 0 /* NM_ENABLED */
-static inline bool uid_is_system(uid_t uid) {
-        return uid <= SYSTEM_UID_MAX;
-}
-
-static inline bool gid_is_system(gid_t gid) {
-        return gid <= SYSTEM_GID_MAX;
-}
-
-static inline bool uid_is_dynamic(uid_t uid) {
-        return DYNAMIC_UID_MIN <= uid && uid <= DYNAMIC_UID_MAX;
-}
-
-static inline bool gid_is_dynamic(gid_t gid) {
-        return uid_is_dynamic((uid_t) gid);
-}
-
-static inline bool uid_is_container(uid_t uid) {
-        return CONTAINER_UID_BASE_MIN <= uid && uid <= CONTAINER_UID_BASE_MAX;
-}
-
-static inline bool gid_is_container(gid_t gid) {
-        return uid_is_container((uid_t) gid);
-}
-#endif /* NM_ENABLED */
-
 /* The following macros add 1 when converting things, since UID 0 is a valid UID, while the pointer
  * NULL is special */
 #define PTR_TO_UID(p) ((uid_t) (((uintptr_t) (p))-1))
@@ -107,6 +81,7 @@ typedef enum ValidUserFlags {
 
 bool valid_user_group_name(const char *u, ValidUserFlags flags);
 bool valid_gecos(const char *d);
+char *mangle_gecos(const char *d);
 bool valid_home(const char *p);
 
 static inline bool valid_shell(const char *p) {

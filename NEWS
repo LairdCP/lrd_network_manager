@@ -1,4 +1,79 @@
 =============================================
+NetworkManager-1.30
+Overview of changes since NetworkManager-1.28
+=============================================
+
+* Increase timeout of NetworkManager-wait-online.service to 60 seconds.
+* Add "ipv4.dhcp-client-id=ipv6-duid" option for RFC4361.
+* The dhcpcd plugin now requires a minimum version of dhcpcd-9.3.3 with
+  the --noconfigure option. Using an older version will cause dhcpcd to
+  exit with a status code of 1.
+* Support building against musl libc.
+* Support new ethtool offload features.
+* Add support for WPA3 Enterprise Suite-B 192 bit mode.
+* Add support for handling Veth devices.
+* New hostname settings for controlling configuring the hostname from
+  reverse DNS lookup and from DHCP.
+* OVS: support configuring external-ids.
+* libnm: nm_setting_bond_add_option() no longer validates the
+  option that is set. Instead, use nm_connection_verify() to validate
+  the profile.
+* libnm: add support for reading/writing keyfile format. This required to
+  relicense previously GPL-2.0+ code as LGPL-2.1+ with the agreement of the
+  copyright holders.
+* initrd: support for rd.net.timeout.carrier option.
+* initrd: support new ip method "link6" for IPv6 link-local only.
+* ci: use ci-templates for containers on gitlab-ci.
+* ci: test build against Alpine Linux on gitlab-ci.
+* build: new configure option to set path to "polkit-agent-helper-1".
+* Many bugfixes, improvements and translation updates.
+
+=============================================
+NetworkManager-1.28
+Overview of changes since NetworkManager-1.26
+=============================================
+
+* Introduce a new "rc-manager=auto" setting and make it the default,
+  unless a different default is chosen at compile time.  This mode
+  tries to detect "systemd-resolved", "resolvconf", and "netconfig"
+  and chooses the mode that seems most suitable depending on build
+  setting and runtime detection.  "resolvconf" and "netconfig" are
+  only considered iff NetworkManager was built with the respective
+  options enabled.
+* The long deprecated D-Bus property "Ip4Address" on
+  "org.freedesktop.NetworkManager.Device" interface is now defunct and
+  always returns zero.
+* Introduce a ipv4.dhcp-reject-servers connection property that
+  specifies a list of DHCP server-ids from which offers should be
+  rejected.
+* Add a ipv4.dhcp-vendor-class-identifier connection property to send
+  a custom value for the Vendor Class Identifier DHCP option.
+* Support obtaining the system hostname through the FQDN DHCPv6
+  option.
+* dbus: don't require policykit permission for GetAppliedConnection of
+  a device.
+* When supported by kernel, use netlink to configure bridge settings
+  instead of writing to sysfs.
+* Deprecate the "active_slave" bond option which now has the same effect
+  as setting the "primary" option.
+* The initrd generator now also accepts MAC addresses to indicate
+  interfaces.
+* Add a new provider for nm-cloud-setup to support automatic network
+  configuration on Azure.
+* The initrd generator now supports creating Infiniband connections.
+* Fix running DHCPv6-PD over PPPoE.
+* Fix building NetworkManager with LTO (Link Time Optimization).
+* Fix failure activating Wi-Fi P2P connections.
+* Reformat code using spaces instead of tabs. Also, the entire C
+  source code is now formatted with "clang-format" (version 11.0).
+* Change the behavior of nm-initrd-generator so that the 'ip=off|none' kernel
+  cmdline argument actually generates a connection which disables both
+  ipv4 and ipv6. Previously the generated connection would disable ipv4
+  but ipv6 would be set to the 'auto' method.
+* Fix systemd-resolved DNS plugin to configure DefaultRoute option and to
+  only configure wildcard DNS search domain with exclusive DNS priority.
+
+=============================================
 NetworkManager-1.26
 Overview of changes since NetworkManager-1.24
 =============================================

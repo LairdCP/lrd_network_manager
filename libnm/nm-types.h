@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0+
+/* SPDX-License-Identifier: LGPL-2.1-or-later */
 /*
  * Copyright (C) 2014 - 2018 Red Hat, Inc.
  */
@@ -36,6 +36,7 @@ typedef struct _NMDeviceOvsPort      NMDeviceOvsPort;
 typedef struct _NMDevicePpp          NMDevicePpp;
 typedef struct _NMDeviceTeam         NMDeviceTeam;
 typedef struct _NMDeviceTun          NMDeviceTun;
+typedef struct _NMDeviceVeth         NMDeviceVeth;
 typedef struct _NMDeviceVlan         NMDeviceVlan;
 typedef struct _NMDeviceVrf          NMDeviceVrf;
 typedef struct _NMDeviceVxlan        NMDeviceVxlan;
@@ -52,4 +53,4 @@ typedef struct _NMVpnConnection      NMVpnConnection;
 typedef struct _NMWifiP2PPeer        NMWifiP2PPeer;
 typedef struct _NMWimaxNsp           NMWimaxNsp;
 
-#endif  /* NM_TYPES_H */
+#endif /* NM_TYPES_H */

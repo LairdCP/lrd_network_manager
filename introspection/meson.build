@@ -1,8 +1,4 @@
-# SPDX-License-Identifier: LGPL-2.1+
-
-ifaces_secret_agent_xml = files('org.freedesktop.NetworkManager.SecretAgent.xml')
-
-ifaces_vpn_plugin_xml = files('org.freedesktop.NetworkManager.VPN.Plugin.xml')
+# SPDX-License-Identifier: LGPL-2.1-or-later
 
 ifaces = [
   'org.freedesktop.NetworkManager',
@@ -104,6 +100,7 @@ libnmdbus = static_library(
   sources: sources,
   include_directories: top_inc,
   dependencies: glib_dep,
+  c_args: introspection_extra_cflags,
 )
 
 libnmdbus_dep = declare_dependency(

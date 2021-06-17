@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# SPDX-License-Identifier: GPL-2.0+
+# SPDX-License-Identifier: GPL-2.0-or-later
 #
 # Copyright (C) 2011 Red Hat, Inc.
 #
@@ -50,10 +50,9 @@ con = dbus.Dictionary(
         "ipv6": s_ip6,
     }
 )
-
+print("Creating connection:", s_con["id"], "-", s_con["uuid"])
 
 bus = dbus.SystemBus()
-
 proxy = bus.get_object(
     "org.freedesktop.NetworkManager", "/org/freedesktop/NetworkManager/Settings"
 )

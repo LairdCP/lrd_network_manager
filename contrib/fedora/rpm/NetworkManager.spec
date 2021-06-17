@@ -46,6 +46,22 @@
 
 ###############################################################################
 
+%if "x__BCOND_DEFAULT_DEBUG__" == "x1" || "x__BCOND_DEFAULT_DEBUG__" == "x0"
+%global bcond_default_debug __BCOND_DEFAULT_DEBUG__
+%else
+%global bcond_default_debug 0
+%endif
+
+%if "x__BCOND_DEFAULT_TEST__" == "x1" || "x__BCOND_DEFAULT_TEST__" == "x0"
+%global bcond_default_test __BCOND_DEFAULT_TEST__
+%else
+%if 0%{?rhel} >= 9
+%global bcond_default_test 1
+%else
+%global bcond_default_test 0
+%endif
+%endif
+
 %bcond_with meson
 %bcond_without adsl
 %bcond_without bluetooth
@@ -57,9 +73,21 @@
 %bcond_without nmtui
 %bcond_without nm_cloud_setup
 %bcond_without regen_docs
+%if %{bcond_default_debug}
+%bcond_without debug
+%else
 %bcond_with    debug
+%endif
+%if %{bcond_default_test}
+%bcond_without test
+%else
 %bcond_with    test
+%endif
+%if 0%{?fedora} >= 33 || 0%{?rhel} >= 9
+%bcond_without lto
+%else
 %bcond_with    lto
+%endif
 %bcond_with    sanitizer
 %if 0%{?fedora}
 %bcond_without connectivity_fedora
@@ -111,13 +139,21 @@
 
 %if 0%{?fedora} || 0%{?rhel} > 7
 %global logging_backend_default journal
+%if 0%{?fedora} || 0%{?rhel} > 8
+%global dns_rc_manager_default auto
+%else
 %global dns_rc_manager_default symlink
+%endif
 %else
 %global logging_backend_default syslog
 %global dns_rc_manager_default file
 %endif
 
+%if 0%{?rhel} > 8 || 0%{?fedora} > 32
+%global config_plugins_default keyfile,ifcfg-rh
+%else
 %global config_plugins_default ifcfg-rh
+%endif
 
 %if 0%{?fedora}
 # Although eBPF would be available on Fedora's kernel, it seems
@@ -129,6 +165,11 @@
 %else
 %global ebpf_enabled "no"
 %endif
+
+# Fedora 33 enables LTO by default by setting CFLAGS="-flto -ffat-lto-objects".
+# However, we also require "-flto -flto-partition=none", so disable Fedora's
+# default and use our configure option --with-lto instead.
+%define _lto_cflags %{nil}
 
 ###############################################################################
 
@@ -176,6 +217,7 @@ Conflicts: NetworkManager-pptp < 1:0.7.0.99-1
 Conflicts: NetworkManager-openconnect < 0:0.7.0.99-1
 Conflicts: kde-plasma-networkmanagement < 1:0.9-0.49.20110527git.nm09
 
+BuildRequires: make
 BuildRequires: gcc
 BuildRequires: libtool
 BuildRequires: pkgconfig
@@ -335,6 +377,12 @@ This package contains NetworkManager support for team devices.
 Summary: Wifi plugin for NetworkManager
 Group: System Environment/Base
 Requires: %{name}%{?_isa} = %{epoch}:%{version}-%{release}
+
+%if 0%{?fedora} >= 29 || 0%{?rhel} >= 9
+Requires: wireless-regdb
+%else
+Requires: crda
+%endif
 
 %if %{with iwd} && (0%{?fedora} > 24 || 0%{?rhel} > 7)
 Requires: (wpa_supplicant >= %{wpa_supplicant_version} or iwd)
@@ -628,6 +676,8 @@ This tool is still experimental.
 %endif
 	-Ddist_version=%{version}-%{release} \
 	-Dconfig_plugins_default=%{config_plugins_default} \
+	-Dresolvconf=no \
+	-Dnetconfig=no \
 	-Dconfig_dns_rc_manager_default=%{dns_rc_manager_default} \
 	-Dconfig_logging_backend_default=%{logging_backend_default} \
 	-Djson_validation=true
@@ -766,11 +816,12 @@ intltoolize --automake --copy --force
 %endif
 	--with-dist-version=%{version}-%{release} \
 	--with-config-plugins-default=%{config_plugins_default} \
+	--with-resolvconf=no \
+	--with-netconfig=no \
 	--with-config-dns-rc-manager-default=%{dns_rc_manager_default} \
-	--with-config-logging-backend-default=%{logging_backend_default} \
-	--enable-json-validation
+	--with-config-logging-backend-default=%{logging_backend_default}
 
-make %{?_smp_mflags}
+%make_build
 
 %endif
 
@@ -778,7 +829,7 @@ make %{?_smp_mflags}
 %if %{with meson}
 %meson_install
 %else
-make install DESTDIR=%{buildroot}
+%make_install
 %endif
 
 cp %{SOURCE1} %{buildroot}%{_sysconfdir}/%{name}/
@@ -844,8 +895,12 @@ fi
 
 
 %post
-/usr/bin/udevadm control --reload-rules || :
-/usr/bin/udevadm trigger --subsystem-match=net || :
+# skip triggering if udevd isn't even accessible, e.g. containers or
+# rpm-ostree-based systems
+if [ -S /run/udev/control ]; then
+    /usr/bin/udevadm control --reload-rules || :
+    /usr/bin/udevadm trigger --subsystem-match=net || :
+fi
 %if %{with firewalld_zone}
 %firewalld_reload
 %endif
@@ -952,7 +1007,8 @@ fi
 %{_mandir}/man1/*
 %{_mandir}/man5/*
 %{_mandir}/man7/nmcli-examples.7*
-%{_mandir}/man8/*
+%{_mandir}/man8/nm-initrd-generator.8.gz
+%{_mandir}/man8/NetworkManager.8.gz
 %dir %{_localstatedir}/lib/NetworkManager
 %dir %{_sysconfdir}/sysconfig/network-scripts
 %{_datadir}/dbus-1/system-services/org.freedesktop.nm_dispatcher.service
@@ -1087,6 +1143,7 @@ fi
 %{systemd_dir}/nm-cloud-setup.timer
 %{nmlibdir}/dispatcher.d/90-nm-cloud-setup.sh
 %{nmlibdir}/dispatcher.d/no-wait.d/90-nm-cloud-setup.sh
+%{_mandir}/man8/nm-cloud-setup.8*
 %endif
 
 

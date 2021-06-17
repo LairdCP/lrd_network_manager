@@ -1773,3 +1773,46 @@ global:
 	nm_setting_option_set_boolean;
 	nm_setting_option_set_uint32;
 } libnm_1_24_0;
+
+libnm_1_26_4 {
+global:
+	nm_setting_ip4_config_get_dhcp_vendor_class_identifier;
+} libnm_1_26_0;
+
+libnm_1_28_0 {
+global:
+	nm_setting_ip_config_add_dhcp_reject_server;
+	nm_setting_ip_config_clear_dhcp_reject_servers;
+	nm_setting_ip_config_get_dhcp_reject_servers;
+	nm_setting_ip_config_remove_dhcp_reject_server;
+	nm_setting_wireless_get_ap_isolation;
+} libnm_1_26_4;
+
+libnm_1_30_0 {
+global:
+	nm_device_veth_get_type;
+	nm_keyfile_handler_data_fail_with_error;
+	nm_keyfile_handler_data_get_context;
+	nm_keyfile_handler_data_warn_get;
+	nm_keyfile_handler_flags_get_type;
+	nm_keyfile_handler_type_get_type;
+	nm_keyfile_read;
+	nm_keyfile_warn_severity_get_type;
+	nm_keyfile_write;
+	nm_setting_hostname_get_from_dhcp;
+	nm_setting_hostname_get_from_dns_lookup;
+	nm_setting_hostname_get_only_from_default;
+	nm_setting_hostname_get_priority;
+	nm_setting_hostname_get_type;
+	nm_setting_ovs_external_ids_check_key;
+	nm_setting_ovs_external_ids_check_val;
+	nm_setting_ovs_external_ids_get_data;
+	nm_setting_ovs_external_ids_get_data_keys;
+	nm_setting_ovs_external_ids_get_type;
+	nm_setting_ovs_external_ids_new;
+	nm_setting_ovs_external_ids_set_data;
+	nm_setting_veth_get_peer;
+	nm_setting_veth_get_type;
+	nm_setting_veth_new;
+	nm_utils_print;
+} libnm_1_28_0;

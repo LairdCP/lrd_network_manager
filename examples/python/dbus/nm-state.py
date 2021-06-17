@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# SPDX-License-Identifier: GPL-2.0+
+# SPDX-License-Identifier: GPL-2.0-or-later
 #
 # Copyright (C) 2010 - 2012 Red Hat, Inc.
 #
@@ -68,7 +68,6 @@ for d in devices:
     else:
         print("Device %s is not activated (state=%s)" % (name, device_states[state]))
 
-
 # Get active connection state
 manager_prop_iface = dbus.Interface(proxy, "org.freedesktop.DBus.Properties")
 active = manager_prop_iface.Get("org.freedesktop.NetworkManager", "ActiveConnections")
@@ -90,4 +89,4 @@ for a in active:
     con_details = con_iface.GetSettings()
     con_name = con_details["connection"]["id"]
 
-    print("Connection '%s' is %s" % (con_name, connectivity_states[state].lower()))
+    print("Connection '%s' is %s" % (con_name, connectivity_states[state]))

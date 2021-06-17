@@ -14,7 +14,7 @@ REQUIRED_AUTOMAKE_VERSION=1.9
 PKG_NAME=NetworkManager
 
 (test -f $srcdir/configure.ac \
-  && test -f $srcdir/src/main.c) || {
+  && test -f $srcdir/src/core/main.c) || {
     printf "**Error**: Directory "\`$srcdir\'" does not look like the" >&2
     echo " top-level $PKG_NAME directory" >&2
     exit 1
@@ -28,5 +28,5 @@ AUTOPOINT='intltoolize --automake --copy' autoreconf --force --install --verbose
 
 cd $olddir
 if test -z "$NOCONFIGURE"; then
-	exec $srcdir/configure --enable-maintainer-mode --enable-more-warnings=error --enable-gtk-doc --enable-introspection "$@"
+    exec $srcdir/configure --enable-maintainer-mode --enable-more-warnings=error --enable-gtk-doc --enable-introspection "$@"
 fi
