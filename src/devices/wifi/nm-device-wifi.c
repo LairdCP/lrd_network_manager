@@ -2563,12 +2563,16 @@ supplicant_iface_state_cb (NMSupplicantInterface *iface,
 			/* For AP mode, it is unlikely an authentication problem. It is mostly a reg domain
 			   change event when ACS scanning is completed, and supplicant requests network
 			   disconnection.
+			   For STA+AP mode, supplicant will also require network disconnection. If devstate already
+			   becomes NM_DEVICE_STATE_ACTIVATED, NM also has to invalidate the current ap before upadting
+			   the device state - so just leave this case to be handled by the link_timeout_cb function.
 			*/
-			if(priv->mode == NM_802_11_MODE_AP) {
+			if((devstate != NM_DEVICE_STATE_ACTIVATED) && (priv->mode == NM_802_11_MODE_AP)) {
 				_LOGW (LOGD_DEVICE | LOGD_WIFI, "Disconnected by supplicant");
 				nm_device_state_changed (device, NM_DEVICE_STATE_DISCONNECTED, NM_DEVICE_STATE_REASON_SUPPLICANT_DISCONNECT);
 				break;
 			}
+
 			/* Disconnect of an 802.1x/LEAP connection during authentication,
 			 * or disconnect of a WPA-PSK connection during the 4-way handshake,
 			 * often means secrets are wrong. Not always the case, but until we
