@@ -947,13 +947,13 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
 {
     NMSettingWirelessSecurity *       self = NM_SETTING_WIRELESS_SECURITY(setting);
     NMSettingWirelessSecurityPrivate *priv = NM_SETTING_WIRELESS_SECURITY_GET_PRIVATE(self);
-    const char *                      valid_key_mgmt[] =
+    const char *                      _valid_key_mgmt[] =
         {"none", "ieee8021x", "wpa-psk", "wpa-eap", "sae", "owe",
          "cckm", "wpa-eap-suite-b", "wpa-eap-suite-b-192", "owe-only", NULL};
     const char *       valid_auth_algs[] = {"open", "shared", "leap", NULL};
-    const char *       valid_protos[] = {"wpa", "rsn", NULL };
-    const char *       valid_pairwise[] = {"tkip", "ccmp", "ccmp-256", "gcmp", "gcmp-256", NULL};
-    const char *       valid_groups[] = {"wep40", "wep104", "tkip", "ccmp", "ccmp-256", "gcmp", "gcmp-256", NULL};
+    const char *       _valid_protos[]    = {"wpa", "rsn", NULL };
+    const char *       _valid_pairwise[]  = {"tkip", "ccmp", "ccmp-256", "gcmp", "gcmp-256", NULL};
+    const char *       _valid_groups[]    = {"wep40", "wep104", "tkip", "ccmp", "ccmp-256", "gcmp", "gcmp-256", NULL};
 
     const char *wpa3_valid_key_mgmt[] = {
         "wpa-psk" /* wpa3-sae transition mode */,

@@ -874,7 +874,7 @@ _peer_info_destroy(NMSupplicantPeerInfo *peer_info)
     g_free(peer_info->model);
     g_free(peer_info->model_number);
     g_free(peer_info->serial);
-    g_strfreev (peer_info->groups);
+    g_strfreev(peer_info->groups);
     g_bytes_unref(peer_info->ies);
 
     nm_ref_string_unref(peer_info->peer_path);
@@ -914,7 +914,7 @@ _peer_info_properties_changed(NMSupplicantInterface *self,
             const char **sv;
             sv = g_variant_get_objv (v, NULL);
             if (sv) {
-                peer_info->groups = g_strdupv ((char**)sv);
+                peer_info->groups = (const char**) g_strdupv ((char**)sv);
             }
             g_free (sv);
         }
@@ -939,7 +939,7 @@ _peer_info_properties_changed(NMSupplicantInterface *self,
         nm_utils_strdup_reset(&peer_info->serial, v_s);
 
     if (nm_g_variant_lookup(properties, "Groups", "^a&o", &v_strv)) {
-        g_free(peer_info->groups);
+        g_strfreev(peer_info->groups);
         peer_info->groups = nm_utils_strv_dup_packed(v_strv, -1);
 
         g_free(v_strv);
