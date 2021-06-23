@@ -12,13 +12,13 @@
 
 #include "NetworkManagerUtils.h"
 #include "devices/nm-device.h"
-#include "nm-core-internal.h"
+#include "libnm-core-intern/nm-core-internal.h"
 #include "nm-dbus-manager.h"
-#include "nm-glib-aux/nm-ref-string.h"
+#include "libnm-glib-aux/nm-ref-string.h"
 #include "nm-setting-wireless.h"
 #include "nm-utils.h"
 #include "nm-wifi-utils.h"
-#include "platform/nm-platform.h"
+#include "libnm-platform/nm-platform.h"
 #include "supplicant/nm-supplicant-types.h"
 
 /*****************************************************************************/
@@ -286,26 +286,6 @@ nm_wifi_p2p_peer_get_groups(const NMWifiP2PPeer *peer)
     return NM_WIFI_P2P_PEER_GET_PRIVATE(peer)->groups;
 }
 
-// Laird: need Groups for matching peer in check_connection_peer_joined()
-static gboolean
-nm_wifi_p2p_peer_set_groups(NMWifiP2PPeer *peer, const char** groups)
-{
-    NMWifiP2PPeerPrivate *priv;
-
-    g_return_val_if_fail(NM_IS_WIFI_P2P_PEER (peer), FALSE);
-    g_return_val_if_fail(groups != NULL, FALSE);
-
-    priv = NM_WIFI_P2P_PEER_GET_PRIVATE (peer);
-
-    if (nm_utils_strv_equal(priv->groups, (char **) groups))
-        return FALSE;
-
-    g_strfreev(priv->groups);
-    priv->groups = (const char**) g_strdupv((char**) groups);
-
-    return TRUE;
-}
-
 const char *
 nm_wifi_p2p_peer_get_address(const NMWifiP2PPeer *peer)
 {
@@ -410,8 +390,6 @@ nm_wifi_p2p_peer_update_from_properties(NMWifiP2PPeer *peer, const NMSupplicantP
         changed               = TRUE;
     }
 
-    nm_wifi_p2p_peer_set_groups (peer, peer_info->groups);
-
     changed |= nm_wifi_p2p_peer_set_strength(peer, peer_info->signal_percent);
     changed |= nm_wifi_p2p_peer_set_name(peer, peer_info->device_name);
     changed |= nm_wifi_p2p_peer_set_manufacturer(peer, peer_info->manufacturer);
@@ -431,7 +409,7 @@ nm_wifi_p2p_peer_update_from_properties(NMWifiP2PPeer *peer, const NMSupplicantP
     /* We currently only use the groups information internally to check if
      * the peer is still joined. */
     if (!nm_utils_strv_equal(priv->groups, peer_info->groups)) {
-        g_strfreev(priv->groups);
+        g_free(priv->groups);
         priv->groups = nm_utils_strv_dup_packed(peer_info->groups, -1);
         changed |= TRUE;
     }
@@ -614,7 +592,7 @@ finalize(GObject *object)
     g_free(priv->serial);
     g_free(priv->address);
     g_bytes_unref(priv->wfd_ies);
-    g_strfreev(priv->groups);
+    g_free(priv->groups);
 
     G_OBJECT_CLASS(nm_wifi_p2p_peer_parent_class)->finalize(object);
 }
@@ -646,7 +624,6 @@ static const NMDBusInterfaceInfoExtended interface_info_p2p_peer = {
             NM_DEFINE_DBUS_PROPERTY_INFO_EXTENDED_READABLE("LastSeen",
                                                            "i",
                                                            NM_WIFI_P2P_PEER_LAST_SEEN), ), ),
-    .legacy_property_changed = FALSE,
 };
 
 static void

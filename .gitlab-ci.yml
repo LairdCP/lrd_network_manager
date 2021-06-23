@@ -41,14 +41,17 @@ stages:
 variables:
   FDO_UPSTREAM_REPO: NetworkManager/NetworkManager
   GIT_DEPTH: 1
-  # these tags should be updated each time the list of packages is updated
+  # These tags should be updated each time the list of packages is updated
   # changing these will force rebuilding the associated image
   # Note: these tags have no meaning and are not tied to a particular NM version
-  FEDORA_TAG:  '2021-01-28.0-5ee9fa53946e'
-  UBUNTU_TAG:  '2021-01-28.0-b172a9697407'
-  DEBIAN_TAG:  '2021-01-28.0-b172a9697407'
-  CENTOS_TAG:  '2021-01-28.0-5ee9fa53946e'
-  ALPINE_TAG:  '2021-01-28.0-76f28d039de3'
+  #
+  # This is done by running `ci-fairy generate-template` and possibly bump
+  # ".default_tag".
+  FEDORA_TAG:  '2021-01-28.0-58fe33a4491f'
+  UBUNTU_TAG:  '2021-01-28.0-747962184ec4'
+  DEBIAN_TAG:  '2021-01-28.0-747962184ec4'
+  CENTOS_TAG:  '2021-01-28.0-58fe33a4491f'
+  ALPINE_TAG:  '2021-01-28.0-2436fa17a7d2'
 
   FEDORA_EXEC: 'bash .gitlab-ci/fedora-install.sh'
   UBUNTU_EXEC: 'bash .gitlab-ci/debian-install.sh'
@@ -138,6 +141,16 @@ fedora:33@container-prep:
   variables:
     GIT_STRATEGY: none
     FDO_DISTRIBUTION_VERSION: '33'
+    FDO_DISTRIBUTION_TAG: $FEDORA_TAG
+    FDO_DISTRIBUTION_EXEC: $FEDORA_EXEC
+
+fedora:34@container-prep:
+  extends:
+    - .fdo.container-build@fedora
+  stage: prep
+  variables:
+    GIT_STRATEGY: none
+    FDO_DISTRIBUTION_VERSION: '34'
     FDO_DISTRIBUTION_TAG: $FEDORA_TAG
     FDO_DISTRIBUTION_EXEC: $FEDORA_EXEC
 
@@ -409,6 +422,15 @@ fedora:33@container-clean:
     FDO_DISTRIBUTION_VERSION: '33'
     FDO_DISTRIBUTION_TAG: $FEDORA_TAG
 
+fedora:34@container-clean:
+  extends:
+    - .container-clean
+  variables:
+    GIT_STRATEGY: none
+    CURRENT_CONTAINER_IMAGE: $CI_REGISTRY_IMAGE/fedora/$FDO_DISTRIBUTION_VERSION:$FDO_DISTRIBUTION_TAG
+    FDO_DISTRIBUTION_VERSION: '34'
+    FDO_DISTRIBUTION_TAG: $FEDORA_TAG
+
 fedora:rawhide@container-clean:
   extends:
     - .container-clean
@@ -650,12 +672,23 @@ t_fedora:33:
   extends:
     - .build@template
     - .fdo.distribution-image@fedora
-    - .nm_artifacts
   variables:
     FDO_DISTRIBUTION_VERSION: '33'
     FDO_DISTRIBUTION_TAG: $FEDORA_TAG
   needs:
     - "fedora:33@container-prep"
+  when: manual
+
+t_fedora:34:
+  extends:
+    - .build@template
+    - .fdo.distribution-image@fedora
+    - .nm_artifacts
+  variables:
+    FDO_DISTRIBUTION_VERSION: '34'
+    FDO_DISTRIBUTION_TAG: $FEDORA_TAG
+  needs:
+    - "fedora:34@container-prep"
 
 t_fedora:rawhide:
   extends:
@@ -863,7 +896,7 @@ t_alpine:latest:
 
 check-patch:
   extends:
-   - t_fedora:33
+   - t_fedora:34
    - .nm_artifacts_undo
   stage: test
   script:
@@ -872,7 +905,7 @@ check-patch:
 
 check-tree:
   extends:
-   - t_fedora:33
+   - t_fedora:34
    - .nm_artifacts_undo
   stage: test
   script:
@@ -890,11 +923,11 @@ pages:
     paths:
       - public
   only:
-    - master
+    - main
   dependencies:
-    - t_fedora:33
+    - t_fedora:34
   needs:
-    - t_fedora:33
+    - t_fedora:34
 
 triage:issues:
   stage: triage

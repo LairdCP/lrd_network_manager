@@ -17,7 +17,8 @@
 #include <linux/if_ether.h>
 #include <linux/if_infiniband.h>
 
-#include "nm-glib-aux/nm-json-aux.h"
+#include "libnm-glib-aux/nm-uuid.h"
+#include "libnm-glib-aux/nm-json-aux.h"
 #include "nm-utils.h"
 #include "nm-setting-connection.h"
 #include "nm-setting-wired.h"
@@ -36,9 +37,9 @@
 #include "nm-setting-serial.h"
 #include "nm-setting-vlan.h"
 #include "nm-setting-dcb.h"
-#include "nm-core-internal.h"
-#include "nm-base/nm-ethtool-base.h"
-#include "nm-base/nm-ethtool-utils-base.h"
+#include "libnm-core-intern/nm-core-internal.h"
+#include "libnm-base/nm-ethtool-base.h"
+#include "libnm-base/nm-ethtool-utils-base.h"
 
 #include "NetworkManagerUtils.h"
 
@@ -2519,7 +2520,7 @@ test_write_dns_options(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test DNS options",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_TYPE,
@@ -3977,7 +3978,7 @@ test_write_wifi_hidden(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Wi-Fi Hidden",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_TYPE,
                  NM_SETTING_WIRELESS_SETTING_NAME,
                  NULL);
@@ -4062,7 +4063,7 @@ test_write_wifi_mac_random(gconstpointer user_data)
                  NM_SETTING_CONNECTION_ID,
                  val,
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_TYPE,
                  NM_SETTING_WIRELESS_SETTING_NAME,
                  NULL);
@@ -4122,7 +4123,7 @@ test_write_wired_wake_on_lan(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Wired Wake-on-LAN",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_TYPE,
                  NM_SETTING_WIRED_SETTING_NAME,
                  NULL);
@@ -4305,7 +4306,7 @@ test_write_wifi_band_a(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Wi-Fi Band A",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_TYPE,
                  NM_SETTING_WIRELESS_SETTING_NAME,
                  NULL);
@@ -4363,7 +4364,7 @@ test_write_wifi_ap_mode(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Wi-Fi AP Mode",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_TYPE,
                  NM_SETTING_WIRELESS_SETTING_NAME,
                  NULL);
@@ -4676,7 +4677,7 @@ test_write_wired_static(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Wired Static",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_AUTOCONNECT_RETRIES,
@@ -4831,7 +4832,7 @@ test_write_wired_static_with_generic(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Wired Static",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_AUTOCONNECT_RETRIES,
@@ -4999,7 +5000,7 @@ test_write_wired_dhcp(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Wired DHCP",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_TYPE,
@@ -5111,7 +5112,7 @@ test_write_routing_rules(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Routing Rules",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_TYPE,
@@ -5169,7 +5170,7 @@ test_write_wired_match(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Wired with Match setting",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_TYPE,
@@ -5315,7 +5316,7 @@ test_write_wired_static_ip6_only(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Wired Static IP6 Only",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_TYPE,
@@ -5432,7 +5433,7 @@ test_write_wired_static_ip6_only_gw(gconstpointer user_data)
                  NM_SETTING_CONNECTION_ID,
                  id,
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_TYPE,
@@ -5587,7 +5588,7 @@ test_write_wired_static_routes(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Wired Static Routes",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_TYPE,
@@ -5711,7 +5712,7 @@ test_write_wired_dhcp_8021x_peap_mschapv2(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Wired DHCP 802.1x PEAP MSCHAPv2",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_TYPE,
@@ -5813,7 +5814,7 @@ test_write_wired_8021x_tls(gconstpointer test_data)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Wired 802.1x TLS Blobs",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_TYPE,
@@ -5983,7 +5984,7 @@ test_write_wired_aliases(void)
                  NM_SETTING_CONNECTION_ID,
                  "alias0",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_TYPE,
                  NM_SETTING_WIRED_SETTING_NAME,
                  NULL);
@@ -6110,7 +6111,7 @@ test_write_gateway(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Static Addresses Gateway",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_TYPE,
                  NM_SETTING_WIRED_SETTING_NAME,
                  NULL);
@@ -6187,7 +6188,7 @@ test_write_wifi_open(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Wifi Open",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_TYPE,
@@ -6273,7 +6274,7 @@ test_write_wifi_open_hex_ssid(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Wifi Open Hex SSID",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_TYPE,
@@ -6347,7 +6348,7 @@ test_write_wifi_wep(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Wifi WEP",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_TYPE,
@@ -6445,7 +6446,7 @@ test_write_wifi_wep_adhoc(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Wifi WEP AdHoc",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_TYPE,
@@ -6539,7 +6540,7 @@ test_write_wifi_wep_passphrase(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Wifi WEP Passphrase",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_TYPE,
@@ -6634,7 +6635,7 @@ test_write_wifi_wep_40_ascii(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Wifi WEP 40 ASCII",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_TYPE,
@@ -6732,7 +6733,7 @@ test_write_wifi_wep_104_ascii(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Wifi WEP 104 ASCII",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_TYPE,
@@ -6833,7 +6834,7 @@ test_write_wifi_leap(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Wifi LEAP",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_TYPE,
@@ -6931,7 +6932,7 @@ test_write_wifi_leap_secret_flags(gconstpointer data)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Wifi LEAP Secret Flags",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_TYPE,
                  NM_SETTING_WIRELESS_SETTING_NAME,
                  NULL);
@@ -7037,7 +7038,7 @@ test_write_wifi_wpa_psk(gconstpointer test_data)
                  NM_SETTING_CONNECTION_ID,
                  args.name,
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_TYPE,
@@ -7142,7 +7143,7 @@ test_write_wifi_wpa_psk_adhoc(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Wifi WPA PSK",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_TYPE,
@@ -7252,7 +7253,7 @@ test_write_wifi_wpa_eap_tls(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Wifi WPA EAP-TLS",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_TYPE,
@@ -7295,8 +7296,8 @@ test_write_wifi_wpa_eap_tls(void)
     g_object_set(s_8021x, NM_SETTING_802_1X_IDENTITY, "Bill Smith", NULL);
     g_object_set(s_8021x,
                  NM_SETTING_802_1X_PHASE1_AUTH_FLAGS,
-                 (guint)(NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_0_DISABLE
-                         | NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_1_DISABLE),
+                 (guint) (NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_0_DISABLE
+                          | NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_1_DISABLE),
                  NULL);
 
     nm_setting_802_1x_add_eap_method(s_8021x, "tls");
@@ -7379,7 +7380,7 @@ test_write_wifi_wpa_eap_ttls_tls(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Wifi WPA EAP-TTLS (TLS)",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_TYPE,
@@ -7515,7 +7516,7 @@ test_write_wifi_wpa_eap_ttls_mschapv2(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Wifi WPA EAP-TTLS (MSCHAPv2)",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_TYPE,
@@ -7630,7 +7631,7 @@ test_write_wifi_wpa_then_open(void)
                  NM_SETTING_CONNECTION_ID,
                  "random wifi connection",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_TYPE,
@@ -7747,7 +7748,7 @@ test_write_wifi_wpa_then_wep_with_perms(void)
                  NM_SETTING_CONNECTION_ID,
                  "random wifi connection 2",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_PERMISSIONS,
@@ -7872,7 +7873,7 @@ test_write_wifi_dynamic_wep_leap(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Wifi Dynamic WEP LEAP",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_TYPE,
                  NM_SETTING_WIRELESS_SETTING_NAME,
                  NULL);
@@ -7969,7 +7970,7 @@ test_write_wired_qeth_dhcp(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Wired qeth Static",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_TYPE,
@@ -8043,7 +8044,7 @@ test_write_wired_ctc_dhcp(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Wired ctc Static",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_TYPE,
                  NM_SETTING_WIRED_SETTING_NAME,
                  NULL);
@@ -8118,7 +8119,7 @@ test_write_permissions(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Permissions",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_TYPE,
@@ -8187,7 +8188,7 @@ test_write_wifi_wep_agent_keys(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Wifi WEP Agent Owned",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_TYPE,
                  NM_SETTING_WIRELESS_SETTING_NAME,
                  NULL);
@@ -8273,7 +8274,7 @@ test_write_wired_pppoe(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Wired PPPoE",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_TYPE,
@@ -8334,7 +8335,7 @@ test_write_vpn(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write VPN",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_TYPE,
@@ -8392,7 +8393,7 @@ test_write_mobile_broadband(gconstpointer data)
                  NM_SETTING_CONNECTION_ID,
                  gsm ? "Test Write GSM" : "Test Write CDMA",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_TYPE,
@@ -8510,7 +8511,7 @@ test_write_bridge_main(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Bridge Main",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_INTERFACE_NAME,
@@ -8639,7 +8640,7 @@ test_write_bridge_component(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Bridge Component",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_TYPE,
@@ -8784,6 +8785,38 @@ test_read_vlan_only_vlan_id(void)
     g_assert_cmpint(nm_setting_vlan_get_flags(s_vlan), ==, NM_VLAN_FLAG_REORDER_HEADERS);
 
     g_object_unref(connection);
+}
+
+static void
+test_read_vlan_vlanid_use(void)
+{
+    nmtst_auto_unlinkfile char *testfile     = NULL;
+    gs_unref_object NMConnection *connection = NULL;
+    gs_unref_object NMConnection *reread     = NULL;
+    NMSettingVlan *               s_vlan;
+
+    connection = _connection_from_file(TEST_IFCFG_DIR "/ifcfg-test-vlan-vlanid-use",
+                                       NULL,
+                                       TYPE_ETHERNET,
+                                       NULL);
+
+    g_assert_cmpstr(nm_connection_get_interface_name(connection), ==, "eth0.9");
+
+    s_vlan = nm_connection_get_setting_vlan(connection);
+    g_assert(s_vlan);
+
+    g_assert_cmpstr(nm_setting_vlan_get_parent(s_vlan), ==, "eth0");
+    g_assert_cmpint(nm_setting_vlan_get_id(s_vlan), ==, 10);
+    g_assert_cmpint(nm_setting_vlan_get_flags(s_vlan), ==, NM_VLAN_FLAG_REORDER_HEADERS);
+
+    _writer_new_connec_exp(connection,
+                           TEST_SCRATCH_DIR,
+                           TEST_IFCFG_DIR "/ifcfg-test-vlan-vlanid-use.cexpected",
+                           &testfile);
+
+    reread = _connection_from_file(testfile, NULL, TYPE_ETHERNET, NULL);
+
+    nmtst_assert_connection_equals(connection, TRUE, reread, FALSE);
 }
 
 static void
@@ -8991,7 +9024,7 @@ test_write_vlan_reorder_hdr(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write VLAN reorder_hdr",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  FALSE,
                  NM_SETTING_CONNECTION_TYPE,
@@ -9046,7 +9079,7 @@ test_write_ethernet_missing_ipv6(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Ethernet Without IPv6 Setting",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_TYPE,
@@ -9170,7 +9203,7 @@ test_write_bond_main(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Bond Main",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_INTERFACE_NAME,
@@ -9270,7 +9303,7 @@ test_write_bond_slave(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Bond Slave",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_TYPE,
@@ -9357,7 +9390,7 @@ test_write_infiniband(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write InfiniBand",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_TYPE,
@@ -9446,7 +9479,7 @@ test_write_bond_slave_ib(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Bond Slave InfiniBand",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_TYPE,
@@ -9604,7 +9637,7 @@ test_write_dcb_basic(void)
                  NM_SETTING_CONNECTION_ID,
                  "dcb-test",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_TYPE,
                  NM_SETTING_WIRED_SETTING_NAME,
                  NM_SETTING_CONNECTION_INTERFACE_NAME,
@@ -9850,7 +9883,7 @@ test_write_fcoe_mode(gconstpointer user_data)
                  NM_SETTING_CONNECTION_ID,
                  "fcoe-test",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_TYPE,
                  NM_SETTING_WIRED_SETTING_NAME,
                  NM_SETTING_CONNECTION_INTERFACE_NAME,
@@ -9968,7 +10001,7 @@ test_write_team_master(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Team Master",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_INTERFACE_NAME,
                  "team0",
                  NM_SETTING_CONNECTION_TYPE,
@@ -10060,7 +10093,7 @@ test_write_team_port(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Team Port",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_TYPE,
                  NM_SETTING_WIRED_SETTING_NAME,
                  NM_SETTING_CONNECTION_MASTER,
@@ -10119,7 +10152,7 @@ test_write_team_infiniband_port(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Team Infiniband Port",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_TYPE,
                  NM_SETTING_INFINIBAND_SETTING_NAME,
                  NM_SETTING_CONNECTION_MASTER,
@@ -10309,7 +10342,7 @@ test_write_proxy_basic(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write Proxy Basic",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_TYPE,
                  NM_SETTING_WIRED_SETTING_NAME,
                  NULL);
@@ -10999,7 +11032,7 @@ test_sriov_write(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write SR-IOV config",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_INTERFACE_NAME,
@@ -11109,6 +11142,85 @@ test_tc_read(void)
 }
 
 static void
+test_tc_write_empty(void)
+{
+    nmtst_auto_unlinkfile char *testfile     = NULL;
+    gs_unref_object NMConnection *connection = NULL;
+    gs_unref_object NMConnection *reread     = NULL;
+    NMSettingConnection *         s_con;
+    NMSettingIPConfig *           s_ip4;
+    NMSettingIPConfig *           s_ip6;
+    NMSettingWired *              s_wired;
+    NMSettingTCConfig *           s_tc;
+    NMIPAddress *                 addr;
+    GError *                      error = NULL;
+
+    connection = nm_simple_connection_new();
+
+    /* Connection setting */
+    s_con = (NMSettingConnection *) nm_setting_connection_new();
+    nm_connection_add_setting(connection, NM_SETTING(s_con));
+
+    g_object_set(s_con,
+                 NM_SETTING_CONNECTION_ID,
+                 "Test Write TC config",
+                 NM_SETTING_CONNECTION_UUID,
+                 nm_uuid_generate_random_str_a(),
+                 NM_SETTING_CONNECTION_AUTOCONNECT,
+                 TRUE,
+                 NM_SETTING_CONNECTION_INTERFACE_NAME,
+                 "eth0",
+                 NM_SETTING_CONNECTION_TYPE,
+                 NM_SETTING_WIRED_SETTING_NAME,
+                 NULL);
+
+    /* Wired setting */
+    s_wired = (NMSettingWired *) nm_setting_wired_new();
+    nm_connection_add_setting(connection, NM_SETTING(s_wired));
+
+    /* IP4 setting */
+    s_ip4 = (NMSettingIPConfig *) nm_setting_ip4_config_new();
+    nm_connection_add_setting(connection, NM_SETTING(s_ip4));
+
+    g_object_set(s_ip4,
+                 NM_SETTING_IP_CONFIG_METHOD,
+                 NM_SETTING_IP4_CONFIG_METHOD_MANUAL,
+                 NM_SETTING_IP_CONFIG_GATEWAY,
+                 "1.1.1.1",
+                 NM_SETTING_IP_CONFIG_MAY_FAIL,
+                 TRUE,
+                 NULL);
+
+    addr = nm_ip_address_new(AF_INET, "1.1.1.3", 24, &error);
+    g_assert_no_error(error);
+    nm_setting_ip_config_add_address(s_ip4, addr);
+    nm_ip_address_unref(addr);
+
+    /* IP6 setting */
+    s_ip6 = (NMSettingIPConfig *) nm_setting_ip6_config_new();
+    nm_connection_add_setting(connection, NM_SETTING(s_ip6));
+
+    g_object_set(s_ip6, NM_SETTING_IP_CONFIG_METHOD, NM_SETTING_IP6_CONFIG_METHOD_IGNORE, NULL);
+
+    /* TC setting */
+    s_tc = (NMSettingTCConfig *) nm_setting_tc_config_new();
+    nm_connection_add_setting(connection, NM_SETTING(s_tc));
+
+    nm_connection_add_setting(connection, nm_setting_proxy_new());
+
+    nmtst_assert_connection_verifies_without_normalization(connection);
+
+    _writer_new_connec_exp(connection,
+                           TEST_SCRATCH_DIR,
+                           TEST_IFCFG_DIR "/ifcfg-test-tc-write-empty.cexpected",
+                           &testfile);
+
+    reread = _connection_from_file(testfile, NULL, TYPE_BOND, NULL);
+
+    nmtst_assert_connection_equals(connection, FALSE, reread, FALSE);
+}
+
+static void
 test_tc_write(void)
 {
     nmtst_auto_unlinkfile char *testfile     = NULL;
@@ -11134,7 +11246,7 @@ test_tc_write(void)
                  NM_SETTING_CONNECTION_ID,
                  "Test Write TC config",
                  NM_SETTING_CONNECTION_UUID,
-                 nm_utils_uuid_generate_a(),
+                 nm_uuid_generate_random_str_a(),
                  NM_SETTING_CONNECTION_AUTOCONNECT,
                  TRUE,
                  NM_SETTING_CONNECTION_INTERFACE_NAME,
@@ -11326,6 +11438,7 @@ test_ethtool_names(void)
     } s_idxs[] = {
         {_NM_ETHTOOL_ID_FEATURE_FIRST, _NM_ETHTOOL_ID_FEATURE_LAST},
         {_NM_ETHTOOL_ID_COALESCE_FIRST, _NM_ETHTOOL_ID_COALESCE_LAST},
+        {_NM_ETHTOOL_ID_PAUSE_FIRST, _NM_ETHTOOL_ID_PAUSE_LAST},
         {_NM_ETHTOOL_ID_RING_FIRST, _NM_ETHTOOL_ID_RING_LAST},
     };
     const NMEthtoolData *data;
@@ -11626,6 +11739,7 @@ main(int argc, char **argv)
     g_test_add_func(TPATH "vlan/read/physdev", test_read_vlan_physdev);
     g_test_add_func(TPATH "vlan/read/reorder-hdr-1", test_read_vlan_reorder_hdr_1);
     g_test_add_func(TPATH "vlan/read/reorder-hdr-2", test_read_vlan_reorder_hdr_2);
+    g_test_add_func(TPATH "vlan/read/vlanid-use", test_read_vlan_vlanid_use);
     g_test_add_func(TPATH "wired/read/read-wake-on-lan", test_read_wired_wake_on_lan);
     g_test_add_func(TPATH "wired/read/read-auto-negotiate-off", test_read_wired_auto_negotiate_off);
     g_test_add_func(TPATH "wired/read/read-auto-negotiate-on", test_read_wired_auto_negotiate_on);
@@ -11848,6 +11962,7 @@ main(int argc, char **argv)
 
     g_test_add_func(TPATH "tc/read", test_tc_read);
     g_test_add_func(TPATH "tc/write", test_tc_write);
+    g_test_add_func(TPATH "tc/write_empty", test_tc_write_empty);
     g_test_add_func(TPATH "utils/test_well_known_keys", test_well_known_keys);
     g_test_add_func(TPATH "utils/test_utils_has_route_file_new_syntax",
                     test_utils_has_route_file_new_syntax);

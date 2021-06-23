@@ -12,13 +12,13 @@
 #include <linux/if_ether.h>
 
 #include "NetworkManagerUtils.h"
-#include "nm-core-internal.h"
-#include "nm-glib-aux/nm-c-list.h"
-#include "nm-glib-aux/nm-ref-string.h"
-#include "nm-std-aux/nm-dbus-compat.h"
+#include "libnm-core-intern/nm-core-internal.h"
+#include "libnm-glib-aux/nm-c-list.h"
+#include "libnm-glib-aux/nm-ref-string.h"
+#include "libnm-glib-aux/nm-dbus-aux.h"
+#include "libnm-std-aux/nm-dbus-compat.h"
 #include "nm-supplicant-config.h"
 #include "nm-supplicant-manager.h"
-#include "shared/nm-glib-aux/nm-dbus-aux.h"
 
 #define DBUS_TIMEOUT_MSEC 20000
 
@@ -279,42 +279,51 @@ security_from_vardict(GVariant *security)
     NM80211ApSecurityFlags flags = NM_802_11_AP_SEC_NONE;
     const char **          array;
     const char *           tmp;
+    gsize                  i;
+    const char *           v;
 
     nm_assert(g_variant_is_of_type(security, G_VARIANT_TYPE_VARDICT));
 
     if (g_variant_lookup(security, "KeyMgmt", "^a&s", &array)) {
-        if (g_strv_contains (array, "wpa-psk") ||
-            g_strv_contains (array, "wpa-psk-sha256") ||
-            g_strv_contains (array, "wpa-ft-psk"))
-            flags |= NM_802_11_AP_SEC_KEY_MGMT_PSK;
-        if (g_strv_contains(array, "wpa-eap") || g_strv_contains(array, "wpa-ft-eap")
-            || g_strv_contains(array, "wpa-fils-sha256")
-            || g_strv_contains(array, "wpa-fils-sha384"))
-            flags |= NM_802_11_AP_SEC_KEY_MGMT_802_1X;
-        if (g_strv_contains(array, "sae"))
-            flags |= NM_802_11_AP_SEC_KEY_MGMT_SAE;
-        if (g_strv_contains(array, "owe"))
-            flags |= NM_802_11_AP_SEC_KEY_MGMT_OWE;
-        if (g_strv_contains (array, "cckm"))
-            flags |= NM_802_11_AP_SEC_KEY_MGMT_CCKM;
-        if (g_strv_contains (array, "wpa-eap-suite-b"))
-            flags |= NM_802_11_AP_SEC_KEY_MGMT_SUITE_B;
-        if (g_strv_contains(array, "wpa-eap-suite-b-192"))
-            flags |= NM_802_11_AP_SEC_KEY_MGMT_EAP_SUITE_B_192;
+        for (i = 0; (v = array[i]); i++) {
+            if (NM_IN_STRSET(v, "wpa-psk", "wpa-psk-sha256", "wpa-ft-psk"))
+                flags |= NM_802_11_AP_SEC_KEY_MGMT_PSK;
+            else if (NM_IN_STRSET(v,
+                                  "wpa-eap",
+                                  "wpa-eap-sha256",
+                                  "wpa-ft-eap",
+                                  "wpa-fils-sha256",
+                                  "wpa-fils-sha384",
+                                  "wpa-fils-ft-sha256",
+                                  "wpa-fils-ft-sha384"))
+                flags |= NM_802_11_AP_SEC_KEY_MGMT_802_1X;
+            else if (NM_IN_STRSET(v, "sae", "ft-sae"))
+                flags |= NM_802_11_AP_SEC_KEY_MGMT_SAE;
+            else if (NM_IN_STRSET(v, "owe"))
+                flags |= NM_802_11_AP_SEC_KEY_MGMT_OWE;
+            else if (NM_IN_STRSET(v, "cckm"))
+                flags |= NM_802_11_AP_SEC_KEY_MGMT_CCKM;
+            else if (NM_IN_STRSET(v, "wpa-eap-suite-b"))
+                flags |= NM_802_11_AP_SEC_KEY_MGMT_SUITE_B;
+            else if (NM_IN_STRSET(v, "wpa-eap-suite-b-192", "wpa-ft-eap-sha384"))
+                flags |= NM_802_11_AP_SEC_KEY_MGMT_EAP_SUITE_B_192;
+        }
         g_free(array);
     }
 
     if (g_variant_lookup(security, "Pairwise", "^a&s", &array)) {
-        if (g_strv_contains(array, "tkip"))
-            flags |= NM_802_11_AP_SEC_PAIR_TKIP;
-        if (g_strv_contains(array, "ccmp"))
-            flags |= NM_802_11_AP_SEC_PAIR_CCMP;
-        if (g_strv_contains (array, "ccmp-256"))
-            flags |= NM_802_11_AP_SEC_PAIR_CCMP_256;
-        if (g_strv_contains (array, "gcmp"))
-            flags |= NM_802_11_AP_SEC_PAIR_GCMP_128;
-        if (g_strv_contains (array, "gcmp-256"))
-            flags |= NM_802_11_AP_SEC_PAIR_GCMP_256;
+        for (i = 0; (v = array[i]); i++) {
+            if (NM_IN_STRSET(v, "tkip"))
+                flags |= NM_802_11_AP_SEC_PAIR_TKIP;
+            else if (NM_IN_STRSET(v, "ccmp"))
+                flags |= NM_802_11_AP_SEC_PAIR_CCMP;
+            else if (NM_IN_STRSET(v, "ccmp-256"))
+                flags |= NM_802_11_AP_SEC_PAIR_CCMP_256;
+            else if (NM_IN_STRSET(v, "gcmp"))
+                flags |= NM_802_11_AP_SEC_PAIR_GCMP_128;
+            else if (NM_IN_STRSET(v, "gcmp-256"))
+                flags |= NM_802_11_AP_SEC_PAIR_GCMP_256;
+       }
         g_free(array);
     }
 
@@ -599,7 +608,7 @@ _bss_info_properties_changed(NMSupplicantInterface *self,
     guint16        v_u16;
     guint32        v_u32;
     NM80211ApFlags p_ap_flags;
-    NM80211Mode    p_mode;
+    _NM80211Mode   p_mode;
     guint8         p_signal_percent;
     const guint8 * arr_data;
     gsize          arr_len;
@@ -628,7 +637,7 @@ _bss_info_properties_changed(NMSupplicantInterface *self,
         if (v_v) {
             if (g_variant_lookup(v_v, "Type", "&s", &v_s)) {
                 f = NM_802_11_AP_FLAGS_WPS;
-                if (nm_streq(v_s, "pcb"))
+                if (nm_streq(v_s, "pbc"))
                     f |= NM_802_11_AP_FLAGS_WPS_PBC;
                 else if (nm_streq(v_s, "pin"))
                     f |= NM_802_11_AP_FLAGS_WPS_PIN;
@@ -647,15 +656,15 @@ _bss_info_properties_changed(NMSupplicantInterface *self,
 
     if (nm_g_variant_lookup(properties, "Mode", "&s", &v_s)) {
         if (nm_streq(v_s, "infrastructure"))
-            p_mode = NM_802_11_MODE_INFRA;
+            p_mode = _NM_802_11_MODE_INFRA;
         else if (nm_streq(v_s, "ad-hoc"))
-            p_mode = NM_802_11_MODE_ADHOC;
+            p_mode = _NM_802_11_MODE_ADHOC;
         else if (nm_streq(v_s, "mesh"))
-            p_mode = NM_802_11_MODE_MESH;
+            p_mode = _NM_802_11_MODE_MESH;
         else
-            p_mode = NM_802_11_MODE_UNKNOWN;
+            p_mode = _NM_802_11_MODE_UNKNOWN;
     } else if (initial)
-        p_mode = NM_802_11_MODE_UNKNOWN;
+        p_mode = _NM_802_11_MODE_UNKNOWN;
     else
         p_mode = bss_info->mode;
     if (bss_info->mode != p_mode) {
@@ -874,7 +883,7 @@ _peer_info_destroy(NMSupplicantPeerInfo *peer_info)
     g_free(peer_info->model);
     g_free(peer_info->model_number);
     g_free(peer_info->serial);
-    g_strfreev(peer_info->groups);
+    g_free(peer_info->groups);
     g_bytes_unref(peer_info->ies);
 
     nm_ref_string_unref(peer_info->peer_path);
@@ -902,23 +911,8 @@ _peer_info_properties_changed(NMSupplicantInterface *self,
     gint32        v_i32;
     const guint8 *arr_data;
     gsize         arr_len;
-    char **groups;
 
     peer_info->last_seen_msec = nm_utils_get_monotonic_timestamp_msec();
-
-    // Laird: need Groups for matching peer in check_connection_peer_joined()
-    {
-        GVariant *v;
-        v = g_variant_lookup_value (properties, "Groups", G_VARIANT_TYPE_OBJECT_PATH_ARRAY);
-        if (v) {
-            const char **sv;
-            sv = g_variant_get_objv (v, NULL);
-            if (sv) {
-                peer_info->groups = (const char**) g_strdupv ((char**)sv);
-            }
-            g_free (sv);
-        }
-    }
 
     if (nm_g_variant_lookup(properties, "level", "i", &v_i32))
         peer_info->signal_percent = nm_wifi_utils_level_to_quality(v_i32);
@@ -939,7 +933,7 @@ _peer_info_properties_changed(NMSupplicantInterface *self,
         nm_utils_strdup_reset(&peer_info->serial, v_s);
 
     if (nm_g_variant_lookup(properties, "Groups", "^a&o", &v_strv)) {
-        g_strfreev(peer_info->groups);
+        g_free(peer_info->groups);
         peer_info->groups = nm_utils_strv_dup_packed(v_strv, -1);
 
         g_free(v_strv);
@@ -1228,19 +1222,24 @@ parse_capabilities(NMSupplicantInterface *self, GVariant *capabilities)
     const gboolean                old_prop_scan_ssid   = priv->prop_scan_ssid;
     const guint32                 old_max_scan_ssids   = priv->max_scan_ssids;
     gboolean                      have_ft              = FALSE;
+    gboolean                      have_sae             = FALSE;
     gint32                        max_scan_ssids;
     const char **                 array;
 
     nm_assert(capabilities && g_variant_is_of_type(capabilities, G_VARIANT_TYPE_VARDICT));
 
     if (g_variant_lookup(capabilities, "KeyMgmt", "^a&s", &array)) {
-        have_ft = g_strv_contains(array, "wpa-ft-psk");
+        have_ft  = g_strv_contains(array, "wpa-ft-psk");
+        have_sae = g_strv_contains(array, "sae");
         g_free(array);
     }
 
     priv->iface_capabilities = NM_SUPPL_CAP_MASK_SET(priv->iface_capabilities,
                                                      NM_SUPPL_CAP_TYPE_FT,
                                                      have_ft ? NM_TERNARY_TRUE : NM_TERNARY_FALSE);
+    priv->iface_capabilities = NM_SUPPL_CAP_MASK_SET(priv->iface_capabilities,
+                                                     NM_SUPPL_CAP_TYPE_SAE,
+                                                     have_sae ? NM_TERNARY_TRUE : NM_TERNARY_FALSE);
 
     if (g_variant_lookup(capabilities, "Modes", "^a&s", &array)) {
         /* Setting p2p_capable might toggle _prop_p2p_available_get(). However,
@@ -1312,6 +1311,15 @@ _starting_check_ready(NMSupplicantInterface *self)
         return;
     }
 
+    _LOGD("interface supported features:"
+          " AP%c"
+          " FT%c"
+          " SAE%c"
+          "",
+          NM_SUPPL_CAP_TO_CHAR(priv->iface_capabilities, NM_SUPPL_CAP_TYPE_AP),
+          NM_SUPPL_CAP_TO_CHAR(priv->iface_capabilities, NM_SUPPL_CAP_TYPE_FT),
+          NM_SUPPL_CAP_TO_CHAR(priv->iface_capabilities, NM_SUPPL_CAP_TYPE_SAE));
+
     set_state(self, priv->supp_state);
 }
 
@@ -1334,6 +1342,10 @@ _get_capability(NMSupplicantInterfacePrivate *priv, NMSupplCapType type)
             if (iface_value != NM_TERNARY_DEFAULT)
                 value = iface_value;
         }
+        break;
+    case NM_SUPPL_CAP_TYPE_SAE:
+        nm_assert(NM_SUPPL_CAP_MASK_GET(priv->global_capabilities, type) == NM_TERNARY_DEFAULT);
+        value = NM_SUPPL_CAP_MASK_GET(priv->iface_capabilities, type);
         break;
     default:
         nm_assert(NM_SUPPL_CAP_MASK_GET(priv->iface_capabilities, type) == NM_TERNARY_DEFAULT);
@@ -1368,9 +1380,13 @@ nm_supplicant_interface_get_capabilities(NMSupplicantInterface *self)
     caps = NM_SUPPL_CAP_MASK_SET(caps,
                                  NM_SUPPL_CAP_TYPE_FT,
                                  _get_capability(priv, NM_SUPPL_CAP_TYPE_FT));
+    caps = NM_SUPPL_CAP_MASK_SET(caps,
+                                 NM_SUPPL_CAP_TYPE_SAE,
+                                 _get_capability(priv, NM_SUPPL_CAP_TYPE_SAE));
 
     nm_assert(!NM_FLAGS_ANY(priv->iface_capabilities,
-                            ~(NM_SUPPL_CAP_MASK_T_AP_MASK | NM_SUPPL_CAP_MASK_T_FT_MASK)));
+                            ~(NM_SUPPL_CAP_MASK_T_AP_MASK | NM_SUPPL_CAP_MASK_T_FT_MASK
+                              | NM_SUPPL_CAP_MASK_T_SAE_MASK)));
 
 #if NM_MORE_ASSERTS > 10
     {
@@ -1660,11 +1676,10 @@ _wps_handle_set_pc_cb(GVariant *res, GError *error, gpointer user_data)
          * enroll with any BSS in range. */
         if (!nm_utils_hwaddr_aton(wps_data->bssid, bssid_buf, sizeof(bssid_buf)))
             nm_assert_not_reached();
-        g_variant_builder_add(
-            &start_args,
-            "{sv}",
-            "Bssid",
-            g_variant_new_fixed_array(G_VARIANT_TYPE_BYTE, bssid_buf, ETH_ALEN, sizeof(guint8)));
+        g_variant_builder_add(&start_args,
+                              "{sv}",
+                              "Bssid",
+                              nm_g_variant_new_ay(bssid_buf, ETH_ALEN));
     }
 
     wps_data->needs_cancelling = TRUE;
@@ -1942,7 +1957,7 @@ _properties_changed_main(NMSupplicantInterface *self, GVariant *properties)
 
     if (nm_g_variant_lookup(properties, "CurrentBSS", "&o", &v_s)) {
         v_s = nm_dbus_path_not_empty(v_s);
-        if (!nm_ref_string_equals_str(priv->current_bss, v_s)) {
+        if (!nm_ref_string_equal_str(priv->current_bss, v_s)) {
             nm_ref_string_unref(priv->current_bss);
             priv->current_bss     = nm_ref_string_new(v_s);
             do_notify_current_bss = TRUE;

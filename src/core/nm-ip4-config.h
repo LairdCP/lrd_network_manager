@@ -10,8 +10,8 @@
 
 #include "nm-setting-ip4-config.h"
 
-#include "nm-glib-aux/nm-dedup-multi.h"
-#include "platform/nmp-object.h"
+#include "libnm-glib-aux/nm-dedup-multi.h"
+#include "libnm-platform/nmp-object.h"
 #include "nm-ip-config.h"
 
 /*****************************************************************************/

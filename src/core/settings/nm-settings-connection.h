@@ -63,6 +63,9 @@ typedef enum {
 
     NM_SETTINGS_CONNECTION_UPDATE_REASON_BLOCK_AUTOCONNECT = (1u << 8),
 
+    /* Is anything other than secrets changing */
+    NM_SETTINGS_CONNECTION_UPDATE_REASON_UPDATE_NON_SECRET = (1u << 9),
+
 } NMSettingsConnectionUpdateReason;
 
 typedef enum {
@@ -273,10 +276,6 @@ nm_settings_connection_get_secrets(NMSettingsConnection *          self,
 
 void nm_settings_connection_cancel_secrets(NMSettingsConnection *      self,
                                            NMSettingsConnectionCallId *call_id);
-
-void nm_settings_connection_clear_secrets(NMSettingsConnection *self,
-                                          gboolean              clear_cached_system_secrets,
-                                          gboolean              persist);
 
 gboolean nm_settings_connection_check_visibility(NMSettingsConnection *self,
                                                  NMSessionMonitor *    session_monitor);

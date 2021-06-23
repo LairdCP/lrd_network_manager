@@ -20,9 +20,10 @@
     #include <selinux/selinux.h>
 #endif
 
-#include "nm-libnm-core-intern/nm-common-macros.h"
-#include "nm-glib-aux/nm-keyfile-aux.h"
-#include "nm-keyfile-internal.h"
+#include "libnm-core-aux-intern/nm-common-macros.h"
+#include "libnm-glib-aux/nm-uuid.h"
+#include "libnm-glib-aux/nm-keyfile-aux.h"
+#include "libnm-core-intern/nm-keyfile-internal.h"
 #include "nm-dbus-interface.h"
 #include "nm-connection.h"
 #include "nm-setting-8021x.h"
@@ -44,17 +45,17 @@
 #include "nm-setting-proxy.h"
 #include "nm-setting-bond.h"
 #include "nm-utils.h"
-#include "nm-core-internal.h"
+#include "libnm-core-intern/nm-core-internal.h"
 
-#include "nm-std-aux/c-list-util.h"
-#include "nm-glib-aux/nm-c-list.h"
+#include "libnm-std-aux/c-list-util.h"
+#include "libnm-glib-aux/nm-c-list.h"
 #include "nm-dbus-object.h"
 #include "devices/nm-device-ethernet.h"
 #include "nm-settings-connection.h"
 #include "nm-settings-plugin.h"
 #include "nm-dbus-manager.h"
 #include "nm-auth-utils.h"
-#include "nm-libnm-core-intern/nm-auth-subject.h"
+#include "libnm-core-aux-intern/nm-auth-subject.h"
 #include "nm-session-monitor.h"
 #include "plugins/keyfile/nms-keyfile-plugin.h"
 #include "plugins/keyfile/nms-keyfile-storage.h"
@@ -139,7 +140,7 @@ nm_assert_storage_data_lst(CList *head)
         u = nm_settings_storage_get_uuid(sd->storage);
         if (!uuid) {
             uuid = u;
-            nm_assert(nm_utils_is_uuid(uuid));
+            nm_assert(nm_uuid_is_normalized(uuid));
         } else
             nm_assert(nm_streq0(uuid, u));
     }
@@ -182,7 +183,7 @@ _sett_conn_entry_new(const char *uuid)
     SettConnEntry *sett_conn_entry;
     gsize          l_p_1;
 
-    nm_assert(nm_utils_is_uuid(uuid));
+    nm_assert(nm_uuid_is_normalized(uuid));
 
     l_p_1 = strlen(uuid) + 1;
 
@@ -1433,7 +1434,8 @@ _plugin_connections_reload(NMSettings *self)
         NM_SETTINGS_CONNECTION_INT_FLAGS_NONE,
         TRUE,
         NM_SETTINGS_CONNECTION_UPDATE_REASON_RESET_SYSTEM_SECRETS
-            | NM_SETTINGS_CONNECTION_UPDATE_REASON_RESET_AGENT_SECRETS);
+            | NM_SETTINGS_CONNECTION_UPDATE_REASON_RESET_AGENT_SECRETS
+            | NM_SETTINGS_CONNECTION_UPDATE_REASON_UPDATE_NON_SECRET);
 
     for (iter = priv->plugins; iter; iter = iter->next)
         nm_settings_plugin_load_connections_done(iter->data);
@@ -1460,7 +1462,7 @@ _add_connection_to_first_plugin(NMSettings *                 self,
 
     uuid = nm_connection_get_uuid(new_connection);
 
-    nm_assert(nm_utils_is_uuid(uuid));
+    nm_assert(nm_uuid_is_normalized(uuid));
 
     for (iter = priv->plugins; iter; iter = iter->next) {
         NMSettingsPlugin *plugin                               = NM_SETTINGS_PLUGIN(iter->data);
@@ -1541,9 +1543,7 @@ _add_connection_to_first_plugin(NMSettings *                 self,
         }
 
         agent_owned_secrets =
-            nm_connection_to_dbus(new_connection,
-                                  NM_CONNECTION_SERIALIZE_ONLY_SECRETS
-                                      | NM_CONNECTION_SERIALIZE_WITH_SECRETS_AGENT_OWNED);
+            nm_connection_to_dbus(new_connection, NM_CONNECTION_SERIALIZE_WITH_SECRETS_AGENT_OWNED);
         connection_to_add_real =
             _connection_changed_normalize_connection(storage,
                                                      connection_to_add,
@@ -1912,7 +1912,8 @@ again_delete_tombstone:
         _NM_SETTINGS_CONNECTION_INT_FLAGS_PERSISTENT_MASK,
         FALSE,
         NM_SETTINGS_CONNECTION_UPDATE_REASON_RESET_SYSTEM_SECRETS
-            | NM_SETTINGS_CONNECTION_UPDATE_REASON_RESET_AGENT_SECRETS
+            | NM_SETTINGS_CONNECTION_UPDATE_REASON_CLEAR_AGENT_SECRETS
+            | NM_SETTINGS_CONNECTION_UPDATE_REASON_UPDATE_NON_SECRET
             | (NM_FLAGS_HAS(add_reason, NM_SETTINGS_CONNECTION_ADD_REASON_BLOCK_AUTOCONNECT)
                    ? NM_SETTINGS_CONNECTION_UPDATE_REASON_BLOCK_AUTOCONNECT
                    : NM_SETTINGS_CONNECTION_UPDATE_REASON_NONE));
@@ -2218,9 +2219,7 @@ nm_settings_update_connection(NMSettings *                     self,
             nm_assert(nm_streq(uuid, nm_settings_storage_get_uuid(new_storage)));
 
             agent_owned_secrets =
-                nm_connection_to_dbus(connection,
-                                      NM_CONNECTION_SERIALIZE_ONLY_SECRETS
-                                          | NM_CONNECTION_SERIALIZE_WITH_SECRETS_AGENT_OWNED);
+                nm_connection_to_dbus(connection, NM_CONNECTION_SERIALIZE_WITH_SECRETS_AGENT_OWNED);
             new_connection_real = _connection_changed_normalize_connection(new_storage,
                                                                            new_connection,
                                                                            agent_owned_secrets,
@@ -2297,7 +2296,7 @@ nm_settings_delete_connection(NMSettings *          self,
     nm_assert(NM_IS_SETTINGS_STORAGE(cur_storage));
 
     uuid = nm_settings_storage_get_uuid(cur_storage);
-    nm_assert(nm_utils_is_uuid(uuid));
+    nm_assert(nm_uuid_is_normalized(uuid));
 
     sett_conn_entry = _sett_conn_entries_get(self, uuid);
 
@@ -2691,9 +2690,9 @@ impl_settings_add_connection2(NMDBusObject *                     obj,
     g_variant_get(parameters, "(@a{sa{sv}}u@a{sv})", &settings, &flags_u, &args);
 
     if (NM_FLAGS_ANY(flags_u,
-                     ~((guint32)(NM_SETTINGS_ADD_CONNECTION2_FLAG_TO_DISK
-                                 | NM_SETTINGS_ADD_CONNECTION2_FLAG_IN_MEMORY
-                                 | NM_SETTINGS_ADD_CONNECTION2_FLAG_BLOCK_AUTOCONNECT)))) {
+                     ~((guint32) (NM_SETTINGS_ADD_CONNECTION2_FLAG_TO_DISK
+                                  | NM_SETTINGS_ADD_CONNECTION2_FLAG_IN_MEMORY
+                                  | NM_SETTINGS_ADD_CONNECTION2_FLAG_BLOCK_AUTOCONNECT)))) {
         g_dbus_method_invocation_take_error(invocation,
                                             g_error_new_literal(NM_SETTINGS_ERROR,
                                                                 NM_SETTINGS_ERROR_INVALID_ARGUMENTS,
@@ -2814,7 +2813,8 @@ impl_settings_load_connections(NMDBusObject *                     obj,
             NM_SETTINGS_CONNECTION_INT_FLAGS_NONE,
             TRUE,
             NM_SETTINGS_CONNECTION_UPDATE_REASON_RESET_SYSTEM_SECRETS
-                | NM_SETTINGS_CONNECTION_UPDATE_REASON_RESET_AGENT_SECRETS);
+                | NM_SETTINGS_CONNECTION_UPDATE_REASON_RESET_AGENT_SECRETS
+                | NM_SETTINGS_CONNECTION_UPDATE_REASON_UPDATE_NON_SECRET);
 
         for (iter = priv->plugins; iter; iter = iter->next)
             nm_settings_plugin_load_connections_done(iter->data);
@@ -2832,7 +2832,7 @@ impl_settings_load_connections(NMDBusObject *                     obj,
 
     g_dbus_method_invocation_return_value(invocation,
                                           g_variant_new("(b^as)",
-                                                        (gboolean)(!failures),
+                                                        (gboolean) (!failures),
                                                         failures
                                                             ? (const char **) failures->pdata
                                                             : NM_PTRARRAY_EMPTY(const char *)));
@@ -3204,7 +3204,7 @@ add_plugin_load_file(NMSettings *self, const char *pname, GError **error)
 
     /* errors after this point are fatal, because we loaded the shared library already. */
 
-    if (!g_module_symbol(module, "nm_settings_plugin_factory", (gpointer)(&factory_func))) {
+    if (!g_module_symbol(module, "nm_settings_plugin_factory", (gpointer) (&factory_func))) {
         g_set_error(error,
                     NM_SETTINGS_ERROR,
                     NM_SETTINGS_ERROR_FAILED,
@@ -4027,18 +4027,16 @@ static const NMDBusInterfaceInfoExtended interface_info_settings = {
                     .in_args =
                         NM_DEFINE_GDBUS_ARG_INFOS(NM_DEFINE_GDBUS_ARG_INFO("hostname", "s"), ), ),
                 .handle = impl_settings_save_hostname, ), ),
-        .signals    = NM_DEFINE_GDBUS_SIGNAL_INFOS(&nm_signal_info_property_changed_legacy,
-                                                &signal_info_new_connection,
+        .signals    = NM_DEFINE_GDBUS_SIGNAL_INFOS(&signal_info_new_connection,
                                                 &signal_info_connection_removed, ),
         .properties = NM_DEFINE_GDBUS_PROPERTY_INFOS(
-            NM_DEFINE_DBUS_PROPERTY_INFO_EXTENDED_READABLE_L("Connections",
-                                                             "ao",
-                                                             NM_SETTINGS_CONNECTIONS),
-            NM_DEFINE_DBUS_PROPERTY_INFO_EXTENDED_READABLE_L("Hostname", "s", NM_SETTINGS_HOSTNAME),
-            NM_DEFINE_DBUS_PROPERTY_INFO_EXTENDED_READABLE_L("CanModify",
-                                                             "b",
-                                                             NM_SETTINGS_CAN_MODIFY), ), ),
-    .legacy_property_changed = TRUE,
+            NM_DEFINE_DBUS_PROPERTY_INFO_EXTENDED_READABLE("Connections",
+                                                           "ao",
+                                                           NM_SETTINGS_CONNECTIONS),
+            NM_DEFINE_DBUS_PROPERTY_INFO_EXTENDED_READABLE("Hostname", "s", NM_SETTINGS_HOSTNAME),
+            NM_DEFINE_DBUS_PROPERTY_INFO_EXTENDED_READABLE("CanModify",
+                                                           "b",
+                                                           NM_SETTINGS_CAN_MODIFY), ), ),
 };
 
 static void

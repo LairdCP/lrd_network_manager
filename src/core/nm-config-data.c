@@ -10,9 +10,9 @@
 
 #include "nm-config.h"
 #include "devices/nm-device.h"
-#include "nm-core-internal.h"
-#include "nm-keyfile-internal.h"
-#include "nm-keyfile-utils.h"
+#include "libnm-core-intern/nm-core-internal.h"
+#include "libnm-core-intern/nm-keyfile-internal.h"
+#include "libnm-core-intern/nm-keyfile-utils.h"
 
 /*****************************************************************************/
 
@@ -97,6 +97,8 @@ typedef struct {
     NMGlobalDnsConfig *global_dns;
 
     bool systemd_resolved : 1;
+
+    char *iwd_config_path;
 } NMConfigDataPrivate;
 
 struct _NMConfigData {
@@ -341,6 +343,12 @@ nm_config_data_get_systemd_resolved(const NMConfigData *self)
     return NM_CONFIG_DATA_GET_PRIVATE(self)->systemd_resolved;
 }
 
+const char *
+nm_config_data_get_iwd_config_path(const NMConfigData *self)
+{
+    return NM_CONFIG_DATA_GET_PRIVATE(self)->iwd_config_path;
+}
+
 gboolean
 nm_config_data_get_ignore_carrier(const NMConfigData *self, NMDevice *device)
 {
@@ -437,7 +445,7 @@ static NMAuthPolkitMode
 _config_data_get_main_auth_polkit(const NMConfigData *self, gboolean *out_invalid_config)
 {
     NMAuthPolkitMode auth_polkit_mode;
-    const char *     str;
+    gs_free char *   str = NULL;
 
     str              = nm_config_data_get_value(self,
                                    NM_CONFIG_KEYFILE_GROUP_MAIN,
@@ -576,7 +584,7 @@ _merge_keyfiles(GKeyFile *keyfile_user, GKeyFile *keyfile_intern)
             const char *  key   = keys[k];
             gs_free char *value = NULL;
 
-            if (is_atomic && strcmp(key, NM_CONFIG_KEYFILE_KEY_ATOMIC_SECTION_WAS) == 0)
+            if (is_atomic && nm_streq(key, NM_CONFIG_KEYFILE_KEY_ATOMIC_SECTION_WAS))
                 continue;
 
             if (!is_intern && !is_atomic
@@ -684,6 +692,7 @@ static const struct {
      NM_CONFIG_KEYFILE_KEY_MAIN_AUTH_POLKIT,
      NM_CONFIG_DEFAULT_MAIN_AUTH_POLKIT},
     {NM_CONFIG_KEYFILE_GROUP_MAIN, NM_CONFIG_KEYFILE_KEY_MAIN_DHCP, NM_CONFIG_DEFAULT_MAIN_DHCP},
+    {NM_CONFIG_KEYFILE_GROUP_MAIN, NM_CONFIG_KEYFILE_KEY_MAIN_IWD_CONFIG_PATH, ""},
     {NM_CONFIG_KEYFILE_GROUP_LOGGING, "backend", NM_CONFIG_DEFAULT_LOGGING_BACKEND},
     {NM_CONFIG_KEYFILE_GROUP_LOGGING, "audit", NM_CONFIG_DEFAULT_LOGGING_AUDIT},
 };
@@ -1116,7 +1125,7 @@ load_global_dns(GKeyFile *keyfile, gboolean internal)
 
         g_hash_table_insert(dns_config->domains, strdup(name), domain);
 
-        if (!strcmp(name, "*"))
+        if (name[0] == '*' && name[1] == '\0')
             default_found = TRUE;
     }
 
@@ -1213,7 +1222,7 @@ global_dns_domain_from_dbus(char *name, GVariant *variant)
 
     g_variant_iter_init(&iter, variant);
     while (g_variant_iter_next(&iter, "{&sv}", &key, &val)) {
-        if (!g_strcmp0(key, "servers") && g_variant_is_of_type(val, G_VARIANT_TYPE("as"))) {
+        if (nm_streq0(key, "servers") && g_variant_is_of_type(val, G_VARIANT_TYPE("as"))) {
             strv = g_variant_dup_strv(val, NULL);
             _nm_utils_strv_cleanup(strv, TRUE, TRUE, TRUE);
             for (i = 0, j = 0; strv && strv[i]; i++) {
@@ -1230,7 +1239,7 @@ global_dns_domain_from_dbus(char *name, GVariant *variant)
                 g_strfreev(domain->servers);
                 domain->servers = strv;
             }
-        } else if (!g_strcmp0(key, "options") && g_variant_is_of_type(val, G_VARIANT_TYPE("as"))) {
+        } else if (nm_streq0(key, "options") && g_variant_is_of_type(val, G_VARIANT_TYPE("as"))) {
             strv = g_variant_dup_strv(val, NULL);
             g_strfreev(domain->options);
             domain->options = _nm_utils_strv_cleanup(strv, TRUE, TRUE, TRUE);
@@ -1278,10 +1287,10 @@ nm_global_dns_config_from_dbus(const GValue *value, GError **error)
 
     g_variant_iter_init(&iter, variant);
     while (g_variant_iter_next(&iter, "{&sv}", &key, &val)) {
-        if (!g_strcmp0(key, "searches") && g_variant_is_of_type(val, G_VARIANT_TYPE("as"))) {
+        if (nm_streq0(key, "searches") && g_variant_is_of_type(val, G_VARIANT_TYPE("as"))) {
             strv                 = g_variant_dup_strv(val, NULL);
             dns_config->searches = _nm_utils_strv_cleanup(strv, TRUE, TRUE, TRUE);
-        } else if (!g_strcmp0(key, "options") && g_variant_is_of_type(val, G_VARIANT_TYPE("as"))) {
+        } else if (nm_streq0(key, "options") && g_variant_is_of_type(val, G_VARIANT_TYPE("as"))) {
             strv = g_variant_dup_strv(val, NULL);
             _nm_utils_strv_cleanup(strv, TRUE, TRUE, TRUE);
 
@@ -1297,7 +1306,7 @@ nm_global_dns_config_from_dbus(const GValue *value, GError **error)
                 strv[j]             = NULL;
                 dns_config->options = strv;
             }
-        } else if (!g_strcmp0(key, "domains")
+        } else if (nm_streq0(key, "domains")
                    && g_variant_is_of_type(val, G_VARIANT_TYPE("a{sv}"))) {
             NMGlobalDnsDomain *domain;
             GVariantIter       domain_iter;
@@ -1644,28 +1653,26 @@ nm_config_data_diff(NMConfigData *old_data, NMConfigData *new_data)
     priv_old = NM_CONFIG_DATA_GET_PRIVATE(old_data);
     priv_new = NM_CONFIG_DATA_GET_PRIVATE(new_data);
 
-    if (!_nm_keyfile_equals(priv_old->keyfile_user, priv_new->keyfile_user, TRUE))
+    if (!_nm_keyfile_equal(priv_old->keyfile_user, priv_new->keyfile_user, TRUE))
         changes |= NM_CONFIG_CHANGE_VALUES | NM_CONFIG_CHANGE_VALUES_USER;
 
-    if (!_nm_keyfile_equals(priv_old->keyfile_intern, priv_new->keyfile_intern, TRUE))
+    if (!_nm_keyfile_equal(priv_old->keyfile_intern, priv_new->keyfile_intern, TRUE))
         changes |= NM_CONFIG_CHANGE_VALUES | NM_CONFIG_CHANGE_VALUES_INTERN;
 
-    if (g_strcmp0(nm_config_data_get_config_main_file(old_data),
-                  nm_config_data_get_config_main_file(new_data))
-            != 0
-        || g_strcmp0(nm_config_data_get_config_description(old_data),
-                     nm_config_data_get_config_description(new_data))
-               != 0)
+    if (!nm_streq0(nm_config_data_get_config_main_file(old_data),
+                   nm_config_data_get_config_main_file(new_data))
+        || !nm_streq0(nm_config_data_get_config_description(old_data),
+                      nm_config_data_get_config_description(new_data)))
         changes |= NM_CONFIG_CHANGE_CONFIG_FILES;
 
     if (nm_config_data_get_connectivity_enabled(old_data)
             != nm_config_data_get_connectivity_enabled(new_data)
         || nm_config_data_get_connectivity_interval(old_data)
                != nm_config_data_get_connectivity_interval(new_data)
-        || g_strcmp0(nm_config_data_get_connectivity_uri(old_data),
-                     nm_config_data_get_connectivity_uri(new_data))
-        || g_strcmp0(nm_config_data_get_connectivity_response(old_data),
-                     nm_config_data_get_connectivity_response(new_data)))
+        || !nm_streq0(nm_config_data_get_connectivity_uri(old_data),
+                      nm_config_data_get_connectivity_uri(new_data))
+        || !nm_streq0(nm_config_data_get_connectivity_response(old_data),
+                      nm_config_data_get_connectivity_response(new_data)))
         changes |= NM_CONFIG_CHANGE_CONNECTIVITY;
 
     if (nm_utils_g_slist_strlist_cmp(priv_old->no_auto_default.specs,
@@ -1676,10 +1683,11 @@ nm_config_data_diff(NMConfigData *old_data, NMConfigData *new_data)
                != 0)
         changes |= NM_CONFIG_CHANGE_NO_AUTO_DEFAULT;
 
-    if (g_strcmp0(nm_config_data_get_dns_mode(old_data), nm_config_data_get_dns_mode(new_data)))
+    if (!nm_streq0(nm_config_data_get_dns_mode(old_data), nm_config_data_get_dns_mode(new_data)))
         changes |= NM_CONFIG_CHANGE_DNS_MODE;
 
-    if (g_strcmp0(nm_config_data_get_rc_manager(old_data), nm_config_data_get_rc_manager(new_data)))
+    if (!nm_streq0(nm_config_data_get_rc_manager(old_data),
+                   nm_config_data_get_rc_manager(new_data)))
         changes |= NM_CONFIG_CHANGE_RC_MANAGER;
 
     if (!global_dns_equal(priv_old->global_dns, priv_new->global_dns))
@@ -1910,6 +1918,12 @@ constructed(GObject *object)
     if (!priv->global_dns)
         priv->global_dns = load_global_dns(priv->keyfile_intern, TRUE);
 
+    priv->iwd_config_path =
+        nm_strstrip(g_key_file_get_string(priv->keyfile,
+                                          NM_CONFIG_KEYFILE_GROUP_MAIN,
+                                          NM_CONFIG_KEYFILE_KEY_MAIN_IWD_CONFIG_PATH,
+                                          NULL));
+
     G_OBJECT_CLASS(nm_config_data_parent_class)->constructed(object);
 }
 
@@ -1995,6 +2009,8 @@ finalize(GObject *gobject)
     g_slist_free_full(priv->assume_ipv6ll_only, g_free);
 
     nm_global_dns_config_free(priv->global_dns);
+
+    g_free(priv->iwd_config_path);
 
     _match_section_infos_free(priv->connection_infos);
     _match_section_infos_free(priv->device_infos);
