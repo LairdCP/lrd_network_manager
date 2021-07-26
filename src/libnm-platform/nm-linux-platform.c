@@ -69,9 +69,26 @@ enum { TCA_DEF_UNSPEC, TCA_DEF_TM, TCA_DEF_PARMS, TCA_DEF_DATA, TCA_DEF_PAD, __T
 #define TCA_FQ_CODEL_CE_THRESHOLD 7
 #define TCA_FQ_CODEL_MEMORY_LIMIT 9
 
-/* Detect older linux/iflink.h header */
+/* LAIRD: Detect older linux/iflink.h header, and define
+ * necessary missing enum values.
+ */
 #ifndef IFLA_VRF_MAX
-    #define LAIRD_OLD_IF_LINK_HEADER
+    #define IFLA_BR_VLAN_PROTOCOL              8
+    #define IFLA_BR_GROUP_FWD_MASK             9
+    #define IFLA_BR_GROUP_ADDR                 20
+    #define IFLA_BR_MCAST_SNOOPING             23
+    #define IFLA_BR_MCAST_ROUTER               22
+    #define IFLA_BR_MCAST_QUERY_USE_IFADDR     24
+    #define IFLA_BR_MCAST_QUERIER              25
+    #define IFLA_BR_MCAST_HASH_MAX             27
+    #define IFLA_BR_MCAST_LAST_MEMBER_CNT      28
+    #define IFLA_BR_MCAST_STARTUP_QUERY_CNT    29
+    #define IFLA_BR_MCAST_LAST_MEMBER_INTVL    30
+    #define IFLA_BR_MCAST_MEMBERSHIP_INTVL     31
+    #define IFLA_BR_MCAST_QUERIER_INTVL        32
+    #define IFLA_BR_MCAST_QUERY_INTVL          33
+    #define IFLA_BR_MCAST_QUERY_RESPONSE_INTVL 34
+    #define IFLA_BR_MCAST_STARTUP_QUERY_INTVL  35
 #endif
 
 /*****************************************************************************/
@@ -1324,11 +1341,8 @@ _parse_lnk_bridge(const char *kind, struct nlattr *info_data)
         [IFLA_BR_AGEING_TIME]                = {.type = NLA_U32},
         [IFLA_BR_STP_STATE]                  = {.type = NLA_U32},
         [IFLA_BR_PRIORITY]                   = {.type = NLA_U16},
-#ifndef LAIRD_OLD_IF_LINK_HEADER
         [IFLA_BR_VLAN_PROTOCOL]              = {.type = NLA_U16},
-#endif
         [IFLA_BR_VLAN_STATS_ENABLED]         = {.type = NLA_U8},
-#ifndef LAIRD_OLD_IF_LINK_HEADER
         [IFLA_BR_GROUP_FWD_MASK]             = {.type = NLA_U16},
         [IFLA_BR_GROUP_ADDR]                 = {.minlen = sizeof(NMEtherAddr)},
         [IFLA_BR_MCAST_SNOOPING]             = {.type = NLA_U8},
@@ -1344,7 +1358,6 @@ _parse_lnk_bridge(const char *kind, struct nlattr *info_data)
         [IFLA_BR_MCAST_QUERY_INTVL]          = {.type = NLA_U64},
         [IFLA_BR_MCAST_QUERY_RESPONSE_INTVL] = {.type = NLA_U64},
         [IFLA_BR_MCAST_STARTUP_QUERY_INTVL]  = {.type = NLA_U64},
-#endif
     };
     NMPlatformLnkBridge *props;
     struct nlattr *      tb[G_N_ELEMENTS(policy)];
@@ -1381,13 +1394,10 @@ _parse_lnk_bridge(const char *kind, struct nlattr *info_data)
         props->stp_state = !!nla_get_u32(tb[IFLA_BR_STP_STATE]);
     if (tb[IFLA_BR_PRIORITY])
         props->priority = nla_get_u16(tb[IFLA_BR_PRIORITY]);
-#ifndef LAIRD_OLD_IF_LINK_HEADER
     if (tb[IFLA_BR_VLAN_PROTOCOL])
         props->vlan_protocol = ntohs(nla_get_u16(tb[IFLA_BR_VLAN_PROTOCOL]));
-#endif
     if (tb[IFLA_BR_VLAN_STATS_ENABLED])
         props->vlan_stats_enabled = nla_get_u8(tb[IFLA_BR_VLAN_STATS_ENABLED]);
-#ifndef LAIRD_OLD_IF_LINK_HEADER
     if (tb[IFLA_BR_GROUP_FWD_MASK])
         props->group_fwd_mask = nla_get_u16(tb[IFLA_BR_GROUP_FWD_MASK]);
     if (tb[IFLA_BR_GROUP_ADDR])
@@ -1418,7 +1428,6 @@ _parse_lnk_bridge(const char *kind, struct nlattr *info_data)
         props->mcast_query_response_interval = nla_get_u64(tb[IFLA_BR_MCAST_QUERY_RESPONSE_INTVL]);
     if (tb[IFLA_BR_MCAST_STARTUP_QUERY_INTVL])
         props->mcast_startup_query_interval = nla_get_u64(tb[IFLA_BR_MCAST_STARTUP_QUERY_INTVL]);
-#endif
 
     return obj;
 }
@@ -4146,12 +4155,9 @@ _nl_msg_new_link_set_linkinfo(struct nl_msg *msg, NMLinkType link_type, gconstpo
         NLA_PUT_U32(msg, IFLA_BR_AGEING_TIME, props->ageing_time);
         NLA_PUT_U32(msg, IFLA_BR_STP_STATE, !!props->stp_state);
         NLA_PUT_U16(msg, IFLA_BR_PRIORITY, props->priority);
-#ifndef LAIRD_OLD_IF_LINK_HEADER
         NLA_PUT_U16(msg, IFLA_BR_VLAN_PROTOCOL, htons(props->vlan_protocol));
-#endif
         if (props->vlan_stats_enabled)
             NLA_PUT_U8(msg, IFLA_BR_VLAN_STATS_ENABLED, !!props->vlan_stats_enabled);
-#ifndef LAIRD_OLD_IF_LINK_HEADER
         NLA_PUT_U16(msg, IFLA_BR_GROUP_FWD_MASK, props->group_fwd_mask);
         NLA_PUT(msg, IFLA_BR_GROUP_ADDR, sizeof(props->group_addr), &props->group_addr);
         NLA_PUT_U8(msg, IFLA_BR_MCAST_SNOOPING, !!props->mcast_snooping);
@@ -4167,7 +4173,6 @@ _nl_msg_new_link_set_linkinfo(struct nl_msg *msg, NMLinkType link_type, gconstpo
         NLA_PUT_U64(msg, IFLA_BR_MCAST_QUERY_INTVL, props->mcast_query_interval);
         NLA_PUT_U64(msg, IFLA_BR_MCAST_QUERY_RESPONSE_INTVL, props->mcast_query_response_interval);
         NLA_PUT_U64(msg, IFLA_BR_MCAST_STARTUP_QUERY_INTVL, props->mcast_startup_query_interval);
-#endif
         break;
     }
     case NM_LINK_TYPE_VLAN:
