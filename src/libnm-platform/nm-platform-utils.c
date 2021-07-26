@@ -26,6 +26,32 @@
 
 #define ONOFF(bool_val) ((bool_val) ? "on" : "off")
 
+/* LAIRD: Detect older linux/ethtool.h header, and define
+ * necessary missing values.
+ */
+#ifndef ETHTOOL_GLINKSETTINGS
+    #define ETHTOOL_GLINKSETTINGS   0x0000004c /* Get ethtool_link_settings */
+    #define ETHTOOL_SLINKSETTINGS   0x0000004d /* Set ethtool_link_settings */
+
+    struct ethtool_link_settings {
+        __u32   cmd;
+        __u32   speed;
+        __u8    duplex;
+        __u8    port;
+        __u8    phy_address;
+        __u8    autoneg;
+        __u8    mdio_support;
+        __u8    eth_tp_mdix;
+        __u8    eth_tp_mdix_ctrl;
+        __s8    link_mode_masks_nwords;
+        __u8    transceiver;
+        __u8    reserved1[3];
+        __u32   reserved[7];
+        __u32   link_mode_masks[0];
+    };
+#endif
+
+
 /******************************************************************************
  * utils
  *****************************************************************************/
@@ -277,9 +303,7 @@ static NM_UTILS_ENUM2STR_DEFINE(_ethtool_cmd_to_string,
                                 NM_UTILS_ENUM2STR(ETHTOOL_GDRVINFO, "ETHTOOL_GDRVINFO"),
                                 NM_UTILS_ENUM2STR(ETHTOOL_GFEATURES, "ETHTOOL_GFEATURES"),
                                 NM_UTILS_ENUM2STR(ETHTOOL_GLINK, "ETHTOOL_GLINK"),
-#ifdef ETHTOOL_GLINKSETTINGS
                                 NM_UTILS_ENUM2STR(ETHTOOL_GLINKSETTINGS, "ETHTOOL_GLINKSETTINGS"),
-#endif
                                 NM_UTILS_ENUM2STR(ETHTOOL_GPERMADDR, "ETHTOOL_GPERMADDR"),
                                 NM_UTILS_ENUM2STR(ETHTOOL_GRINGPARAM, "ETHTOOL_GRINGPARAM"),
                                 NM_UTILS_ENUM2STR(ETHTOOL_GPAUSEPARAM, "ETHTOOL_GPAUSEPARAM"),
@@ -290,9 +314,7 @@ static NM_UTILS_ENUM2STR_DEFINE(_ethtool_cmd_to_string,
                                 NM_UTILS_ENUM2STR(ETHTOOL_GWOL, "ETHTOOL_GWOL"),
                                 NM_UTILS_ENUM2STR(ETHTOOL_SCOALESCE, "ETHTOOL_SCOALESCE"),
                                 NM_UTILS_ENUM2STR(ETHTOOL_SFEATURES, "ETHTOOL_SFEATURES"),
-#ifdef ETHTOOL_SLINKSETTINGS
                                 NM_UTILS_ENUM2STR(ETHTOOL_SLINKSETTINGS, "ETHTOOL_SLINKSETTINGS"),
-#endif
                                 NM_UTILS_ENUM2STR(ETHTOOL_SRINGPARAM, "ETHTOOL_SRINGPARAM"),
                                 NM_UTILS_ENUM2STR(ETHTOOL_SPAUSEPARAM, "ETHTOOL_SPAUSEPARAM"),
                                 NM_UTILS_ENUM2STR(ETHTOOL_SSET, "ETHTOOL_SSET"),
@@ -1396,7 +1418,6 @@ set_link_settings_new(SocketHandle *           shandle,
                       guint32                  speed,
                       NMPlatformLinkDuplexType duplex)
 {
-#ifdef ETHTOOL_GLINKSETTINGS
     struct ethtool_link_settings          edata0;
     gs_free struct ethtool_link_settings *edata = NULL;
     gsize                                 edata_size;
@@ -1475,10 +1496,6 @@ set_link_settings_new(SocketHandle *           shandle,
     }
 
     return _ethtool_call_handle(shandle, edata, edata_size) >= 0;
-#else
-    /* new API not supported */
-    return NM_OPTION_BOOL_DEFAULT;
-#endif
 }
 
 gboolean
