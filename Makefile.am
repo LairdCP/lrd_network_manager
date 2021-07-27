@@ -803,6 +803,7 @@ src_libnm_client_aux_extern_tests_test_libnm_client_aux_LDADD = \
 	src/libnm-core-aux-extern/libnm-core-aux-extern.la \
 	src/libnm-core-aux-intern/libnm-core-aux-intern.la \
 	src/libnm-glib-aux/libnm-glib-aux.la \
+	src/libnm-log-null/libnm-log-null.la \
 	src/libnm-std-aux/libnm-std-aux.la \
 	src/c-siphash/libc-siphash.la \
 	src/libnm-client-impl/libnm.la \
@@ -3431,8 +3432,8 @@ EXTRA_DIST += \
 	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test-static-routes-legacy \
 	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test-static-routes-legacy.cexpected \
 	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test-tc \
-	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test-tc-write.cexpected \
 	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test-tc-write-empty.cexpected \
+	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test-tc-write.cexpected \
 	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test-team-master-1 \
 	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test-team-master-2 \
 	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test-team-master-invalid \
@@ -3537,6 +3538,11 @@ EXTRA_DIST += \
 	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test-write-unknown-3.expected \
 	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test-write-unknown-4 \
 	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test-write-unknown-4.expected \
+	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test_roundtrip_ethtool-1.cexpected \
+	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test_roundtrip_ethtool-2.cexpected \
+	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test_roundtrip_ethtool-3.cexpected \
+	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test_roundtrip_ethtool-4.cexpected \
+	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test_roundtrip_ethtool-5.cexpected \
 	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test_write_wired_auto_negotiate_on.cexpected \
 	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/keys-test-wifi-dynamic-wep-leap \
 	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/keys-test-wifi-leap \
@@ -4430,7 +4436,9 @@ src_core_tests_test_systemd_LDFLAGS = \
 src_core_tests_test_systemd_LDADD = \
 	src/libnm-systemd-core/libnm-systemd-core.la \
 	src/libnm-systemd-shared/libnm-systemd-shared.la \
+	src/libnm-glib-aux/libnm-glib-aux.la \
 	src/libnm-log-null/libnm-log-null.la \
+	src/libnm-std-aux/libnm-std-aux.la \
 	src/c-siphash/libc-siphash.la \
 	$(GLIB_LIBS) \
 	$(CODE_COVERAGE_LDFLAGS) \
@@ -4579,6 +4587,7 @@ src_nm_dispatcher_tests_test_dispatcher_envp_LDFLAGS = \
 src_nm_dispatcher_tests_test_dispatcher_envp_LDADD = \
 	src/nm-dispatcher/libnm-dispatcher-core.la \
 	src/libnm-glib-aux/libnm-glib-aux.la \
+	src/libnm-log-null/libnm-log-null.la \
 	src/libnm-std-aux/libnm-std-aux.la \
 	src/c-siphash/libc-siphash.la \
 	src/libnm-client-impl/libnm.la \
@@ -4773,6 +4782,7 @@ src_libnmc_setting_tests_test_libnmc_setting_LDADD = \
 	src/libnm-core-aux-intern/libnm-core-aux-intern.la \
 	src/libnm-base/libnm-base.la \
 	src/libnm-glib-aux/libnm-glib-aux.la \
+	src/libnm-log-null/libnm-log-null.la \
 	src/libnm-std-aux/libnm-std-aux.la \
 	src/c-siphash/libc-siphash.la \
 	src/libnm-client-impl/libnm.la \
@@ -5127,6 +5137,8 @@ src_nm_cloud_setup_libnm_cloud_setup_core_a_SOURCES = \
 	src/nm-cloud-setup/nmcs-provider-gcp.h \
 	src/nm-cloud-setup/nmcs-provider-azure.c \
 	src/nm-cloud-setup/nmcs-provider-azure.h \
+	src/nm-cloud-setup/nmcs-provider-aliyun.c \
+	src/nm-cloud-setup/nmcs-provider-aliyun.h \
 	$(NULL)
 
 src_nm_cloud_setup_libnm_cloud_setup_core_a_CPPFLAGS = \

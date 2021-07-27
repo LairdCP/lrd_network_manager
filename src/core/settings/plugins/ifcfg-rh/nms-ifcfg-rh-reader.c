@@ -1895,6 +1895,8 @@ make_ip4_setting(shvarFile *ifcfg,
                  svGetValueBoolean(ifcfg, "DHCP_SEND_HOSTNAME", TRUE),
                  NM_SETTING_IP_CONFIG_DHCP_TIMEOUT,
                  (int) svGetValueInt64(ifcfg, "IPV4_DHCP_TIMEOUT", 10, 0, G_MAXINT32, 0),
+                 NM_SETTING_IP_CONFIG_REQUIRED_TIMEOUT,
+                 (int) svGetValueInt64(ifcfg, "IPV4_REQUIRED_TIMEOUT", 10, 0, G_MAXINT32, -1),
                  NULL);
 
     nm_clear_g_free(&value);
@@ -2152,6 +2154,8 @@ read_aliases(NMSettingIPConfig *s_ip4, gboolean read_defroute, const char *filen
                 continue;
             }
 
+            svWarnInvalid(parsed, "alias", _NMLOG_DOMAIN);
+
             device = svGetValueStr(parsed, "DEVICE", &device_value);
             if (!device) {
                 PARSE_WARNING("alias file '%s' has no DEVICE", full_path);
@@ -2403,6 +2407,8 @@ make_ip6_setting(shvarFile *ifcfg, shvarFile *network_ifcfg, gboolean routes_rea
                  svGetValueBoolean(ifcfg, "DHCPV6_SEND_HOSTNAME", TRUE),
                  NM_SETTING_IP_CONFIG_DHCP_TIMEOUT,
                  (int) svGetValueInt64(ifcfg, "IPV6_DHCP_TIMEOUT", 10, 0, G_MAXINT32, 0),
+                 NM_SETTING_IP_CONFIG_REQUIRED_TIMEOUT,
+                 (int) svGetValueInt64(ifcfg, "IPV6_REQUIRED_TIMEOUT", 10, 0, G_MAXINT32, -1),
                  NM_SETTING_IP6_CONFIG_RA_TIMEOUT,
                  (int) svGetValueInt64(ifcfg, "IPV6_RA_TIMEOUT", 10, 0, G_MAXINT32, 0),
                  NULL);
@@ -6323,6 +6329,7 @@ connection_from_file_full(const char *filename,
     NMSetting *                   s_ip4;
     NMSetting *                   s_ip6;
     const char *                  ifcfg_name       = NULL;
+    gs_free char *                s_tmp            = NULL;
     gboolean                      has_ip4_defroute = FALSE;
     gboolean                      has_complex_routes_v4;
     gboolean                      has_complex_routes_v6;
@@ -6350,8 +6357,6 @@ connection_from_file_full(const char *filename,
     if (!main_ifcfg)
         return NULL;
 
-    network_ifcfg = svOpenFile(network_file, NULL);
-
     if (!svGetValueBoolean(main_ifcfg, "NM_CONTROLLED", TRUE)) {
         connection = create_unhandled_connection(filename, main_ifcfg, "unmanaged", out_unhandled);
         if (!connection) {
@@ -6364,6 +6369,16 @@ connection_from_file_full(const char *filename,
         }
         return g_steal_pointer(&connection);
     }
+
+    if (NM_IN_STRSET(svGetValueStr(main_ifcfg, "DEVICE", &s_tmp), "lo")) {
+        /* "lo" is not handled by NetworkManager and we ignore it. */
+    } else
+        svWarnInvalid(main_ifcfg, "ifcfg", _NMLOG_DOMAIN);
+    nm_clear_g_free(&s_tmp);
+
+    network_ifcfg = svOpenFile(network_file, NULL);
+    /* we don't call svWarnInvalid(network_ifcfg), because we will load this file for
+     * every profile. So we would get a large number of duplicate warnings. */
 
     /* iBFT is handled by nm-initrd-generator during boot. */
     bootproto = svGetValueStr_cp(main_ifcfg, "BOOTPROTO");

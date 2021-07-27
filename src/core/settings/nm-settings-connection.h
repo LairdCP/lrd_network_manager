@@ -323,6 +323,9 @@ int nm_settings_connection_cmp_timestamp_p_with_data(gconstpointer pa,
                                                      gpointer      user_data);
 int nm_settings_connection_cmp_autoconnect_priority(NMSettingsConnection *a,
                                                     NMSettingsConnection *b);
+int nm_settings_connection_cmp_autoconnect_priority_with_data(gconstpointer pa,
+                                                              gconstpointer pb,
+                                                              gpointer      user_data);
 int nm_settings_connection_cmp_autoconnect_priority_p_with_data(gconstpointer pa,
                                                                 gconstpointer pb,
                                                                 gpointer      user_data);
@@ -336,8 +339,6 @@ void _nm_settings_connection_register_kf_dbs(NMSettingsConnection *self,
 gboolean nm_settings_connection_get_timestamp(NMSettingsConnection *self, guint64 *out_timestamp);
 
 void nm_settings_connection_update_timestamp(NMSettingsConnection *self, guint64 timestamp);
-
-const char **nm_settings_connection_get_seen_bssids(NMSettingsConnection *self);
 
 gboolean nm_settings_connection_has_seen_bssid(NMSettingsConnection *self, const char *bssid);
 

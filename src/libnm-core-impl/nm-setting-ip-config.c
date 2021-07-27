@@ -2441,7 +2441,9 @@ nm_ip_routing_rule_set_suppress_prefixlength(NMIPRoutingRule *self, gint32 suppr
  *
  * Returns: %TRUE if a uid range is set.
  *
- * Since: 1.32
+ * Since: 1.32. Due to a bug, the symbols of this function
+ *   are only exported starting with version 1.34.0. The function
+ *   is unusable in 1.32.
  */
 gboolean
 nm_ip_routing_rule_get_uid_range(const NMIPRoutingRule *self,
@@ -2466,7 +2468,9 @@ nm_ip_routing_rule_get_uid_range(const NMIPRoutingRule *self,
  * For a valid range, start must be less or equal to end.
  * If set to an invalid range, the range gets unset.
  *
- * Since: 1.32
+ * Since: 1.32. Due to a bug, the symbols of this function
+ *   are only exported starting with version 1.34.0. The function
+ *   is unusable in 1.32.
  */
 void
 nm_ip_routing_rule_set_uid_range(NMIPRoutingRule *self,
@@ -3522,14 +3526,11 @@ nm_ip_routing_rule_from_string(const char *                 str,
         }
 
         if (i_action < 0) {
-            i_action = nm_net_aux_rtnl_rtntype_a2n(word1);
+            i_action = nm_net_aux_rtnl_rtntype_a2n(word0);
             if (i_action >= 0)
                 goto next_words_consumed;
         }
 
-        /* also the action is still unsupported. For the moment, we only support
-         * FR_ACT_TO_TBL, which is the default (by not expressing it on the command
-         * line). */
         g_set_error(error,
                     NM_CONNECTION_ERROR,
                     NM_CONNECTION_ERROR_FAILED,
@@ -3904,6 +3905,7 @@ NM_GOBJECT_PROPERTIES_DEFINE(NMSettingIPConfig,
                              PROP_MAY_FAIL,
                              PROP_DAD_TIMEOUT,
                              PROP_DHCP_TIMEOUT,
+                             PROP_REQUIRED_TIMEOUT,
                              PROP_DHCP_IAID,
                              PROP_DHCP_REJECT_SERVERS, );
 
@@ -3924,6 +3926,7 @@ typedef struct {
     int        dns_priority;
     int        dad_timeout;
     int        dhcp_timeout;
+    int        required_timeout;
     guint32    route_table;
     bool       ignore_auto_routes : 1;
     bool       ignore_auto_dns : 1;
@@ -5205,6 +5208,25 @@ nm_setting_ip_config_get_dhcp_timeout(NMSettingIPConfig *setting)
 }
 
 /**
+ * nm_setting_ip_config_get_required_timeout:
+ * @setting: the #NMSettingIPConfig
+ *
+ * Returns the value contained in the #NMSettingIPConfig:required-timeout
+ * property.
+ *
+ * Returns: the required timeout for the address family
+ *
+ * Since: 1.34, 1.32.4
+ **/
+int
+nm_setting_ip_config_get_required_timeout(NMSettingIPConfig *setting)
+{
+    g_return_val_if_fail(NM_IS_SETTING_IP_CONFIG(setting), -1);
+
+    return NM_SETTING_IP_CONFIG_GET_PRIVATE(setting)->required_timeout;
+}
+
+/**
  * nm_setting_ip_config_get_dhcp_iaid:
  * @setting: the #NMSettingIPConfig
  *
@@ -5760,10 +5782,35 @@ _nm_sett_info_property_override_create_array_ip_config(void)
 {
     GArray *properties_override = _nm_sett_info_property_override_create_array();
 
-    _nm_properties_override_gobj(properties_override,
-                                 obj_properties[PROP_GATEWAY],
-                                 NM_SETT_INFO_PROPERT_TYPE(.dbus_type     = G_VARIANT_TYPE_STRING,
-                                                           .from_dbus_fcn = ip_gateway_set, ));
+    _nm_properties_override_gobj(
+        properties_override,
+        obj_properties[PROP_METHOD],
+        &nm_sett_info_propert_type_string,
+        .to_dbus_data.get_string =
+            (const char *(*) (NMSetting *) ) nm_setting_ip_config_get_method);
+
+    _nm_properties_override_gobj(
+        properties_override,
+        obj_properties[PROP_GATEWAY],
+        NM_SETT_INFO_PROPERT_TYPE_DBUS(G_VARIANT_TYPE_STRING,
+                                       .to_dbus_fcn   = _nm_setting_property_to_dbus_fcn_get_string,
+                                       .from_dbus_fcn = ip_gateway_set),
+        .to_dbus_data.get_string =
+            (const char *(*) (NMSetting *) ) nm_setting_ip_config_get_gateway);
+
+    _nm_properties_override_gobj(
+        properties_override,
+        obj_properties[PROP_DHCP_HOSTNAME],
+        &nm_sett_info_propert_type_string,
+        .to_dbus_data.get_string =
+            (const char *(*) (NMSetting *) ) nm_setting_ip_config_get_dhcp_hostname);
+
+    _nm_properties_override_gobj(
+        properties_override,
+        obj_properties[PROP_DHCP_IAID],
+        &nm_sett_info_propert_type_string,
+        .to_dbus_data.get_string =
+            (const char *(*) (NMSetting *) ) nm_setting_ip_config_get_dhcp_iaid);
 
     /* ---dbus---
      * property: routing-rules
@@ -5774,9 +5821,39 @@ _nm_sett_info_property_override_create_array_ip_config(void)
     _nm_properties_override_dbus(
         properties_override,
         NM_SETTING_IP_CONFIG_ROUTING_RULES,
-        NM_SETT_INFO_PROPERT_TYPE(.dbus_type     = NM_G_VARIANT_TYPE("aa{sv}"),
-                                  .to_dbus_fcn   = _routing_rules_dbus_only_synth,
-                                  .from_dbus_fcn = _routing_rules_dbus_only_set, ));
+        NM_SETT_INFO_PROPERT_TYPE_DBUS(NM_G_VARIANT_TYPE("aa{sv}"),
+                                       .to_dbus_fcn   = _routing_rules_dbus_only_synth,
+                                       .from_dbus_fcn = _routing_rules_dbus_only_set, ));
+
+    _nm_properties_override_gobj(properties_override,
+                                 obj_properties[PROP_IGNORE_AUTO_ROUTES],
+                                 &nm_sett_info_propert_type_boolean,
+                                 .to_dbus_data.get_boolean = (gboolean(*)(
+                                     NMSetting *)) nm_setting_ip_config_get_ignore_auto_routes);
+
+    _nm_properties_override_gobj(properties_override,
+                                 obj_properties[PROP_IGNORE_AUTO_DNS],
+                                 &nm_sett_info_propert_type_boolean,
+                                 .to_dbus_data.get_boolean = (gboolean(*)(
+                                     NMSetting *)) nm_setting_ip_config_get_ignore_auto_dns);
+
+    _nm_properties_override_gobj(properties_override,
+                                 obj_properties[PROP_DHCP_SEND_HOSTNAME],
+                                 &nm_sett_info_propert_type_boolean,
+                                 .to_dbus_data.get_boolean = (gboolean(*)(
+                                     NMSetting *)) nm_setting_ip_config_get_dhcp_send_hostname);
+
+    _nm_properties_override_gobj(properties_override,
+                                 obj_properties[PROP_NEVER_DEFAULT],
+                                 &nm_sett_info_propert_type_boolean,
+                                 .to_dbus_data.get_boolean = (gboolean(*)(
+                                     NMSetting *)) nm_setting_ip_config_get_never_default);
+
+    _nm_properties_override_gobj(properties_override,
+                                 obj_properties[PROP_MAY_FAIL],
+                                 &nm_sett_info_propert_type_boolean,
+                                 .to_dbus_data.get_boolean =
+                                     (gboolean(*)(NMSetting *)) nm_setting_ip_config_get_may_fail);
 
     return properties_override;
 }
@@ -5851,6 +5928,9 @@ get_property(GObject *object, guint prop_id, GValue *value, GParamSpec *pspec)
         break;
     case PROP_DHCP_TIMEOUT:
         g_value_set_int(value, nm_setting_ip_config_get_dhcp_timeout(setting));
+        break;
+    case PROP_REQUIRED_TIMEOUT:
+        g_value_set_int(value, nm_setting_ip_config_get_required_timeout(setting));
         break;
     case PROP_DHCP_IAID:
         g_value_set_string(value, nm_setting_ip_config_get_dhcp_iaid(setting));
@@ -5962,7 +6042,11 @@ set_property(GObject *object, guint prop_id, const GValue *value, GParamSpec *ps
     case PROP_DHCP_TIMEOUT:
         priv->dhcp_timeout = g_value_get_int(value);
         break;
+    case PROP_REQUIRED_TIMEOUT:
+        priv->required_timeout = g_value_get_int(value);
+        break;
     case PROP_DHCP_IAID:
+        g_free(priv->dhcp_iaid);
         priv->dhcp_iaid = g_value_dup_string(value);
         break;
     case PROP_DHCP_HOSTNAME_FLAGS:
@@ -5992,6 +6076,7 @@ nm_setting_ip_config_init(NMSettingIPConfig *setting)
     priv->dhcp_send_hostname = TRUE;
     priv->may_fail           = TRUE;
     priv->dad_timeout        = -1;
+    priv->required_timeout   = -1;
 }
 
 static void
@@ -6424,6 +6509,38 @@ nm_setting_ip_config_class_init(NMSettingIPConfigClass *klass)
         0,
         G_MAXINT32,
         0,
+        G_PARAM_READWRITE | NM_SETTING_PARAM_FUZZY_IGNORE | G_PARAM_STATIC_STRINGS);
+
+    /**
+     * NMSettingIPConfig:required-timeout:
+     *
+     * The minimum time interval in milliseconds for which dynamic IP configuration
+     * should be tried before the connection succeeds.
+     *
+     * This property is useful for example if both IPv4 and IPv6 are enabled and
+     * are allowed to fail. Normally the connection succeeds as soon as one of
+     * the two address families completes; by setting a required timeout for
+     * e.g. IPv4, one can ensure that even if IP6 succeeds earlier than IPv4,
+     * NetworkManager waits some time for IPv4 before the connection becomes
+     * active.
+     *
+     * Note that if #NMSettingIPConfig:may-fail is FALSE for the same address
+     * family, this property has no effect as NetworkManager needs to wait for
+     * the full DHCP timeout.
+     *
+     * A zero value means that no required timeout is present, -1 means the
+     * default value (either configuration ipvx.required-timeout override or
+     * zero).
+     *
+     * Since: 1.34, 1.32.4
+     **/
+    obj_properties[PROP_REQUIRED_TIMEOUT] = g_param_spec_int(
+        NM_SETTING_IP_CONFIG_REQUIRED_TIMEOUT,
+        "",
+        "",
+        -1,
+        G_MAXINT32,
+        -1,
         G_PARAM_READWRITE | NM_SETTING_PARAM_FUZZY_IGNORE | G_PARAM_STATIC_STRINGS);
 
     /**

@@ -371,6 +371,7 @@ typedef struct {
     CList connections_lst_head;
 
     NMSettingsConnection **connections_cached_list;
+    NMSettingsConnection **connections_cached_list_sorted_by_autoconnect_priority;
 
     GSList *unmanaged_specs;
     GSList *unrecognized_specs;
@@ -387,7 +388,16 @@ typedef struct {
     guint kf_db_flush_idle_id_timestamps;
     guint kf_db_flush_idle_id_seen_bssids;
 
+    bool kf_db_pruned_timestamps;
+    bool kf_db_pruned_seen_bssid;
+
     bool started : 1;
+
+    /* Whether NMSettingsConnections changed in a way that affects the comparison
+     * with nm_settings_connection_cmp_autoconnect_priority_with_data(). In that case,
+     * we may need to re-sort the connections_cached_list_sorted_by_autoconnect_priority
+     * list. */
+    bool sorted_by_autoconnect_priority_maybe_changed : 1;
 
 } NMSettingsPrivate;
 
@@ -2870,25 +2880,48 @@ impl_settings_reload_connections(NMDBusObject *                     obj,
 
 /*****************************************************************************/
 
+void
+_nm_settings_notify_sorted_by_autoconnect_priority_maybe_changed(NMSettings *self)
+{
+    NMSettingsPrivate *priv = NM_SETTINGS_GET_PRIVATE(self);
+
+    priv->sorted_by_autoconnect_priority_maybe_changed = TRUE;
+}
+
 static void
 _clear_connections_cached_list(NMSettingsPrivate *priv)
 {
-    if (!priv->connections_cached_list)
-        return;
-
-    nm_assert(priv->connections_len == NM_PTRARRAY_LEN(priv->connections_cached_list));
+    if (priv->connections_cached_list) {
+        nm_assert(priv->connections_len == NM_PTRARRAY_LEN(priv->connections_cached_list));
 
 #if NM_MORE_ASSERTS
-    /* set the pointer to a bogus value. This makes it more apparent
-     * if somebody has a reference to the cached list and still uses
-     * it. That is a bug, this code just tries to make it blow up
-     * more eagerly. */
-    memset(priv->connections_cached_list,
-           0x43,
-           sizeof(NMSettingsConnection *) * (priv->connections_len + 1));
+        /* set the pointer to a bogus value. This makes it more apparent
+         * if somebody has a reference to the cached list and still uses
+         * it. That is a bug, this code just tries to make it blow up
+         * more eagerly. */
+        memset(priv->connections_cached_list,
+               0x43,
+               sizeof(NMSettingsConnection *) * (priv->connections_len + 1));
 #endif
 
-    nm_clear_g_free(&priv->connections_cached_list);
+        nm_clear_g_free(&priv->connections_cached_list);
+    }
+    if (priv->connections_cached_list_sorted_by_autoconnect_priority) {
+        nm_assert(priv->connections_len
+                  == NM_PTRARRAY_LEN(priv->connections_cached_list_sorted_by_autoconnect_priority));
+
+#if NM_MORE_ASSERTS
+        /* set the pointer to a bogus value. This makes it more apparent
+         * if somebody has a reference to the cached list and still uses
+         * it. That is a bug, this code just tries to make it blow up
+         * more eagerly. */
+        memset(priv->connections_cached_list_sorted_by_autoconnect_priority,
+               0x42,
+               sizeof(NMSettingsConnection *) * (priv->connections_len + 1));
+#endif
+
+        nm_clear_g_free(&priv->connections_cached_list_sorted_by_autoconnect_priority);
+    }
 }
 
 static void
@@ -3027,6 +3060,65 @@ nm_settings_get_connections(NMSettings *self, guint *out_len)
     return priv->connections_cached_list;
 }
 
+NMSettingsConnection *const *
+nm_settings_get_connections_sorted_by_autoconnect_priority(NMSettings *self, guint *out_len)
+{
+    NMSettingsPrivate *priv;
+    gboolean           needs_sort = FALSE;
+
+    g_return_val_if_fail(NM_IS_SETTINGS(self), NULL);
+
+    priv = NM_SETTINGS_GET_PRIVATE(self);
+
+    nm_assert(priv->connections_len == c_list_length(&priv->connections_lst_head));
+    nm_assert(
+        !priv->connections_cached_list_sorted_by_autoconnect_priority
+        || (priv->connections_len
+            == NM_PTRARRAY_LEN(priv->connections_cached_list_sorted_by_autoconnect_priority)));
+
+    if (!priv->connections_cached_list_sorted_by_autoconnect_priority) {
+        NMSettingsConnection *const *list_cached;
+        guint                        len;
+
+        list_cached = nm_settings_get_connections(self, &len);
+        priv->connections_cached_list_sorted_by_autoconnect_priority =
+            nm_memdup(list_cached, sizeof(NMSettingsConnection *) * (len + 1));
+        needs_sort = (len > 1);
+    } else if (priv->sorted_by_autoconnect_priority_maybe_changed) {
+        if (!nm_utils_ptrarray_is_sorted(
+                (gconstpointer *) priv->connections_cached_list_sorted_by_autoconnect_priority,
+                priv->connections_len,
+                FALSE,
+                nm_settings_connection_cmp_autoconnect_priority_with_data,
+                NULL)) {
+            /* We cache the sorted list, but we don't monitor all entries whether they
+             * get modified to invalidate the sort order. So every time we have to check
+             * whether the sort order is still correct. The vast majority of the time it
+             * is, and this check is faster than sorting anew. */
+            needs_sort = TRUE;
+        }
+    } else {
+        nm_assert(nm_utils_ptrarray_is_sorted(
+            (gconstpointer *) priv->connections_cached_list_sorted_by_autoconnect_priority,
+            priv->connections_len,
+            TRUE,
+            nm_settings_connection_cmp_autoconnect_priority_with_data,
+            NULL));
+    }
+
+    priv->sorted_by_autoconnect_priority_maybe_changed = FALSE;
+    if (needs_sort) {
+        g_qsort_with_data(priv->connections_cached_list_sorted_by_autoconnect_priority,
+                          priv->connections_len,
+                          sizeof(NMSettingsConnection *),
+                          nm_settings_connection_cmp_autoconnect_priority_p_with_data,
+                          NULL);
+    }
+
+    NM_SET_OUT(out_len, priv->connections_len);
+    return priv->connections_cached_list_sorted_by_autoconnect_priority;
+}
+
 /**
  * nm_settings_get_connections_clone:
  * @self: the #NMSetting
@@ -3058,9 +3150,13 @@ nm_settings_get_connections_clone(NMSettings *                   self,
 
     g_return_val_if_fail(NM_IS_SETTINGS(self), NULL);
 
-    list_cached = nm_settings_get_connections(self, &len);
+    if (sort_compare_func == nm_settings_connection_cmp_autoconnect_priority_p_with_data) {
+        list_cached       = nm_settings_get_connections_sorted_by_autoconnect_priority(self, &len);
+        sort_compare_func = NULL;
+    } else
+        list_cached = nm_settings_get_connections(self, &len);
 
-#if NM_MORE_ASSERTS
+#if NM_MORE_ASSERTS > 10
     nm_assert(list_cached);
     for (i = 0; i < len; i++)
         nm_assert(NM_IS_SETTINGS_CONNECTION(list_cached[i]));
@@ -3591,6 +3687,41 @@ again:
 
 /*****************************************************************************/
 
+static gboolean
+_kf_db_prune_predicate(const char *uuid, gpointer user_data)
+{
+    return !!nm_settings_get_connection_by_uuid(user_data, uuid);
+}
+
+static void
+_kf_db_to_file(NMSettings *self, gboolean is_timestamps, gboolean force_write)
+{
+    NMSettingsPrivate *priv = NM_SETTINGS_GET_PRIVATE(self);
+    NMKeyFileDB *      kf_db;
+    bool *             p_kf_db_pruned;
+
+    if (is_timestamps) {
+        kf_db          = priv->kf_db_timestamps;
+        p_kf_db_pruned = &priv->kf_db_pruned_timestamps;
+    } else {
+        kf_db          = priv->kf_db_seen_bssids;
+        p_kf_db_pruned = &priv->kf_db_pruned_seen_bssid;
+    }
+
+    if (!*p_kf_db_pruned) {
+        /* we only prune the DB once, because afterwards every
+         * add/remove of an connection will lead to a direct update. */
+        *p_kf_db_pruned = TRUE;
+        nm_key_file_db_prune(kf_db, _kf_db_prune_predicate, self);
+
+        /* once we also go over the directory, and see whether we
+         * have any left over temporary files to delete. */
+        nm_key_file_db_prune_tmp_files(kf_db);
+    }
+
+    nm_key_file_db_to_file(kf_db, force_write);
+}
+
 G_GNUC_PRINTF(4, 5)
 static void
 _kf_db_log_fcn(NMKeyFileDB *kf_db, int syslog_level, gpointer user_data, const char *fmt, ...)
@@ -3639,7 +3770,7 @@ _kf_db_got_dirty_flush(NMSettings *self, gboolean is_timestamps)
     }
 
     if (nm_key_file_db_is_dirty(kf_db))
-        nm_key_file_db_to_file(kf_db, FALSE);
+        _kf_db_to_file(self, is_timestamps, FALSE);
     else {
         _LOGT("[%s-keyfile]: skip saving changes to \"%s\"",
               prefix,
@@ -3692,15 +3823,10 @@ _kf_db_got_dirty_fcn(NMKeyFileDB *kf_db, gpointer user_data)
 void
 nm_settings_kf_db_write(NMSettings *self)
 {
-    NMSettingsPrivate *priv;
-
     g_return_if_fail(NM_IS_SETTINGS(self));
 
-    priv = NM_SETTINGS_GET_PRIVATE(self);
-    if (priv->kf_db_timestamps)
-        nm_key_file_db_to_file(priv->kf_db_timestamps, TRUE);
-    if (priv->kf_db_seen_bssids)
-        nm_key_file_db_to_file(priv->kf_db_seen_bssids, TRUE);
+    _kf_db_to_file(self, TRUE, TRUE);
+    _kf_db_to_file(self, FALSE, TRUE);
 }
 
 /*****************************************************************************/
@@ -3938,8 +4064,8 @@ finalize(GObject *object)
 
     nm_clear_g_source(&priv->kf_db_flush_idle_id_timestamps);
     nm_clear_g_source(&priv->kf_db_flush_idle_id_seen_bssids);
-    nm_key_file_db_to_file(priv->kf_db_timestamps, FALSE);
-    nm_key_file_db_to_file(priv->kf_db_seen_bssids, FALSE);
+    _kf_db_to_file(self, TRUE, FALSE);
+    _kf_db_to_file(self, FALSE, FALSE);
     nm_key_file_db_destroy(priv->kf_db_timestamps);
     nm_key_file_db_destroy(priv->kf_db_seen_bssids);
 
