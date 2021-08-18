@@ -7,9 +7,6 @@
 
 #include "libnm-glib-aux/nm-default-glib-i18n-lib.h"
 
-// Laird: requisite nm-default.h removed in upstream 1.32.0, include nm-setting-wireless.h instead.
-#include "libnm-core-public/nm-setting-wireless.h"
-
 #include "nm-wifi-utils-nl80211.h"
 
 #include <sys/ioctl.h>
@@ -311,7 +308,7 @@ nl80211_get_wake_on_wlan_handler(struct nl_msg *msg, void *arg)
     //of this trigger
     //Look at /src/nm-manager.c "do_sleep_wake" for more info
     if (trig[NL80211_WOWLAN_TRIG_NET_DETECT])
-        *wowl |= NM_SETTING_WIRELESS_WAKE_ON_NET_DETECT;
+        *wowl |= _NM_SETTING_WIRELESS_WAKE_ON_WLAN_DETECT;
 
     return NL_SKIP;
 }
