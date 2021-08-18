@@ -12,8 +12,7 @@
 #include "macro-fundamental.h"
 
 // Laird:  address compiler warning
-#undef HAVE_WSTRINGOP_TRUNCATION
-
+#define HAVE_WSTRINGOP_TRUNCATION (__GNUC__ >= 8)
 #define _printf_(a, b) __attribute__((__format__(printf, a, b)))
 #ifdef __clang__
 #  define _alloc_(...)

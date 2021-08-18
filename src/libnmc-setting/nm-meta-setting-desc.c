@@ -4288,7 +4288,7 @@ _validate_fcn_frequency_list (const char *value, char **out_to_free, GError **er
             }
             v = end;
             if (0 == nm_utils_wifi_freq_to_channel (freq_int)) {
-                g_set_error (error, 1, 0, _("'%ld' is not a valid frequency"), freq_int);
+                g_set_error (error, 1, 0, _("'%" G_GUINT32_FORMAT "' is not a valid frequency"), freq_int);
                 return NULL;
             }
             numchan++;
