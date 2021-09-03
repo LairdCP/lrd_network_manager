@@ -1,7 +1,7 @@
 AC_PREREQ([2.63])
 
 dnl The Laird build number
-m4_define([LRD_BUILD_NUMBER], [7.0.0.602])
+m4_define([LRD_BUILD_NUMBER], [7.0.0.605])
 
 dnl The NM version number
 dnl
