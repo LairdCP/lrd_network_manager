@@ -1381,6 +1381,10 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig *         
         if (!nm_supplicant_config_add_option(self, "pairwise", "GCMP-256", -1, NULL, error)
             || !nm_supplicant_config_add_option(self, "group", "GCMP-256", -1, NULL, error))
             return FALSE;
+    } else if (nm_streq(key_mgmt, "wpa-eap-suite-b")) {
+        g_string_append(key_mgmt_conf, "WPA-EAP-SUITE-B");
+    } else if (nm_streq(key_mgmt, "cckm")) {
+        g_string_append(key_mgmt_conf, "CCKM");
     } else if (nm_streq (key_mgmt, "open")) {
         g_string_append(key_mgmt_conf, "OPEN");
         // wpa3-open: must use owe
