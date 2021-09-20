@@ -412,6 +412,7 @@ typedef enum { /*< underscore_name=nm_802_11_ap_security_flags, flags >*/
                NM_802_11_AP_SEC_KEY_MGMT_OWE             = 0x00000800,
                NM_802_11_AP_SEC_KEY_MGMT_OWE_TM          = 0x00001000,
                NM_802_11_AP_SEC_KEY_MGMT_EAP_SUITE_B_192 = 0x00002000,
+               NM_802_11_AP_SEC_KEY_MGMT_SUITE_B_192 = NM_802_11_AP_SEC_KEY_MGMT_EAP_SUITE_B_192,
                NM_802_11_AP_SEC_PAIR_CCMP_256        = 0x00010000,
                NM_802_11_AP_SEC_PAIR_GCMP_128        = 0x00020000,
                NM_802_11_AP_SEC_PAIR_GCMP_256        = 0x00040000,
