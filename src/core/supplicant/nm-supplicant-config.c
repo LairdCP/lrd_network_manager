@@ -1300,12 +1300,18 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig *         
         if (pmf != NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE)
             g_string_append(key_mgmt_conf, " WPA-PSK-SHA256");
 
+#if 1
+        // BZ19892 -- do not enable SAE for wpa-psk (except wpa3 sae-transition)
+        // makes behavior consistent with previous release
+        // use wifi-sec.key-mgmt "sae" if needed
+#else
         if (_get_capability(priv, NM_SUPPL_CAP_TYPE_SAE) &&
             pmf != NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE) {
             g_string_append(key_mgmt_conf, " SAE");
             if (ft != NM_SETTING_WIRELESS_SECURITY_FT_DISABLE)
                 g_string_append(key_mgmt_conf, " FT-SAE");
         }
+#endif
 
         // wpa3-psk: must also enable sae
         if (wpa3_only)
