@@ -383,6 +383,8 @@ typedef enum { /*< underscore_name=nm_802_11_ap_flags, flags >*/
  * transition mode is supported. Since: 1.26.
  * @NM_802_11_AP_SEC_KEY_MGMT_EAP_SUITE_B_192: WPA3 Enterprise Suite-B 192 bit mode
  * is supported. Since: 1.30.
+ * @NM_802_11_AP_SEC_KEY_MGMT_SUITE_B_192: Same as NM_802_11_AP_SEC_KEY_MGMT_EAP_SUITE_B_192
+ * Laird addition for backwards compatibility
  * @NM_802_11_AP_SEC_KEY_MGMT_CCKM: CCKM authentication and key management
  * is supported
  * @NM_802_11_AP_SEC_KEY_MGMT_SUITE_B: Suite-B authentication and key management
