@@ -1384,9 +1384,13 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig *         
         if (ft != NM_SETTING_WIRELESS_SECURITY_FT_DISABLE
             && _get_capability(priv, NM_SUPPL_CAP_TYPE_SHA384))
             g_string_append(key_mgmt_conf, " FT-EAP-SHA384");
+#if 1
+        // BZ19994 -- pairwise/group are set below -- do not set here
+#else
         if (!nm_supplicant_config_add_option(self, "pairwise", "GCMP-256", -1, NULL, error)
             || !nm_supplicant_config_add_option(self, "group", "GCMP-256", -1, NULL, error))
             return FALSE;
+#endif
     } else if (nm_streq(key_mgmt, "wpa-eap-suite-b")) {
         g_string_append(key_mgmt_conf, "WPA-EAP-SUITE-B");
     } else if (nm_streq(key_mgmt, "cckm")) {
