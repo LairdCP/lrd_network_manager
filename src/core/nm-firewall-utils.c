@@ -749,9 +749,7 @@ _firewall_backend_detect(void)
     if (g_file_test(IPTABLES_PATH, G_FILE_TEST_IS_EXECUTABLE))
         return NM_FIREWALL_BACKEND_IPTABLES;
 
-    // Laird: Default to NONE if not found, particularly in case firewalld
-    //        is being utilized instead.
-    return NM_FIREWALL_BACKEND_NONE;
+    return NM_FIREWALL_BACKEND_NFTABLES;
 }
 
 NMFirewallBackend
