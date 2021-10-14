@@ -14,8 +14,9 @@ struct Opt {
     const char *         key;
     const char *const *  str_allowed;
     const NMSupplOptType type;
-    const guint32        int_low;  /* Inclusive */
-    const guint32        int_high; /* Inclusive; max length for strings */
+    // Laird: use signed gint32 type to allow for -1 value in ht40
+    const gint32        int_low;  /* Inclusive */
+    const gint32        int_high; /* Inclusive; max length for strings */
 };
 
 typedef gboolean (*validate_func)(const struct Opt *, const char *, const guint32);
