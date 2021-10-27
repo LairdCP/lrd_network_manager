@@ -3386,6 +3386,7 @@ build_supplicant_config(NMDeviceWifi *self,
 
         s_8021x = nm_connection_get_setting_802_1x(connection);
         if (!nm_supplicant_config_add_setting_wireless_security(config,
+                                                                s_wireless,
                                                                 s_wireless_sec,
                                                                 s_8021x,
                                                                 con_uuid,

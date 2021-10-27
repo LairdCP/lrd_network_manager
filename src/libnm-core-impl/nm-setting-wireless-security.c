@@ -1007,7 +1007,10 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
     wpa3_only = has_proto_only(self, "wpa3");
 
     if (wpa3_only) {
-        if (g_strcmp0 (wifi_mode, NM_SETTING_WIRELESS_MODE_INFRA) != 0) {
+        if (g_strcmp0 (wifi_mode, NM_SETTING_WIRELESS_MODE_INFRA) != 0 &&
+			g_strcmp0 (wifi_mode, NM_SETTING_WIRELESS_MODE_AP) != 0
+			)
+		{
             g_set_error (error,
                          NM_CONNECTION_ERROR,
                          NM_CONNECTION_ERROR_INVALID_PROPERTY,
@@ -1097,6 +1100,9 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
         if (nm_streq(priv->key_mgmt, "ieee8021x") || nm_streq(priv->key_mgmt, "wpa-eap")
             || nm_streq(priv->key_mgmt, "wpa-eap-suite-b-192")) {
             /* Need an 802.1x setting too */
+			if (g_strcmp0 (wifi_mode, NM_SETTING_WIRELESS_MODE_AP) == 0) {
+				// AP mode -- 802.1x settings set via ap-config-file
+			} else
             if (connection && !nm_connection_get_setting_802_1x(connection)) {
                 g_set_error(error,
                             NM_CONNECTION_ERROR,

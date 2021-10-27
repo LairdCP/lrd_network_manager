@@ -42,6 +42,7 @@ static const struct Opt opt_table[] = {
     OPT_BYTES("altsubject_match", 0),
     OPT_BYTES("altsubject_match2", 0),
     OPT_BYTES("anonymous_identity", 0),
+    OPT_BYTES("ap_config_file", 65536),
     OPT_KEYWORD("auth_alg", NM_MAKE_STRV("OPEN", "SHARED", "LEAP", )),
     OPT_BYTES("bgscan", 0),
     OPT_KEYWORD("bssid", NULL),

@@ -59,7 +59,8 @@ NM_GOBJECT_PROPERTIES_DEFINE(NMSettingWireless,
                              PROP_WAKE_ON_WLAN,
                              PROP_DMS,
                              PROP_ACS,
-                             PROP_AP_ISOLATION, );
+                             PROP_AP_ISOLATION,
+                             PROP_AP_CONFIG_FILE, );
 
 typedef struct {
     GBytes *                  ssid;
@@ -94,6 +95,7 @@ typedef struct {
     guint32 dms;
     guint32 acs;
     char *channel_width;
+	char *ap_config_file;
 
     guint32                   wowl;
     bool                      hidden : 1;
@@ -1196,6 +1198,21 @@ nm_setting_wireless_get_dms (NMSettingWireless *setting)
 }
 
 /**
+ * nm_setting_wireless_get_ap_config_file:
+ * @setting: the #NMSettingWireless
+ *
+ * Returns: the #NMSettingWireless:hostap config file of the
+ * setting
+ **/
+const char *
+nm_setting_wireless_get_ap_config_file (NMSettingWireless *setting)
+{
+	g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), NULL);
+
+	return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->ap_config_file;
+}
+
+/**
  * nm_setting_wireless_get_acs:
  * @setting: the #NMSettingWireless
  *
@@ -1865,6 +1882,9 @@ get_property(GObject *object, guint prop_id, GValue *value, GParamSpec *pspec)
     case PROP_ACS:
         g_value_set_uint (value, nm_setting_wireless_get_acs (setting));
         break;
+    case PROP_AP_CONFIG_FILE:
+        g_value_set_string (value, nm_setting_wireless_get_ap_config_file (setting));
+	    break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
         break;
@@ -2025,6 +2045,10 @@ set_property(GObject *object, guint prop_id, const GValue *value, GParamSpec *ps
         break;
     case PROP_ACS:
         priv->acs = g_value_get_uint (value);
+        break;
+    case PROP_AP_CONFIG_FILE:
+        g_free (priv->ap_config_file);
+        priv->ap_config_file = g_value_dup_string (value);
         break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
@@ -2813,6 +2837,19 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
                             G_PARAM_CONSTRUCT |
                             NM_SETTING_PARAM_FUZZY_IGNORE |
                             G_PARAM_STATIC_STRINGS);
+
+    /**
+     * NMSettingWireless:ap_config_file:
+     *
+     * Hostap configuration template file used for 802.1x AP modes with Summit supplicant.
+     *
+     * Since: 1.xx
+     **/
+    obj_properties[PROP_AP_CONFIG_FILE] =
+         g_param_spec_string (NM_SETTING_WIRELESS_AP_CONFIG_FILE, "", "",
+                              NULL,
+                              G_PARAM_READWRITE |
+                              G_PARAM_STATIC_STRINGS);
 
     /* Compatibility for deprecated property */
     /* ---ifcfg-rh---
