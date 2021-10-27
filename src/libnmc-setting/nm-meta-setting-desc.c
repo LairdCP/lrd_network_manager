@@ -7873,6 +7873,9 @@ static const NMMetaPropertyInfo *const property_infos_WIRELESS[] = {
     PROPERTY_INFO_WITH_DESC (NM_SETTING_WIRELESS_ACS,
         .property_type =                &_pt_gobject_int,
     ),
+    PROPERTY_INFO_WITH_DESC (NM_SETTING_WIRELESS_AP_CONFIG_FILE,
+        .property_type =                &_pt_gobject_string,
+    ),
     NULL
 };
 

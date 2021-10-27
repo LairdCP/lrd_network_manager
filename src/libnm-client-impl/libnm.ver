@@ -1825,4 +1825,5 @@ global:
 	nm_ip_route_dup;
 	nm_setting_match_new;
 	nm_setting_wired_get_accept_all_mac_addresses;
+	nm_setting_wireless_ap_config_file;
 } libnm_1_30_0;

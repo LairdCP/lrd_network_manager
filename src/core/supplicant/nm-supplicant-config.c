@@ -760,6 +760,17 @@ nm_supplicant_config_add_setting_wireless(NMSupplicantConfig *self,
                                                 NULL,
                                                 error))
             return FALSE;
+
+        if (_get_capability_laird(priv)) {
+            const char *ap_config_file;
+            ap_config_file = nm_setting_wireless_get_ap_config_file(setting);
+            if (ap_config_file) {
+                if (!nm_supplicant_config_add_option (self,
+                                                 "ap_config_file", ap_config_file,
+                                                 -1, NULL, error))
+                    return FALSE;
+            }
+        }
     }
 
     if (is_mesh) {
@@ -1181,6 +1192,7 @@ has_proto_only (NMSettingWirelessSecurity *s_wsec, const char *proto)
 
 gboolean
 nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig *          self,
+                                                   NMSettingWireless *           setting_wireless,
                                                    NMSettingWirelessSecurity *   setting,
                                                    NMSetting8021x *              setting_8021x,
                                                    const char *                  con_uuid,
@@ -1196,11 +1208,17 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig *         
     const char *                  psk;
     gboolean                      set_pmf, wps_disabled;
     gboolean                      wpa3_only;
+    const char *mode;
+    gboolean is_ap;
 
     g_return_val_if_fail(NM_IS_SUPPLICANT_CONFIG(self), FALSE);
+	g_return_val_if_fail (setting_wireless != NULL, FALSE);
     g_return_val_if_fail(setting != NULL, FALSE);
     g_return_val_if_fail(con_uuid != NULL, FALSE);
     g_return_val_if_fail(!error || !*error, FALSE);
+
+    mode = nm_setting_wireless_get_mode (setting_wireless);
+    is_ap = (mode && !strcmp (mode, "ap")) ? TRUE : FALSE;
 
     wpa3_only = has_proto_only(setting, "wpa3");
 
@@ -1631,6 +1649,16 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig *         
     } else {
         /* 802.1x for Dynamic WEP and WPA-Enterprise */
         if (NM_IN_STRSET(key_mgmt, "ieee8021x", "wpa-eap", "cckm", "wpa-eap-suite-b", "wpa-eap-suite-b-192")) {
+            if (is_ap && _get_capability_laird(priv)) {
+                ; // ap mode: summit supplicant support with ap-config-file
+                if (!strcmp (key_mgmt, "cckm"))
+                {
+                    // ap mode: cckm is not allowed
+                    g_set_error (error, NM_SUPPLICANT_ERROR, NM_SUPPLICANT_ERROR_CONFIG,
+                                 "Invalid key-mgmt \"%s\" for AP mode", key_mgmt);
+                    return FALSE;
+                }
+            } else
             if (!setting_8021x) {
                 g_set_error(error,
                             NM_SUPPLICANT_ERROR,
@@ -1650,6 +1678,9 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig *         
             } else {
                 priv->flags1x.ca_cert_check = FALSE;
             }
+            if (is_ap && _get_capability_laird(priv)) {
+                ; // ap mode: summit supplicant support with ap-config-file
+            } else
             if (!nm_supplicant_config_add_setting_8021x(self,
                                                         setting_8021x,
                                                         con_uuid,
