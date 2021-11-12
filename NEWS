@@ -1,3 +1,55 @@
+================================================
+NetworkManager-1.32.12
+Overview of changes since NetworkManager-1.32.10
+================================================
+
+* Fix wrong order of addresses when restarting NetworkManager.
+* Preserve the IPv6 ff00::/8 route added by kernel in the local table,
+  necessary for multicast communication.
+* Fix emitting the signal for changed metered status of devices.
+* Fix applying the ethtool autonegotiation and speed settings.
+* initrd: fix crash parsing plain '=' without key.
+* cloud-setup: use suppress_prefixlength rule to honor
+  non-default-routes in the main table.
+
+===============================================
+NetworkManager-1.32.10
+Overview of changes since NetworkManager-1.32.8
+===============================================
+
+* core: fix the order of IPv6 addresses changing on service restart.
+* initrd: add command line option to configure link autonegotiation
+  and speed.
+* ifcfg-rh: fix crash when parsing invalid DNS address.
+* ifcfg-rh: extend ifup/ifdown scripts to work with connection profile
+  names.
+* udev: also react to "move" (and "change") udev actions in our rules.
+
+===============================================
+NetworkManager-1.32.8
+Overview of changes since NetworkManager-1.32.6
+===============================================
+
+* firewalld: configure zones on "Reloaded" signal.
+* core: fix wrong MTU for bridge interfaces.
+* cloud-setup: fix gateway address for Aliyun cloud.
+
+===============================================
+NetworkManager-1.32.6
+Overview of changes since NetworkManager-1.32.4
+===============================================
+
+* core: fix adding stale local routes when address changes.
+* initrd: tag generated profiles with origin in user data.
+* core: introduce "allowed-connections" option to disallow
+  profiles on a device. This allows to filter out profiles
+  that originate from initrd.
+* core: introduce "keep-configuration" device option to forcefully
+  activate a profile on start.
+* dhcp: handle filename/bootfile_name DHCP option and write it to
+  device state file for initrd/kickstart.
+* initrd: add "ib.pkey=" command line option
+
 ===============================================
 NetworkManager-1.32.4
 Overview of changes since NetworkManager-1.32.2

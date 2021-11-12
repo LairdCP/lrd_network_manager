@@ -7239,6 +7239,16 @@ _get_maybe_ipv6_disabled(NMDevice *self)
     return (nm_platform_sysctl_get_int32(platform, NMP_SYSCTL_PATHID_ABSOLUTE(path), 0) == 0);
 }
 
+/*
+ * nm_device_generate_connection:
+ *
+ * Generates a connection from an existing interface.
+ *
+ * If the device doesn't have an IP configuration and it's not a port or a
+ * controller, then no connection gets generated and the function returns
+ * %NULL. In such case, @maybe_later is set to %TRUE if a connection can be
+ * generated later when an IP address is assigned to the interface.
+ */
 NMConnection *
 nm_device_generate_connection(NMDevice *self,
                               NMDevice *master,
@@ -7495,6 +7505,8 @@ check_connection_compatible(NMDevice *self, NMConnection *connection, GError **e
     gs_free char *        conn_iface = NULL;
     NMDeviceClass *       klass;
     NMSettingMatch *      s_match;
+    const GSList *        specs;
+    gboolean              has_match = FALSE;
 
     klass = NM_DEVICE_GET_CLASS(self);
     if (klass->connection_type_check_compatible) {
@@ -7571,6 +7583,15 @@ check_connection_compatible(NMDevice *self, NMConnection *connection, GError **e
         }
     }
 
+    specs =
+        nm_config_data_get_device_allowed_connections_specs(NM_CONFIG_GET_DATA, self, &has_match);
+    if (has_match && !nm_utils_connection_match_spec_list(connection, specs, FALSE)) {
+        nm_utils_error_set_literal(error,
+                                   NM_UTILS_ERROR_CONNECTION_AVAILABLE_DISALLOWED,
+                                   "device configuration doesn't allow this connection");
+        return FALSE;
+    }
+
     return TRUE;
 }
 
@@ -7637,7 +7658,7 @@ nm_device_check_slave_connection_compatible(NMDevice *self, NMConnection *slave)
  *
  * Returns: %TRUE if the device is capable of assuming connections, %FALSE if not
  */
-static gboolean
+gboolean
 nm_device_can_assume_connections(NMDevice *self)
 {
     return !!NM_DEVICE_GET_CLASS(self)->update_connection;
@@ -10661,10 +10682,30 @@ _commit_mtu(NMDevice *self, const NMIP4Config *config)
         }
     }
 
+#define _IP6_MTU_SYS()                                                                         \
+    ({                                                                                         \
+        if (!ip6_mtu_sysctl.initialized) {                                                     \
+            ip6_mtu_sysctl.value       = nm_device_sysctl_ip_conf_get_int_checked(self,        \
+                                                                            AF_INET6,    \
+                                                                            "mtu",       \
+                                                                            10,          \
+                                                                            0,           \
+                                                                            G_MAXUINT32, \
+                                                                            0);          \
+            ip6_mtu_sysctl.initialized = TRUE;                                                 \
+        }                                                                                      \
+        ip6_mtu_sysctl.value;                                                                  \
+    })
+
     if (mtu_desired && NM_DEVICE_GET_CLASS(self)->mtu_force_set && !priv->mtu_force_set_done) {
         priv->mtu_force_set_done = TRUE;
-
         if (mtu_desired == mtu_plat) {
+            if (!priv->mtu_initial && !priv->ip6_mtu_initial) {
+                /* before touching any of the MTU parameters, record the
+                 * original setting to restore on deactivation. */
+                priv->mtu_initial     = mtu_plat;
+                priv->ip6_mtu_initial = _IP6_MTU_SYS();
+            }
             mtu_plat--;
             if (NM_DEVICE_GET_CLASS(self)->set_platform_mtu(self, mtu_desired - 1)) {
                 _LOGD(LOGD_DEVICE, "mtu: force-set MTU to %u", mtu_desired - 1);
@@ -10683,20 +10724,6 @@ _commit_mtu(NMDevice *self, const NMIP4Config *config)
           ip6_mtu == ip6_mtu_orig ? "" : nm_sprintf_buf(sbuf2, " (was %u)", (guint) ip6_mtu_orig),
           ifindex);
 
-#define _IP6_MTU_SYS()                                                                         \
-    ({                                                                                         \
-        if (!ip6_mtu_sysctl.initialized) {                                                     \
-            ip6_mtu_sysctl.value       = nm_device_sysctl_ip_conf_get_int_checked(self,        \
-                                                                            AF_INET6,    \
-                                                                            "mtu",       \
-                                                                            10,          \
-                                                                            0,           \
-                                                                            G_MAXUINT32, \
-                                                                            0);          \
-            ip6_mtu_sysctl.initialized = TRUE;                                                 \
-        }                                                                                      \
-        ip6_mtu_sysctl.value;                                                                  \
-    })
     if ((mtu_desired && mtu_desired != mtu_plat) || (ip6_mtu && ip6_mtu != _IP6_MTU_SYS())) {
         gboolean anticipated_failure = FALSE;
 

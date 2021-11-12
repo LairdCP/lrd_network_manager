@@ -439,6 +439,7 @@ reader_parse_ip(Reader *reader, const char *sysfs_dir, char *argument)
                          "none",
                          "off",
                          "dhcp",
+                         "single-dhcp",
                          "on"
                          "any",
                          "dhcp6",
@@ -604,7 +605,7 @@ reader_parse_ip(Reader *reader, const char *sysfs_dir, char *argument)
                          NM_SETTING_IP4_CONFIG_METHOD_DISABLED,
                          NULL);
         }
-    } else if (nm_streq0(kind, "dhcp")) {
+    } else if (NM_IN_STRSET(kind, "dhcp", "single-dhcp")) {
         g_object_set(s_ip4,
                      NM_SETTING_IP_CONFIG_METHOD,
                      NM_SETTING_IP4_CONFIG_METHOD_AUTO,
@@ -916,6 +917,56 @@ reader_parse_vlan(Reader *reader, char *argument)
 }
 
 static void
+reader_parse_ib_pkey(Reader *reader, char *argument)
+{
+    NMConnection *       connection;
+    NMSettingInfiniband *s_ib;
+    char *               ifname;
+    gs_free char *       parent = NULL;
+    char *               pkey;
+    gint64               pkey_int;
+
+    /* At the moment we only support ib.pkey=<parent>.<pkey>;
+     * in the future we want to possibly support other options:
+     * ib.pkey=<parent>.<pkey>:<option>:...
+     */
+    ifname = get_word(&argument, ':');
+    if (!ifname) {
+        _LOGW(LOGD_CORE, "ib.pkey= without argument");
+        return;
+    }
+
+    parent = g_strdup(ifname);
+    pkey   = strchr(parent, '.');
+    if (!pkey) {
+        _LOGW(LOGD_CORE, "No pkey found for '%s'", ifname);
+        return;
+    }
+
+    *pkey = '\0';
+    pkey++;
+
+    pkey_int = _nm_utils_ascii_str_to_int64(pkey, 16, 0, 0xFFFF, -1);
+    if (pkey_int == -1) {
+        _LOGW(LOGD_CORE, "Invalid pkey '%s'", pkey);
+        return;
+    }
+
+    connection = reader_get_connection(reader, ifname, NM_SETTING_INFINIBAND_SETTING_NAME, TRUE);
+
+    s_ib = nm_connection_get_setting_infiniband(connection);
+    g_object_set(s_ib,
+                 NM_SETTING_INFINIBAND_PARENT,
+                 parent,
+                 NM_SETTING_INFINIBAND_P_KEY,
+                 (int) pkey_int,
+                 NULL);
+
+    if (argument && *argument)
+        _LOGW(LOGD_CORE, "Ignoring extra: '%s' for ib.pkey=", argument);
+}
+
+static void
 reader_parse_rd_znet(Reader *reader, char *argument, gboolean net_ifnames)
 {
     const char *    nettype;
@@ -1003,6 +1054,65 @@ reader_parse_rd_znet(Reader *reader, char *argument, gboolean net_ifnames)
         } else
             nm_setting_wired_add_s390_option(s_wired, key, val);
     }
+}
+
+static void
+reader_parse_ethtool(Reader *reader, char *argument)
+{
+    const char *    interface   = NULL;
+    NMConnection *  connection  = NULL;
+    NMSettingWired *s_wired     = NULL;
+    const char *    autoneg_str = NULL;
+    gboolean        autoneg     = FALSE;
+    const char *    speed_str   = NULL;
+    guint           speed       = 0;
+
+    interface = get_word(&argument, ':');
+    if (!interface) {
+        _LOGW(LOGD_CORE, "Impossible to set rd.ethtool options: invalid format");
+        return;
+    }
+
+    if (!*argument) {
+        _LOGW(LOGD_CORE, "Could not find rd.ethtool options to set");
+        return;
+    }
+
+    connection = reader_get_connection(reader, interface, NM_SETTING_WIRED_SETTING_NAME, TRUE);
+    s_wired    = nm_connection_get_setting_wired(connection);
+
+    autoneg_str = get_word(&argument, ':');
+    if (autoneg_str) {
+        autoneg = _nm_utils_ascii_str_to_bool(autoneg_str, -1);
+        if (autoneg == -1)
+            _LOGW(LOGD_CORE,
+                  "Invalid value for rd.ethtool.autoneg, rd.ethtool.autoneg was not set");
+        else
+            g_object_set(s_wired, NM_SETTING_WIRED_AUTO_NEGOTIATE, autoneg, NULL);
+    }
+    if (!*argument)
+        return;
+
+    speed_str = get_word(&argument, ':');
+    if (speed_str) {
+        speed = _nm_utils_ascii_str_to_int64(speed_str, 10, 0, G_MAXUINT32, -1);
+        if (speed == -1)
+            _LOGW(LOGD_CORE, "Invalid value for rd.ethtool.speed, rd.ethtool.speed was not set");
+        else
+            g_object_set(s_wired,
+                         NM_SETTING_WIRED_SPEED,
+                         speed,
+                         NM_SETTING_WIRED_DUPLEX,
+                         "full",
+                         NULL);
+    }
+
+    if (!*argument)
+        return;
+    else
+        _LOGW(LOGD_CORE,
+              "Invalid extra argument '%s' for rd.ethtool, this value was not set",
+              argument);
 }
 
 static void
@@ -1111,7 +1221,9 @@ nmi_cmdline_reader_parse(const char *       sysfs_dir,
 
         tag = get_word(&argument, '=');
 
-        if (nm_streq(tag, "net.ifnames"))
+        if (!tag) {
+            /* pass */
+        } else if (nm_streq(tag, "net.ifnames"))
             net_ifnames = !nm_streq(argument, "0");
         else if (nm_streq(tag, "rd.peerdns"))
             reader->ignore_auto_dns = !_nm_utils_ascii_str_to_bool(argument, TRUE);
@@ -1145,7 +1257,9 @@ nmi_cmdline_reader_parse(const char *       sysfs_dir,
         argument       = argument_clone;
 
         tag = get_word(&argument, '=');
-        if (nm_streq(tag, "ip"))
+        if (!tag) {
+            /* pass */
+        } else if (nm_streq(tag, "ip"))
             reader_parse_ip(reader, sysfs_dir, argument);
         else if (nm_streq(tag, "rd.route")) {
             if (!routes)
@@ -1159,6 +1273,8 @@ nmi_cmdline_reader_parse(const char *       sysfs_dir,
             reader_parse_master(reader, argument, NM_SETTING_TEAM_SETTING_NAME, NULL);
         else if (nm_streq(tag, "vlan"))
             reader_parse_vlan(reader, argument);
+        else if (nm_streq(tag, "ib.pkey"))
+            reader_parse_ib_pkey(reader, argument);
         else if (nm_streq(tag, "bootdev")) {
             g_free(bootdev);
             bootdev = g_strdup(argument);
@@ -1184,7 +1300,8 @@ nmi_cmdline_reader_parse(const char *       sysfs_dir,
         } else if (g_ascii_strcasecmp(tag, "BOOTIF") == 0) {
             nm_clear_g_free(&bootif_val);
             bootif_val = g_strdup(argument);
-        }
+        } else if (nm_streq(tag, "rd.ethtool"))
+            reader_parse_ethtool(reader, argument);
     }
 
     for (i = 0; i < reader->vlan_parents->len; i++) {
