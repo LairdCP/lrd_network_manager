@@ -38,7 +38,9 @@ typedef gboolean (*validate_func)(const struct Opt *, const char *, const guint3
         .key = _key, .type = NM_SUPPL_OPT_TYPE_KEYWORD, .str_allowed = _str_allowed, \
     }
 
+// opt_table entries must be kept sorted for binary search.
 static const struct Opt opt_table[] = {
+    OPT_INT("acs", 0, 1),
     OPT_BYTES("altsubject_match", 0),
     OPT_BYTES("altsubject_match2", 0),
     OPT_BYTES("anonymous_identity", 0),
@@ -53,7 +55,6 @@ static const struct Opt opt_table[] = {
     OPT_BYTES("client_cert", 65536),
     OPT_BYTES("client_cert2", 65536),
     OPT_INT("dms", 0, 6),
-    OPT_INT("acs", 0, 1),
     OPT_BYTES("domain_match", 0),
     OPT_BYTES("domain_match2", 0),
     OPT_BYTES("domain_suffix_match", 0),
