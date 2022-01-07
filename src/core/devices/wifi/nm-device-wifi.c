@@ -2160,6 +2160,19 @@ _scan_kickoff(NMDeviceWifi *self)
         return;
     }
 
+    ssids = _scan_request_ssids_build_hidden(self, now_msec, &has_hidden_profiles, &blss);
+
+    // set max_scan_interval based on profiles
+    if (blss.max_scan_interval) {
+        if (blss.max_scan_interval < SCAN_INTERVAL_SEC_MIN)
+            blss.max_scan_interval = SCAN_INTERVAL_SEC_MIN;
+        else if (blss.max_scan_interval > SCAN_INTERVAL_SEC_MAX)
+            blss.max_scan_interval = SCAN_INTERVAL_SEC_MAX;
+        priv->max_scan_interval = blss.max_scan_interval;
+    } else {
+        priv->max_scan_interval = SCAN_INTERVAL_SEC_MAX;
+    }
+
     if (priv->scan_explicit_requested) {
         if (!priv->scan_explicit_allowed) {
             _LOGT_scan("kickoff: don't scan (explicit scan requested but not allowed)");
@@ -2192,23 +2205,13 @@ _scan_kickoff(NMDeviceWifi *self)
             return;
         }
 
+        // Laird: use profile wifi.max-scan-interval
         priv->scan_periodic_interval_sec =
             NM_CLAMP(((int) priv->scan_periodic_interval_sec) * 3 / 2,
                      SCAN_INTERVAL_SEC_MIN,
-                     SCAN_INTERVAL_SEC_MAX);
+                     priv->max_scan_interval);
         priv->scan_periodic_next_msec = now_msec + 1000 * priv->scan_periodic_interval_sec;
     }
-
-    ssids = _scan_request_ssids_build_hidden(self, now_msec, &has_hidden_profiles, &blss);
-
-    // set max_scan_interval based on profiles
-    if (blss.max_scan_interval) {
-        if (blss.max_scan_interval < SCAN_INTERVAL_SEC_MIN)
-            blss.max_scan_interval = SCAN_INTERVAL_SEC_MIN;
-        else if (blss.max_scan_interval > SCAN_INTERVAL_SEC_MAX)
-            blss.max_scan_interval = 0;
-    }
-    priv->max_scan_interval = (guint8)blss.max_scan_interval;
 
     if (has_hidden_profiles) {
         if (priv->hidden_probe_scan_warn) {
