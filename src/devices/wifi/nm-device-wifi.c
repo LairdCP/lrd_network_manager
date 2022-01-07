@@ -344,7 +344,7 @@ supplicant_interface_release (NMDeviceWifi *self)
 	nm_clear_g_source (&priv->pending_scan_id);
 
 	/* Reset the scan interval to be pretty frequent when disconnected */
-	priv->scan_interval = SCAN_INTERVAL_MIN + SCAN_INTERVAL_STEP;
+	priv->scan_interval = SCAN_INTERVAL_MIN;
 	_LOGD (LOGD_WIFI, "wifi-scan: reset interval to %u seconds",
 	       (unsigned) priv->scan_interval);
 
@@ -1907,8 +1907,8 @@ schedule_scan (NMDeviceWifi *self, gboolean backoff)
 					priv->scan_interval = MIN(priv->scan_interval,
 											  priv->max_scan_interval);
 				}
-				/* Ensure the scan interval will never be less than 20s... */
-				priv->scan_interval = MAX(priv->scan_interval, SCAN_INTERVAL_MIN + SCAN_INTERVAL_STEP);
+				/* Ensure the scan interval will never be less than 3s... */
+				priv->scan_interval = MAX(priv->scan_interval, SCAN_INTERVAL_MIN);
 				/* ... or more than 120s */
 				priv->scan_interval = MIN(priv->scan_interval, SCAN_INTERVAL_MAX);
 		} else if (!backoff && (priv->scan_interval == 0)) {
