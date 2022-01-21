@@ -744,10 +744,6 @@ nm_supplicant_config_add_setting_wireless (NMSupplicantConfig * self,
 		if (!nm_supplicant_config_add_option (self, "mode", "2", -1, NULL, error))
 			return FALSE;
 
-		// LAIRD: disable wps for ap mode
-		if (!nm_supplicant_config_add_option (self, "wps_disabled", "1", -1, NULL, error))
-			return FALSE;
-
 		if (   nm_setting_wireless_get_hidden (setting)
 		    && !nm_supplicant_config_add_option (self,
 		                                         "ignore_broadcast_ssid", "1",
@@ -1551,6 +1547,22 @@ nm_supplicant_config_add_setting_wireless_security (NMSupplicantConfig *self,
 				if (!nm_supplicant_config_add_option (self, "proactive_key_caching", "1", -1, NULL, error))
 					return FALSE;
 			}
+		}
+	}
+
+	{
+		// LAIRD: default wifi-sec.wps-method DISABLED
+		gboolean wps_disabled;
+		NMSettingWirelessSecurityWpsMethod wps_method;
+		wps_method = nm_setting_wireless_security_get_wps_method(setting);
+		if (wps_method == NM_SETTING_WIRELESS_SECURITY_WPS_METHOD_DEFAULT)
+			wps_method = NM_SETTING_WIRELESS_SECURITY_WPS_METHOD_DISABLED;
+
+		wps_disabled = (wps_method
+                        == NM_SETTING_WIRELESS_SECURITY_WPS_METHOD_DISABLED);
+		if (wps_disabled) {
+			if (!nm_supplicant_config_add_option(self, "wps_disabled", "1", 1, NULL, error))
+				return FALSE;
 		}
 	}
 

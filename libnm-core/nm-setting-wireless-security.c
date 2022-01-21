@@ -2045,6 +2045,7 @@ nm_setting_wireless_security_class_init (NMSettingWirelessSecurityClass *klass)
 	 * the Access Point capabilities.
 	 *
 	 * WPS can be disabled by setting this property to a value of 1.
+	 * LAIRD: default is now disabled
 	 *
 	 * Since: 1.10
 	 **/
