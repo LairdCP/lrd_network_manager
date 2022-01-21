@@ -3140,7 +3140,8 @@ handle_auth_or_fail(NMDeviceWifi *self, NMActRequest *req, gboolean new_secrets)
 
     /* Negotiate the WPS method */
     if (wps_method == NM_SETTING_WIRELESS_SECURITY_WPS_METHOD_DEFAULT)
-        wps_method = NM_SETTING_WIRELESS_SECURITY_WPS_METHOD_AUTO;
+        // LAIRD: wifi-sec.wps-method default DISABLED (not AUTO)
+        wps_method = NM_SETTING_WIRELESS_SECURITY_WPS_METHOD_DISABLED;
 
     if (wps_method & NM_SETTING_WIRELESS_SECURITY_WPS_METHOD_AUTO && priv->current_ap) {
         /* Determine the method to use from AP capabilities. */
