@@ -11,7 +11,7 @@ dnl    "shared/nm-version-macros.h.in"
 dnl  - update number in meson.build
 m4_define([nm_major_version], [1])
 m4_define([nm_minor_version], [32])
-m4_define([nm_micro_version], [0])
+m4_define([nm_micro_version], [12])
 m4_define([nm_version],
           [LRD_BUILD_NUMBER-nm_major_version.nm_minor_version.nm_micro_version])
 

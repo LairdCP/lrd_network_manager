@@ -1827,3 +1827,9 @@ global:
 	nm_setting_wired_get_accept_all_mac_addresses;
 	nm_setting_wireless_ap_config_file;
 } libnm_1_30_0;
+
+libnm_1_32_4 {
+global:
+	nm_setting_ip_config_get_required_timeout;
+	nm_setting_wireless_ap_config_file;
+} libnm_1_32_0;

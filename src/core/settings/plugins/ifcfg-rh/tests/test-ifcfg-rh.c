@@ -181,8 +181,20 @@ _assert_expected_content(NMConnection *connection, const char *filename, const c
     }
 
     if (len_expectd != len_written || memcmp(content_expectd, content_written, len_expectd) != 0) {
-        if (g_getenv("NMTST_IFCFG_RH_UPDATE_EXPECTED")
-            || nm_streq0(g_getenv("NM_TEST_REGENERATE"), "1")) {
+        static int rewrite_static = 0;
+        int        rewrite;
+
+        rewrite = g_atomic_int_get(&rewrite_static);
+        if (G_UNLIKELY(rewrite == 0)) {
+            rewrite = (g_getenv("NMTST_IFCFG_RH_UPDATE_EXPECTED")
+                       || nm_streq0(g_getenv("NM_TEST_REGENERATE"), "1"))
+                          ? 1
+                          : -1;
+            if (!g_atomic_int_compare_and_exchange(&rewrite_static, 0, rewrite))
+                g_assert_not_reached();
+        }
+
+        if (rewrite > 0) {
             if (uuid) {
                 gs_free char *search = g_strdup_printf("UUID=%s\n", uuid);
                 const char *  s;
@@ -210,15 +222,16 @@ _assert_expected_content(NMConnection *connection, const char *filename, const c
             success = g_file_set_contents(expected, content_written, len_written, &error);
             nmtst_assert_success(success, error);
         } else {
-            g_error("The content of \"%s\" (%zu) differs from \"%s\" (%zu). Set "
-                    "NMTST_IFCFG_RH_UPDATE_EXPECTED=yes to update the files "
-                    "inplace\n\n>>>%s<<<\n\n>>>%s<<<\n",
-                    filename,
-                    len_written,
-                    expected,
-                    len_expectd,
-                    content_written,
-                    content_expectd);
+            g_error(
+                "The content of \"%s\" (%zu) differs from \"%s\" (%zu). Set "
+                "NMTST_IFCFG_RH_UPDATE_EXPECTED=yes (or NM_TEST_REGENERATE=1) to update the files "
+                "inplace\n\n>>>%s<<<\n\n>>>%s<<<\n",
+                filename,
+                len_written,
+                expected,
+                len_expectd,
+                content_written,
+                content_expectd);
         }
     }
 }
@@ -360,8 +373,10 @@ _writer_new_connection_reread(NMConnection * connection,
 
     if (out_filename)
         *out_filename = filename;
-    else
+    else {
+        nmtst_file_unlink(filename);
         g_free(filename);
+    }
 }
 
 static void
@@ -723,10 +738,13 @@ test_read_variables_corner_cases(void)
     const char *         mac;
     char                 expected_mac_address[ETH_ALEN] = {0x00, 0x16, 0x41, 0x11, 0x22, 0x33};
 
+    NMTST_EXPECT_NM_WARN("*key NAME is badly quoted and is treated as \"\"*");
+    NMTST_EXPECT_NM_WARN("*key ZONE is badly quoted and is treated as \"\"*");
     connection = _connection_from_file(TEST_IFCFG_DIR "/ifcfg-test-variables-corner-cases-1",
                                        NULL,
                                        TYPE_ETHERNET,
                                        NULL);
+    g_test_assert_expected_messages();
 
     /* ===== CONNECTION SETTING ===== */
     s_con = nm_connection_get_setting_connection(connection);
@@ -815,10 +833,12 @@ test_read_unrecognized(void)
     gs_free char *       unhandled_spec     = NULL;
     guint64              expected_timestamp = 0;
 
+    NMTST_EXPECT_NM_WARN("*key NAME is badly quoted and is treated as \"\"*");
     connection = _connection_from_file(TEST_IFCFG_DIR "/ifcfg-test-unrecognized",
                                        NULL,
                                        NULL,
                                        &unhandled_spec);
+    g_test_assert_expected_messages();
     g_assert_cmpstr(unhandled_spec, ==, "unrecognized:mac:00:11:22:33");
 
     /* ===== CONNECTION SETTING ===== */
@@ -989,10 +1009,12 @@ test_read_wired_dhcp(void)
     char                 expected_mac_address[ETH_ALEN] = {0x00, 0x11, 0x22, 0x33, 0x44, 0xee};
     const char *         mac;
 
+    NMTST_EXPECT_NM_WARN("*key IPV6INIT is duplicated and the early occurrence ignored*");
     connection = _connection_from_file(TEST_IFCFG_DIR "/ifcfg-test-wired-dhcp",
                                        NULL,
                                        TYPE_ETHERNET,
                                        &unmanaged);
+    g_test_assert_expected_messages();
     g_assert(unmanaged == NULL);
 
     /* ===== CONNECTION SETTING ===== */
@@ -3568,10 +3590,12 @@ test_read_wifi_wpa_eap_tls(void)
     char *             unmanaged                 = NULL;
     const char *       expected_privkey_password = "test1";
 
+    NMTST_EXPECT_NM_WARN("*key ONBOOT is duplicated and the early occurrence ignored*");
     connection = _connection_from_file(TEST_IFCFG_DIR "/ifcfg-test-wifi-wpa-eap-tls",
                                        NULL,
                                        TYPE_ETHERNET,
                                        &unmanaged);
+    g_test_assert_expected_messages();
     g_assert(!unmanaged);
 
     /* ===== WIRELESS SETTING ===== */
@@ -3776,10 +3800,12 @@ test_read_wifi_wep_eap_ttls_chap(void)
     NMSetting8021x *           s_8021x;
     char *                     unmanaged = NULL;
 
+    NMTST_EXPECT_NM_WARN("*key ONBOOT is duplicated and the early occurrence ignored*");
     connection = _connection_from_file(TEST_IFCFG_DIR "/ifcfg-test-wifi-wep-eap-ttls-chap",
                                        NULL,
                                        TYPE_WIRELESS,
                                        &unmanaged);
+    g_test_assert_expected_messages();
     g_assert(!unmanaged);
 
     /* ===== WIRELESS SETTING ===== */
@@ -3931,6 +3957,76 @@ test_read_wired_unknown_ethtool_opt(void)
                     NM_SETTING_WIRED_WAKE_ON_LAN_ARP | NM_SETTING_WIRED_WAKE_ON_LAN_PHY
                         | NM_SETTING_WIRED_WAKE_ON_LAN_MAGIC);
     g_assert_cmpstr(nm_setting_wired_get_wake_on_lan_password(s_wired), ==, "00:11:22:33:44:55");
+}
+
+static void
+test_roundtrip_ethtool(void)
+{
+    gs_unref_object NMConnection *connection = NULL;
+    NMSetting *                   s_ethtool;
+    NMSetting *                   s_wired;
+
+    connection = nmtst_create_minimal_connection("test_roundtrip_ethtool",
+                                                 NULL,
+                                                 NM_SETTING_WIRED_SETTING_NAME,
+                                                 NULL);
+    _writer_new_connec_exp(connection,
+                           TEST_SCRATCH_DIR,
+                           TEST_IFCFG_DIR "/ifcfg-test_roundtrip_ethtool-1.cexpected",
+                           NULL);
+    g_clear_object(&connection);
+
+    connection = nmtst_create_minimal_connection("test_roundtrip_ethtool",
+                                                 NULL,
+                                                 NM_SETTING_WIRED_SETTING_NAME,
+                                                 NULL);
+    s_ethtool  = nm_setting_ethtool_new();
+    nm_connection_add_setting(connection, s_ethtool);
+    _writer_new_connec_exp(connection,
+                           TEST_SCRATCH_DIR,
+                           TEST_IFCFG_DIR "/ifcfg-test_roundtrip_ethtool-2.cexpected",
+                           NULL);
+    g_clear_object(&connection);
+
+    connection = nmtst_create_minimal_connection("test_roundtrip_ethtool",
+                                                 NULL,
+                                                 NM_SETTING_WIRED_SETTING_NAME,
+                                                 NULL);
+    s_wired    = nm_connection_get_setting(connection, NM_TYPE_SETTING_WIRED);
+    g_object_set(s_wired, NM_SETTING_WIRED_AUTO_NEGOTIATE, TRUE, NULL);
+    _writer_new_connec_exp(connection,
+                           TEST_SCRATCH_DIR,
+                           TEST_IFCFG_DIR "/ifcfg-test_roundtrip_ethtool-3.cexpected",
+                           NULL);
+    g_clear_object(&connection);
+
+    connection = nmtst_create_minimal_connection("test_roundtrip_ethtool",
+                                                 NULL,
+                                                 NM_SETTING_WIRED_SETTING_NAME,
+                                                 NULL);
+    s_ethtool  = nm_setting_ethtool_new();
+    nm_connection_add_setting(connection, s_ethtool);
+    nm_setting_option_set_boolean(s_ethtool, NM_ETHTOOL_OPTNAME_FEATURE_RX, TRUE);
+    _writer_new_connec_exp(connection,
+                           TEST_SCRATCH_DIR,
+                           TEST_IFCFG_DIR "/ifcfg-test_roundtrip_ethtool-4.cexpected",
+                           NULL);
+    g_clear_object(&connection);
+
+    connection = nmtst_create_minimal_connection("test_roundtrip_ethtool",
+                                                 NULL,
+                                                 NM_SETTING_WIRED_SETTING_NAME,
+                                                 NULL);
+    s_wired    = nm_connection_get_setting(connection, NM_TYPE_SETTING_WIRED);
+    g_object_set(s_wired, NM_SETTING_WIRED_AUTO_NEGOTIATE, TRUE, NULL);
+    s_ethtool = nm_setting_ethtool_new();
+    nm_connection_add_setting(connection, s_ethtool);
+    nm_setting_option_set_boolean(s_ethtool, NM_ETHTOOL_OPTNAME_FEATURE_RX, TRUE);
+    _writer_new_connec_exp(connection,
+                           TEST_SCRATCH_DIR,
+                           TEST_IFCFG_DIR "/ifcfg-test_roundtrip_ethtool-5.cexpected",
+                           NULL);
+    g_clear_object(&connection);
 }
 
 static void
@@ -10391,7 +10487,7 @@ _svUnescape(const char *str, char **to_free)
         str = (str_free = g_strdup(str));
     }
 
-    s = svUnescape(str, to_free);
+    s = svUnescape_full(str, to_free, FALSE);
     if (*to_free) {
         g_assert(s == *to_free);
         g_assert(s[0]);
@@ -10399,6 +10495,37 @@ _svUnescape(const char *str, char **to_free)
         g_assert(s == NULL || (!s[0] && (s < str || s > strchr(str, '\0')))
                  || (s[0] && s >= str && s <= strchr(str, '\0')));
     }
+
+    {
+        const char *  s2;
+        gs_free char *to_free2 = NULL;
+
+        gboolean is_utf8 = s && g_utf8_validate(s, -1, NULL);
+
+        s2 = svUnescape_full(str, &to_free2, TRUE);
+        if (NM_IN_STRSET(str, "$'\\U0x'", "$'\\x0'", "$'\\008'", "$'\\08'")) {
+            g_assert_cmpstr(s2, ==, NULL);
+            g_assert(!to_free2);
+            g_assert_cmpstr(s, ==, "");
+            g_assert(!*to_free);
+        } else if (NM_IN_STRSET(str, "$'x\\U0'")) {
+            g_assert_cmpstr(s2, ==, NULL);
+            g_assert(!to_free2);
+            g_assert_cmpstr(s, ==, "x");
+            g_assert(*to_free == s);
+        } else if (!is_utf8) {
+            g_assert(!s2);
+            g_assert(!to_free2);
+        } else if (!to_free2) {
+            g_assert_cmpstr(s, ==, s2);
+            g_assert(s == s2);
+        } else {
+            g_assert_cmpstr(s, ==, s2);
+            g_assert(s != s2);
+            g_assert(s2 == to_free2);
+        }
+    }
+
     return s;
 }
 
@@ -10580,6 +10707,9 @@ test_svUnescape(void)
         V1("\"\\'\"''", "\\'"),
         V0("\"b\\~b\" ", "b\\~b"),
         V1("\"b\\~b\"x", "b\\~bx"),
+
+        V0("$'x\\U0'", "x"),
+        V0("$'\\U0x'", ""),
     };
     const UnescapeTestData data_ansi[] = {
         /* strings inside $''. They cannot be compared directly, but must
@@ -10766,7 +10896,7 @@ test_write_unknown(gconstpointer test_data)
         _svGetValue_check(sv, "METRIC", NULL);
         _svGetValue_check(sv, "METRIC1", "");
         _svGetValue_check(sv, "METRIC2", "");
-        _svGetValue_check(sv, "METRIC3", "x");
+        _svGetValue_check(sv, "METRIC3", "");
 
         _svGetValue_check(sv, "IPADDR", "set-by-test1");
         _svGetValue_check(sv, "IPADDR2", "set-by-test2");
@@ -11632,6 +11762,8 @@ main(int argc, char **argv)
     g_test_add_func(TPATH "802-1x/ttls-eapgtc", test_read_802_1x_ttls_eapgtc);
     g_test_add_func(TPATH "802-1x/password_raw", test_read_write_802_1x_password_raw);
     g_test_add_func(TPATH "802-1x/tls-p12-no-client-cert", test_read_802_1x_tls_p12_no_client_cert);
+
+    g_test_add_func(TPATH "wired/roundtrip/ethtool", test_roundtrip_ethtool);
 
     g_test_add_data_func(TPATH "wired/read/aliases/good/0",
                          GINT_TO_POINTER(0),

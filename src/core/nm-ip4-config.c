@@ -163,6 +163,11 @@ _nm_ip_config_add_obj(NMDedupMultiIndex *          multi_idx,
                     obj_new_stackinit.ip_route.rt_source = obj_old->ip_route.rt_source;
                     modified                             = TRUE;
                 }
+                if (!obj_new->ip_route.is_external && obj_old->ip_route.is_external) {
+                    obj_new = nmp_object_stackinit_obj(&obj_new_stackinit, obj_new);
+                    obj_new_stackinit.ip_route.is_external = FALSE;
+                    modified                               = TRUE;
+                }
                 break;
             default:
                 nm_assert_not_reached();
@@ -507,22 +512,6 @@ _notify_routes(NMIP4Config *self)
 
 /*****************************************************************************/
 
-static int
-sort_captured_addresses(const CList *lst_a, const CList *lst_b, gconstpointer user_data)
-{
-    const NMPlatformIP4Address *addr_a =
-        NMP_OBJECT_CAST_IP4_ADDRESS(c_list_entry(lst_a, NMDedupMultiEntry, lst_entries)->obj);
-    const NMPlatformIP4Address *addr_b =
-        NMP_OBJECT_CAST_IP4_ADDRESS(c_list_entry(lst_b, NMDedupMultiEntry, lst_entries)->obj);
-
-    nm_assert(addr_a);
-    nm_assert(addr_b);
-
-    /* Primary addresses first */
-    return NM_FLAGS_HAS(addr_a->n_ifa_flags, IFA_F_SECONDARY)
-           - NM_FLAGS_HAS(addr_b->n_ifa_flags, IFA_F_SECONDARY);
-}
-
 NMIP4Config *
 nm_ip4_config_clone(const NMIP4Config *self)
 {
@@ -566,9 +555,6 @@ nm_ip4_config_capture(NMDedupMultiIndex *multi_idx, NMPlatform *platform, int if
                                        NULL))
                 nm_assert_not_reached();
         }
-        head_entry = nm_ip4_config_lookup_addresses(self);
-        nm_assert(head_entry);
-        nm_dedup_multi_head_entry_sort(head_entry, sort_captured_addresses, NULL);
         _notify_addresses(self);
     }
 
@@ -1976,6 +1962,26 @@ nm_ip_config_dump(const NMIPConfig *self, const char *detail, NMLogLevel level, 
 }
 
 /*****************************************************************************/
+
+gconstpointer
+nm_ip_config_find_first_address(const NMIPConfig *self, NMPlatformMatchFlags match_flag)
+{
+    NMDedupMultiIter           iter;
+    const NMPlatformIPAddress *address;
+
+    g_return_val_if_fail(NM_IS_IP_CONFIG(self), NULL);
+
+    nm_assert(!NM_FLAGS_ANY(
+        match_flag,
+        ~(NM_PLATFORM_MATCH_WITH_ADDRTYPE__ANY | NM_PLATFORM_MATCH_WITH_ADDRSTATE__ANY)));
+
+    nm_ip_config_iter_ip_address_for_each (&iter, self, &address) {
+        if (nm_platform_ip_address_match(nm_ip_config_get_addr_family(self), address, match_flag))
+            return address;
+    }
+
+    return NULL;
+}
 
 void
 nm_ip4_config_reset_addresses(NMIP4Config *self)

@@ -41,10 +41,8 @@ _detect_get_meta_data_done_cb(GObject *source, GAsyncResult *result, gpointer us
     gs_unref_object GTask *task     = user_data;
     gs_free_error GError *get_error = NULL;
     gs_free_error GError *error     = NULL;
-    gboolean              success;
 
-    success =
-        nm_http_client_poll_get_finish(NM_HTTP_CLIENT(source), result, NULL, NULL, &get_error);
+    nm_http_client_poll_get_finish(NM_HTTP_CLIENT(source), result, NULL, NULL, &get_error);
 
     if (nm_utils_error_is_cancelled(get_error)) {
         g_task_return_error(task, g_steal_pointer(&get_error));
@@ -56,12 +54,6 @@ _detect_get_meta_data_done_cb(GObject *source, GAsyncResult *result, gpointer us
                            NM_UTILS_ERROR_UNKNOWN,
                            "failure to get Azure metadata: %s",
                            get_error->message);
-        g_task_return_error(task, g_steal_pointer(&error));
-        return;
-    }
-
-    if (!success) {
-        nm_utils_error_set(&error, NM_UTILS_ERROR_UNKNOWN, "failure to detect azure metadata");
         g_task_return_error(task, g_steal_pointer(&error));
         return;
     }
@@ -105,7 +97,6 @@ typedef struct {
     gssize                          intern_iface_idx;
     gssize                          extern_iface_idx;
     guint                           n_iface_data_pending;
-    const char *                    hwaddr;
 } AzureIfaceData;
 
 static void
@@ -386,25 +377,24 @@ _get_config_iface_cb(GObject *source, GAsyncResult *result, gpointer user_data)
         goto out_done;
     }
 
-    if (!g_hash_table_lookup_extended(get_config_data->result_dict,
-                                      v_hwaddr,
-                                      (gpointer *) &iface_data->hwaddr,
-                                      (gpointer *) &iface_data->iface_get_config)) {
+    iface_data->iface_get_config = g_hash_table_lookup(get_config_data->result_dict, v_hwaddr);
+
+    if (!iface_data->iface_get_config) {
         if (!get_config_data->any) {
             _LOGD("get-config: skip fetching meta data for %s (%" G_GSSIZE_FORMAT ")",
                   v_hwaddr,
                   iface_data->intern_iface_idx);
             goto out_done;
         }
-        iface_data->iface_get_config = nmcs_provider_get_config_iface_data_new(FALSE);
-        g_hash_table_insert(get_config_data->result_dict,
-                            (char *) (iface_data->hwaddr = g_steal_pointer(&v_hwaddr)),
-                            iface_data->iface_get_config);
+        iface_data->iface_get_config =
+            nmcs_provider_get_config_iface_data_create(get_config_data->result_dict,
+                                                       FALSE,
+                                                       v_hwaddr);
     } else {
         if (iface_data->iface_get_config->iface_idx >= 0) {
             _LOGI("interface[%" G_GSSIZE_FORMAT "]: duplicate MAC address %s returned",
                   iface_data->intern_iface_idx,
-                  iface_data->hwaddr);
+                  iface_data->iface_get_config->hwaddr);
             error = nm_utils_error_new(NM_UTILS_ERROR_UNKNOWN,
                                        "duplicate MAC address for index %" G_GSSIZE_FORMAT,
                                        iface_data->intern_iface_idx);
@@ -416,7 +406,7 @@ _get_config_iface_cb(GObject *source, GAsyncResult *result, gpointer user_data)
 
     _LOGD("interface[%" G_GSSIZE_FORMAT "]: found a matching device with hwaddr %s",
           iface_data->intern_iface_idx,
-          iface_data->hwaddr);
+          iface_data->iface_get_config->hwaddr);
 
     nm_sprintf_buf(buf, "%" G_GSSIZE_FORMAT "/ipv4/ipAddress/", iface_data->intern_iface_idx);
 
@@ -496,7 +486,6 @@ _get_net_ifaces_list_cb(GObject *source, GAsyncResult *result, gpointer user_dat
             .intern_iface_idx     = intern_iface_idx,
             .extern_iface_idx     = extern_iface_idx_cnt++,
             .n_iface_data_pending = 0,
-            .hwaddr               = NULL,
         };
         g_ptr_array_add(ifaces_arr, iface_data);
     }

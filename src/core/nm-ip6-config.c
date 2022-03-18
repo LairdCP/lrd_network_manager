@@ -316,7 +316,7 @@ nm_ip6_config_capture(NMDedupMultiIndex *       multi_idx,
 
     head_entry = nm_platform_lookup_object(platform, NMP_OBJECT_TYPE_IP6_ADDRESS, ifindex);
     if (head_entry) {
-        nmp_cache_iter_for_each (&iter, head_entry, &plobj) {
+        nmp_cache_iter_for_each_reverse (&iter, head_entry, &plobj) {
             if (!_nm_ip_config_add_obj(priv->multi_idx,
                                        &priv->idx_ip6_addresses_,
                                        ifindex,
@@ -328,11 +328,6 @@ nm_ip6_config_capture(NMDedupMultiIndex *       multi_idx,
                                        NULL))
                 nm_assert_not_reached();
         }
-        head_entry = nm_ip6_config_lookup_addresses(self);
-        nm_assert(head_entry);
-        nm_dedup_multi_head_entry_sort(head_entry,
-                                       sort_captured_addresses,
-                                       GINT_TO_POINTER(use_temporary));
         _notify_addresses(self);
     }
 
@@ -1626,28 +1621,6 @@ nm_ip6_config_lookup_address(const NMIP6Config *self, const struct in6_addr *add
     nmp_object_stackinit_id_ip6_address(&obj_stack, priv->ifindex, addr);
     entry = nm_dedup_multi_index_lookup_obj(priv->multi_idx, &priv->idx_ip6_addresses, &obj_stack);
     return entry ? NMP_OBJECT_CAST_IP6_ADDRESS(entry->obj) : NULL;
-}
-
-const NMPlatformIP6Address *
-nm_ip6_config_find_first_address(const NMIP6Config *self, NMPlatformMatchFlags match_flag)
-{
-    const NMPlatformIP6Address *addr;
-    NMDedupMultiIter            iter;
-
-    g_return_val_if_fail(NM_IS_IP6_CONFIG(self), NULL);
-
-    nm_assert(!NM_FLAGS_ANY(
-        match_flag,
-        ~(NM_PLATFORM_MATCH_WITH_ADDRTYPE__ANY | NM_PLATFORM_MATCH_WITH_ADDRSTATE__ANY)));
-
-    nm_assert(NM_FLAGS_ANY(match_flag, NM_PLATFORM_MATCH_WITH_ADDRTYPE__ANY));
-    nm_assert(NM_FLAGS_ANY(match_flag, NM_PLATFORM_MATCH_WITH_ADDRSTATE__ANY));
-
-    nm_ip_config_iter_ip6_address_for_each (&iter, self, &addr) {
-        if (nm_platform_ip6_address_match(addr, match_flag))
-            return addr;
-    }
-    return NULL;
 }
 
 /**
