@@ -1152,7 +1152,7 @@ msgstr "การเชื่อมต่อ VPN '%s' ตั้งค่าไ�
 
 #: ../src/libnm-client-impl/nm-device.c:2773
 #, c-format
-msgid "The interface names of the device and the connection didn't match."
+msgid "The interface names of the device and the connection didn't match"
 msgstr ""
 
 #: ../src/libnm-client-impl/nm-secret-agent-old.c:1384
@@ -9482,7 +9482,7 @@ msgstr "เชื่อมต่อ VPN ไปยัง '%s'"
 
 #: ../src/nmcli/connections.c:1497
 #, fuzzy
-msgid "Activate connection details"
+msgid "Active connection details"
 msgstr "ไม่มีการเชื่อมต่อที่ใช้งานอยู่!"
 
 #: ../src/nmcli/connections.c:1626 ../src/nmcli/devices.c:1610

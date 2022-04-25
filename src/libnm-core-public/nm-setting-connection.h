@@ -8,7 +8,7 @@
 #define __NM_SETTING_CONNECTION_H__
 
 #if !defined(__NETWORKMANAGER_H_INSIDE__) && !defined(NETWORKMANAGER_COMPILATION)
-    #error "Only <NetworkManager.h> can be included directly."
+#error "Only <NetworkManager.h> can be included directly."
 #endif
 
 #include "nm-setting.h"
@@ -56,6 +56,7 @@ G_BEGIN_DECLS
 #define NM_SETTING_CONNECTION_AUTH_RETRIES         "auth-retries"
 #define NM_SETTING_CONNECTION_MDNS                 "mdns"
 #define NM_SETTING_CONNECTION_LLMNR                "llmnr"
+#define NM_SETTING_CONNECTION_DNS_OVER_TLS         "dns-over-tls"
 #define NM_SETTING_CONNECTION_WAIT_DEVICE_TIMEOUT  "wait-device-timeout"
 #define NM_SETTING_CONNECTION_MUD_URL              "mud-url"
 
@@ -127,11 +128,29 @@ typedef enum {
     NM_SETTING_CONNECTION_LLMNR_YES     = 2,
 } NMSettingConnectionLlmnr;
 
+/**
+ * NMSettingConnectionDnsOverTls:
+ * @NM_SETTING_CONNECTION_DNS_OVER_TLS_DEFAULT: default value
+ * @NM_SETTING_CONNECTION_DNS_OVER_TLS_NO: disable DNSOverTls
+ * @NM_SETTING_CONNECTION_DNS_OVER_TLS_OPPORTUNISTIC: enable opportunistic mode
+ * @NM_SETTING_CONNECTION_DNS_OVER_TLS_YES: enable strict mode
+ *
+ * #NMSettingConnectionDnsOverTls values indicate whether DNSOverTls should be enabled.
+ *
+ * Since: 1.34
+ */
+typedef enum {
+    NM_SETTING_CONNECTION_DNS_OVER_TLS_DEFAULT       = -1,
+    NM_SETTING_CONNECTION_DNS_OVER_TLS_NO            = 0,
+    NM_SETTING_CONNECTION_DNS_OVER_TLS_OPPORTUNISTIC = 1,
+    NM_SETTING_CONNECTION_DNS_OVER_TLS_YES           = 2,
+} NMSettingConnectionDnsOverTls;
+
 typedef struct _NMSettingConnectionClass NMSettingConnectionClass;
 
 GType nm_setting_connection_get_type(void);
 
-NMSetting * nm_setting_connection_new(void);
+NMSetting  *nm_setting_connection_new(void);
 const char *nm_setting_connection_get_id(NMSettingConnection *setting);
 const char *nm_setting_connection_get_uuid(NMSettingConnection *setting);
 NM_AVAILABLE_IN_1_4
@@ -150,21 +169,21 @@ gboolean                 nm_setting_connection_get_read_only(NMSettingConnection
 guint32     nm_setting_connection_get_num_permissions(NMSettingConnection *setting);
 gboolean    nm_setting_connection_get_permission(NMSettingConnection *setting,
                                                  guint32              idx,
-                                                 const char **        out_ptype,
-                                                 const char **        out_pitem,
-                                                 const char **        out_detail);
+                                                 const char         **out_ptype,
+                                                 const char         **out_pitem,
+                                                 const char         **out_detail);
 const char *nm_setting_connection_get_zone(NMSettingConnection *setting);
 gboolean    nm_setting_connection_permissions_user_allowed(NMSettingConnection *setting,
-                                                           const char *         uname);
+                                                           const char          *uname);
 gboolean    nm_setting_connection_add_permission(NMSettingConnection *setting,
-                                                 const char *         ptype,
-                                                 const char *         pitem,
-                                                 const char *         detail);
+                                                 const char          *ptype,
+                                                 const char          *pitem,
+                                                 const char          *detail);
 void        nm_setting_connection_remove_permission(NMSettingConnection *setting, guint32 idx);
 gboolean    nm_setting_connection_remove_permission_by_value(NMSettingConnection *setting,
-                                                             const char *         ptype,
-                                                             const char *         pitem,
-                                                             const char *         detail);
+                                                             const char          *ptype,
+                                                             const char          *pitem,
+                                                             const char          *detail);
 
 const char *nm_setting_connection_get_master(NMSettingConnection *setting);
 gboolean    nm_setting_connection_is_slave_type(NMSettingConnection *setting, const char *type);
@@ -178,7 +197,7 @@ const char *nm_setting_connection_get_secondary(NMSettingConnection *setting, gu
 gboolean    nm_setting_connection_add_secondary(NMSettingConnection *setting, const char *sec_uuid);
 void        nm_setting_connection_remove_secondary(NMSettingConnection *setting, guint32 idx);
 gboolean    nm_setting_connection_remove_secondary_by_value(NMSettingConnection *setting,
-                                                            const char *         sec_uuid);
+                                                            const char          *sec_uuid);
 
 guint32 nm_setting_connection_get_gateway_ping_timeout(NMSettingConnection *setting);
 NM_AVAILABLE_IN_1_2
@@ -193,6 +212,8 @@ NM_AVAILABLE_IN_1_12
 NMSettingConnectionMdns nm_setting_connection_get_mdns(NMSettingConnection *setting);
 NM_AVAILABLE_IN_1_14
 NMSettingConnectionLlmnr nm_setting_connection_get_llmnr(NMSettingConnection *setting);
+NM_AVAILABLE_IN_1_34
+NMSettingConnectionDnsOverTls nm_setting_connection_get_dns_over_tls(NMSettingConnection *setting);
 
 NM_AVAILABLE_IN_1_20
 gint32 nm_setting_connection_get_wait_device_timeout(NMSettingConnection *setting);

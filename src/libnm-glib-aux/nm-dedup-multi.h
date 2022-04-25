@@ -83,14 +83,14 @@ void                   nm_dedup_multi_obj_unref(const NMDedupMultiObj *obj);
 const NMDedupMultiObj *nm_dedup_multi_obj_clone(const NMDedupMultiObj *obj);
 gboolean               nm_dedup_multi_obj_needs_clone(const NMDedupMultiObj *obj);
 
-gconstpointer nm_dedup_multi_index_obj_intern(NMDedupMultiIndex *                         self,
+gconstpointer nm_dedup_multi_index_obj_intern(NMDedupMultiIndex                          *self,
                                               /* const NMDedupMultiObj * */ gconstpointer obj);
 
-void nm_dedup_multi_index_obj_release(NMDedupMultiIndex *                         self,
+void nm_dedup_multi_index_obj_release(NMDedupMultiIndex                          *self,
                                       /* const NMDedupMultiObj * */ gconstpointer obj);
 
 /* const NMDedupMultiObj * */ gconstpointer
-nm_dedup_multi_index_obj_find(NMDedupMultiIndex *                         self,
+nm_dedup_multi_index_obj_find(NMDedupMultiIndex                          *self,
                               /* const NMDedupMultiObj * */ gconstpointer obj);
 
 /*****************************************************************************/
@@ -132,18 +132,18 @@ struct _NMDedupMultiIdxType {
     guint len;
 };
 
-void nm_dedup_multi_idx_type_init(NMDedupMultiIdxType *           idx_type,
+void nm_dedup_multi_idx_type_init(NMDedupMultiIdxType            *idx_type,
                                   const NMDedupMultiIdxTypeClass *klass);
 
 struct _NMDedupMultiIdxTypeClass {
     NMObjBaseClass parent;
 
     void (*idx_obj_id_hash_update)(const NMDedupMultiIdxType *idx_type,
-                                   const NMDedupMultiObj *    obj,
-                                   struct _NMHashState *      h);
+                                   const NMDedupMultiObj     *obj,
+                                   struct _NMHashState       *h);
     gboolean (*idx_obj_id_equal)(const NMDedupMultiIdxType *idx_type,
-                                 const NMDedupMultiObj *    obj_a,
-                                 const NMDedupMultiObj *    obj_b);
+                                 const NMDedupMultiObj     *obj_a,
+                                 const NMDedupMultiObj     *obj_b);
 
     /* an NMDedupMultiIdxTypeClass which implements partitioning of the
      * tracked objects, must implement the idx_obj_partition*() functions.
@@ -153,17 +153,17 @@ struct _NMDedupMultiIdxTypeClass {
      * routes that don't have a valid ifindex. If the idx-type says that the
      * object is not partitionable, it is never added to the NMDedupMultiIndex. */
     gboolean (*idx_obj_partitionable)(const NMDedupMultiIdxType *idx_type,
-                                      const NMDedupMultiObj *    obj);
+                                      const NMDedupMultiObj     *obj);
     void (*idx_obj_partition_hash_update)(const NMDedupMultiIdxType *idx_type,
-                                          const NMDedupMultiObj *    obj,
-                                          struct _NMHashState *      h);
+                                          const NMDedupMultiObj     *obj,
+                                          struct _NMHashState       *h);
     gboolean (*idx_obj_partition_equal)(const NMDedupMultiIdxType *idx_type,
-                                        const NMDedupMultiObj *    obj_a,
-                                        const NMDedupMultiObj *    obj_b);
+                                        const NMDedupMultiObj     *obj_a,
+                                        const NMDedupMultiObj     *obj_b);
 };
 
 static inline gboolean
-nm_dedup_multi_idx_type_id_equal(const NMDedupMultiIdxType *                 idx_type,
+nm_dedup_multi_idx_type_id_equal(const NMDedupMultiIdxType                  *idx_type,
                                  /* const NMDedupMultiObj * */ gconstpointer obj_a,
                                  /* const NMDedupMultiObj * */ gconstpointer obj_b)
 {
@@ -172,7 +172,7 @@ nm_dedup_multi_idx_type_id_equal(const NMDedupMultiIdxType *                 idx
 }
 
 static inline gboolean
-nm_dedup_multi_idx_type_partition_equal(const NMDedupMultiIdxType *                 idx_type,
+nm_dedup_multi_idx_type_partition_equal(const NMDedupMultiIdxType                  *idx_type,
                                         /* const NMDedupMultiObj * */ gconstpointer obj_a,
                                         /* const NMDedupMultiObj * */ gconstpointer obj_b)
 {
@@ -255,62 +255,65 @@ _nm_auto_unref_dedup_multi_index(NMDedupMultiIndex **v)
 #define NM_DEDUP_MULTI_ENTRY_MISSING      ((const NMDedupMultiEntry *) GUINT_TO_POINTER(1))
 #define NM_DEDUP_MULTI_HEAD_ENTRY_MISSING ((const NMDedupMultiHeadEntry *) GUINT_TO_POINTER(1))
 
-gboolean nm_dedup_multi_index_add_full(NMDedupMultiIndex *                        self,
-                                       NMDedupMultiIdxType *                      idx_type,
+gboolean nm_dedup_multi_index_add_full(NMDedupMultiIndex                         *self,
+                                       NMDedupMultiIdxType                       *idx_type,
                                        /*const NMDedupMultiObj * */ gconstpointer obj,
                                        NMDedupMultiIdxMode                        mode,
-                                       const NMDedupMultiEntry *                  entry_order,
-                                       const NMDedupMultiEntry *                  entry_existing,
-                                       const NMDedupMultiHeadEntry *              head_existing,
-                                       const NMDedupMultiEntry **                 out_entry,
+                                       const NMDedupMultiEntry                   *entry_order,
+                                       const NMDedupMultiEntry                   *entry_existing,
+                                       const NMDedupMultiHeadEntry               *head_existing,
+                                       const NMDedupMultiEntry                  **out_entry,
                                        /* const NMDedupMultiObj ** */ gpointer    out_obj_old);
 
-gboolean nm_dedup_multi_index_add(NMDedupMultiIndex *                        self,
-                                  NMDedupMultiIdxType *                      idx_type,
+gboolean nm_dedup_multi_index_add(NMDedupMultiIndex                         *self,
+                                  NMDedupMultiIdxType                       *idx_type,
                                   /*const NMDedupMultiObj * */ gconstpointer obj,
                                   NMDedupMultiIdxMode                        mode,
-                                  const NMDedupMultiEntry **                 out_entry,
+                                  const NMDedupMultiEntry                  **out_entry,
                                   /* const NMDedupMultiObj ** */ gpointer    out_obj_old);
 
 const NMDedupMultiEntry *
-nm_dedup_multi_index_lookup_obj(const NMDedupMultiIndex *                  self,
-                                const NMDedupMultiIdxType *                idx_type,
+nm_dedup_multi_index_lookup_obj(const NMDedupMultiIndex                   *self,
+                                const NMDedupMultiIdxType                 *idx_type,
                                 /*const NMDedupMultiObj * */ gconstpointer obj);
 
 const NMDedupMultiHeadEntry *
-nm_dedup_multi_index_lookup_head(const NMDedupMultiIndex *                  self,
-                                 const NMDedupMultiIdxType *                idx_type,
+nm_dedup_multi_index_lookup_head(const NMDedupMultiIndex                   *self,
+                                 const NMDedupMultiIdxType                 *idx_type,
                                  /*const NMDedupMultiObj * */ gconstpointer obj);
 
 guint nm_dedup_multi_index_remove_entry(NMDedupMultiIndex *self, gconstpointer entry);
 
-guint nm_dedup_multi_index_remove_obj(NMDedupMultiIndex *                          self,
-                                      NMDedupMultiIdxType *                        idx_type,
+guint nm_dedup_multi_index_remove_obj(NMDedupMultiIndex                           *self,
+                                      NMDedupMultiIdxType                         *idx_type,
                                       /*const NMDedupMultiObj * */ gconstpointer   obj,
                                       /*const NMDedupMultiObj ** */ gconstpointer *out_obj);
 
-guint nm_dedup_multi_index_remove_head(NMDedupMultiIndex *                        self,
-                                       NMDedupMultiIdxType *                      idx_type,
+guint nm_dedup_multi_index_remove_head(NMDedupMultiIndex                         *self,
+                                       NMDedupMultiIdxType                       *idx_type,
                                        /*const NMDedupMultiObj * */ gconstpointer obj);
 
 guint nm_dedup_multi_index_remove_idx(NMDedupMultiIndex *self, NMDedupMultiIdxType *idx_type);
 
-void nm_dedup_multi_index_dirty_set_head(NMDedupMultiIndex *                        self,
-                                         const NMDedupMultiIdxType *                idx_type,
+void nm_dedup_multi_index_dirty_set_head(NMDedupMultiIndex                         *self,
+                                         const NMDedupMultiIdxType                 *idx_type,
                                          /*const NMDedupMultiObj * */ gconstpointer obj);
 
-void nm_dedup_multi_index_dirty_set_idx(NMDedupMultiIndex *        self,
+void nm_dedup_multi_index_dirty_set_idx(NMDedupMultiIndex         *self,
                                         const NMDedupMultiIdxType *idx_type);
 
-guint nm_dedup_multi_index_dirty_remove_idx(NMDedupMultiIndex *  self,
+guint nm_dedup_multi_index_dirty_remove_idx(NMDedupMultiIndex   *self,
                                             NMDedupMultiIdxType *idx_type,
                                             gboolean             mark_survivors_dirty);
 
 /*****************************************************************************/
 
 typedef struct _NMDedupMultiIter {
-    const CList *            _head;
-    const CList *            _next;
+    const CList *_head;
+    union {
+        const CList *_next;
+        const CList *_prev;
+    };
     const NMDedupMultiEntry *current;
 } NMDedupMultiIter;
 
@@ -329,13 +332,30 @@ nm_dedup_multi_iter_init(NMDedupMultiIter *iter, const NMDedupMultiHeadEntry *he
     iter->current = NULL;
 }
 
+static inline void
+nm_dedup_multi_iter_init_reverse(NMDedupMultiIter *iter, const NMDedupMultiHeadEntry *head)
+{
+    g_return_if_fail(iter);
+
+    if (head && !c_list_is_empty(&head->lst_entries_head)) {
+        iter->_head = &head->lst_entries_head;
+        iter->_prev = head->lst_entries_head.prev;
+    } else {
+        iter->_head = NULL;
+        iter->_prev = NULL;
+    }
+    iter->current = NULL;
+}
+
 static inline gboolean
 nm_dedup_multi_iter_next(NMDedupMultiIter *iter)
 {
     g_return_val_if_fail(iter, FALSE);
 
-    if (!iter->_next)
+    if (!iter->_next) {
+        iter->current = NULL;
         return FALSE;
+    }
 
     /* we always look ahead for the next. This way, the user
      * may delete the current entry (but no other entries). */
@@ -347,6 +367,26 @@ nm_dedup_multi_iter_next(NMDedupMultiIter *iter)
     return TRUE;
 }
 
+static inline gboolean
+nm_dedup_multi_iter_prev(NMDedupMultiIter *iter)
+{
+    g_return_val_if_fail(iter, FALSE);
+
+    if (!iter->_prev) {
+        iter->current = NULL;
+        return FALSE;
+    }
+
+    /* we always look ahead for the prev. This way, the user
+     * may delete the current entry (but no other entries). */
+    iter->current = c_list_entry(iter->_prev, NMDedupMultiEntry, lst_entries);
+    if (iter->_prev->prev == iter->_head)
+        iter->_prev = NULL;
+    else
+        iter->_prev = iter->_prev->prev;
+    return TRUE;
+}
+
 #define nm_dedup_multi_iter_for_each(iter, head_entry) \
     for (nm_dedup_multi_iter_init((iter), (head_entry)); nm_dedup_multi_iter_next((iter));)
 
@@ -355,11 +395,11 @@ nm_dedup_multi_iter_next(NMDedupMultiIter *iter)
 typedef gboolean (*NMDedupMultiFcnSelectPredicate)(/* const NMDedupMultiObj * */ gconstpointer obj,
                                                    gpointer user_data);
 
-gconstpointer *nm_dedup_multi_objs_to_array_head(const NMDedupMultiHeadEntry *  head_entry,
+gconstpointer *nm_dedup_multi_objs_to_array_head(const NMDedupMultiHeadEntry   *head_entry,
                                                  NMDedupMultiFcnSelectPredicate predicate,
                                                  gpointer                       user_data,
-                                                 guint *                        out_len);
-GPtrArray *    nm_dedup_multi_objs_to_ptr_array_head(const NMDedupMultiHeadEntry *  head_entry,
+                                                 guint                         *out_len);
+GPtrArray     *nm_dedup_multi_objs_to_ptr_array_head(const NMDedupMultiHeadEntry   *head_entry,
                                                      NMDedupMultiFcnSelectPredicate predicate,
                                                      gpointer                       user_data);
 

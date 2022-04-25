@@ -19,6 +19,12 @@
 
 #define NM_FIREWALLD_MANAGER_STATE_CHANGED "state-changed"
 
+typedef enum {
+    NM_FIREWALLD_MANAGER_STATE_CHANGED_TYPE_INITIALIZED,
+    NM_FIREWALLD_MANAGER_STATE_CHANGED_TYPE_NAME_OWNER_CHANGED,
+    NM_FIREWALLD_MANAGER_STATE_CHANGED_TYPE_RELOADED,
+} NMFirewalldManagerStateChangedType;
+
 typedef struct _NMFirewalldManagerCallId NMFirewalldManagerCallId;
 
 typedef struct _NMFirewalldManager      NMFirewalldManager;
@@ -30,22 +36,22 @@ NMFirewalldManager *nm_firewalld_manager_get(void);
 
 gboolean nm_firewalld_manager_get_running(NMFirewalldManager *self);
 
-typedef void (*NMFirewalldManagerAddRemoveCallback)(NMFirewalldManager *      self,
+typedef void (*NMFirewalldManagerAddRemoveCallback)(NMFirewalldManager       *self,
                                                     NMFirewalldManagerCallId *call_id,
-                                                    GError *                  error,
+                                                    GError                   *error,
                                                     gpointer                  user_data);
 
 NMFirewalldManagerCallId *
-nm_firewalld_manager_add_or_change_zone(NMFirewalldManager *                mgr,
-                                        const char *                        iface,
-                                        const char *                        zone,
+nm_firewalld_manager_add_or_change_zone(NMFirewalldManager                 *mgr,
+                                        const char                         *iface,
+                                        const char                         *zone,
                                         gboolean                            add,
                                         NMFirewalldManagerAddRemoveCallback callback,
                                         gpointer                            user_data);
 NMFirewalldManagerCallId *
-nm_firewalld_manager_remove_from_zone(NMFirewalldManager *                mgr,
-                                      const char *                        iface,
-                                      const char *                        zone,
+nm_firewalld_manager_remove_from_zone(NMFirewalldManager                 *mgr,
+                                      const char                         *iface,
+                                      const char                         *zone,
                                       NMFirewalldManagerAddRemoveCallback callback,
                                       gpointer                            user_data);
 

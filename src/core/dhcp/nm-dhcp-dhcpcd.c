@@ -8,29 +8,28 @@
 
 #if WITH_DHCPCD
 
-    #include <stdlib.h>
-    #include <unistd.h>
-    #include <stdio.h>
-    #include <netinet/in.h>
-    #include <arpa/inet.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <stdio.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
-    #include "nm-dhcp-manager.h"
-    #include "nm-utils.h"
-    #include "NetworkManagerUtils.h"
-    #include "nm-dhcp-listener.h"
-    #include "nm-dhcp-client-logging.h"
+#include "nm-dhcp-manager.h"
+#include "nm-utils.h"
+#include "NetworkManagerUtils.h"
+#include "nm-dhcp-listener.h"
+#include "nm-dhcp-client-logging.h"
 
 /*****************************************************************************/
 
-    #define NM_TYPE_DHCP_DHCPCD (nm_dhcp_dhcpcd_get_type())
-    #define NM_DHCP_DHCPCD(obj) \
-        (G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_DHCP_DHCPCD, NMDhcpDhcpcd))
-    #define NM_DHCP_DHCPCD_CLASS(klass) \
-        (G_TYPE_CHECK_CLASS_CAST((klass), NM_TYPE_DHCP_DHCPCD, NMDhcpDhcpcdClass))
-    #define NM_IS_DHCP_DHCPCD(obj)         (G_TYPE_CHECK_INSTANCE_TYPE((obj), NM_TYPE_DHCP_DHCPCD))
-    #define NM_IS_DHCP_DHCPCD_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE((klass), NM_TYPE_DHCP_DHCPCD))
-    #define NM_DHCP_DHCPCD_GET_CLASS(obj) \
-        (G_TYPE_INSTANCE_GET_CLASS((obj), NM_TYPE_DHCP_DHCPCD, NMDhcpDhcpcdClass))
+#define NM_TYPE_DHCP_DHCPCD (nm_dhcp_dhcpcd_get_type())
+#define NM_DHCP_DHCPCD(obj) (G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_DHCP_DHCPCD, NMDhcpDhcpcd))
+#define NM_DHCP_DHCPCD_CLASS(klass) \
+    (G_TYPE_CHECK_CLASS_CAST((klass), NM_TYPE_DHCP_DHCPCD, NMDhcpDhcpcdClass))
+#define NM_IS_DHCP_DHCPCD(obj)         (G_TYPE_CHECK_INSTANCE_TYPE((obj), NM_TYPE_DHCP_DHCPCD))
+#define NM_IS_DHCP_DHCPCD_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE((klass), NM_TYPE_DHCP_DHCPCD))
+#define NM_DHCP_DHCPCD_GET_CLASS(obj) \
+    (G_TYPE_INSTANCE_GET_CLASS((obj), NM_TYPE_DHCP_DHCPCD, NMDhcpDhcpcdClass))
 
 typedef struct _NMDhcpDhcpcd      NMDhcpDhcpcd;
 typedef struct _NMDhcpDhcpcdClass NMDhcpDhcpcdClass;
@@ -54,7 +53,7 @@ struct _NMDhcpDhcpcdClass {
 
 G_DEFINE_TYPE(NMDhcpDhcpcd, nm_dhcp_dhcpcd, NM_TYPE_DHCP_CLIENT)
 
-    #define NM_DHCP_DHCPCD_GET_PRIVATE(self) _NM_GET_PRIVATE(self, NMDhcpDhcpcd, NM_IS_DHCP_DHCPCD)
+#define NM_DHCP_DHCPCD_GET_PRIVATE(self) _NM_GET_PRIVATE(self, NMDhcpDhcpcd, NM_IS_DHCP_DHCPCD)
 
 /*****************************************************************************/
 
@@ -65,21 +64,19 @@ nm_dhcp_dhcpcd_get_path(void)
 }
 
 static gboolean
-ip4_start(NMDhcpClient *client, const char *last_ip4_address, GError **error)
+ip4_start(NMDhcpClient *client, GError **error)
 {
-    NMDhcpDhcpcd *    self            = NM_DHCP_DHCPCD(client);
+    NMDhcpDhcpcd                *self = NM_DHCP_DHCPCD(client);
+    const NMDhcpClientConfig    *client_config;
     gs_unref_ptrarray GPtrArray *argv = NULL;
     pid_t                        pid;
-    GError *                     local;
-    gs_free char *               cmd_str = NULL;
-    const char *                 iface;
-    const char *                 dhcpcd_path;
-    const char *                 hostname;
+    GError                      *local;
+    gs_free char                *cmd_str = NULL;
+    const char                  *dhcpcd_path;
 
     pid = nm_dhcp_client_get_pid(client);
     g_return_val_if_fail(pid == -1, FALSE);
-
-    iface = nm_dhcp_client_get_iface(client);
+    client_config = nm_dhcp_client_get_config(client);
 
     dhcpcd_path = nm_dhcp_dhcpcd_get_path();
     if (!dhcpcd_path) {
@@ -116,21 +113,19 @@ ip4_start(NMDhcpClient *client, const char *last_ip4_address, GError **error)
      */
     g_ptr_array_add(argv, (gpointer) "-4");
 
-    hostname = nm_dhcp_client_get_hostname(client);
-
-    if (hostname) {
-        if (NM_FLAGS_HAS(nm_dhcp_client_get_client_flags(client), NM_DHCP_CLIENT_FLAGS_USE_FQDN)) {
+    if (client_config->hostname) {
+        if (client_config->use_fqdn) {
             g_ptr_array_add(argv, (gpointer) "-h");
-            g_ptr_array_add(argv, (gpointer) hostname);
+            g_ptr_array_add(argv, (gpointer) client_config->hostname);
             g_ptr_array_add(argv, (gpointer) "-F");
             g_ptr_array_add(argv, (gpointer) "both");
         } else {
             g_ptr_array_add(argv, (gpointer) "-h");
-            g_ptr_array_add(argv, (gpointer) hostname);
+            g_ptr_array_add(argv, (gpointer) client_config->hostname);
         }
     }
 
-    g_ptr_array_add(argv, (gpointer) iface);
+    g_ptr_array_add(argv, (gpointer) client_config->iface);
     g_ptr_array_add(argv, NULL);
 
     _LOGD("running: %s", (cmd_str = g_strjoinv(" ", (char **) argv->pdata)));
@@ -224,7 +219,7 @@ static void
 nm_dhcp_dhcpcd_class_init(NMDhcpDhcpcdClass *dhcpcd_class)
 {
     NMDhcpClientClass *client_class = NM_DHCP_CLIENT_CLASS(dhcpcd_class);
-    GObjectClass *     object_class = G_OBJECT_CLASS(dhcpcd_class);
+    GObjectClass      *object_class = G_OBJECT_CLASS(dhcpcd_class);
 
     object_class->dispose = dispose;
 
@@ -233,9 +228,9 @@ nm_dhcp_dhcpcd_class_init(NMDhcpDhcpcdClass *dhcpcd_class)
 }
 
 const NMDhcpClientFactory _nm_dhcp_client_factory_dhcpcd = {
-    .name     = "dhcpcd",
-    .get_type = nm_dhcp_dhcpcd_get_type,
-    .get_path = nm_dhcp_dhcpcd_get_path,
+    .name       = "dhcpcd",
+    .get_type_4 = nm_dhcp_dhcpcd_get_type,
+    .get_path   = nm_dhcp_dhcpcd_get_path,
 };
 
 #endif /* WITH_DHCPCD */

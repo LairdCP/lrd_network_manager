@@ -8,7 +8,7 @@
 #define __NM_IP_CONFIG_H__
 
 #if !defined(__NETWORKMANAGER_H_INSIDE__) && !defined(NETWORKMANAGER_COMPILATION)
-    #error "Only <NetworkManager.h> can be included directly."
+#error "Only <NetworkManager.h> can be included directly."
 #endif
 
 #include "nm-object.h"
@@ -41,9 +41,9 @@ typedef struct _NMIPConfigClass NMIPConfigClass;
 GType nm_ip_config_get_type(void);
 
 int                nm_ip_config_get_family(NMIPConfig *config);
-const char *       nm_ip_config_get_gateway(NMIPConfig *config);
-GPtrArray *        nm_ip_config_get_addresses(NMIPConfig *config);
-GPtrArray *        nm_ip_config_get_routes(NMIPConfig *config);
+const char        *nm_ip_config_get_gateway(NMIPConfig *config);
+GPtrArray         *nm_ip_config_get_addresses(NMIPConfig *config);
+GPtrArray         *nm_ip_config_get_routes(NMIPConfig *config);
 const char *const *nm_ip_config_get_nameservers(NMIPConfig *config);
 const char *const *nm_ip_config_get_domains(NMIPConfig *config);
 const char *const *nm_ip_config_get_searches(NMIPConfig *config);

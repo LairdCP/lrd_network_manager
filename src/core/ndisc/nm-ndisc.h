@@ -26,17 +26,7 @@
 #define NM_IS_NDISC_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE((klass), NM_TYPE_NDISC))
 #define NM_NDISC_GET_CLASS(obj)  (G_TYPE_INSTANCE_GET_CLASS((obj), NM_TYPE_NDISC, NMNDiscClass))
 
-#define NM_NDISC_PLATFORM                     "platform"
-#define NM_NDISC_IFINDEX                      "ifindex"
-#define NM_NDISC_IFNAME                       "ifname"
-#define NM_NDISC_NETWORK_ID                   "network-id"
-#define NM_NDISC_ADDR_GEN_MODE                "addr-gen-mode"
-#define NM_NDISC_STABLE_TYPE                  "stable-type"
-#define NM_NDISC_NODE_TYPE                    "node-type"
-#define NM_NDISC_MAX_ADDRESSES                "max-addresses"
-#define NM_NDISC_RA_TIMEOUT                   "ra-timeout"
-#define NM_NDISC_ROUTER_SOLICITATIONS         "router-solicitations"
-#define NM_NDISC_ROUTER_SOLICITATION_INTERVAL "router-solicitation-interval"
+#define NM_NDISC_CONFIG "config"
 
 #define NM_NDISC_CONFIG_RECEIVED   "config-received"
 #define NM_NDISC_RA_TIMEOUT_SIGNAL "ra-timeout-signal"
@@ -47,6 +37,8 @@ typedef enum {
     NM_NDISC_DHCP_LEVEL_OTHERCONF,
     NM_NDISC_DHCP_LEVEL_MANAGED
 } NMNDiscDHCPLevel;
+
+const char *nm_ndisc_dhcp_level_to_string(NMNDiscDHCPLevel level);
 
 #define NM_NDISC_INFINITY_U32 ((uint32_t) -1)
 
@@ -131,7 +123,7 @@ typedef struct {
 } NMNDiscDNSServer;
 
 typedef struct {
-    char * domain;
+    char  *domain;
     gint64 expiry_msec;
 } NMNDiscDNSDomain;
 
@@ -167,6 +159,20 @@ typedef enum {
 #define NM_NDISC_ROUTER_ADVERT_MAX_INTERVAL     600 /* RFC4861, MaxRtrAdvInterval default */
 #define NM_NDISC_ROUTER_LIFETIME                900 /* 1.5 * NM_NDISC_ROUTER_ADVERT_MAX_INTERVAL */
 
+typedef struct {
+    NML3Cfg                      *l3cfg;
+    const char                   *ifname;
+    const char                   *network_id;
+    int                           max_addresses;
+    int                           router_solicitations;
+    int                           router_solicitation_interval;
+    guint32                       ra_timeout;
+    NMUtilsStableType             stable_type;
+    NMSettingIP6ConfigAddrGenMode addr_gen_mode;
+    NMNDiscNodeType               node_type;
+    NMSettingIP6ConfigPrivacy     ip6_privacy;
+} NMNDiscConfig;
+
 struct _NMNDiscPrivate;
 struct _NMNDiscDataInternal;
 
@@ -183,9 +189,9 @@ typedef struct {
     guint dns_servers_n;
     guint dns_domains_n;
 
-    const NMNDiscGateway *  gateways;
-    const NMNDiscAddress *  addresses;
-    const NMNDiscRoute *    routes;
+    const NMNDiscGateway   *gateways;
+    const NMNDiscAddress   *addresses;
+    const NMNDiscRoute     *routes;
     const NMNDiscDNSServer *dns_servers;
     const NMNDiscDNSDomain *dns_domains;
 } NMNDiscData;
@@ -199,7 +205,7 @@ typedef struct {
 typedef struct {
     GObject parent;
     union {
-        struct _NMNDiscPrivate *     _priv;
+        struct _NMNDiscPrivate      *_priv;
         struct _NMNDiscDataInternal *rdata;
     };
 } NMNDisc;
@@ -215,31 +221,26 @@ typedef struct {
 
 GType nm_ndisc_get_type(void);
 
-void nm_ndisc_emit_config_change(NMNDisc *self, NMNDiscConfigMap changed);
-
 int             nm_ndisc_get_ifindex(NMNDisc *self);
-const char *    nm_ndisc_get_ifname(NMNDisc *self);
+const char     *nm_ndisc_get_ifname(NMNDisc *self);
 NMNDiscNodeType nm_ndisc_get_node_type(NMNDisc *self);
 
-gboolean nm_ndisc_set_iid(NMNDisc *ndisc, const NMUtilsIPv6IfaceId iid);
+gboolean nm_ndisc_set_iid(NMNDisc *ndisc, const NMUtilsIPv6IfaceId iid, gboolean is_token);
 void     nm_ndisc_start(NMNDisc *ndisc);
 void     nm_ndisc_stop(NMNDisc *ndisc);
 NMNDiscConfigMap
 nm_ndisc_dad_failed(NMNDisc *ndisc, const struct in6_addr *address, gboolean emit_changed_signal);
-void nm_ndisc_set_config(NMNDisc *     ndisc,
-                         const GArray *addresses,
-                         const GArray *dns_servers,
-                         const GArray *dns_domains);
+void nm_ndisc_set_config(NMNDisc *ndisc, const NML3ConfigData *l3cd);
 
 NMPlatform *nm_ndisc_get_platform(NMNDisc *self);
-NMPNetns *  nm_ndisc_netns_get(NMNDisc *self);
+NMPNetns   *nm_ndisc_netns_get(NMNDisc *self);
 gboolean    nm_ndisc_netns_push(NMNDisc *self, NMPNetns **netns);
 
 static inline gboolean
 nm_ndisc_dad_addr_is_fail_candidate_event(NMPlatformSignalChangeType  change_type,
                                           const NMPlatformIP6Address *addr)
 {
-    return !NM_FLAGS_HAS(addr->n_ifa_flags, IFA_F_TEMPORARY)
+    return !NM_FLAGS_HAS(addr->n_ifa_flags, IFA_F_SECONDARY)
            && ((change_type == NM_PLATFORM_SIGNAL_CHANGED && addr->n_ifa_flags & IFA_F_DADFAILED)
                || (change_type == NM_PLATFORM_SIGNAL_REMOVED
                    && addr->n_ifa_flags & IFA_F_TENTATIVE));
@@ -253,7 +254,7 @@ nm_ndisc_dad_addr_is_fail_candidate(NMPlatform *platform, const NMPObject *obj)
     addr = NMP_OBJECT_CAST_IP6_ADDRESS(
         nm_platform_lookup_obj(platform, NMP_CACHE_ID_TYPE_OBJECT_TYPE, obj));
     if (addr
-        && (NM_FLAGS_HAS(addr->n_ifa_flags, IFA_F_TEMPORARY)
+        && (NM_FLAGS_HAS(addr->n_ifa_flags, IFA_F_SECONDARY)
             || !NM_FLAGS_HAS(addr->n_ifa_flags, IFA_F_DADFAILED))) {
         /* the address still/again exists and is not in DADFAILED state. Skip it. */
         return FALSE;
@@ -264,15 +265,21 @@ nm_ndisc_dad_addr_is_fail_candidate(NMPlatform *platform, const NMPObject *obj)
 
 /*****************************************************************************/
 
+void nm_ndisc_get_sysctl(NMPlatform *platform,
+                         const char *ifname,
+                         int        *out_max_addresses,
+                         int        *out_router_solicitations,
+                         int        *out_router_solicitation_interval,
+                         guint32    *out_default_ra_timeout);
+
+/*****************************************************************************/
+
 struct _NML3ConfigData;
 
-struct _NML3ConfigData *nm_ndisc_data_to_l3cd(NMDedupMultiIndex *       multi_idx,
+struct _NML3ConfigData *nm_ndisc_data_to_l3cd(NMDedupMultiIndex        *multi_idx,
                                               int                       ifindex,
-                                              const NMNDiscData *       rdata,
+                                              const NMNDiscData        *rdata,
                                               NMSettingIP6ConfigPrivacy ip6_privacy,
-                                              guint32                   route_table,
-                                              guint32                   route_metric,
-                                              gboolean                  kernel_support_rta_pref,
-                                              gboolean kernel_support_extended_ifa_flags);
+                                              NMUtilsIPv6IfaceId       *token);
 
 #endif /* __NETWORKMANAGER_NDISC_H__ */

@@ -20,7 +20,7 @@ static const char *
 _ec2_base(void)
 {
     static const char *base_cached = NULL;
-    const char *       base;
+    const char        *base;
 
 again:
     base = g_atomic_pointer_get(&base_cached);
@@ -29,21 +29,7 @@ again:
          * This is mainly for testing, it's not usually supposed to be configured.
          * Consider this private API! */
         base = g_getenv(NMCS_ENV_VARIABLE("NM_CLOUD_SETUP_EC2_HOST"));
-
-        if (base && base[0] && !strchr(base, '/')) {
-            if (NM_STR_HAS_PREFIX(base, "http://") || NM_STR_HAS_PREFIX(base, "https://"))
-                base = g_intern_string(base);
-            else {
-                gs_free char *s = NULL;
-
-                s    = g_strconcat("http://", base, NULL);
-                base = g_intern_string(s);
-            }
-        }
-        if (!base)
-            base = NM_EC2_BASE;
-
-        nm_assert(!NM_STR_HAS_SUFFIX(base, "/"));
+        base = nmcs_utils_uri_complete_interned(base) ?: ("" NM_EC2_BASE);
 
         if (!g_atomic_pointer_compare_and_exchange(&base_cached, NULL, base))
             goto again;
@@ -72,7 +58,7 @@ G_DEFINE_TYPE(NMCSProviderEC2, nmcs_provider_ec2, NMCS_TYPE_PROVIDER);
 
 static gboolean
 _detect_get_meta_data_check_cb(long     response_code,
-                               GBytes * response,
+                               GBytes  *response,
                                gpointer check_user_data,
                                GError **error)
 {
@@ -82,9 +68,9 @@ _detect_get_meta_data_check_cb(long     response_code,
 static void
 _detect_get_meta_data_done_cb(GObject *source, GAsyncResult *result, gpointer user_data)
 {
-    gs_unref_object GTask *task     = user_data;
-    gs_free_error GError *get_error = NULL;
-    gs_free_error GError *error     = NULL;
+    gs_unref_object GTask *task      = user_data;
+    gs_free_error GError  *get_error = NULL;
+    gs_free_error GError  *error     = NULL;
 
     nm_http_client_poll_get_finish(NM_HTTP_CLIENT(source), result, NULL, NULL, &get_error);
 
@@ -135,15 +121,14 @@ _get_config_fetch_done_cb(NMHttpClient *http_client,
                           gpointer      user_data,
                           gboolean      is_local_ipv4)
 {
-    NMCSProviderGetConfigTaskData *get_config_data;
-    const char *                   hwaddr = NULL;
-    gs_unref_bytes GBytes *response       = NULL;
-    gs_free_error GError *          error = NULL;
+    NMCSProviderGetConfigTaskData  *get_config_data;
+    gs_unref_bytes GBytes          *response = NULL;
+    gs_free_error GError           *error    = NULL;
     NMCSProviderGetConfigIfaceData *config_iface_data;
     in_addr_t                       tmp_addr;
     int                             tmp_prefix;
 
-    nm_utils_user_data_unpack(user_data, &get_config_data, &hwaddr);
+    nm_utils_user_data_unpack(user_data, &get_config_data, &config_iface_data);
 
     nm_http_client_poll_get_finish(http_client, result, NULL, &response, &error);
 
@@ -153,15 +138,13 @@ _get_config_fetch_done_cb(NMHttpClient *http_client,
     if (error)
         goto out;
 
-    config_iface_data = g_hash_table_lookup(get_config_data->result_dict, hwaddr);
-
     if (is_local_ipv4) {
         gs_free const char **s_addrs = NULL;
         gsize                i, len;
 
-        s_addrs = nm_utils_strsplit_set_full(g_bytes_get_data(response, NULL),
-                                             "\n",
-                                             NM_UTILS_STRSPLIT_SET_FLAGS_STRSTRIP);
+        s_addrs = nm_strsplit_set_full(g_bytes_get_data(response, NULL),
+                                       "\n",
+                                       NM_STRSPLIT_SET_FLAGS_STRSTRIP);
         len     = NM_PTRARRAY_LEN(s_addrs);
 
         nm_assert(!config_iface_data->has_ipv4s);
@@ -195,7 +178,7 @@ out:
 }
 
 static void
-_get_config_fetch_done_cb_subnet_ipv4_cidr_block(GObject *     source,
+_get_config_fetch_done_cb_subnet_ipv4_cidr_block(GObject      *source,
                                                  GAsyncResult *result,
                                                  gpointer      user_data)
 {
@@ -218,11 +201,11 @@ _get_config_metadata_ready_cb(GObject *source, GAsyncResult *result, gpointer us
 {
     NMCSProviderGetConfigTaskData *get_config_data;
     gs_unref_hashtable GHashTable *response_parsed = NULL;
-    gs_free_error GError *error                    = NULL;
-    GetConfigMetadataMac *v_mac_data;
-    const char *          v_hwaddr;
-    GHashTableIter        h_iter;
-    NMHttpClient *        http_client;
+    gs_free_error GError          *error           = NULL;
+    GetConfigMetadataMac          *v_mac_data;
+    const char                    *v_hwaddr;
+    GHashTableIter                 h_iter;
+    NMHttpClient                  *http_client;
 
     nm_http_client_poll_get_finish(NM_HTTP_CLIENT(source), result, NULL, NULL, &error);
 
@@ -248,24 +231,22 @@ _get_config_metadata_ready_cb(GObject *source, GAsyncResult *result, gpointer us
     g_hash_table_iter_init(&h_iter, response_parsed);
     while (g_hash_table_iter_next(&h_iter, (gpointer *) &v_hwaddr, (gpointer *) &v_mac_data)) {
         NMCSProviderGetConfigIfaceData *config_iface_data;
-        gs_free char *                  uri1 = NULL;
-        gs_free char *                  uri2 = NULL;
-        const char *                    hwaddr;
+        gs_free char                   *uri1 = NULL;
+        gs_free char                   *uri2 = NULL;
 
-        if (!g_hash_table_lookup_extended(get_config_data->result_dict,
-                                          v_hwaddr,
-                                          (gpointer *) &hwaddr,
-                                          (gpointer *) &config_iface_data)) {
+        config_iface_data = g_hash_table_lookup(get_config_data->result_dict, v_hwaddr);
+
+        if (!config_iface_data) {
             if (!get_config_data->any) {
                 _LOGD("get-config: skip fetching meta data for %s (%s)",
                       v_hwaddr,
                       v_mac_data->path);
                 continue;
             }
-            config_iface_data = nmcs_provider_get_config_iface_data_new(FALSE);
-            g_hash_table_insert(get_config_data->result_dict,
-                                (char *) (hwaddr = g_strdup(v_hwaddr)),
-                                config_iface_data);
+            config_iface_data =
+                nmcs_provider_get_config_iface_data_create(get_config_data->result_dict,
+                                                           FALSE,
+                                                           v_hwaddr);
         }
 
         nm_assert(config_iface_data->iface_idx == -1);
@@ -274,7 +255,7 @@ _get_config_metadata_ready_cb(GObject *source, GAsyncResult *result, gpointer us
 
         _LOGD("get-config: start fetching meta data for #%" G_GSSIZE_FORMAT ", %s (%s)",
               config_iface_data->iface_idx,
-              hwaddr,
+              config_iface_data->hwaddr,
               v_mac_data->path);
 
         get_config_data->n_pending++;
@@ -292,7 +273,7 @@ _get_config_metadata_ready_cb(GObject *source, GAsyncResult *result, gpointer us
             NULL,
             NULL,
             _get_config_fetch_done_cb_subnet_ipv4_cidr_block,
-            nm_utils_user_data_pack(get_config_data, hwaddr));
+            nm_utils_user_data_pack(get_config_data, config_iface_data));
 
         get_config_data->n_pending++;
         nm_http_client_poll_get(
@@ -309,7 +290,7 @@ _get_config_metadata_ready_cb(GObject *source, GAsyncResult *result, gpointer us
             NULL,
             NULL,
             _get_config_fetch_done_cb_local_ipv4s,
-            nm_utils_user_data_pack(get_config_data, hwaddr));
+            nm_utils_user_data_pack(get_config_data, config_iface_data));
     }
 
     _nmcs_provider_get_config_task_maybe_return(get_config_data, NULL);
@@ -317,19 +298,19 @@ _get_config_metadata_ready_cb(GObject *source, GAsyncResult *result, gpointer us
 
 static gboolean
 _get_config_metadata_ready_check(long     response_code,
-                                 GBytes * response,
+                                 GBytes  *response,
                                  gpointer check_user_data,
                                  GError **error)
 {
     NMCSProviderGetConfigTaskData *get_config_data = check_user_data;
     gs_unref_hashtable GHashTable *response_parsed = NULL;
-    const guint8 *                 r_data;
-    const char *                   cur_line;
+    const guint8                  *r_data;
+    const char                    *cur_line;
     gsize                          r_len;
     gsize                          cur_line_len;
     GHashTableIter                 h_iter;
     gboolean                       has_all;
-    const char *                   c_hwaddr;
+    const char                    *c_hwaddr;
     gssize                         iface_idx_counter = 0;
 
     if (response_code != 200 || !response) {
@@ -343,7 +324,7 @@ _get_config_metadata_ready_check(long     response_code,
 
     while (nm_utils_parse_next_line((const char **) &r_data, &r_len, &cur_line, &cur_line_len)) {
         GetConfigMetadataMac *mac_data;
-        char *                hwaddr;
+        char                 *hwaddr;
 
         if (cur_line_len == 0)
             continue;

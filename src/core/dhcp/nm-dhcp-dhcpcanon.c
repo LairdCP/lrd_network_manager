@@ -7,25 +7,24 @@
 
 #if WITH_DHCPCANON
 
-    #include <stdlib.h>
-    #include <unistd.h>
+#include <stdlib.h>
+#include <unistd.h>
 
-    #include "nm-utils.h"
-    #include "nm-dhcp-manager.h"
-    #include "NetworkManagerUtils.h"
-    #include "nm-dhcp-listener.h"
-    #include "nm-dhcp-client-logging.h"
+#include "nm-utils.h"
+#include "nm-dhcp-manager.h"
+#include "NetworkManagerUtils.h"
+#include "nm-dhcp-listener.h"
+#include "nm-dhcp-client-logging.h"
 
-    #define NM_TYPE_DHCP_DHCPCANON (nm_dhcp_dhcpcanon_get_type())
-    #define NM_DHCP_DHCPCANON(obj) \
-        (G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_DHCP_DHCPCANON, NMDhcpDhcpcanon))
-    #define NM_DHCP_DHCPCANON_CLASS(klass) \
-        (G_TYPE_CHECK_CLASS_CAST((klass), NM_TYPE_DHCP_DHCPCANON, NMDhcpDhcpcanonClass))
-    #define NM_IS_DHCP_DHCPCANON(obj) (G_TYPE_CHECK_INSTANCE_TYPE((obj), NM_TYPE_DHCP_DHCPCANON))
-    #define NM_IS_DHCP_DHCPCANON_CLASS(klass) \
-        (G_TYPE_CHECK_CLASS_TYPE((klass), NM_TYPE_DHCP_DHCPCANON))
-    #define NM_DHCP_DHCPCANON_GET_CLASS(obj) \
-        (G_TYPE_INSTANCE_GET_CLASS((obj), NM_TYPE_DHCP_DHCPCANON, NMDhcpDhcpcanonClass))
+#define NM_TYPE_DHCP_DHCPCANON (nm_dhcp_dhcpcanon_get_type())
+#define NM_DHCP_DHCPCANON(obj) \
+    (G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_DHCP_DHCPCANON, NMDhcpDhcpcanon))
+#define NM_DHCP_DHCPCANON_CLASS(klass) \
+    (G_TYPE_CHECK_CLASS_CAST((klass), NM_TYPE_DHCP_DHCPCANON, NMDhcpDhcpcanonClass))
+#define NM_IS_DHCP_DHCPCANON(obj)         (G_TYPE_CHECK_INSTANCE_TYPE((obj), NM_TYPE_DHCP_DHCPCANON))
+#define NM_IS_DHCP_DHCPCANON_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE((klass), NM_TYPE_DHCP_DHCPCANON))
+#define NM_DHCP_DHCPCANON_GET_CLASS(obj) \
+    (G_TYPE_INSTANCE_GET_CLASS((obj), NM_TYPE_DHCP_DHCPCANON, NMDhcpDhcpcanonClass))
 
 typedef struct _NMDhcpDhcpcanon      NMDhcpDhcpcanon;
 typedef struct _NMDhcpDhcpcanonClass NMDhcpDhcpcanonClass;
@@ -35,10 +34,10 @@ static GType nm_dhcp_dhcpcanon_get_type(void);
 /*****************************************************************************/
 
 typedef struct {
-    char *          conf_file;
-    const char *    def_leasefile;
-    char *          lease_file;
-    char *          pid_file;
+    char           *conf_file;
+    const char     *def_leasefile;
+    char           *lease_file;
+    char           *pid_file;
     NMDhcpListener *dhcp_listener;
 } NMDhcpDhcpcanonPrivate;
 
@@ -53,8 +52,8 @@ struct _NMDhcpDhcpcanonClass {
 
 G_DEFINE_TYPE(NMDhcpDhcpcanon, nm_dhcp_dhcpcanon, NM_TYPE_DHCP_CLIENT)
 
-    #define NM_DHCP_DHCPCANON_GET_PRIVATE(self) \
-        _NM_GET_PRIVATE(self, NMDhcpDhcpcanon, NM_IS_DHCP_DHCPCANON)
+#define NM_DHCP_DHCPCANON_GET_PRIVATE(self) \
+    _NM_GET_PRIVATE(self, NMDhcpDhcpcanon, NM_IS_DHCP_DHCPCANON)
 
 /*****************************************************************************/
 
@@ -66,25 +65,25 @@ nm_dhcp_dhcpcanon_get_path(void)
 
 static gboolean
 dhcpcanon_start(NMDhcpClient *client,
-                const char *  mode_opt,
-                GBytes *      duid,
+                const char   *mode_opt,
+                GBytes       *duid,
                 gboolean      release,
-                pid_t *       out_pid,
+                pid_t        *out_pid,
                 guint         needed_prefixes,
-                GError **     error)
+                GError      **error)
 {
-    NMDhcpDhcpcanon *       self      = NM_DHCP_DHCPCANON(client);
-    NMDhcpDhcpcanonPrivate *priv      = NM_DHCP_DHCPCANON_GET_PRIVATE(self);
+    NMDhcpDhcpcanon             *self = NM_DHCP_DHCPCANON(client);
+    NMDhcpDhcpcanonPrivate      *priv = NM_DHCP_DHCPCANON_GET_PRIVATE(self);
     gs_unref_ptrarray GPtrArray *argv = NULL;
     pid_t                        pid;
-    gs_free_error GError *local = NULL;
-    const char *          iface;
-    const char *          system_bus_address;
-    const char *          dhcpcanon_path;
-    gs_free char *        binary_name            = NULL;
-    gs_free char *        pid_file               = NULL;
-    gs_free char *        system_bus_address_env = NULL;
-    int                   addr_family;
+    gs_free_error GError        *local = NULL;
+    const char                  *iface;
+    const char                  *system_bus_address;
+    const char                  *dhcpcanon_path;
+    gs_free char                *binary_name            = NULL;
+    gs_free char                *pid_file               = NULL;
+    gs_free char                *system_bus_address_env = NULL;
+    int                          addr_family;
 
     g_return_val_if_fail(!priv->pid_file, FALSE);
 
@@ -161,7 +160,7 @@ dhcpcanon_start(NMDhcpClient *client,
 }
 
 static gboolean
-ip4_start(NMDhcpClient *client, const char *last_ip4_address, GError **error)
+ip4_start(NMDhcpClient *client, GError **error)
 {
     return dhcpcanon_start(client, NULL, NULL, FALSE, NULL, 0, error);
 }
@@ -169,7 +168,7 @@ ip4_start(NMDhcpClient *client, const char *last_ip4_address, GError **error)
 static void
 stop(NMDhcpClient *client, gboolean release)
 {
-    NMDhcpDhcpcanon *       self = NM_DHCP_DHCPCANON(client);
+    NMDhcpDhcpcanon        *self = NM_DHCP_DHCPCANON(client);
     NMDhcpDhcpcanonPrivate *priv = NM_DHCP_DHCPCANON_GET_PRIVATE(self);
     int                     errsv;
 
@@ -223,7 +222,7 @@ static void
 nm_dhcp_dhcpcanon_class_init(NMDhcpDhcpcanonClass *dhcpcanon_class)
 {
     NMDhcpClientClass *client_class = NM_DHCP_CLIENT_CLASS(dhcpcanon_class);
-    GObjectClass *     object_class = G_OBJECT_CLASS(dhcpcanon_class);
+    GObjectClass      *object_class = G_OBJECT_CLASS(dhcpcanon_class);
 
     object_class->dispose = dispose;
 
@@ -232,9 +231,9 @@ nm_dhcp_dhcpcanon_class_init(NMDhcpDhcpcanonClass *dhcpcanon_class)
 }
 
 const NMDhcpClientFactory _nm_dhcp_client_factory_dhcpcanon = {
-    .name     = "dhcpcanon",
-    .get_type = nm_dhcp_dhcpcanon_get_type,
-    .get_path = nm_dhcp_dhcpcanon_get_path,
+    .name       = "dhcpcanon",
+    .get_type_4 = nm_dhcp_dhcpcanon_get_type,
+    .get_path   = nm_dhcp_dhcpcanon_get_path,
 };
 
 #endif /* WITH_DHCPCANON */

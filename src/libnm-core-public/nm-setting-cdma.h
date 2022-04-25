@@ -8,7 +8,7 @@
 #define __NM_SETTING_CDMA_H__
 
 #if !defined(__NETWORKMANAGER_H_INSIDE__) && !defined(NETWORKMANAGER_COMPILATION)
-    #error "Only <NetworkManager.h> can be included directly."
+#error "Only <NetworkManager.h> can be included directly."
 #endif
 
 #include "nm-setting.h"
@@ -37,10 +37,10 @@ typedef struct _NMSettingCdmaClass NMSettingCdmaClass;
 
 GType nm_setting_cdma_get_type(void);
 
-NMSetting *          nm_setting_cdma_new(void);
-const char *         nm_setting_cdma_get_number(NMSettingCdma *setting);
-const char *         nm_setting_cdma_get_username(NMSettingCdma *setting);
-const char *         nm_setting_cdma_get_password(NMSettingCdma *setting);
+NMSetting           *nm_setting_cdma_new(void);
+const char          *nm_setting_cdma_get_number(NMSettingCdma *setting);
+const char          *nm_setting_cdma_get_username(NMSettingCdma *setting);
+const char          *nm_setting_cdma_get_password(NMSettingCdma *setting);
 NMSettingSecretFlags nm_setting_cdma_get_password_flags(NMSettingCdma *setting);
 
 NM_AVAILABLE_IN_1_8

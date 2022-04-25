@@ -13,10 +13,10 @@
 
 #include "nm-act-request.h"
 #include "nm-device-private.h"
-#include "nm-ip4-config.h"
 #include "libnm-platform/nm-platform.h"
 #include "nm-device-factory.h"
 #include "nm-setting-tun.h"
+#include "libnm-core-aux-intern/nm-libnm-core-utils.h"
 #include "libnm-core-intern/nm-core-internal.h"
 
 #define _NMLOG_DEVICE_TYPE NMDeviceTun
@@ -55,7 +55,7 @@ G_DEFINE_TYPE(NMDeviceTun, nm_device_tun, NM_TYPE_DEVICE)
 static void
 update_properties_from_struct(NMDeviceTun *self, const NMPlatformLnkTun *props)
 {
-    NMDeviceTunPrivate *   priv   = NM_DEVICE_TUN_GET_PRIVATE(self);
+    NMDeviceTunPrivate    *priv   = NM_DEVICE_TUN_GET_PRIVATE(self);
     const NMPlatformLnkTun props0 = {};
 
     if (!props) {
@@ -128,11 +128,11 @@ link_changed(NMDevice *device, const NMPlatformLink *pllink)
 }
 
 static gboolean
-complete_connection(NMDevice *           device,
-                    NMConnection *       connection,
-                    const char *         specific_object,
+complete_connection(NMDevice            *device,
+                    NMConnection        *connection,
+                    const char          *specific_object,
                     NMConnection *const *existing_connections,
-                    GError **            error)
+                    GError             **error)
 {
     NMSettingTun *s_tun;
 
@@ -161,12 +161,12 @@ complete_connection(NMDevice *           device,
 static void
 update_connection(NMDevice *device, NMConnection *connection)
 {
-    NMDeviceTun *       self = NM_DEVICE_TUN(device);
+    NMDeviceTun        *self = NM_DEVICE_TUN(device);
     NMDeviceTunPrivate *priv = NM_DEVICE_TUN_GET_PRIVATE(self);
-    NMSettingTun *      s_tun;
+    NMSettingTun       *s_tun;
     NMSettingTunMode    mode;
     char                s_buf[100];
-    const char *        str;
+    const char         *str;
 
     /* Note: since we read tun properties from sysctl for older kernels,
      *       we don't get proper change notifications. Make sure that all our
@@ -186,11 +186,7 @@ update_connection(NMDevice *device, NMConnection *connection)
         return;
     }
 
-    s_tun = nm_connection_get_setting_tun(connection);
-    if (!s_tun) {
-        s_tun = (NMSettingTun *) nm_setting_tun_new();
-        nm_connection_add_setting(connection, (NMSetting *) s_tun);
-    }
+    s_tun = _nm_connection_ensure_setting(connection, NM_TYPE_SETTING_TUN);
 
     if (mode != nm_setting_tun_get_mode(s_tun))
         g_object_set(G_OBJECT(s_tun), NM_SETTING_TUN_MODE, (guint) mode, NULL);
@@ -220,15 +216,15 @@ update_connection(NMDevice *device, NMConnection *connection)
 }
 
 static gboolean
-create_and_realize(NMDevice *             device,
-                   NMConnection *         connection,
-                   NMDevice *             parent,
+create_and_realize(NMDevice              *device,
+                   NMConnection          *connection,
+                   NMDevice              *parent,
                    const NMPlatformLink **out_plink,
-                   GError **              error)
+                   GError               **error)
 {
-    const char *     iface = nm_device_get_iface(device);
+    const char      *iface = nm_device_get_iface(device);
     NMPlatformLnkTun props = {};
-    NMSettingTun *   s_tun;
+    NMSettingTun    *s_tun;
     gint64           owner;
     gint64           group;
     int              r;
@@ -290,10 +286,10 @@ _same_og(const char *str, gboolean og_valid, guint32 og_num)
 static gboolean
 check_connection_compatible(NMDevice *device, NMConnection *connection, GError **error)
 {
-    NMDeviceTun *       self = NM_DEVICE_TUN(device);
+    NMDeviceTun        *self = NM_DEVICE_TUN(device);
     NMDeviceTunPrivate *priv = NM_DEVICE_TUN_GET_PRIVATE(self);
     NMSettingTunMode    mode;
-    NMSettingTun *      s_tun;
+    NMSettingTun       *s_tun;
 
     if (!NM_DEVICE_CLASS(nm_device_tun_parent_class)
              ->check_connection_compatible(device, connection, error))
@@ -364,7 +360,7 @@ check_connection_compatible(NMDevice *device, NMConnection *connection, GError *
 static NMActStageReturn
 act_stage1_prepare(NMDevice *device, NMDeviceStateReason *out_failure_reason)
 {
-    NMDeviceTun *       self = NM_DEVICE_TUN(device);
+    NMDeviceTun        *self = NM_DEVICE_TUN(device);
     NMDeviceTunPrivate *priv = NM_DEVICE_TUN_GET_PRIVATE(self);
 
     if (priv->props.type == IFF_TUN) {
@@ -393,9 +389,9 @@ unrealize_notify(NMDevice *device)
 static void
 get_property(GObject *object, guint prop_id, GValue *value, GParamSpec *pspec)
 {
-    NMDeviceTun *       self = NM_DEVICE_TUN(object);
+    NMDeviceTun        *self = NM_DEVICE_TUN(object);
     NMDeviceTunPrivate *priv = NM_DEVICE_TUN_GET_PRIVATE(self);
-    const char *        s;
+    const char         *s;
 
     switch (prop_id) {
     case PROP_OWNER:
@@ -461,9 +457,9 @@ static const NMDBusInterfaceInfoExtended interface_info_device_tun = {
 static void
 nm_device_tun_class_init(NMDeviceTunClass *klass)
 {
-    GObjectClass *     object_class      = G_OBJECT_CLASS(klass);
+    GObjectClass      *object_class      = G_OBJECT_CLASS(klass);
     NMDBusObjectClass *dbus_object_class = NM_DBUS_OBJECT_CLASS(klass);
-    NMDeviceClass *    device_class      = NM_DEVICE_CLASS(klass);
+    NMDeviceClass     *device_class      = NM_DEVICE_CLASS(klass);
 
     object_class->get_property = get_property;
 
@@ -534,11 +530,11 @@ nm_device_tun_class_init(NMDeviceTunClass *klass)
     (G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_TUN_DEVICE_FACTORY, NMTunDeviceFactory))
 
 static NMDevice *
-create_device(NMDeviceFactory *     factory,
-              const char *          iface,
+create_device(NMDeviceFactory      *factory,
+              const char           *iface,
               const NMPlatformLink *plink,
-              NMConnection *        connection,
-              gboolean *            out_ignore)
+              NMConnection         *connection,
+              gboolean             *out_ignore)
 {
     g_return_val_if_fail(!plink || plink->type == NM_LINK_TYPE_TUN, NULL);
     g_return_val_if_fail(!connection

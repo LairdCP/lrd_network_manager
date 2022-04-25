@@ -15,8 +15,8 @@
 /* This header must not include glib or libnm. */
 
 #ifndef NM_VERSION_H
-    #define NM_AVAILABLE_IN_1_2
-    #define NM_AVAILABLE_IN_1_8
+#define NM_AVAILABLE_IN_1_2
+#define NM_AVAILABLE_IN_1_8
 #endif
 
 /*
@@ -513,6 +513,7 @@ typedef enum { /*< flags >*/
  * @NM_DEVICE_MODEM_CAPABILITY_GSM_UMTS: modem supports at least one of GSM,
  * GPRS, EDGE, UMTS, HSDPA, HSUPA, or HSPA+ packet switched data capability
  * @NM_DEVICE_MODEM_CAPABILITY_LTE: modem has LTE data capability
+ * @NM_DEVICE_MODEM_CAPABILITY_5GNR: modem has 5GNR data capability (Since: 1.36)
  *
  * #NMDeviceModemCapabilities values indicate the generic radio access
  * technology families a modem device supports.  For more information on the
@@ -525,7 +526,10 @@ typedef enum { /*< flags >*/
                NM_DEVICE_MODEM_CAPABILITY_CDMA_EVDO = 0x00000002,
                NM_DEVICE_MODEM_CAPABILITY_GSM_UMTS  = 0x00000004,
                NM_DEVICE_MODEM_CAPABILITY_LTE       = 0x00000008,
+               NM_DEVICE_MODEM_CAPABILITY_5GNR      = 0x00000040,
 } NMDeviceModemCapabilities;
+/* Note: the numeric values of NMDeviceModemCapabilities must be identical to the values
+ * in MMModemCapability. See the G_STATIC_ASSERT() in nm-modem-broadband.c's get_capabilities().  */
 
 /**
  * NMWimaxNspNetworkType:
@@ -945,8 +949,8 @@ typedef enum /*< flags >*/ {
 } NMSecretAgentCapabilities;
 
 #ifndef NM_VERSION_H
-    #undef NM_AVAILABLE_IN_1_2
-    #undef NM_AVAILABLE_IN_1_8
+#undef NM_AVAILABLE_IN_1_2
+#undef NM_AVAILABLE_IN_1_8
 #endif
 
 #define NM_LLDP_ATTR_RAW                  "raw"

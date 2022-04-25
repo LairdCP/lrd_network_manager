@@ -12,6 +12,7 @@
 
 #include "nmt-page-team.h"
 
+#include "libnm-core-aux-intern/nm-libnm-core-utils.h"
 #include "nmt-slave-list.h"
 
 G_DEFINE_TYPE(NmtPageTeam, nmt_page_team, NMT_TYPE_EDITOR_PAGE_DEVICE)
@@ -44,9 +45,9 @@ nmt_page_team_init(NmtPageTeam *team)
 static void
 slaves_changed(GObject *object, GParamSpec *pspec, gpointer user_data)
 {
-    NmtPageTeam *       team = NMT_PAGE_TEAM(user_data);
+    NmtPageTeam        *team = NMT_PAGE_TEAM(user_data);
     NmtPageTeamPrivate *priv = NMT_PAGE_TEAM_GET_PRIVATE(team);
-    GPtrArray *         slaves;
+    GPtrArray          *slaves;
 
     g_object_get(object, "connections", &slaves, NULL);
     if (slaves->len == 0) {
@@ -64,7 +65,7 @@ slaves_changed(GObject *object, GParamSpec *pspec, gpointer user_data)
 static gboolean
 team_connection_type_filter(GType connection_type, gpointer user_data)
 {
-    NmtPageTeam *       team = user_data;
+    NmtPageTeam        *team = user_data;
     NmtPageTeamPrivate *priv = NMT_PAGE_TEAM_GET_PRIVATE(team);
 
     if (priv->slave_type != NM_TYPE_SETTING_WIRED) {
@@ -83,10 +84,10 @@ team_connection_type_filter(GType connection_type, gpointer user_data)
 static void
 edit_clicked(NmtNewtButton *button, gpointer user_data)
 {
-    NmtPageTeam *       team = user_data;
+    NmtPageTeam        *team = user_data;
     NmtPageTeamPrivate *priv = NMT_PAGE_TEAM_GET_PRIVATE(team);
-    const char *        config;
-    char *              new_config;
+    const char         *config;
+    char               *new_config;
 
     config = nm_setting_team_get_config(priv->s_team);
     if (!config)
@@ -103,20 +104,16 @@ edit_clicked(NmtNewtButton *button, gpointer user_data)
 static void
 nmt_page_team_constructed(GObject *object)
 {
-    NmtPageTeam *       team = NMT_PAGE_TEAM(object);
+    NmtPageTeam        *team = NMT_PAGE_TEAM(object);
     NmtPageTeamPrivate *priv = NMT_PAGE_TEAM_GET_PRIVATE(team);
-    NmtEditorSection *  section;
-    NmtNewtGrid *       grid;
-    NMSettingTeam *     s_team;
-    NmtNewtWidget *     widget;
-    NMConnection *      conn;
+    NmtEditorSection   *section;
+    NmtNewtGrid        *grid;
+    NMSettingTeam      *s_team;
+    NmtNewtWidget      *widget;
+    NMConnection       *conn;
 
-    conn   = nmt_editor_page_get_connection(NMT_EDITOR_PAGE(team));
-    s_team = nm_connection_get_setting_team(conn);
-    if (!s_team) {
-        nm_connection_add_setting(conn, nm_setting_team_new());
-        s_team = nm_connection_get_setting_team(conn);
-    }
+    conn         = nmt_editor_page_get_connection(NMT_EDITOR_PAGE(team));
+    s_team       = _nm_connection_ensure_setting(conn, NM_TYPE_SETTING_TEAM);
     priv->s_team = s_team;
 
     section = nmt_editor_section_new(_("TEAM"), NULL, TRUE);
@@ -165,7 +162,7 @@ nmt_page_team_saved(NmtEditorPage *editor_page)
 static void
 nmt_page_team_class_init(NmtPageTeamClass *team_class)
 {
-    GObjectClass *      object_class      = G_OBJECT_CLASS(team_class);
+    GObjectClass       *object_class      = G_OBJECT_CLASS(team_class);
     NmtEditorPageClass *editor_page_class = NMT_EDITOR_PAGE_CLASS(team_class);
 
     g_type_class_add_private(team_class, sizeof(NmtPageTeamPrivate));

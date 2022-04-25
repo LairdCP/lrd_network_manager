@@ -7,11 +7,12 @@
 
 #include "nm-wpan-utils.h"
 
+#include "libnm-std-aux/nm-linux-compat.h"
+
 #include <linux/if.h>
 
 #include "libnm-log-core/nm-logging.h"
 #include "libnm-platform/nm-netlink.h"
-#include "linux-headers/nl802154.h"
 #include "libnm-platform/nm-platform-utils.h"
 
 #define _NMLOG_PREFIX_NAME "wpan-nl802154"
@@ -94,7 +95,7 @@ nl802154_alloc_msg(NMWpanUtils *self, guint32 cmd, guint32 flags)
 }
 
 static int
-nl802154_send_and_recv(NMWpanUtils *  self,
+nl802154_send_and_recv(NMWpanUtils   *self,
                        struct nl_msg *msg,
                        int (*valid_handler)(struct nl_msg *, void *),
                        void *valid_data)
@@ -102,14 +103,14 @@ nl802154_send_and_recv(NMWpanUtils *  self,
     int                err;
     int                done = 0;
     const struct nl_cb cb   = {
-        .err_cb     = error_handler,
-        .err_arg    = &done,
-        .finish_cb  = finish_handler,
-        .finish_arg = &done,
-        .ack_cb     = ack_handler,
-        .ack_arg    = &done,
-        .valid_cb   = valid_handler,
-        .valid_arg  = valid_data,
+          .err_cb     = error_handler,
+          .err_arg    = &done,
+          .finish_cb  = finish_handler,
+          .finish_arg = &done,
+          .ack_cb     = ack_handler,
+          .ack_arg    = &done,
+          .valid_cb   = valid_handler,
+          .valid_arg  = valid_data,
     };
 
     g_return_val_if_fail(msg != NULL, -ENOMEM);
@@ -148,9 +149,9 @@ nl802154_get_interface_handler(struct nl_msg *msg, void *arg)
         [NL802154_ATTR_PAN_ID]     = {.type = NLA_U16},
         [NL802154_ATTR_SHORT_ADDR] = {.type = NLA_U16},
     };
-    struct nlattr *            tb[G_N_ELEMENTS(nl802154_policy)];
+    struct nlattr             *tb[G_N_ELEMENTS(nl802154_policy)];
     struct nl802154_interface *info = arg;
-    struct genlmsghdr *        gnlh = nlmsg_data(nlmsg_hdr(msg));
+    struct genlmsghdr         *gnlh = nlmsg_data(nlmsg_hdr(msg));
 
     if (nla_parse_arr(tb, genlmsg_attrdata(gnlh, 0), genlmsg_attrlen(gnlh, 0), nl802154_policy) < 0)
         return NL_SKIP;

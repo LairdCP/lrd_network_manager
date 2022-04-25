@@ -192,6 +192,8 @@ DIR="$(git rev-parse --show-toplevel)"
 
 ORIGIN=origin
 
+BASH_SOURCE_ABSOLUTE="$(readlink -f "$BASH_SOURCE")"
+
 test -d "$DIR" &&
 cd "$DIR" &&
 test -f ./contrib/fedora/rpm/build_clean.sh || die "cannot find NetworkManager base directory"
@@ -354,7 +356,7 @@ if [ -n "$RELEASE_BRANCH" ]; then
 fi
 
 if [ "$ALLOW_LOCAL_BRANCHES" != 1 ]; then
-    cmp <(git show origin/main:contrib/fedora/rpm/release.sh) "$BASH_SOURCE" || die "$BASH_SOURCE is not identical to \`git show origin/main:contrib/fedora/rpm/release.sh\`"
+    cmp <(git show origin/main:contrib/fedora/rpm/release.sh) "$BASH_SOURCE_ABSOLUTE" || die "$BASH_SOURCE is not identical to \`git show origin/main:contrib/fedora/rpm/release.sh\`"
 fi
 
 if ! check_news "$RELEASE_MODE" "@{VERSION_ARR[@]}" ; then
@@ -375,7 +377,7 @@ fi
 
 if [ $CHECK_GITLAB = 1 ]; then
     if ! check_gitlab_pipeline "$CUR_BRANCH" "$CUR_HEAD" ; then
-        echo "Check the pipelines for branch \"$CUR_BRANCH\" at https://gitlab.freedesktop.org/NetworkManager/NetworkManager/-/pipelines/"
+        echo "Check the pipelines for branch \"$CUR_BRANCH\" at https://gitlab.freedesktop.org/NetworkManager/NetworkManager/-/pipelines?ref=$CUR_BRANCH"
         die "It seems not all gitlab-ci jobs were running/succeeding. Skip this check with --no-check-gitlab"
     fi
 fi

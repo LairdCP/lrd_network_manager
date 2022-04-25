@@ -1169,7 +1169,7 @@ msgstr "त्रुटी: जोडणी वैध नाही: %s\n"
 
 #: ../src/libnm-client-impl/nm-device.c:2773
 #, c-format
-msgid "The interface names of the device and the connection didn't match."
+msgid "The interface names of the device and the connection didn't match"
 msgstr ""
 
 #: ../src/libnm-client-impl/nm-secret-agent-old.c:1384
@@ -9797,7 +9797,7 @@ msgid "Error: 'connection show': %s"
 msgstr "त्रुटी: 'connection show': %s"
 
 #: ../src/nmcli/connections.c:1497
-msgid "Activate connection details"
+msgid "Active connection details"
 msgstr "जोडणी तपशील सक्रीय करा"
 
 #: ../src/nmcli/connections.c:1626 ../src/nmcli/devices.c:1610

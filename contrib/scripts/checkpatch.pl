@@ -1,7 +1,7 @@
 #!/usr/bin/perl -n
 # SPDX-License-Identifier: GPL-2.0-or-later
 #
-# Copyright (C) 2018 Red Hat, Inc.
+# Copyright (C) 2018,2021 Red Hat, Inc.
 #
 
 # $ perldoc checkpatch.pl for eye-pleasing view of the manual:
@@ -50,6 +50,7 @@ our $line_no;
 our $indent;
 our $check_is_todo;
 our $expect_spdx;
+our $subdir;
 
 sub new_hunk
 {
@@ -61,7 +62,8 @@ sub new_file
 {
 	$expect_spdx = 0;
 	$check_is_todo = 1;
-	$filename = shift;
+	$filename = $subdir // '';
+	$filename .= shift;
 	@functions_seen = ();
 }
 
@@ -140,6 +142,7 @@ if ($is_patch) {
 	/^(Reverts|Fixes): *(.*)/ and check_commit ($2, 1);
 	/This reverts commit/ and next;
 	/cherry picked from/ and next;
+	/^git-subtree-dir: (.*)/ and $subdir = "$1/";
 	/\bcommit (.*)/ and check_commit ($1, 0);
 	next;
 } else {
@@ -191,7 +194,11 @@ complain ("This gtk-doc annotation looks wrong") if $line =~ /\*.*\( *(transfer-
 complain ("Prefer nm_assert() or g_return*() to g_assert*()") if $line =~ /g_assert/ and (not $filename =~ /\/tests\//) and (not $filename =~ /\/nm-test-/);
 complain ("Use gs_free_error with GError variables") if $line =~ /\bgs_free\b +GError *\*/;
 complain ("Don't use strcmp/g_strcmp0 unless you need to sort. Consider nm_streq()/nm_streq0(),NM_IN_STRSET() for testing equality") if $line =~ /\b(strcmp|g_strcmp0)\b/;
-#complain ("Use spaces instead of tabs") if $line =~ /\t/;
+complain ("Don't use API that uses the numeric source id. Instead, use GSource and API like nm_g_idle_add(), nm_g_idle_add_source(), nm_clear_g_source_inst(), etc.") if $line =~ /\b(g_idle_add|g_idle_add_full|g_timeout_add|g_timeout_add_seconds|g_source_remove|nm_clear_g_source)\b/;
+complain ("Prefer g_snprintf() over snprintf() (for consistency)") if $line =~ /\b(snprintf)\b/;
+complain ("Avoid g_clear_pointer() and use nm_clear_pointer() (or nm_clear_g_free(), g_clear_object(), etc.)") if $line =~ /\b(g_clear_pointer)\b/;
+complain ("Define setting properties with _nm_setting_property_define_direct_*() API") if $line =~ /g_param_spec_/ and $filename =~ /\/libnm-core-impl\/nm-setting/;
+complain ("Use spaces instead of tabs") if $line =~ /\t/;
 
 # Further on we process stuff without comments.
 $_ = $line;
@@ -288,7 +295,7 @@ F<CONTRIBUTING>
 
 =head1 COPYRIGHT
 
-Copyright (C) 2018 Red Hat
+Copyright (C) 2018,2021 Red Hat
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by

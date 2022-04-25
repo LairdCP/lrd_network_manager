@@ -7,7 +7,7 @@
 #define __NM_DEVICE_WIFI_P2P_H__
 
 #if !defined(__NETWORKMANAGER_H_INSIDE__) && !defined(NETWORKMANAGER_COMPILATION)
-    #error "Only <NetworkManager.h> can be included directly."
+#error "Only <NetworkManager.h> can be included directly."
 #endif
 
 #include "nm-device.h"
@@ -50,9 +50,9 @@ NM_AVAILABLE_IN_1_16
 const GPtrArray *nm_device_wifi_p2p_get_peers(NMDeviceWifiP2P *device);
 
 NM_AVAILABLE_IN_1_16
-void nm_device_wifi_p2p_start_find(NMDeviceWifiP2P *   device,
-                                   GVariant *          options,
-                                   GCancellable *      cancellable,
+void nm_device_wifi_p2p_start_find(NMDeviceWifiP2P    *device,
+                                   GVariant           *options,
+                                   GCancellable       *cancellable,
                                    GAsyncReadyCallback callback,
                                    gpointer            user_data);
 NM_AVAILABLE_IN_1_16
@@ -60,8 +60,8 @@ gboolean
 nm_device_wifi_p2p_start_find_finish(NMDeviceWifiP2P *device, GAsyncResult *result, GError **error);
 
 NM_AVAILABLE_IN_1_16
-void nm_device_wifi_p2p_stop_find(NMDeviceWifiP2P *   device,
-                                  GCancellable *      cancellable,
+void nm_device_wifi_p2p_stop_find(NMDeviceWifiP2P    *device,
+                                  GCancellable       *cancellable,
                                   GAsyncReadyCallback callback,
                                   gpointer            user_data);
 NM_AVAILABLE_IN_1_16

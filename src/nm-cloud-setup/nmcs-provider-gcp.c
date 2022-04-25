@@ -41,9 +41,9 @@ G_DEFINE_TYPE(NMCSProviderGCP, nmcs_provider_gcp, NMCS_TYPE_PROVIDER);
 static void
 _detect_get_meta_data_done_cb(GObject *source, GAsyncResult *result, gpointer user_data)
 {
-    gs_unref_object GTask *task     = user_data;
-    gs_free_error GError *get_error = NULL;
-    gs_free_error GError *error     = NULL;
+    gs_unref_object GTask *task      = user_data;
+    gs_free_error GError  *get_error = NULL;
+    gs_free_error GError  *error     = NULL;
 
     nm_http_client_poll_get_finish(NM_HTTP_CLIENT(source), result, NULL, NULL, &get_error);
 
@@ -89,7 +89,7 @@ detect(NMCSProvider *provider, GTask *task)
 /*****************************************************************************/
 
 typedef struct {
-    NMCSProviderGetConfigTaskData * get_config_data;
+    NMCSProviderGetConfigTaskData  *get_config_data;
     NMCSProviderGetConfigIfaceData *iface_get_config;
     gssize                          intern_iface_idx;
     gssize                          extern_iface_idx;
@@ -105,14 +105,14 @@ _gcp_iface_data_destroy(GCPIfaceData *iface_data)
 static void
 _get_config_fip_cb(GObject *source, GAsyncResult *result, gpointer user_data)
 {
-    NMCSProviderGetConfigTaskData * get_config_data;
+    NMCSProviderGetConfigTaskData  *get_config_data;
     NMCSProviderGetConfigIfaceData *iface_get_config;
-    gs_unref_bytes GBytes *response   = NULL;
-    GCPIfaceData *         iface_data = user_data;
-    gs_free_error GError *error       = NULL;
-    gs_free char *        ipaddr      = NULL;
-    NMIPRoute **          routes_arr;
-    NMIPRoute *           route_new;
+    gs_unref_bytes GBytes          *response   = NULL;
+    GCPIfaceData                   *iface_data = user_data;
+    gs_free_error GError           *error      = NULL;
+    gs_free char                   *ipaddr     = NULL;
+    NMIPRoute                     **routes_arr;
+    NMIPRoute                      *route_new;
 
     nm_http_client_poll_get_finish(NM_HTTP_CLIENT(source), result, NULL, &response, &error);
 
@@ -161,15 +161,15 @@ static void
 _get_config_ips_list_cb(GObject *source, GAsyncResult *result, gpointer user_data)
 {
     NMCSProviderGetConfigTaskData *get_config_data;
-    gs_unref_ptrarray GPtrArray *uri_arr = NULL;
-    gs_unref_bytes GBytes *response      = NULL;
-    GCPIfaceData *         iface_data    = user_data;
-    gs_free_error GError *error          = NULL;
-    const char *          response_str   = NULL;
-    gsize                 response_len;
-    const char *          line;
-    gsize                 line_len;
-    guint                 i;
+    gs_unref_ptrarray GPtrArray   *uri_arr      = NULL;
+    gs_unref_bytes GBytes         *response     = NULL;
+    GCPIfaceData                  *iface_data   = user_data;
+    gs_free_error GError          *error        = NULL;
+    const char                    *response_str = NULL;
+    gsize                          response_len;
+    const char                    *line;
+    gsize                          line_len;
+    guint                          i;
 
     nm_http_client_poll_get_finish(NM_HTTP_CLIENT(source), result, NULL, &response, &error);
 
@@ -217,7 +217,7 @@ _get_config_ips_list_cb(GObject *source, GAsyncResult *result, gpointer user_dat
     iface_data->iface_get_config->iproutes_arr = g_new(NMIPRoute *, iface_data->n_fips_pending);
 
     for (i = 0; i < uri_arr->len; ++i) {
-        const char *        str = uri_arr->pdata[i];
+        const char         *str = uri_arr->pdata[i];
         gs_free const char *uri = NULL;
 
         nm_http_client_poll_get(NM_HTTP_CLIENT(source),
@@ -243,12 +243,11 @@ out_error:
 static void
 _get_config_iface_cb(GObject *source, GAsyncResult *result, gpointer user_data)
 {
-    gs_unref_bytes GBytes *response         = NULL;
-    GCPIfaceData *         iface_data       = user_data;
-    gs_free_error GError *         error    = NULL;
-    gs_free char *                 v_hwaddr = NULL;
-    const char *                   hwaddr   = NULL;
-    gs_free const char *           uri      = NULL;
+    gs_unref_bytes GBytes         *response   = NULL;
+    GCPIfaceData                  *iface_data = user_data;
+    gs_free_error GError          *error      = NULL;
+    gs_free char                  *v_hwaddr   = NULL;
+    gs_free const char            *uri        = NULL;
     char                           sbuf[100];
     NMCSProviderGetConfigTaskData *get_config_data;
     gboolean                       is_requested;
@@ -273,26 +272,25 @@ _get_config_iface_cb(GObject *source, GAsyncResult *result, gpointer user_data)
         goto out_done;
     }
 
-    if (!g_hash_table_lookup_extended(get_config_data->result_dict,
-                                      v_hwaddr,
-                                      (gpointer *) &hwaddr,
-                                      (gpointer *) &iface_data->iface_get_config)) {
+    iface_data->iface_get_config = g_hash_table_lookup(get_config_data->result_dict, v_hwaddr);
+
+    if (!iface_data->iface_get_config) {
         if (!get_config_data->any) {
             _LOGD("get-config: skip fetching meta data for %s (%" G_GSSIZE_FORMAT ")",
                   v_hwaddr,
                   iface_data->intern_iface_idx);
             goto out_done;
         }
-        iface_data->iface_get_config = nmcs_provider_get_config_iface_data_new(FALSE);
-        g_hash_table_insert(get_config_data->result_dict,
-                            (char *) (hwaddr = g_steal_pointer(&v_hwaddr)),
-                            iface_data->iface_get_config);
+        iface_data->iface_get_config =
+            nmcs_provider_get_config_iface_data_create(get_config_data->result_dict,
+                                                       FALSE,
+                                                       v_hwaddr);
         is_requested = FALSE;
     } else {
         if (iface_data->iface_get_config->iface_idx >= 0) {
             _LOGI("GCP interface[%" G_GSSIZE_FORMAT "]: duplicate MAC address %s returned",
                   iface_data->intern_iface_idx,
-                  hwaddr);
+                  iface_data->iface_get_config->hwaddr);
             error = nm_utils_error_new(NM_UTILS_ERROR_UNKNOWN,
                                        "duplicate MAC address for index %" G_GSSIZE_FORMAT,
                                        iface_data->intern_iface_idx);
@@ -306,7 +304,7 @@ _get_config_iface_cb(GObject *source, GAsyncResult *result, gpointer user_data)
     _LOGI("GCP interface[%" G_GSSIZE_FORMAT "]: found a %sdevice with hwaddr %s",
           iface_data->intern_iface_idx,
           is_requested ? "requested " : "",
-          hwaddr);
+          iface_data->iface_get_config->hwaddr);
 
     nm_sprintf_buf(sbuf, "%" G_GSSIZE_FORMAT "/forwarded-ips/", iface_data->intern_iface_idx);
 
@@ -332,13 +330,13 @@ out_done:
 static void
 _get_net_ifaces_list_cb(GObject *source, GAsyncResult *result, gpointer user_data)
 {
-    gs_unref_ptrarray GPtrArray *ifaces_arr = NULL;
-    gs_unref_bytes GBytes *response         = NULL;
-    gs_free_error GError *         error    = NULL;
+    gs_unref_ptrarray GPtrArray   *ifaces_arr = NULL;
+    gs_unref_bytes GBytes         *response   = NULL;
+    gs_free_error GError          *error      = NULL;
     NMCSProviderGetConfigTaskData *get_config_data;
-    const char *                   response_str;
+    const char                    *response_str;
     gsize                          response_len;
-    const char *                   line;
+    const char                    *line;
     gsize                          line_len;
     guint                          i;
     gssize                         extern_iface_idx_cnt = 0;
@@ -399,7 +397,7 @@ _get_net_ifaces_list_cb(GObject *source, GAsyncResult *result, gpointer user_dat
     }
 
     for (i = 0; i < ifaces_arr->len; ++i) {
-        GCPIfaceData *      data = ifaces_arr->pdata[i];
+        GCPIfaceData       *data = ifaces_arr->pdata[i];
         gs_free const char *uri  = NULL;
         char                sbuf[100];
 

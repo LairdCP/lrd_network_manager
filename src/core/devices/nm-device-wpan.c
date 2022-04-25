@@ -14,10 +14,10 @@
 
 #include "nm-act-request.h"
 #include "nm-device-private.h"
-#include "nm-ip4-config.h"
 #include "libnm-platform/nm-platform.h"
 #include "nm-device-factory.h"
 #include "nm-setting-wpan.h"
+#include "libnm-core-aux-intern/nm-libnm-core-utils.h"
 #include "libnm-core-intern/nm-core-internal.h"
 
 #define _NMLOG_DEVICE_TYPE NMDeviceWpan
@@ -38,11 +38,11 @@ G_DEFINE_TYPE(NMDeviceWpan, nm_device_wpan, NM_TYPE_DEVICE)
 /*****************************************************************************/
 
 static gboolean
-complete_connection(NMDevice *           device,
-                    NMConnection *       connection,
-                    const char *         specific_object,
+complete_connection(NMDevice            *device,
+                    NMConnection        *connection,
+                    const char          *specific_object,
                     NMConnection *const *existing_connections,
-                    GError **            error)
+                    GError             **error)
 {
     NMSettingWpan *s_wpan;
 
@@ -71,20 +71,14 @@ complete_connection(NMDevice *           device,
 static void
 update_connection(NMDevice *device, NMConnection *connection)
 {
-    NMSettingWpan *s_wpan =
-        NM_SETTING_WPAN(nm_connection_get_setting(connection, NM_TYPE_SETTING_WPAN));
-
-    if (!s_wpan) {
-        s_wpan = (NMSettingWpan *) nm_setting_wpan_new();
-        nm_connection_add_setting(connection, (NMSetting *) s_wpan);
-    }
+    _nm_connection_ensure_setting(connection, NM_TYPE_SETTING_WPAN);
 }
 
 static gboolean
 check_connection_compatible(NMDevice *device, NMConnection *connection, GError **error)
 {
     NMSettingWpan *s_wpan;
-    const char *   mac, *hw_addr;
+    const char    *mac, *hw_addr;
 
     if (!NM_DEVICE_CLASS(nm_device_wpan_parent_class)
              ->check_connection_compatible(device, connection, error))
@@ -109,17 +103,17 @@ check_connection_compatible(NMDevice *device, NMConnection *connection, GError *
 static NMActStageReturn
 act_stage1_prepare(NMDevice *device, NMDeviceStateReason *out_failure_reason)
 {
-    NMDeviceWpan *        self = NM_DEVICE_WPAN(device);
-    NMSettingWpan *       s_wpan;
-    NMPlatform *          platform;
+    NMDeviceWpan         *self = NM_DEVICE_WPAN(device);
+    NMSettingWpan        *s_wpan;
+    NMPlatform           *platform;
     guint16               pan_id;
     guint16               short_address;
     gint16                page, channel;
     int                   ifindex;
-    const guint8 *        hwaddr;
+    const guint8         *hwaddr;
     gsize                 hwaddr_len = 0;
     const NMPlatformLink *lowpan_plink;
-    NMDevice *            lowpan_device = NULL;
+    NMDevice             *lowpan_device = NULL;
     NMActStageReturn      ret           = NM_ACT_STAGE_RETURN_FAILURE;
 
     platform = nm_device_get_platform(device);
@@ -208,7 +202,7 @@ static const NMDBusInterfaceInfoExtended interface_info_device_wpan = {
 static void
 nm_device_wpan_class_init(NMDeviceWpanClass *klass)
 {
-    NMDeviceClass *    device_class      = NM_DEVICE_CLASS(klass);
+    NMDeviceClass     *device_class      = NM_DEVICE_CLASS(klass);
     NMDBusObjectClass *dbus_object_class = NM_DBUS_OBJECT_CLASS(klass);
 
     dbus_object_class->interface_infos = NM_DBUS_INTERFACE_INFOS(&interface_info_device_wpan);
@@ -230,11 +224,11 @@ nm_device_wpan_class_init(NMDeviceWpanClass *klass)
     (G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_WPAN_DEVICE_FACTORY, NMWpanDeviceFactory))
 
 static NMDevice *
-create_device(NMDeviceFactory *     factory,
-              const char *          iface,
+create_device(NMDeviceFactory      *factory,
+              const char           *iface,
               const NMPlatformLink *plink,
-              NMConnection *        connection,
-              gboolean *            out_ignore)
+              NMConnection         *connection,
+              gboolean             *out_ignore)
 {
     return g_object_new(NM_TYPE_DEVICE_WPAN,
                         NM_DEVICE_IFACE,

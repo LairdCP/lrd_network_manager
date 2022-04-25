@@ -38,7 +38,7 @@
 #include "nm-netns.h"
 
 #if !defined(NM_DIST_VERSION)
-    #define NM_DIST_VERSION VERSION
+#define NM_DIST_VERSION VERSION
 #endif
 
 #define NM_DEFAULT_PID_FILE NMRUNDIR "/NetworkManager.pid"
@@ -54,9 +54,9 @@ static struct {
     gboolean become_daemon;
     gboolean g_fatal_warnings;
     gboolean run_from_build_dir;
-    char *   opt_log_level;
-    char *   opt_log_domains;
-    char *   pidfile;
+    char    *opt_log_level;
+    char    *opt_log_domains;
+    char    *pidfile;
 } global_opt = {
     .become_daemon = TRUE,
 };
@@ -153,9 +153,9 @@ static int
 print_config(NMConfigCmdLineOptions *config_cli)
 {
     gs_unref_object NMConfig *config = NULL;
-    gs_free_error GError *error      = NULL;
-    NMConfigData *        config_data;
-    const char *const *   warnings;
+    gs_free_error GError     *error  = NULL;
+    NMConfigData             *config_data;
+    const char *const        *warnings;
 
     nm_logging_setup("OFF", "ALL", NULL, NULL);
 
@@ -259,7 +259,7 @@ do_early_setup(int *argc, char **argv[], NMConfigCmdLineOptions *config_cli)
 static gboolean
 _dbus_manager_init(NMConfig *config)
 {
-    NMDBusManager *              busmgr;
+    NMDBusManager               *busmgr;
     NMConfigConfigureAndQuitType c_a_q_type;
 
     busmgr = nm_dbus_manager_get();
@@ -268,16 +268,6 @@ _dbus_manager_init(NMConfig *config)
 
     if (c_a_q_type == NM_CONFIG_CONFIGURE_AND_QUIT_DISABLED)
         return nm_dbus_manager_acquire_bus(busmgr, TRUE);
-
-    if (c_a_q_type == NM_CONFIG_CONFIGURE_AND_QUIT_ENABLED) {
-        /* D-Bus is useless in configure and quit mode -- we're eventually dropping
-         * off and potential clients would have no way of knowing whether we're
-         * finished already or didn't start yet.
-         *
-         * But we still create a nm_dbus_manager_get_dbus_connection() D-Bus connection
-         * so that we can talk to other services like firewalld. */
-        return nm_dbus_manager_acquire_bus(busmgr, FALSE);
-    }
 
     nm_assert(c_a_q_type == NM_CONFIG_CONFIGURE_AND_QUIT_INITRD);
     /* in initrd we don't have D-Bus at all. Don't even try to get the G_BUS_TYPE_SYSTEM
@@ -292,25 +282,25 @@ _dbus_manager_init(NMConfig *config)
 int
 main(int argc, char *argv[])
 {
-    gboolean      success = FALSE;
-    NMManager *   manager = NULL;
-    NMConfig *    config;
-    gs_free_error GError *  error         = NULL;
+    gboolean                success = FALSE;
+    NMManager              *manager = NULL;
+    NMConfig               *config;
+    gs_free_error GError   *error         = NULL;
     gboolean                wrote_pidfile = FALSE;
-    char *                  bad_domains   = NULL;
+    char                   *bad_domains   = NULL;
     NMConfigCmdLineOptions *config_cli;
     guint                   sd_id                        = 0;
-    GError *                error_invalid_logging_config = NULL;
-    const char *const *     warnings;
+    GError                 *error_invalid_logging_config = NULL;
+    const char *const      *warnings;
     int                     errsv;
+
+    _nm_utils_is_manager_process = TRUE;
 
     /* Known to cause a possible deadlock upon GDBus initialization:
      * https://bugzilla.gnome.org/show_bug.cgi?id=674885 */
     g_type_ensure(G_TYPE_SOCKET);
     g_type_ensure(G_TYPE_DBUS_CONNECTION);
     g_type_ensure(NM_TYPE_DBUS_MANAGER);
-
-    _nm_utils_is_manager_process = TRUE;
 
     main_loop = g_main_loop_new(NULL, FALSE);
 
@@ -326,6 +316,7 @@ main(int argc, char *argv[])
 
     if (global_opt.show_version) {
         fprintf(stdout, NM_DIST_VERSION "\n");
+        nm_config_cmd_line_options_free(config_cli);
         exit(0);
     }
 
@@ -336,8 +327,6 @@ main(int argc, char *argv[])
         nm_config_cmd_line_options_free(config_cli);
         exit(result);
     }
-
-    nm_main_utils_ensure_root();
 
     nm_main_utils_ensure_not_running_pidfile(global_opt.pidfile);
 
@@ -374,6 +363,7 @@ main(int argc, char *argv[])
         fprintf(stderr,
                 _("%s.  Please use --help to see a list of valid options.\n"),
                 error->message);
+        nm_config_cmd_line_options_free(config_cli);
         exit(1);
     }
 

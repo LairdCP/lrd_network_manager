@@ -19,8 +19,9 @@
 %global snapshot __SNAPSHOT__
 %global git_sha __COMMIT__
 
-%global obsoletes_device_plugins 1:0.9.9.95-1
-%global obsoletes_ppp_plugin     1:1.5.3
+%global obsoletes_device_plugins     1:0.9.9.95-1
+%global obsoletes_ppp_plugin         1:1.5.3
+%global obsoletes_initscripts_updown 1:1.35.4
 
 %global systemd_dir %{_prefix}/lib/systemd/system
 %global sysctl_dir %{_prefix}/lib/sysctl.d
@@ -40,7 +41,7 @@
 
 %global real_version_major %(printf '%s' '%{real_version}' | sed -n 's/^\\([1-9][0-9]*\\.[0-9][0-9]*\\)\\.[0-9][0-9]*$/\\1/p')
 
-%global systemd_units NetworkManager.service NetworkManager-wait-online.service NetworkManager-dispatcher.service
+%global systemd_units NetworkManager.service NetworkManager-wait-online.service NetworkManager-dispatcher.service nm-priv-helper.service
 
 %global systemd_units_cloud_setup nm-cloud-setup.service nm-cloud-setup.timer
 
@@ -197,6 +198,9 @@ Source6: 70-nm-connectivity.conf
 #Patch1: 0001-some.patch
 
 Requires(post): systemd
+%if 0%{?fedora} || 0%{?rhel} > 7
+Requires(post): systemd-udev
+%endif
 Requires(post): /usr/sbin/update-alternatives
 Requires(preun): systemd
 Requires(preun): /usr/sbin/update-alternatives
@@ -211,6 +215,10 @@ Requires: libndp >= %{libndp_version}
 Obsoletes: NetworkManager < %{obsoletes_device_plugins}
 Obsoletes: NetworkManager < %{obsoletes_ppp_plugin}
 Obsoletes: NetworkManager-wimax < 1.2
+%if 0%{?rhel} && 0%{?rhel} == 8
+Suggests: NetworkManager-initscripts-updown
+%endif
+Obsoletes: NetworkManager < %{obsoletes_initscripts_updown}
 
 %if 0%{?rhel} && 0%{?rhel} <= 7
 # Kept for RHEL to ensure that wired 802.1x works out of the box
@@ -558,6 +566,20 @@ This tool is still experimental.
 %endif
 
 
+%package initscripts-updown
+Summary: Legacy ifup/ifdown scripts for NetworkManager that replace initscripts (network-scripts)
+Group: System Environment/Base
+BuildArch: noarch
+Requires: NetworkManager
+Requires: /usr/bin/nmcli
+Obsoletes: NetworkManager < %{obsoletes_initscripts_updown}
+
+%description initscripts-updown
+Installs alternative ifup/ifdown scripts that talk to NetworkManager.
+This is only for backward compatibility with initscripts (network-scripts).
+Preferably use nmcli instead.
+
+
 %prep
 %autosetup -p1 -n NetworkManager-%{real_version}
 
@@ -684,8 +706,7 @@ This tool is still experimental.
 	-Dresolvconf=no \
 	-Dnetconfig=no \
 	-Dconfig_dns_rc_manager_default=%{dns_rc_manager_default} \
-	-Dconfig_logging_backend_default=%{logging_backend_default} \
-	-Djson_validation=true
+	-Dconfig_logging_backend_default=%{logging_backend_default}
 
 %meson_build
 
@@ -871,7 +892,8 @@ mkdir -p %{buildroot}%{_prefix}/src/debug/NetworkManager-%{real_version}
 cp valgrind.suppressions %{buildroot}%{_prefix}/src/debug/NetworkManager-%{real_version}
 %endif
 
-touch %{buildroot}%{_sbindir}/ifup %{buildroot}%{_sbindir}/ifdown
+touch %{buildroot}%{_sbindir}/ifup
+touch %{buildroot}%{_sbindir}/ifdown
 
 
 %check
@@ -914,7 +936,8 @@ fi
 
 %systemd_post %{systemd_units}
 
-%triggerin -- initscripts
+
+%post initscripts-updown
 if [ -f %{_sbindir}/ifup -a ! -L %{_sbindir}/ifup ]; then
     # initscripts package too old, won't let us set an alternative
     /usr/sbin/update-alternatives --remove ifup %{_libexecdir}/nm-ifup >/dev/null 2>&1 || :
@@ -937,10 +960,14 @@ if [ $1 -eq 0 ]; then
 
     # Don't kill networking entirely just on package remove
     #/bin/systemctl stop NetworkManager.service >/dev/null 2>&1 || :
+fi
+%systemd_preun NetworkManager-wait-online.service NetworkManager-dispatcher.service nm-priv-helper.service
 
+
+%preun initscripts-updown
+if [ $1 -eq 0 ]; then
     /usr/sbin/update-alternatives --remove ifup %{_libexecdir}/nm-ifup >/dev/null 2>&1 || :
 fi
-%systemd_preun NetworkManager-wait-online.service NetworkManager-dispatcher.service
 
 
 %if %{with nm_cloud_setup}
@@ -974,6 +1001,7 @@ fi
 %files
 %{dbus_sys_dir}/org.freedesktop.NetworkManager.conf
 %{dbus_sys_dir}/nm-dispatcher.conf
+%{dbus_sys_dir}/nm-priv-helper.conf
 %{dbus_sys_dir}/nm-ifcfg-rh.conf
 %{_sbindir}/%{name}
 %{_bindir}/nmcli
@@ -990,15 +1018,11 @@ fi
 %config(noreplace) %{_sysconfdir}/%{name}/NetworkManager.conf
 %ghost %{_sysconfdir}/%{name}/VPN
 %{_bindir}/nm-online
-%{_libexecdir}/nm-ifup
-%ghost %attr(755, root, root) %{_sbindir}/ifup
-%{_libexecdir}/nm-ifdown
-%ghost %attr(755, root, root) %{_sbindir}/ifdown
 %{_libexecdir}/nm-dhcp-helper
 %{_libexecdir}/nm-dispatcher
-%{_libexecdir}/nm-iface-helper
 %{_libexecdir}/nm-initrd-generator
 %{_libexecdir}/nm-daemon-helper
+%{_libexecdir}/nm-priv-helper
 %dir %{_libdir}/%{name}
 %dir %{nmplugindir}
 %{nmplugindir}/libnm-settings-plugin*.so
@@ -1022,6 +1046,7 @@ fi
 %dir %{_localstatedir}/lib/NetworkManager
 %dir %{_sysconfdir}/sysconfig/network-scripts
 %{_datadir}/dbus-1/system-services/org.freedesktop.nm_dispatcher.service
+%{_datadir}/dbus-1/system-services/org.freedesktop.nm_priv_helper.service
 %{_datadir}/polkit-1/actions/*.policy
 %{_prefix}/lib/udev/rules.d/*.rules
 %if %{with firewalld_zone}
@@ -1031,6 +1056,7 @@ fi
 %{systemd_dir}/NetworkManager.service
 %{systemd_dir}/NetworkManager-wait-online.service
 %{systemd_dir}/NetworkManager-dispatcher.service
+%{systemd_dir}/nm-priv-helper.service
 %dir %{_datadir}/doc/NetworkManager/examples
 %{_datadir}/doc/NetworkManager/examples/server.conf
 %doc NEWS AUTHORS README CONTRIBUTING.md TODO
@@ -1155,6 +1181,13 @@ fi
 %{nmlibdir}/dispatcher.d/no-wait.d/90-nm-cloud-setup.sh
 %{_mandir}/man8/nm-cloud-setup.8*
 %endif
+
+
+%files initscripts-updown
+%{_libexecdir}/nm-ifup
+%ghost %attr(755, root, root) %{_sbindir}/ifup
+%{_libexecdir}/nm-ifdown
+%ghost %attr(755, root, root) %{_sbindir}/ifdown
 
 
 %changelog

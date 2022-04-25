@@ -39,11 +39,11 @@ qdiscs_lookup(int ifindex)
 static void
 test_qdisc1(void)
 {
-    int               ifindex;
+    int                          ifindex;
     gs_unref_ptrarray GPtrArray *known = NULL;
     gs_unref_ptrarray GPtrArray *plat  = NULL;
-    NMPObject *                  obj;
-    NMPlatformQdisc *            qdisc;
+    NMPObject                   *obj;
+    NMPlatformQdisc             *qdisc;
 
     ifindex = nm_platform_link_get_ifindex(NM_PLATFORM_GET, DEVICE_NAME);
     g_assert_cmpint(ifindex, >, 0);
@@ -57,7 +57,7 @@ test_qdisc1(void)
     g_ptr_array_add(known, qdisc_new(ifindex, "fq_codel", TC_H_ROOT));
     g_ptr_array_add(known, qdisc_new(ifindex, "ingress", TC_H_INGRESS));
 
-    g_assert(nm_platform_qdisc_sync(NM_PLATFORM_GET, ifindex, known));
+    g_assert(nm_platform_tc_sync(NM_PLATFORM_GET, ifindex, known, NULL));
     plat = qdiscs_lookup(ifindex);
     g_assert(plat);
     g_assert_cmpint(plat->len, ==, 2);
@@ -76,11 +76,11 @@ test_qdisc1(void)
 static void
 test_qdisc_fq_codel(void)
 {
-    int               ifindex;
+    int                          ifindex;
     gs_unref_ptrarray GPtrArray *known = NULL;
     gs_unref_ptrarray GPtrArray *plat  = NULL;
-    NMPObject *                  obj;
-    NMPlatformQdisc *            qdisc;
+    NMPObject                   *obj;
+    NMPlatformQdisc             *qdisc;
 
     ifindex = nm_platform_link_get_ifindex(NM_PLATFORM_GET, DEVICE_NAME);
     g_assert_cmpint(ifindex, >, 0);
@@ -97,7 +97,7 @@ test_qdisc_fq_codel(void)
     obj->qdisc.fq_codel.quantum = 1000;
     g_ptr_array_add(known, obj);
 
-    g_assert(nm_platform_qdisc_sync(NM_PLATFORM_GET, ifindex, known));
+    g_assert(nm_platform_tc_sync(NM_PLATFORM_GET, ifindex, known, NULL));
     plat = qdiscs_lookup(ifindex);
     g_assert(plat);
     g_assert_cmpint(plat->len, ==, 1);
@@ -115,11 +115,11 @@ test_qdisc_fq_codel(void)
 static void
 test_qdisc_sfq(void)
 {
-    int               ifindex;
+    int                          ifindex;
     gs_unref_ptrarray GPtrArray *known = NULL;
     gs_unref_ptrarray GPtrArray *plat  = NULL;
-    NMPObject *                  obj;
-    NMPlatformQdisc *            qdisc;
+    NMPObject                   *obj;
+    NMPlatformQdisc             *qdisc;
 
     ifindex = nm_platform_link_get_ifindex(NM_PLATFORM_GET, DEVICE_NAME);
     g_assert_cmpint(ifindex, >, 0);
@@ -136,7 +136,7 @@ test_qdisc_sfq(void)
     obj->qdisc.sfq.flows          = 256;
     g_ptr_array_add(known, obj);
 
-    g_assert(nm_platform_qdisc_sync(NM_PLATFORM_GET, ifindex, known));
+    g_assert(nm_platform_tc_sync(NM_PLATFORM_GET, ifindex, known, NULL));
     plat = qdiscs_lookup(ifindex);
     g_assert(plat);
     g_assert_cmpint(plat->len, ==, 1);
@@ -154,11 +154,11 @@ test_qdisc_sfq(void)
 static void
 test_qdisc_tbf(void)
 {
-    int               ifindex;
+    int                          ifindex;
     gs_unref_ptrarray GPtrArray *known = NULL;
     gs_unref_ptrarray GPtrArray *plat  = NULL;
-    NMPObject *                  obj;
-    NMPlatformQdisc *            qdisc;
+    NMPObject                   *obj;
+    NMPlatformQdisc             *qdisc;
 
     ifindex = nm_platform_link_get_ifindex(NM_PLATFORM_GET, DEVICE_NAME);
     g_assert_cmpint(ifindex, >, 0);
@@ -179,7 +179,7 @@ test_qdisc_tbf(void)
     obj->qdisc.handle = TC_H_MAKE(0x8005 << 16, 0);
     g_ptr_array_add(known, obj);
 
-    g_assert(nm_platform_qdisc_sync(NM_PLATFORM_GET, ifindex, known));
+    g_assert(nm_platform_tc_sync(NM_PLATFORM_GET, ifindex, known, NULL));
     plat = qdiscs_lookup(ifindex);
     g_assert(plat);
     g_assert_cmpint(plat->len, ==, 2);
@@ -202,7 +202,7 @@ test_qdisc_tbf(void)
 
 /*****************************************************************************/
 
-NMTstpSetupFunc const _nmtstp_setup_platform_func = SETUP;
+NMTstpSetupFunc const _nmtstp_setup_platform_func = nm_linux_platform_setup_with_tc_cache;
 
 void
 _nmtstp_init_tests(int *argc, char ***argv)
@@ -213,10 +213,8 @@ _nmtstp_init_tests(int *argc, char ***argv)
 void
 _nmtstp_setup_tests(void)
 {
-    if (nmtstp_is_root_test()) {
-        nmtstp_env1_add_test_func("/link/qdisc/1", test_qdisc1, TRUE);
-        nmtstp_env1_add_test_func("/link/qdisc/fq_codel", test_qdisc_fq_codel, TRUE);
-        nmtstp_env1_add_test_func("/link/qdisc/sfq", test_qdisc_sfq, TRUE);
-        nmtstp_env1_add_test_func("/link/qdisc/tbf", test_qdisc_tbf, TRUE);
-    }
+    nmtstp_env1_add_test_func("/link/qdisc/1", test_qdisc1, TRUE);
+    nmtstp_env1_add_test_func("/link/qdisc/fq_codel", test_qdisc_fq_codel, TRUE);
+    nmtstp_env1_add_test_func("/link/qdisc/sfq", test_qdisc_sfq, TRUE);
+    nmtstp_env1_add_test_func("/link/qdisc/tbf", test_qdisc_tbf, TRUE);
 }

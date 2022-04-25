@@ -21,7 +21,7 @@
 #define NLMSGERR_ATTR_MAX    3
 
 #ifndef NLM_F_ACK_TLVS
-    #define NLM_F_ACK_TLVS 0x200
+#define NLM_F_ACK_TLVS 0x200
 #endif
 
 /*****************************************************************************/
@@ -35,15 +35,7 @@ enum {
     NLA_U64,    /* 64 bit integer */
     NLA_STRING, /* NUL terminated character string */
     NLA_FLAG,   /* Flag */
-    NLA_MSECS,  /* Micro seconds (64bit) */
     NLA_NESTED, /* Nested attributes */
-    NLA_NESTED_COMPAT,
-    NLA_NUL_STRING,
-    NLA_BINARY,
-    NLA_S8,
-    NLA_S16,
-    NLA_S32,
-    NLA_S64,
     __NLA_TYPE_MAX,
 };
 
@@ -63,10 +55,10 @@ const char *nl_nlmsghdr_to_str(const struct nlmsghdr *hdr, char *buf, gsize len)
 
 struct nla_policy {
     /* Type of attribute or NLA_UNSPEC */
-    uint16_t type;
+    uint8_t type;
 
     /* Minimal length of payload required */
-    uint16_t minlen;
+    uint8_t minlen;
 
     /* Maximal length of payload allowed */
     uint16_t maxlen;
@@ -75,18 +67,24 @@ struct nla_policy {
 /*****************************************************************************/
 
 /* static asserts that @tb and @policy are suitable arguments to nla_parse(). */
-#define _nl_static_assert_tb(tb, policy)                                                      \
-    G_STMT_START                                                                              \
-    {                                                                                         \
-        G_STATIC_ASSERT_EXPR(G_N_ELEMENTS(tb) > 0);                                           \
-                                                                                              \
+#if _NM_CC_SUPPORT_GENERIC
+#define _nl_static_assert_tb(tb, policy)                                                   \
+    G_STMT_START                                                                           \
+    {                                                                                      \
+        G_STATIC_ASSERT_EXPR(G_N_ELEMENTS(tb) > 0);                                        \
+                                                                                           \
         /* We allow @policy to be either a C array or NULL. The sizeof()
-         * must either match the expected array size or the sizeof(NULL),
-         * but not both. */                      \
-        G_STATIC_ASSERT_EXPR((sizeof(policy) == G_N_ELEMENTS(tb) * sizeof(struct nla_policy)) \
-                             ^ (sizeof(policy) == sizeof(NULL)));                             \
-    }                                                                                         \
+         * must either match the expected array size or we check that
+         * "policy" has typeof(NULL). This isn't a perfect compile time check,
+         * but good enough. */                   \
+        G_STATIC_ASSERT_EXPR(                                                              \
+            _Generic((policy), typeof(NULL) : 1, default                                   \
+                     : (sizeof(policy) == G_N_ELEMENTS(tb) * sizeof(struct nla_policy)))); \
+    }                                                                                      \
     G_STMT_END
+#else
+#define _nl_static_assert_tb(tb, policy) G_STATIC_ASSERT_EXPR(G_N_ELEMENTS(tb) > 0)
+#endif
 
 /*****************************************************************************/
 
@@ -112,28 +110,24 @@ nla_padlen(int payload)
 
 struct nlattr *nla_reserve(struct nl_msg *msg, int attrtype, int attrlen);
 
-static inline int
+static inline uint16_t
 nla_len(const struct nlattr *nla)
 {
     nm_assert(nla);
     nm_assert(nla->nla_len >= NLA_HDRLEN);
 
-    return ((int) nla->nla_len) - NLA_HDRLEN;
+    return nla->nla_len - ((uint16_t) NLA_HDRLEN);
 }
 
 static inline int
 nla_type(const struct nlattr *nla)
 {
-    nm_assert(nla_len(nla) >= 0);
-
     return nla->nla_type & NLA_TYPE_MASK;
 }
 
 static inline void *
 nla_data(const struct nlattr *nla)
 {
-    nm_assert(nla_len(nla) >= 0);
-
     return &(((char *) nla)[NLA_HDRLEN]);
 }
 
@@ -219,9 +213,7 @@ nla_get_be64(const struct nlattr *nla)
 static inline char *
 nla_get_string(const struct nlattr *nla)
 {
-    nm_assert(nla_len(nla) >= 0);
-
-    return (char *) nla_data(nla);
+    return nla_data(nla);
 }
 
 size_t nla_strlcpy(char *dst, const struct nlattr *nla, size_t dstsize);
@@ -336,9 +328,9 @@ void           nla_nest_cancel(struct nl_msg *msg, const struct nlattr *attr);
 struct nlattr *nla_nest_start(struct nl_msg *msg, int attrtype);
 int            nla_nest_end(struct nl_msg *msg, struct nlattr *start);
 
-int nla_parse(struct nlattr *          tb[],
+int nla_parse(struct nlattr           *tb[],
               int                      maxtype,
-              struct nlattr *          head,
+              struct nlattr           *head,
               int                      len,
               const struct nla_policy *policy);
 
@@ -350,9 +342,9 @@ int nla_parse(struct nlattr *          tb[],
     })
 
 static inline int
-nla_parse_nested(struct nlattr *          tb[],
+nla_parse_nested(struct nlattr           *tb[],
                  int                      maxtype,
-                 struct nlattr *          nla,
+                 struct nlattr           *nla,
                  const struct nla_policy *policy)
 {
     return nla_parse(tb, maxtype, nla_data(nla), nla_len(nla), policy);
@@ -476,9 +468,9 @@ nlmsg_find_attr(struct nlmsghdr *nlh, int hdrlen, int attrtype)
     return nla_find(nlmsg_attrdata(nlh, hdrlen), nlmsg_attrlen(nlh, hdrlen), attrtype);
 }
 
-int nlmsg_parse(struct nlmsghdr *        nlh,
+int nlmsg_parse(struct nlmsghdr         *nlh,
                 int                      hdrlen,
-                struct nlattr *          tb[],
+                struct nlattr           *tb[],
                 int                      maxtype,
                 const struct nla_policy *policy);
 
@@ -525,11 +517,13 @@ int nl_socket_add_memberships(struct nl_sock *sk, int group, ...);
 
 int nl_connect(struct nl_sock *sk, int protocol);
 
-int nl_recv(struct nl_sock *    sk,
+int nl_recv(struct nl_sock     *sk,
+            unsigned char      *buf0,
+            size_t              buf0_len,
             struct sockaddr_nl *nla,
-            unsigned char **    buf,
-            struct ucred *      out_creds,
-            gboolean *          out_creds_has);
+            unsigned char     **buf,
+            struct ucred       *out_creds,
+            gboolean           *out_creds_has);
 
 int nl_send(struct nl_sock *sk, struct nl_msg *msg);
 
@@ -552,16 +546,16 @@ typedef int (*nl_recvmsg_err_cb_t)(struct sockaddr_nl *nla, struct nlmsgerr *nle
 
 struct nl_cb {
     nl_recvmsg_msg_cb_t valid_cb;
-    void *              valid_arg;
+    void               *valid_arg;
 
     nl_recvmsg_msg_cb_t finish_cb;
-    void *              finish_arg;
+    void               *finish_arg;
 
     nl_recvmsg_msg_cb_t ack_cb;
-    void *              ack_arg;
+    void               *ack_arg;
 
     nl_recvmsg_err_cb_t err_cb;
-    void *              err_arg;
+    void               *err_arg;
 };
 
 int nl_sendmsg(struct nl_sock *sk, struct nl_msg *msg, struct msghdr *hdr);
@@ -578,7 +572,7 @@ int nl_socket_set_ext_ack(struct nl_sock *sk, gboolean enable);
 
 /*****************************************************************************/
 
-void *             genlmsg_put(struct nl_msg *msg,
+void              *genlmsg_put(struct nl_msg *msg,
                                uint32_t       port,
                                uint32_t       seq,
                                int            family,
@@ -586,18 +580,18 @@ void *             genlmsg_put(struct nl_msg *msg,
                                int            flags,
                                uint8_t        cmd,
                                uint8_t        version);
-void *             genlmsg_data(const struct genlmsghdr *gnlh);
-void *             genlmsg_user_hdr(const struct genlmsghdr *gnlh);
+void              *genlmsg_data(const struct genlmsghdr *gnlh);
+void              *genlmsg_user_hdr(const struct genlmsghdr *gnlh);
 struct genlmsghdr *genlmsg_hdr(struct nlmsghdr *nlh);
-void *             genlmsg_user_data(const struct genlmsghdr *gnlh, const int hdrlen);
-struct nlattr *    genlmsg_attrdata(const struct genlmsghdr *gnlh, int hdrlen);
+void              *genlmsg_user_data(const struct genlmsghdr *gnlh, const int hdrlen);
+struct nlattr     *genlmsg_attrdata(const struct genlmsghdr *gnlh, int hdrlen);
 int                genlmsg_len(const struct genlmsghdr *gnlh);
 int                genlmsg_attrlen(const struct genlmsghdr *gnlh, int hdrlen);
 int                genlmsg_valid_hdr(struct nlmsghdr *nlh, int hdrlen);
 
-int genlmsg_parse(struct nlmsghdr *        nlh,
+int genlmsg_parse(struct nlmsghdr         *nlh,
                   int                      hdrlen,
-                  struct nlattr *          tb[],
+                  struct nlattr           *tb[],
                   int                      maxtype,
                   const struct nla_policy *policy);
 

@@ -10,7 +10,7 @@
 #include "string-util-fundamental.h"
 
 sd_char *startswith(const sd_char *s, const sd_char *prefix) {
-        sd_size_t l;
+        size_t l;
 
         assert(s);
         assert(prefix);
@@ -24,7 +24,7 @@ sd_char *startswith(const sd_char *s, const sd_char *prefix) {
 
 #ifndef SD_BOOT
 sd_char *startswith_no_case(const sd_char *s, const sd_char *prefix) {
-        sd_size_t l;
+        size_t l;
 
         assert(s);
         assert(prefix);
@@ -38,7 +38,7 @@ sd_char *startswith_no_case(const sd_char *s, const sd_char *prefix) {
 #endif
 
 sd_char* endswith(const sd_char *s, const sd_char *postfix) {
-        sd_size_t sl, pl;
+        size_t sl, pl;
 
         assert(s);
         assert(postfix);
@@ -59,7 +59,7 @@ sd_char* endswith(const sd_char *s, const sd_char *postfix) {
 }
 
 sd_char* endswith_no_case(const sd_char *s, const sd_char *postfix) {
-        sd_size_t sl, pl;
+        size_t sl, pl;
 
         assert(s);
         assert(postfix);
@@ -79,6 +79,7 @@ sd_char* endswith_no_case(const sd_char *s, const sd_char *postfix) {
         return (sd_char*) s + sl - pl;
 }
 
+#if 0 /* NM_IGNORED */
 #ifdef SD_BOOT
 static sd_bool isdigit(sd_char a) {
         return a >= '0' && a <= '9';
@@ -154,7 +155,7 @@ sd_int strverscmp_improved(const sd_char *a, const sd_char *b) {
                  * Note that except for '~' prefixed segments, a string has more segments is newer.
                  * So, this check must be after the '~' check. */
                 if (*a == '\0' || *b == '\0')
-                        return strcmp(a, b);
+                        return CMP(*a, *b);
 
                 /* Handle '-', which separates version and release, e.g 123.4-3.1.fc33.x86_64 */
                 if (*a == '-' || *b == '-') {
@@ -196,9 +197,9 @@ sd_int strverscmp_improved(const sd_char *a, const sd_char *b) {
 
                         /* Find the leading numeric segments. One may be an empty string. So,
                          * numeric segments are always newer than alpha segments. */
-                        for (aa = a; *aa != '\0' && isdigit(*aa); aa++)
+                        for (aa = a; isdigit(*aa); aa++)
                                 ;
-                        for (bb = b; *bb != '\0' && isdigit(*bb); bb++)
+                        for (bb = b; isdigit(*bb); bb++)
                                 ;
 
                         /* To compare numeric segments without parsing their values, first compare the
@@ -213,9 +214,9 @@ sd_int strverscmp_improved(const sd_char *a, const sd_char *b) {
                                 return r;
                 } else {
                         /* Find the leading non-numeric segments. */
-                        for (aa = a; *aa != '\0' && is_alpha(*aa); aa++)
+                        for (aa = a; is_alpha(*aa); aa++)
                                 ;
-                        for (bb = b; *bb != '\0' && is_alpha(*bb); bb++)
+                        for (bb = b; is_alpha(*bb); bb++)
                                 ;
 
                         /* Note that the segments are usually not NUL-terminated. */
@@ -234,3 +235,4 @@ sd_int strverscmp_improved(const sd_char *a, const sd_char *b) {
                 b = bb;
         }
 }
+#endif /* NM_IGNORED */

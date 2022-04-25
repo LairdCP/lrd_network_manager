@@ -12,6 +12,8 @@
 
 #include "nmt-page-team-port.h"
 
+#include "libnm-core-aux-intern/nm-libnm-core-utils.h"
+
 G_DEFINE_TYPE(NmtPageTeamPort, nmt_page_team_port, NMT_TYPE_EDITOR_PAGE)
 
 #define NMT_PAGE_TEAM_PORT_GET_PRIVATE(o) \
@@ -35,10 +37,10 @@ nmt_page_team_port_init(NmtPageTeamPort *team)
 static void
 edit_clicked(NmtNewtButton *button, gpointer user_data)
 {
-    NmtPageTeamPort *       team = user_data;
+    NmtPageTeamPort        *team = user_data;
     NmtPageTeamPortPrivate *priv = NMT_PAGE_TEAM_PORT_GET_PRIVATE(team);
-    const char *            config;
-    char *                  new_config;
+    const char             *config;
+    char                   *new_config;
 
     config = nm_setting_team_port_get_config(priv->s_port);
     if (!config)
@@ -55,20 +57,16 @@ edit_clicked(NmtNewtButton *button, gpointer user_data)
 static void
 nmt_page_team_port_constructed(GObject *object)
 {
-    NmtPageTeamPort *       team = NMT_PAGE_TEAM_PORT(object);
+    NmtPageTeamPort        *team = NMT_PAGE_TEAM_PORT(object);
     NmtPageTeamPortPrivate *priv = NMT_PAGE_TEAM_PORT_GET_PRIVATE(team);
-    NmtEditorSection *      section;
-    NmtNewtGrid *           grid;
-    NMSettingTeamPort *     s_port;
-    NmtNewtWidget *         widget;
-    NMConnection *          conn;
+    NmtEditorSection       *section;
+    NmtNewtGrid            *grid;
+    NMSettingTeamPort      *s_port;
+    NmtNewtWidget          *widget;
+    NMConnection           *conn;
 
-    conn   = nmt_editor_page_get_connection(NMT_EDITOR_PAGE(team));
-    s_port = nm_connection_get_setting_team_port(conn);
-    if (!s_port) {
-        nm_connection_add_setting(conn, nm_setting_team_port_new());
-        s_port = nm_connection_get_setting_team_port(conn);
-    }
+    conn         = nmt_editor_page_get_connection(NMT_EDITOR_PAGE(team));
+    s_port       = _nm_connection_ensure_setting(conn, NM_TYPE_SETTING_TEAM_PORT);
     priv->s_port = s_port;
 
     section = nmt_editor_section_new(_("TEAM PORT"), NULL, TRUE);

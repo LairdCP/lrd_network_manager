@@ -19,6 +19,7 @@
 #include "libnm-glib-aux/nm-str-buf.h"
 #include "libnm-glib-aux/nm-io-utils.h"
 #include "nm-manager.h"
+#include "nm-setting-bond-port.h"
 #include "nm-setting-connection.h"
 #include "nm-setting-wired.h"
 #include "nm-setting-wireless.h"
@@ -93,11 +94,11 @@ save_secret_flags(shvarFile *ifcfg, const char *key, NMSettingSecretFlags flags)
 }
 
 static void
-set_secret(shvarFile *          ifcfg,
-           GHashTable *         secrets,
-           const char *         key,
-           const char *         value,
-           const char *         flags_key,
+set_secret(shvarFile           *ifcfg,
+           GHashTable          *secrets,
+           const char          *key,
+           const char          *value,
+           const char          *flags_key,
            NMSettingSecretFlags flags)
 {
     /* Save secret flags */
@@ -113,14 +114,14 @@ set_secret(shvarFile *          ifcfg,
 static gboolean
 write_secrets(shvarFile *ifcfg, GHashTable *secrets, GError **error)
 {
-    nm_auto_shvar_file_close shvarFile *keyfile = NULL;
-    gs_free NMUtilsNamedValue *secrets_arr_free = NULL;
-    NMUtilsNamedValue          secrets_arr_static[30];
-    const NMUtilsNamedValue *  secrets_arr;
-    guint                      secrets_len;
-    GError *                   local       = NULL;
-    gboolean                   any_secrets = FALSE;
-    guint                      i;
+    nm_auto_shvar_file_close shvarFile *keyfile          = NULL;
+    gs_free NMUtilsNamedValue          *secrets_arr_free = NULL;
+    NMUtilsNamedValue                   secrets_arr_static[30];
+    const NMUtilsNamedValue            *secrets_arr;
+    guint                               secrets_len;
+    GError                             *local       = NULL;
+    gboolean                            any_secrets = FALSE;
+    guint                               i;
 
     keyfile = utils_get_keys_ifcfg(svFileGetName(ifcfg), TRUE);
     if (!keyfile) {
@@ -163,7 +164,7 @@ write_secrets(shvarFile *ifcfg, GHashTable *secrets, GError **error)
 
 typedef struct {
     const NMSetting8021xSchemeVtable *vtable;
-    const char *                      ifcfg_rh_key;
+    const char                       *ifcfg_rh_key;
 } Setting8021xSchemeVtable;
 
 static const Setting8021xSchemeVtable setting_8021x_scheme_vtable[] = {
@@ -183,39 +184,39 @@ static const Setting8021xSchemeVtable setting_8021x_scheme_vtable[] = {
 };
 
 static gboolean
-write_object(NMSetting8021x *                s_8021x,
-             shvarFile *                     ifcfg,
-             GHashTable *                    secrets,
-             GHashTable *                    blobs,
+write_object(NMSetting8021x                 *s_8021x,
+             shvarFile                      *ifcfg,
+             GHashTable                     *secrets,
+             GHashTable                     *blobs,
              const Setting8021xSchemeVtable *objtype,
              gboolean                        force_write,
-             GError **                       error)
+             GError                        **error)
 {
     NMSetting8021xCKScheme scheme;
-    const char *           value    = NULL;
-    GBytes *               blob     = NULL;
-    const char *           password = NULL;
+    const char            *value    = NULL;
+    GBytes                *blob     = NULL;
+    const char            *password = NULL;
     NMSettingSecretFlags   flags    = NM_SETTING_SECRET_FLAG_NONE;
     char                   secret_name[100];
     char                   secret_flags[sizeof(secret_name) + NM_STRLEN("_FLAGS")];
-    const char *           extension;
-    char *                 standard_file;
+    const char            *extension;
+    char                  *standard_file;
 
     g_return_val_if_fail(ifcfg != NULL, FALSE);
     g_return_val_if_fail(objtype != NULL, FALSE);
 
-    scheme = (*(objtype->vtable->scheme_func)) (s_8021x);
+    scheme = (*(objtype->vtable->scheme_func))(s_8021x);
     switch (scheme) {
     case NM_SETTING_802_1X_CK_SCHEME_UNKNOWN:
         break;
     case NM_SETTING_802_1X_CK_SCHEME_BLOB:
-        blob = (*(objtype->vtable->blob_func)) (s_8021x);
+        blob = (*(objtype->vtable->blob_func))(s_8021x);
         break;
     case NM_SETTING_802_1X_CK_SCHEME_PATH:
-        value = (*(objtype->vtable->path_func)) (s_8021x);
+        value = (*(objtype->vtable->path_func))(s_8021x);
         break;
     case NM_SETTING_802_1X_CK_SCHEME_PKCS11:
-        value = (*(objtype->vtable->uri_func)) (s_8021x);
+        value = (*(objtype->vtable->uri_func))(s_8021x);
         break;
     default:
         g_set_error(error,
@@ -228,8 +229,8 @@ write_object(NMSetting8021x *                s_8021x,
     /* Set the password for certificate/private key. */
     nm_sprintf_buf(secret_name, "%s_PASSWORD", objtype->ifcfg_rh_key);
     nm_sprintf_buf(secret_flags, "%s_PASSWORD_FLAGS", objtype->ifcfg_rh_key);
-    password = (*(objtype->vtable->passwd_func)) (s_8021x);
-    flags    = (*(objtype->vtable->pwflag_func)) (s_8021x);
+    password = (*(objtype->vtable->passwd_func))(s_8021x);
+    flags    = (*(objtype->vtable->pwflag_func))(s_8021x);
     set_secret(ifcfg, secrets, secret_name, password, secret_flags, flags);
 
     if (!objtype->vtable->format_func)
@@ -276,8 +277,8 @@ static gboolean
 write_blobs(GHashTable *blobs, GError **error)
 {
     GHashTableIter iter;
-    const char *   filename;
-    GBytes *       blob;
+    const char    *filename;
+    GBytes        *blob;
 
     if (!blobs)
         return TRUE;
@@ -317,14 +318,14 @@ write_blobs(GHashTable *blobs, GError **error)
 
 static gboolean
 write_8021x_certs(NMSetting8021x *s_8021x,
-                  GHashTable *    secrets,
-                  GHashTable *    blobs,
+                  GHashTable     *secrets,
+                  GHashTable     *blobs,
                   gboolean        phase2,
-                  shvarFile *     ifcfg,
-                  GError **       error)
+                  shvarFile      *ifcfg,
+                  GError        **error)
 {
     const Setting8021xSchemeVtable *pk_otype      = NULL;
-    gs_free char *                  value_to_free = NULL;
+    gs_free char                   *value_to_free = NULL;
 
     /* CA certificate */
     if (!write_object(
@@ -370,20 +371,20 @@ write_8021x_certs(NMSetting8021x *s_8021x,
 
 static gboolean
 write_8021x_setting(NMConnection *connection,
-                    shvarFile *   ifcfg,
-                    GHashTable *  secrets,
-                    GHashTable *  blobs,
+                    shvarFile    *ifcfg,
+                    GHashTable   *secrets,
+                    GHashTable   *blobs,
                     gboolean      wired,
-                    GError **     error)
+                    GError      **error)
 {
-    NMSetting8021x *        s_8021x;
+    NMSetting8021x         *s_8021x;
     NMSetting8021xAuthFlags auth_flags;
-    const char *            value, *match;
+    const char             *value, *match;
     gconstpointer           ptr;
-    GBytes *                bytes;
-    char *                  tmp = NULL;
-    GString *               phase2_auth;
-    GString *               str;
+    GBytes                 *bytes;
+    char                   *tmp = NULL;
+    GString                *phase2_auth;
+    GString                *str;
     guint32                 i, num;
     gsize                   size;
     int                     vint;
@@ -564,20 +565,20 @@ write_8021x_setting(NMConnection *connection,
 
 static gboolean
 write_wireless_security_setting(NMConnection *connection,
-                                shvarFile *   ifcfg,
-                                GHashTable *  secrets,
+                                shvarFile    *ifcfg,
+                                GHashTable   *secrets,
                                 gboolean      adhoc,
-                                gboolean *    no_8021x,
-                                GError **     error)
+                                gboolean     *no_8021x,
+                                GError      **error)
 {
-    NMSettingWirelessSecurity *        s_wsec;
-    const char *                       key_mgmt, *auth_alg, *key, *proto, *cipher;
-    const char *                       psk = NULL;
+    NMSettingWirelessSecurity         *s_wsec;
+    const char                        *key_mgmt, *auth_alg, *key, *proto, *cipher;
+    const char                        *psk = NULL;
     gboolean                           wep = FALSE, wpa = FALSE, dynamic_wep = FALSE;
     NMSettingWirelessSecurityWpsMethod wps_method;
-    char *                             tmp;
+    char                              *tmp;
     guint32                            i, num;
-    GString *                          str;
+    GString                           *str;
 
     s_wsec = nm_connection_get_setting_wireless_security(connection);
     if (!s_wsec) {
@@ -672,7 +673,7 @@ write_wireless_security_setting(NMConnection *connection,
     /* And write the new ones out */
     if (wep) {
         NMWepKeyType key_type;
-        const char * key_type_str = NULL;
+        const char  *key_type_str = NULL;
 
         /* Default WEP TX key index */
         svSetValueInt64(ifcfg,
@@ -716,7 +717,7 @@ write_wireless_security_setting(NMConnection *connection,
                     numbered_tag(tag, "KEY", i + 1);
 
                     /* Add 's:' prefix for ASCII keys */
-                    if (strlen(key) == 5 || strlen(key) == 13) {
+                    if (NM_IN_SET(strlen(key), 5, 13)) {
                         ascii_key = g_strdup_printf("s:%s", key);
                         key       = ascii_key;
                     }
@@ -766,7 +767,7 @@ write_wireless_security_setting(NMConnection *connection,
             g_free(tmp);
         }
     }
-    if (strlen(str->str) && (dynamic_wep == FALSE))
+    if (nm_str_not_empty(str->str) && !dynamic_wep)
         svSetValueStr(ifcfg, "CIPHER_PAIRWISE", str->str);
     g_string_free(str, TRUE);
 
@@ -823,17 +824,17 @@ write_wireless_security_setting(NMConnection *connection,
 
 static gboolean
 write_wireless_setting(NMConnection *connection,
-                       shvarFile *   ifcfg,
-                       GHashTable *  secrets,
-                       gboolean *    no_8021x,
-                       GError **     error)
+                       shvarFile    *ifcfg,
+                       GHashTable   *secrets,
+                       gboolean     *no_8021x,
+                       GError      **error)
 {
     NMSettingWireless *s_wireless;
-    GBytes *           ssid;
-    const guint8 *     ssid_data;
+    GBytes            *ssid;
+    const guint8      *ssid_data;
     gsize              ssid_len;
-    const char *       mode, *bssid;
-    const char *       device_mac, *cloned_mac;
+    const char        *mode, *bssid;
+    const char        *device_mac, *cloned_mac;
     guint32            mtu, chan, i;
     gboolean           adhoc = FALSE, hex_ssid = FALSE;
     const char *const *macaddr_blacklist;
@@ -1033,7 +1034,7 @@ static gboolean
 write_infiniband_setting(NMConnection *connection, shvarFile *ifcfg, GError **error)
 {
     NMSettingInfiniband *s_infiniband;
-    const char *         mac, *transport_mode, *parent;
+    const char          *mac, *transport_mode, *parent;
     guint32              mtu;
     int                  p_key;
 
@@ -1148,7 +1149,7 @@ write_wired_setting_impl(NMSettingWired *s_wired, shvarFile *ifcfg, gboolean is_
     svSetValueStr(ifcfg, "CTCPROT", nm_setting_wired_get_s390_option_by_key(s_wired, "ctcprot"));
 
     num_opts = nm_setting_wired_get_num_s390_options(s_wired);
-    if (s390_subchannels && num_opts) {
+    if (num_opts > 0) {
         nm_auto_free_gstring GString *tmp = NULL;
 
         for (i = 0; i < num_opts; i++) {
@@ -1238,14 +1239,14 @@ _ethtool_gstring_prepare(GString **str, gboolean *is_first, char cmdline_flag, c
 static gboolean
 write_ethtool_setting(NMConnection *connection, shvarFile *ifcfg, GError **error)
 {
-    NMSettingWired *        s_wired;
-    NMSettingEthtool *      s_ethtool;
-    const char *            duplex;
+    NMSettingWired         *s_wired;
+    NMSettingEthtool       *s_ethtool;
+    const char             *duplex;
     guint32                 speed;
-    GString *               str = NULL;
+    GString                *str = NULL;
     gboolean                auto_negotiate;
     NMSettingWiredWakeOnLan wol;
-    const char *            wol_password;
+    const char             *wol_password;
 
     s_wired   = nm_connection_get_setting_wired(connection);
     s_ethtool = NM_SETTING_ETHTOOL(nm_connection_get_setting(connection, NM_TYPE_SETTING_ETHTOOL));
@@ -1315,7 +1316,7 @@ write_ethtool_setting(NMConnection *connection, shvarFile *ifcfg, GError **error
     if (s_ethtool) {
         NMEthtoolID          ethtool_id;
         NMSettingConnection *s_con;
-        const char *         iface;
+        const char          *iface;
         gboolean             is_first;
         guint32              u32;
         gboolean             b;
@@ -1392,6 +1393,13 @@ write_ethtool_setting(NMConnection *connection, shvarFile *ifcfg, GError **error
             g_string_append(str, nms_ifcfg_rh_utils_get_ethtool_name(ethtool_id));
             g_string_append(str, b ? " on" : " off");
         }
+
+        if (!str) {
+            /* Write an empty dummy "-A" option without arguments. This is to
+             * ensure that the reader will create an (all default) NMSettingEthtool.
+             * Also, it seems that `ethtool -A "$IFACE"` is silently accepted. */
+            _ethtool_gstring_prepare(&str, &is_first, 'A', iface);
+        }
     }
 
     if (str) {
@@ -1406,7 +1414,7 @@ static char *
 vlan_priority_maplist_to_stringlist(NMSettingVlan *s_vlan, NMVlanPriorityMap map)
 {
     char **strlist;
-    char * value;
+    char  *value;
 
     if (map == NM_VLAN_INGRESS_MAP)
         g_object_get(G_OBJECT(s_vlan), NM_SETTING_VLAN_INGRESS_PRIORITY_MAP, &strlist, NULL);
@@ -1428,7 +1436,7 @@ static gboolean
 write_vlan_setting(NMConnection *connection, shvarFile *ifcfg, gboolean *wired, GError **error)
 {
     NMSettingVlan *s_vlan;
-    char *         tmp;
+    char          *tmp;
     guint32        vlan_flags = 0;
     gsize          s_buf_len;
     char           s_buf[50], *s_buf_ptr;
@@ -1451,12 +1459,12 @@ write_vlan_setting(NMConnection *connection, shvarFile *ifcfg, gboolean *wired, 
     svSetValueBoolean(ifcfg, "REORDER_HDR", NM_FLAGS_HAS(vlan_flags, NM_VLAN_FLAG_REORDER_HEADERS));
     svSetValueBoolean(ifcfg, "GVRP", NM_FLAGS_HAS(vlan_flags, NM_VLAN_FLAG_GVRP));
 
-    nm_utils_strbuf_init(s_buf, &s_buf_ptr, &s_buf_len);
+    nm_strbuf_init_arr(s_buf, &s_buf_ptr, &s_buf_len);
 
     if (NM_FLAGS_HAS(vlan_flags, NM_VLAN_FLAG_LOOSE_BINDING))
-        nm_utils_strbuf_append_str(&s_buf_ptr, &s_buf_len, "LOOSE_BINDING");
+        nm_strbuf_append_str(&s_buf_ptr, &s_buf_len, "LOOSE_BINDING");
     if (!NM_FLAGS_HAS(vlan_flags, NM_VLAN_FLAG_REORDER_HEADERS))
-        nm_utils_strbuf_append(&s_buf_ptr, &s_buf_len, "%sNO_REORDER_HDR", s_buf[0] ? "," : "");
+        nm_strbuf_append(&s_buf_ptr, &s_buf_len, "%sNO_REORDER_HDR", s_buf[0] ? "," : "");
 
     svSetValueStr(ifcfg, "VLAN_FLAGS", s_buf);
 
@@ -1494,7 +1502,7 @@ write_bond_setting(NMConnection *connection, shvarFile *ifcfg, gboolean *wired, 
     num_opts = nm_setting_bond_get_num_options(s_bond);
     if (num_opts) {
         nm_auto_free_gstring GString *str = NULL;
-        const char *                  name, *value;
+        const char                   *name, *value;
 
         str = g_string_sized_new(64);
         for (i = 0; i < num_opts; i++) {
@@ -1519,7 +1527,7 @@ static gboolean
 write_team_setting(NMConnection *connection, shvarFile *ifcfg, gboolean *wired, GError **error)
 {
     NMSettingTeam *s_team;
-    const char *   config;
+    const char    *config;
 
     s_team = nm_connection_get_setting_team(connection);
     if (!s_team) {
@@ -1570,14 +1578,14 @@ write_team_setting(NMConnection *connection, shvarFile *ifcfg, gboolean *wired, 
     })
 
 static gboolean
-write_bridge_vlans(NMSetting * setting,
+write_bridge_vlans(NMSetting  *setting,
                    gboolean    is_port,
-                   shvarFile * ifcfg,
+                   shvarFile  *ifcfg,
                    const char *key,
-                   GError **   error)
+                   GError    **error)
 {
-    GPtrArray *              vlans;
-    NMBridgeVlan *           vlan;
+    GPtrArray               *vlans;
+    NMBridgeVlan            *vlan;
     nm_auto_str_buf NMStrBuf strbuf = NM_STR_BUF_INIT(0, FALSE);
     guint                    i;
 
@@ -1616,8 +1624,8 @@ write_bridge_setting(NMConnection *connection, shvarFile *ifcfg, gboolean *wired
     guint64          u64;
     guint            u;
     gboolean         b;
-    const char *     s;
-    GString *        opts;
+    const char      *s;
+    GString         *opts;
 
     s_bridge = nm_connection_get_setting_bridge(connection);
     if (!s_bridge) {
@@ -1855,7 +1863,7 @@ write_bridge_port_setting(NMConnection *connection, shvarFile *ifcfg, GError **e
 {
     NMSettingBridgePort *s_port;
     guint32              u32;
-    GString *            string;
+    GString             *string;
 
     s_port = nm_connection_get_setting_bridge_port(connection);
     if (!s_port)
@@ -1897,11 +1905,21 @@ write_bridge_port_setting(NMConnection *connection, shvarFile *ifcfg, GError **e
     return TRUE;
 }
 
+static void
+write_bond_port_setting(NMConnection *connection, shvarFile *ifcfg)
+{
+    NMSettingBondPort *s_port;
+
+    s_port = _nm_connection_get_setting(connection, NM_TYPE_SETTING_BOND_PORT);
+    if (s_port)
+        svSetValueInt64(ifcfg, "BOND_PORT_QUEUE_ID", nm_setting_bond_port_get_queue_id(s_port));
+}
+
 static gboolean
 write_team_port_setting(NMConnection *connection, shvarFile *ifcfg, GError **error)
 {
     NMSettingTeamPort *s_port;
-    const char *       config;
+    const char        *config;
 
     s_port = nm_connection_get_setting_team_port(connection);
     if (!s_port)
@@ -1944,9 +1962,9 @@ write_dcb_app(shvarFile *ifcfg, const char *tag, NMSettingDcbFlags flags, int pr
 typedef gboolean (*DcbGetBoolFunc)(NMSettingDcb *, guint);
 
 static void
-write_dcb_bool_array(shvarFile *       ifcfg,
-                     const char *      key,
-                     NMSettingDcb *    s_dcb,
+write_dcb_bool_array(shvarFile        *ifcfg,
+                     const char       *key,
+                     NMSettingDcb     *s_dcb,
                      NMSettingDcbFlags flags,
                      DcbGetBoolFunc    get_func)
 {
@@ -1965,9 +1983,9 @@ write_dcb_bool_array(shvarFile *       ifcfg,
 typedef guint (*DcbGetUintFunc)(NMSettingDcb *, guint);
 
 static void
-write_dcb_uint_array(shvarFile *       ifcfg,
-                     const char *      key,
-                     NMSettingDcb *    s_dcb,
+write_dcb_uint_array(shvarFile        *ifcfg,
+                     const char       *key,
+                     NMSettingDcb     *s_dcb,
                      NMSettingDcbFlags flags,
                      DcbGetUintFunc    get_func)
 {
@@ -1991,9 +2009,9 @@ write_dcb_uint_array(shvarFile *       ifcfg,
 }
 
 static void
-write_dcb_percent_array(shvarFile *       ifcfg,
-                        const char *      key,
-                        NMSettingDcb *    s_dcb,
+write_dcb_percent_array(shvarFile        *ifcfg,
+                        const char       *key,
+                        NMSettingDcb     *s_dcb,
                         NMSettingDcbFlags flags,
                         DcbGetUintFunc    get_func)
 {
@@ -2016,7 +2034,7 @@ write_dcb_percent_array(shvarFile *       ifcfg,
 static gboolean
 write_dcb_setting(NMConnection *connection, shvarFile *ifcfg, GError **error)
 {
-    NMSettingDcb *    s_dcb;
+    NMSettingDcb     *s_dcb;
     NMSettingDcbFlags flags;
 
     s_dcb = nm_connection_get_setting_dcb(connection);
@@ -2029,8 +2047,7 @@ write_dcb_setting(NMConnection *connection, shvarFile *ifcfg, GError **error)
                   "APP_FCOE",
                   nm_setting_dcb_get_app_fcoe_flags(s_dcb),
                   nm_setting_dcb_get_app_fcoe_priority(s_dcb));
-    if (nm_setting_dcb_get_app_fcoe_flags(s_dcb) & NM_SETTING_DCB_FLAG_ENABLE)
-        svSetValueStr(ifcfg, KEY_DCB_APP_FCOE_MODE, nm_setting_dcb_get_app_fcoe_mode(s_dcb));
+    svSetValueStr(ifcfg, KEY_DCB_APP_FCOE_MODE, nm_setting_dcb_get_app_fcoe_mode(s_dcb));
 
     write_dcb_app(ifcfg,
                   "APP_ISCSI",
@@ -2078,15 +2095,16 @@ write_dcb_setting(NMConnection *connection, shvarFile *ifcfg, GError **error)
 static void
 write_connection_setting(NMSettingConnection *s_con, shvarFile *ifcfg)
 {
-    guint32              n, i;
+    guint32                       n, i;
     nm_auto_free_gstring GString *str = NULL;
-    const char *                  master, *master_iface = NULL, *type;
+    const char                   *master, *master_iface = NULL, *type;
     int                           vint;
     gint32                        vint32;
     NMSettingConnectionMdns       mdns;
     NMSettingConnectionLlmnr      llmnr;
+    NMSettingConnectionDnsOverTls dns_over_tls;
     guint32                       vuint32;
-    const char *                  tmp, *mud_url;
+    const char                   *tmp, *mud_url;
 
     svSetValueStr(ifcfg, "NAME", nm_setting_connection_get_id(s_con));
     svSetValueStr(ifcfg, "UUID", nm_setting_connection_get_uuid(s_con));
@@ -2268,14 +2286,22 @@ write_connection_setting(NMSettingConnection *s_con, shvarFile *ifcfg)
     if (llmnr != NM_SETTING_CONNECTION_LLMNR_DEFAULT) {
         svSetValueEnum(ifcfg, "LLMNR", nm_setting_connection_llmnr_get_type(), llmnr);
     }
+
+    dns_over_tls = nm_setting_connection_get_dns_over_tls(s_con);
+    if (dns_over_tls != NM_SETTING_CONNECTION_DNS_OVER_TLS_DEFAULT) {
+        svSetValueEnum(ifcfg,
+                       "DNS_OVER_TLS",
+                       nm_setting_connection_dns_over_tls_get_type(),
+                       dns_over_tls);
+    }
 }
 
 static char *
 get_route_attributes_string(NMIPRoute *route, int family)
 {
     gs_free const char **names = NULL;
-    GVariant *           attr, *lock;
-    GString *            str;
+    GVariant            *attr, *lock;
+    GString             *str;
     guint                i, len;
 
     names = _nm_ip_route_get_attribute_names(route, TRUE, &len);
@@ -2359,7 +2385,7 @@ write_route_file_svformat(const char *filename, NMSettingIPConfig *s_ip4)
     num = nm_setting_ip_config_get_num_routes(s_ip4);
     for (i = 0; i < num; i++) {
         char          buf[INET_ADDRSTRLEN];
-        NMIPRoute *   route;
+        NMIPRoute    *route;
         guint32       netmask;
         gint64        metric;
         char          addr_key[64];
@@ -2399,7 +2425,7 @@ write_route_file_svformat(const char *filename, NMSettingIPConfig *s_ip4)
 static GString *
 write_route_file(NMSettingIPConfig *s_ip)
 {
-    GString *  contents;
+    GString   *contents;
     NMIPRoute *route;
     guint32    i, num;
     int        addr_family;
@@ -2414,7 +2440,7 @@ write_route_file(NMSettingIPConfig *s_ip)
 
     for (i = 0; i < num; i++) {
         gs_free char *options = NULL;
-        const char *  next_hop;
+        const char   *next_hop;
         gint64        metric;
 
         route    = nm_setting_ip_config_get_route(s_ip, i);
@@ -2444,9 +2470,9 @@ write_route_file(NMSettingIPConfig *s_ip)
 static gboolean
 write_proxy_setting(NMConnection *connection, shvarFile *ifcfg, GError **error)
 {
-    NMSettingProxy *     s_proxy;
+    NMSettingProxy      *s_proxy;
     NMSettingProxyMethod method;
-    const char *         pac_url, *pac_script;
+    const char          *pac_url, *pac_script;
 
     s_proxy = nm_connection_get_setting_proxy(connection);
     if (!s_proxy)
@@ -2479,7 +2505,7 @@ write_proxy_setting(NMConnection *connection, shvarFile *ifcfg, GError **error)
 static gboolean
 write_user_setting(NMConnection *connection, shvarFile *ifcfg, GError **error)
 {
-    NMSettingUser *    s_user;
+    NMSettingUser     *s_user;
     guint              i, len;
     const char *const *keys;
 
@@ -2511,9 +2537,9 @@ write_sriov_setting(NMConnection *connection, shvarFile *ifcfg)
     NMSettingSriov *s_sriov;
     guint           i, num = 0;
     NMTernary       b;
-    NMSriovVF *     vf;
+    NMSriovVF      *vf;
     char            key[32];
-    char *          str;
+    char           *str;
 
     s_sriov = NM_SETTING_SRIOV(nm_connection_get_setting(connection, NM_TYPE_SETTING_SRIOV));
     if (!s_sriov) {
@@ -2552,7 +2578,7 @@ write_tc_setting(NMConnection *connection, shvarFile *ifcfg)
 
     num_qdiscs = nm_setting_tc_config_get_num_qdiscs(s_tc);
     for (n = 1, i = 0; i < num_qdiscs; i++) {
-        NMTCQdisc *   qdisc;
+        NMTCQdisc    *qdisc;
         gs_free char *str = NULL;
 
         qdisc = nm_setting_tc_config_get_qdisc(s_tc, i);
@@ -2564,7 +2590,7 @@ write_tc_setting(NMConnection *connection, shvarFile *ifcfg)
 
     num_filters = nm_setting_tc_config_get_num_tfilters(s_tc);
     for (n = 1, i = 0; i < num_filters; i++) {
-        NMTCTfilter * tfilter;
+        NMTCTfilter  *tfilter;
         gs_free char *str = NULL;
 
         tfilter = nm_setting_tc_config_get_tfilter(s_tc, i);
@@ -2582,9 +2608,9 @@ static void
 write_match_setting(NMConnection *connection, shvarFile *ifcfg)
 {
     nm_auto_free_gstring GString *str = NULL;
-    NMSettingMatch *              s_match;
+    NMSettingMatch               *s_match;
     guint                         i, num;
-    const char *                  name;
+    const char                   *name;
 
     s_match = (NMSettingMatch *) nm_connection_get_setting(connection, NM_TYPE_SETTING_MATCH);
     if (!s_match)
@@ -2694,35 +2720,34 @@ write_dns_setting(shvarFile *ifcfg, NMConnection *connection, int addr_family)
     }
 }
 
-static gboolean
+static void
 write_ip4_setting(NMConnection *connection,
-                  shvarFile *   ifcfg,
-                  shvarFile **  out_route_content_svformat,
-                  GString **    out_route_content,
-                  GError **     error)
+                  shvarFile    *ifcfg,
+                  shvarFile   **out_route_content_svformat,
+                  GString     **out_route_content)
 {
-    NMSettingIPConfig *    s_ip4;
-    const char *           value;
-    char *                 tmp;
-    char                   tag[64];
-    int                    j;
-    guint                  i, num, n;
-    gint64                 route_metric;
-    NMIPRouteTableSyncMode route_table;
-    int                    priority;
-    int                    timeout;
+    NMSettingIPConfig            *s_ip4;
+    const char                   *value;
+    char                         *tmp;
+    char                          tag[64];
+    int                           j;
+    guint                         i, num, n;
+    gint64                        route_metric;
+    NMIPRouteTableSyncMode        route_table;
+    int                           priority;
+    int                           timeout;
     nm_auto_free_gstring GString *str    = NULL;
-    const char *                  method = NULL;
+    const char                   *method = NULL;
     gboolean                      has_netmask;
     NMDhcpHostnameFlags           flags;
-    const char *const *           strv;
+    const char *const            *strv;
 
     NM_SET_OUT(out_route_content_svformat, NULL);
     NM_SET_OUT(out_route_content, NULL);
 
     s_ip4 = nm_connection_get_setting_ip4_config(connection);
     if (!s_ip4)
-        return TRUE;
+        return;
 
     method = nm_setting_ip_config_get_method(s_ip4);
 
@@ -2731,7 +2756,7 @@ write_ip4_setting(NMConnection *connection,
         method = NM_SETTING_IP4_CONFIG_METHOD_AUTO;
 
     if (nm_streq(method, NM_SETTING_IP4_CONFIG_METHOD_DISABLED))
-        return TRUE;
+        return;
 
     num = nm_setting_ip_config_get_num_addresses(s_ip4);
 
@@ -2849,6 +2874,9 @@ write_ip4_setting(NMConnection *connection,
     timeout = nm_setting_ip_config_get_dhcp_timeout(s_ip4);
     svSetValueInt64_cond(ifcfg, "IPV4_DHCP_TIMEOUT", timeout != 0, timeout);
 
+    timeout = nm_setting_ip_config_get_required_timeout(s_ip4);
+    svSetValueInt64_cond(ifcfg, "IPV4_REQUIRED_TIMEOUT", timeout != -1, timeout);
+
     svSetValueBoolean(ifcfg, "IPV4_FAILURE_FATAL", !nm_setting_ip_config_get_may_fail(s_ip4));
 
     route_metric = nm_setting_ip_config_get_route_metric(s_ip4);
@@ -2887,25 +2915,23 @@ write_ip4_setting(NMConnection *connection,
         }
         svSetValueStr(ifcfg, "DHCP_REJECT_SERVERS", str->str);
     }
-
-    return TRUE;
 }
 
 static void
 write_ip4_aliases(NMConnection *connection, const char *base_ifcfg_path)
 {
     NMSettingIPConfig *s_ip4;
-    gs_free char *     base_ifcfg_dir = NULL, *base_ifcfg_name = NULL;
-    const char *       base_name;
+    gs_free char      *base_ifcfg_dir = NULL, *base_ifcfg_name = NULL;
+    const char        *base_name;
     int                i, num, base_ifcfg_name_len, base_name_len;
-    GDir *             dir;
+    GDir              *dir;
 
     base_ifcfg_dir      = g_path_get_dirname(base_ifcfg_path);
     base_ifcfg_name     = g_path_get_basename(base_ifcfg_path);
     base_ifcfg_name_len = strlen(base_ifcfg_name);
     if (!g_str_has_prefix(base_ifcfg_name, IFCFG_TAG))
         g_return_if_reached();
-    base_name     = base_ifcfg_name + strlen(IFCFG_TAG);
+    base_name     = base_ifcfg_name + NM_STRLEN(IFCFG_TAG);
     base_name_len = strlen(base_name);
 
     /* Remove all existing aliases for this file first */
@@ -2936,11 +2962,11 @@ write_ip4_aliases(NMConnection *connection, const char *base_ifcfg_path)
 
     num = nm_setting_ip_config_get_num_addresses(s_ip4);
     for (i = 0; i < num; i++) {
-        GVariant *   label_var;
-        const char * label, *p;
-        char *       path;
+        GVariant    *label_var;
+        const char  *label, *p;
+        char        *path;
         NMIPAddress *addr;
-        shvarFile *  ifcfg;
+        shvarFile   *ifcfg;
 
         addr = nm_setting_ip_config_get_address(s_ip4, i);
 
@@ -2974,40 +3000,35 @@ write_ip4_aliases(NMConnection *connection, const char *base_ifcfg_path)
     }
 }
 
-static gboolean
-write_ip6_setting(NMConnection *connection,
-                  shvarFile *   ifcfg,
-                  GString **    out_route6_content,
-                  GError **     error)
+static void
+write_ip6_setting(NMConnection *connection, shvarFile *ifcfg, GString **out_route6_content)
 {
-    NMSettingIPConfig *           s_ip6;
-    const char *                  value;
+    NMSettingIPConfig            *s_ip6;
+    const char                   *value;
     guint                         i, num;
     int                           priority;
-    NMIPAddress *                 addr;
+    NMIPAddress                  *addr;
     gint64                        route_metric;
     NMIPRouteTableSyncMode        route_table;
-    GString *                     ip_str1, *ip_str2, *ip_ptr;
+    GString                      *ip_str1, *ip_str2, *ip_ptr;
     NMSettingIP6ConfigAddrGenMode addr_gen_mode;
     NMDhcpHostnameFlags           flags;
-    const char *                  hostname;
+    const char                   *hostname;
     int                           timeout;
 
     NM_SET_OUT(out_route6_content, NULL);
 
     s_ip6 = nm_connection_get_setting_ip6_config(connection);
     if (!s_ip6)
-        return TRUE;
+        return;
 
     value = nm_setting_ip_config_get_method(s_ip6);
     g_assert(value);
     if (!strcmp(value, NM_SETTING_IP6_CONFIG_METHOD_IGNORE)) {
         svSetValueStr(ifcfg, "IPV6INIT", "no");
-        return TRUE;
     } else if (!strcmp(value, NM_SETTING_IP6_CONFIG_METHOD_DISABLED)) {
         svSetValueStr(ifcfg, "IPV6_DISABLED", "yes");
         svSetValueStr(ifcfg, "IPV6INIT", "no");
-        return TRUE;
     } else if (!strcmp(value, NM_SETTING_IP6_CONFIG_METHOD_AUTO)) {
         svSetValueStr(ifcfg, "IPV6INIT", "yes");
         svSetValueStr(ifcfg, "IPV6_AUTOCONF", "yes");
@@ -3045,6 +3066,9 @@ write_ip6_setting(NMConnection *connection,
 
     timeout = nm_setting_ip_config_get_dhcp_timeout(s_ip6);
     svSetValueInt64_cond(ifcfg, "IPV6_DHCP_TIMEOUT", timeout != 0, timeout);
+
+    timeout = nm_setting_ip_config_get_required_timeout(s_ip6);
+    svSetValueInt64_cond(ifcfg, "IPV6_REQUIRED_TIMEOUT", timeout != -1, timeout);
 
     flags = nm_setting_ip_config_get_dhcp_hostname_flags(s_ip6);
     svSetValueInt64_cond(ifcfg,
@@ -3151,8 +3175,6 @@ write_ip6_setting(NMConnection *connection,
     write_res_options(ifcfg, s_ip6, "IPV6_RES_OPTIONS");
 
     NM_SET_OUT(out_route6_content, write_route_file(s_ip6));
-
-    return TRUE;
 }
 
 static void
@@ -3177,7 +3199,7 @@ write_ip_routing_rules(NMConnection *connection, shvarFile *ifcfg, gboolean rout
 
         num = nm_setting_ip_config_get_num_routing_rules(s_ip);
         for (i = 0; i < num; i++) {
-            NMIPRoutingRule *   rule = nm_setting_ip_config_get_routing_rule(s_ip, i);
+            NMIPRoutingRule    *rule = nm_setting_ip_config_get_routing_rule(s_ip, i);
             gs_free const char *s    = NULL;
             char                key[64];
 
@@ -3216,37 +3238,38 @@ escape_id(const char *id)
 }
 
 static gboolean
-do_write_construct(NMConnection *                  connection,
-                   const char *                    ifcfg_dir,
-                   const char *                    filename,
+do_write_construct(NMConnection                   *connection,
+                   const char                     *ifcfg_dir,
+                   const char                     *filename,
                    NMSIfcfgRHWriterAllowFilenameCb allow_filename_cb,
                    gpointer                        allow_filename_user_data,
-                   shvarFile **                    out_ifcfg,
-                   GHashTable **                   out_blobs,
-                   GHashTable **                   out_secrets,
-                   gboolean *                      out_route_ignore,
-                   shvarFile **                    out_route_content_svformat,
-                   GString **                      out_route_content,
-                   GString **                      out_route6_content,
-                   GError **                       error)
+                   shvarFile                     **out_ifcfg,
+                   GHashTable                    **out_blobs,
+                   GHashTable                    **out_secrets,
+                   gboolean                       *out_route_ignore,
+                   shvarFile                     **out_route_content_svformat,
+                   GString                       **out_route_content,
+                   GString                       **out_route6_content,
+                   GError                        **error)
 {
-    NMSettingConnection *    s_con;
-    nm_auto_shvar_file_close shvarFile *ifcfg       = NULL;
-    gs_free char *                      ifcfg_name  = NULL;
-    gs_free char *                      route_path  = NULL;
-    gs_free char *                      route6_path = NULL;
-    const char *                        type;
-    gs_unref_hashtable GHashTable *blobs   = NULL;
-    gs_unref_hashtable GHashTable *secrets = NULL;
-    gboolean                       wired;
-    gboolean                       no_8021x;
-    gboolean                       route_path_is_svformat;
-    gboolean                       has_complex_routes_v4;
-    gboolean                       has_complex_routes_v6;
-    gboolean                       route_ignore;
+    NMSettingConnection                *s_con;
+    nm_auto_shvar_file_close shvarFile *ifcfg = NULL;
+    const char                         *ifcfg_name;
+    gs_free char                       *ifcfg_name_free = NULL;
+    gs_free char                       *route_path      = NULL;
+    gs_free char                       *route6_path     = NULL;
+    const char                         *type;
+    gs_unref_hashtable GHashTable      *blobs   = NULL;
+    gs_unref_hashtable GHashTable      *secrets = NULL;
+    gboolean                            wired;
+    gboolean                            no_8021x;
+    gboolean                            route_path_is_svformat;
+    gboolean                            has_complex_routes_v4;
+    gboolean                            has_complex_routes_v6;
+    gboolean                            route_ignore;
     nm_auto_shvar_file_close shvarFile *route_content_svformat = NULL;
-    nm_auto_free_gstring GString *route_content                = NULL;
-    nm_auto_free_gstring GString *route6_content               = NULL;
+    nm_auto_free_gstring GString       *route_content          = NULL;
+    nm_auto_free_gstring GString       *route6_content         = NULL;
 
     nm_assert(NM_IS_CONNECTION(connection));
     nm_assert(_nm_connection_verify(connection, NULL) == NM_SETTING_VERIFY_SUCCESS);
@@ -3258,11 +3281,7 @@ do_write_construct(NMConnection *                  connection,
 
     if (filename) {
         /* For existing connections, 'filename' should be full path to ifcfg file */
-        ifcfg = svOpenFile(filename, error);
-        if (!ifcfg)
-            return FALSE;
-
-        ifcfg_name = g_strdup(filename);
+        ifcfg_name = filename;
     } else if (ifcfg_dir) {
         gs_free char *escaped = NULL;
         int           i_path;
@@ -3283,21 +3302,27 @@ do_write_construct(NMConnection *                  connection,
             if (g_file_test(path_candidate, G_FILE_TEST_EXISTS))
                 continue;
 
-            ifcfg_name = g_steal_pointer(&path_candidate);
+            ifcfg_name_free = g_steal_pointer(&path_candidate);
             break;
         }
 
-        if (!ifcfg_name) {
+        if (!ifcfg_name_free) {
             g_set_error_literal(error,
                                 NM_SETTINGS_ERROR,
                                 NM_SETTINGS_ERROR_FAILED,
                                 "Failed to find usable ifcfg file name");
             return FALSE;
         }
+        ifcfg_name = ifcfg_name_free;
+    } else {
+        g_set_error(error,
+                    NM_SETTINGS_ERROR,
+                    NM_SETTINGS_ERROR_FAILED,
+                    "No file name given for storing profile to ifcfg-rh");
+        g_return_val_if_reached(FALSE);
+    }
 
-        ifcfg = svCreateFile(ifcfg_name);
-    } else
-        ifcfg = svCreateFile("/tmp/ifcfg-dummy");
+    ifcfg = svCreateFile(ifcfg_name);
 
     route_path = utils_get_route_path(svFileGetName(ifcfg));
     if (!route_path) {
@@ -3380,6 +3405,8 @@ do_write_construct(NMConnection *                  connection,
     if (!write_bridge_port_setting(connection, ifcfg, error))
         return FALSE;
 
+    write_bond_port_setting(connection, ifcfg);
+
     if (!write_team_port_setting(connection, ifcfg, error))
         return FALSE;
 
@@ -3444,15 +3471,12 @@ do_write_construct(NMConnection *                  connection,
     } else
         route_ignore = FALSE;
 
-    if (!write_ip4_setting(connection,
-                           ifcfg,
-                           !route_ignore && route_path_is_svformat ? &route_content_svformat : NULL,
-                           !route_ignore && route_path_is_svformat ? NULL : &route_content,
-                           error))
-        return FALSE;
+    write_ip4_setting(connection,
+                      ifcfg,
+                      !route_ignore && route_path_is_svformat ? &route_content_svformat : NULL,
+                      !route_ignore && route_path_is_svformat ? NULL : &route_content);
 
-    if (!write_ip6_setting(connection, ifcfg, !route_ignore ? &route6_content : NULL, error))
-        return FALSE;
+    write_ip6_setting(connection, ifcfg, !route_ignore ? &route6_content : NULL);
 
     write_ip_routing_rules(connection, ifcfg, route_ignore);
 
@@ -3470,14 +3494,14 @@ do_write_construct(NMConnection *                  connection,
 
 static gboolean
 do_write_to_disk(NMConnection *connection,
-                 shvarFile *   ifcfg,
-                 GHashTable *  blobs,
-                 GHashTable *  secrets,
+                 shvarFile    *ifcfg,
+                 GHashTable   *blobs,
+                 GHashTable   *secrets,
                  gboolean      route_ignore,
-                 shvarFile *   route_content_svformat,
-                 GString *     route_content,
-                 GString *     route6_content,
-                 GError **     error)
+                 shvarFile    *route_content_svformat,
+                 GString      *route_content,
+                 GString      *route6_content,
+                 GError      **error)
 {
     /* From here on, we persist data to disk. Before, it was all in-memory
      * only. But we loaded the ifcfg files from disk, and managled our
@@ -3541,23 +3565,23 @@ do_write_to_disk(NMConnection *connection,
 }
 
 gboolean
-nms_ifcfg_rh_writer_write_connection(NMConnection *                  connection,
-                                     const char *                    ifcfg_dir,
-                                     const char *                    filename,
+nms_ifcfg_rh_writer_write_connection(NMConnection                   *connection,
+                                     const char                     *ifcfg_dir,
+                                     const char                     *filename,
                                      NMSIfcfgRHWriterAllowFilenameCb allow_filename_cb,
                                      gpointer                        allow_filename_user_data,
-                                     char **                         out_filename,
-                                     NMConnection **                 out_reread,
-                                     gboolean *                      out_reread_same,
-                                     GError **                       error)
+                                     char                          **out_filename,
+                                     NMConnection                  **out_reread,
+                                     gboolean                       *out_reread_same,
+                                     GError                        **error)
 {
     nm_auto_shvar_file_close shvarFile *ifcfg                  = NULL;
-    nm_auto_free_gstring GString *route_content                = NULL;
-    gboolean                      route_ignore                 = FALSE;
+    nm_auto_free_gstring GString       *route_content          = NULL;
+    gboolean                            route_ignore           = FALSE;
     nm_auto_shvar_file_close shvarFile *route_content_svformat = NULL;
-    nm_auto_free_gstring GString *route6_content               = NULL;
-    gs_unref_hashtable GHashTable *secrets                     = NULL;
-    gs_unref_hashtable GHashTable *blobs                       = NULL;
+    nm_auto_free_gstring GString       *route6_content         = NULL;
+    gs_unref_hashtable GHashTable      *secrets                = NULL;
+    gs_unref_hashtable GHashTable      *blobs                  = NULL;
 
     nm_assert(!out_reread || !*out_reread);
 
@@ -3603,8 +3627,8 @@ nms_ifcfg_rh_writer_write_connection(NMConnection *                  connection,
     if (out_reread || out_reread_same) {
         gs_unref_object NMConnection *reread      = NULL;
         gboolean                      reread_same = FALSE;
-        gs_free_error GError *local               = NULL;
-        gs_free char *        unhandled           = NULL;
+        gs_free_error GError         *local       = NULL;
+        gs_free char                 *unhandled   = NULL;
 
         reread = connection_from_file(svFileGetName(ifcfg), &unhandled, &local, NULL);
         nm_assert((NM_IS_CONNECTION(reread) && !local) || (!reread && local));

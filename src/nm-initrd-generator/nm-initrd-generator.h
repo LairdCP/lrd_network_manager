@@ -9,7 +9,8 @@
 #include "nm-connection.h"
 #include "nm-utils.h"
 
-#define NMI_WAIT_DEVICE_TIMEOUT_MS 60000
+#define NMI_WAIT_DEVICE_TIMEOUT_MSEC 60000
+#define NMI_IP_REQUIRED_TIMEOUT_MSEC 20000
 
 static inline int
 get_ip_address_family(const char *str, gboolean with_prefix)
@@ -37,9 +38,10 @@ nmi_ibft_update_connection_from_nic(NMConnection *connection, GHashTable *nic, G
 
 NMConnection *nmi_dt_reader_parse(const char *sysfs_dir);
 
-GHashTable *nmi_cmdline_reader_parse(const char *       sysfs_dir,
+GHashTable *nmi_cmdline_reader_parse(const char        *etc_connections_dir,
+                                     const char        *sysfs_dir,
                                      const char *const *argv,
-                                     char **            hostname,
-                                     gint64 *           carrier_timeout_sec);
+                                     char             **hostname,
+                                     gint64            *carrier_timeout_sec);
 
 #endif /* __NM_INITRD_GENERATOR_H__ */

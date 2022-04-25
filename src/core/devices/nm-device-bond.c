@@ -14,8 +14,9 @@
 #include "nm-device-private.h"
 #include "libnm-platform/nm-platform.h"
 #include "nm-device-factory.h"
+#include "libnm-core-aux-intern/nm-libnm-core-utils.h"
 #include "libnm-core-intern/nm-core-internal.h"
-#include "nm-ip4-config.h"
+#include "nm-setting-bond-port.h"
 
 #define _NMLOG_DEVICE_TYPE NMDeviceBond
 #include "nm-device-logging.h"
@@ -34,7 +35,7 @@
         NM_SETTING_BOND_OPTION_PACKETS_PER_SLAVE, NM_SETTING_BOND_OPTION_PRIMARY_RESELECT, \
         NM_SETTING_BOND_OPTION_RESEND_IGMP, NM_SETTING_BOND_OPTION_TLB_DYNAMIC_LB,         \
         NM_SETTING_BOND_OPTION_USE_CARRIER, NM_SETTING_BOND_OPTION_XMIT_HASH_POLICY,       \
-        NM_SETTING_BOND_OPTION_NUM_GRAT_ARP
+        NM_SETTING_BOND_OPTION_NUM_GRAT_ARP, NM_SETTING_BOND_OPTION_PEER_NOTIF_DELAY
 
 #define OPTIONS_REAPPLY_SUBSET                                                            \
     NM_SETTING_BOND_OPTION_MIIMON, NM_SETTING_BOND_OPTION_UPDELAY,                        \
@@ -46,7 +47,7 @@
         NM_SETTING_BOND_OPTION_MIN_LINKS, NM_SETTING_BOND_OPTION_PACKETS_PER_SLAVE,       \
         NM_SETTING_BOND_OPTION_PRIMARY_RESELECT, NM_SETTING_BOND_OPTION_RESEND_IGMP,      \
         NM_SETTING_BOND_OPTION_USE_CARRIER, NM_SETTING_BOND_OPTION_XMIT_HASH_POLICY,      \
-        NM_SETTING_BOND_OPTION_NUM_GRAT_ARP
+        NM_SETTING_BOND_OPTION_NUM_GRAT_ARP, NM_SETTING_BOND_OPTION_PEER_NOTIF_DELAY
 
 #define OPTIONS_REAPPLY_FULL                                     \
     OPTIONS_REAPPLY_SUBSET, NM_SETTING_BOND_OPTION_ACTIVE_SLAVE, \
@@ -73,14 +74,12 @@ get_generic_capabilities(NMDevice *dev)
 }
 
 static gboolean
-complete_connection(NMDevice *           device,
-                    NMConnection *       connection,
-                    const char *         specific_object,
+complete_connection(NMDevice            *device,
+                    NMConnection        *connection,
+                    const char          *specific_object,
                     NMConnection *const *existing_connections,
-                    GError **            error)
+                    GError             **error)
 {
-    NMSettingBond *s_bond;
-
     nm_utils_complete_generic(nm_device_get_platform(device),
                               connection,
                               NM_SETTING_BOND_SETTING_NAME,
@@ -91,11 +90,7 @@ complete_connection(NMDevice *           device,
                               NULL,
                               TRUE);
 
-    s_bond = nm_connection_get_setting_bond(connection);
-    if (!s_bond) {
-        s_bond = (NMSettingBond *) nm_setting_bond_new();
-        nm_connection_add_setting(connection, NM_SETTING(s_bond));
-    }
+    _nm_connection_ensure_setting(connection, NM_TYPE_SETTING_BOND);
 
     return TRUE;
 }
@@ -167,23 +162,18 @@ ignore_option(NMSettingBond *s_bond, const char *option, const char *value)
 static void
 update_connection(NMDevice *device, NMConnection *connection)
 {
-    NMDeviceBond * self    = NM_DEVICE_BOND(device);
-    NMSettingBond *s_bond  = nm_connection_get_setting_bond(connection);
+    NMDeviceBond  *self    = NM_DEVICE_BOND(device);
+    NMSettingBond *s_bond  = _nm_connection_ensure_setting(connection, NM_TYPE_SETTING_BOND);
     int            ifindex = nm_device_get_ifindex(device);
     NMBondMode     mode    = NM_BOND_MODE_UNKNOWN;
-    const char **  options;
-
-    if (!s_bond) {
-        s_bond = (NMSettingBond *) nm_setting_bond_new();
-        nm_connection_add_setting(connection, (NMSetting *) s_bond);
-    }
+    const char   **options;
 
     /* Read bond options from sysfs and update the Bond setting to match */
     options = nm_setting_bond_get_valid_options(NULL);
     for (; options[0]; options++) {
-        const char *  option = options[0];
+        const char   *option = options[0];
         gs_free char *value  = NULL;
-        char *        p;
+        char         *p;
 
         if (NM_IN_STRSET(option, NM_SETTING_BOND_OPTION_ACTIVE_SLAVE))
             continue;
@@ -225,11 +215,29 @@ update_connection(NMDevice *device, NMConnection *connection)
 }
 
 static gboolean
-master_update_slave_connection(NMDevice *    self,
-                               NMDevice *    slave,
-                               NMConnection *connection,
-                               GError **     error)
+controller_update_port_connection(NMDevice     *self,
+                                  NMDevice     *port,
+                                  NMConnection *connection,
+                                  GError      **error)
 {
+    NMSettingBondPort *s_port;
+    int                ifindex_port = nm_device_get_ifindex(port);
+    uint               queue_id     = NM_BOND_PORT_QUEUE_ID_DEF;
+    gs_free char      *queue_id_str = NULL;
+
+    g_return_val_if_fail(ifindex_port > 0, FALSE);
+
+    s_port = _nm_connection_ensure_setting(connection, NM_TYPE_SETTING_BOND_PORT);
+
+    queue_id_str =
+        nm_platform_sysctl_slave_get_option(nm_device_get_platform(self), ifindex_port, "queue_id");
+    if (queue_id_str) {
+        queue_id =
+            _nm_utils_ascii_str_to_int64(queue_id_str, 10, 0, 65535, NM_BOND_PORT_QUEUE_ID_DEF);
+        g_object_set(s_port, NM_SETTING_BOND_PORT_QUEUE_ID, queue_id, NULL);
+    } else
+        _LOGW(LOGD_BOND, "failed to read bond port setting '%s'", NM_SETTING_BOND_PORT_QUEUE_ID);
+
     g_object_set(nm_connection_get_setting_connection(connection),
                  NM_SETTING_CONNECTION_MASTER,
                  nm_device_get_iface(self),
@@ -243,16 +251,15 @@ static void
 set_arp_targets(NMDevice *device, const char *cur_arp_ip_target, const char *new_arp_ip_target)
 {
     gs_unref_ptrarray GPtrArray *free_list = NULL;
-    gs_free const char **        cur_strv  = NULL;
-    gs_free const char **        new_strv  = NULL;
+    gs_free const char         **cur_strv  = NULL;
+    gs_free const char         **new_strv  = NULL;
     gsize                        cur_len;
     gsize                        new_len;
     gsize                        i;
     gsize                        j;
 
-    cur_strv = nm_utils_strsplit_set_full(cur_arp_ip_target,
-                                          NM_ASCII_SPACES,
-                                          NM_UTILS_STRSPLIT_SET_FLAGS_STRSTRIP);
+    cur_strv =
+        nm_strsplit_set_full(cur_arp_ip_target, NM_ASCII_SPACES, NM_STRSPLIT_SET_FLAGS_STRSTRIP);
     new_strv = nm_utils_bond_option_arp_ip_targets_split(new_arp_ip_target);
 
     cur_len = NM_PTRARRAY_LEN(cur_strv);
@@ -276,7 +283,7 @@ set_arp_targets(NMDevice *device, const char *cur_arp_ip_target, const char *new
                 }
             }
 
-            if (nm_utils_strv_find_first((char **) new_strv, i, s) < 0)
+            if (nm_strv_find_first(new_strv, i, s) < 0)
                 new_strv[j++] = s;
         }
         new_strv[j] = NULL;
@@ -286,7 +293,7 @@ set_arp_targets(NMDevice *device, const char *cur_arp_ip_target, const char *new
     if (cur_len == 0 && new_len == 0)
         return;
 
-    if (nm_utils_strv_equal(cur_strv, new_strv))
+    if (nm_strv_equal(cur_strv, new_strv))
         return;
 
     for (i = 0; i < cur_len; i++)
@@ -303,7 +310,7 @@ static void
 set_bond_attr_or_default(NMDevice *device, NMSettingBond *s_bond, const char *opt)
 {
     NMDeviceBond *self = NM_DEVICE_BOND(device);
-    const char *  value;
+    const char   *value;
 
     value = nm_setting_bond_get_option_or_default(s_bond, opt);
     if (!value) {
@@ -345,11 +352,11 @@ set_bond_arp_ip_targets(NMDevice *device, NMSettingBond *s_bond)
 static gboolean
 apply_bonding_config(NMDeviceBond *self)
 {
-    NMDevice *     device = NM_DEVICE(self);
+    NMDevice      *device = NM_DEVICE(self);
     NMSettingBond *s_bond;
     NMBondMode     mode;
-    const char *   mode_str;
-    gs_free char * device_bond_mode = NULL;
+    const char    *mode_str;
+    gs_free char  *device_bond_mode = NULL;
 
     s_bond = nm_device_get_applied_setting(device, NM_TYPE_SETTING_BOND);
     g_return_val_if_fail(s_bond, FALSE);
@@ -379,7 +386,7 @@ apply_bonding_config(NMDeviceBond *self)
 static NMActStageReturn
 act_stage1_prepare(NMDevice *device, NMDeviceStateReason *out_failure_reason)
 {
-    NMDeviceBond *   self = NM_DEVICE_BOND(device);
+    NMDeviceBond    *self = NM_DEVICE_BOND(device);
     NMActStageReturn ret  = NM_ACT_STAGE_RETURN_SUCCESS;
 
     /* Interface must be down to set bond options */
@@ -395,30 +402,57 @@ act_stage1_prepare(NMDevice *device, NMDeviceStateReason *out_failure_reason)
     return ret;
 }
 
-static gboolean
-enslave_slave(NMDevice *device, NMDevice *slave, NMConnection *connection, gboolean configure)
+static void
+commit_port_options(NMDevice *bond_device, NMDevice *port, NMSettingBondPort *s_port)
 {
-    NMDeviceBond *self = NM_DEVICE_BOND(device);
+    char queue_id_str[IFNAMSIZ + NM_STRLEN(":") + 5 + 100];
 
-    nm_device_master_check_slave_physical_port(device, slave, LOGD_BOND);
+    /*
+     * The queue-id of bond port is read only, we should modify bond interface using:
+     *    echo "eth1:2" > /sys/class/net/bond0/bonding/queue_id
+     * Kernel allows parital editing, so no need to care about other bond ports.
+     */
+    g_snprintf(queue_id_str,
+               sizeof(queue_id_str),
+               "%s:%" G_GUINT32_FORMAT,
+               nm_device_get_iface(port),
+               s_port ? nm_setting_bond_port_get_queue_id(s_port) : NM_BOND_PORT_QUEUE_ID_DEF);
+
+    nm_platform_sysctl_master_set_option(nm_device_get_platform(bond_device),
+                                         nm_device_get_ifindex(bond_device),
+                                         "queue_id",
+                                         queue_id_str);
+}
+
+static gboolean
+enslave_slave(NMDevice *device, NMDevice *port, NMConnection *connection, gboolean configure)
+{
+    NMDeviceBond      *self = NM_DEVICE_BOND(device);
+    NMSettingBondPort *s_port;
+
+    nm_device_master_check_slave_physical_port(device, port, LOGD_BOND);
 
     if (configure) {
         gboolean success;
 
-        nm_device_take_down(slave, TRUE);
+        nm_device_take_down(port, TRUE);
         success = nm_platform_link_enslave(nm_device_get_platform(device),
                                            nm_device_get_ip_ifindex(device),
-                                           nm_device_get_ip_ifindex(slave));
-        nm_device_bring_up(slave, TRUE, NULL);
+                                           nm_device_get_ip_ifindex(port));
+        nm_device_bring_up(port, TRUE, NULL);
 
         if (!success) {
-            _LOGI(LOGD_BOND, "enslaved bond slave %s: failed", nm_device_get_ip_iface(slave));
+            _LOGI(LOGD_BOND, "assigning bond port %s: failed", nm_device_get_ip_iface(port));
             return FALSE;
         }
 
-        _LOGI(LOGD_BOND, "enslaved bond slave %s", nm_device_get_ip_iface(slave));
+        s_port = _nm_connection_get_setting(connection, NM_TYPE_SETTING_BOND_PORT);
+
+        commit_port_options(device, port, s_port);
+
+        _LOGI(LOGD_BOND, "assigned bond port %s", nm_device_get_ip_iface(port));
     } else
-        _LOGI(LOGD_BOND, "bond slave %s was enslaved", nm_device_get_ip_iface(slave));
+        _LOGI(LOGD_BOND, "bond port %s was assigned", nm_device_get_ip_iface(port));
 
     return TRUE;
 }
@@ -444,9 +478,9 @@ release_slave(NMDevice *device, NMDevice *slave, gboolean configure)
         _LOGD(LOGD_BOND, "bond slave %s is already released", nm_device_get_ip_iface(slave));
 
     if (configure) {
-        NMConnection *  applied;
+        NMConnection   *applied;
         NMSettingWired *s_wired;
-        const char *    cloned_mac;
+        const char     *cloned_mac;
 
         address = g_strdup(nm_device_get_hw_address(device));
 
@@ -489,11 +523,11 @@ release_slave(NMDevice *device, NMDevice *slave, gboolean configure)
 }
 
 static gboolean
-create_and_realize(NMDevice *             device,
-                   NMConnection *         connection,
-                   NMDevice *             parent,
+create_and_realize(NMDevice              *device,
+                   NMConnection          *connection,
+                   NMDevice              *parent,
                    const NMPlatformLink **out_plink,
-                   GError **              error)
+                   GError               **error)
 {
     const char *iface = nm_device_get_iface(device);
     int         r;
@@ -515,12 +549,12 @@ create_and_realize(NMDevice *             device,
 }
 
 static gboolean
-can_reapply_change(NMDevice *  device,
+can_reapply_change(NMDevice   *device,
                    const char *setting_name,
-                   NMSetting * s_old,
-                   NMSetting * s_new,
+                   NMSetting  *s_old,
+                   NMSetting  *s_new,
                    GHashTable *diffs,
-                   GError **   error)
+                   GError    **error)
 {
     NMDeviceClass *device_class;
 
@@ -528,7 +562,7 @@ can_reapply_change(NMDevice *  device,
     if (nm_streq(setting_name, NM_SETTING_BOND_SETTING_NAME)) {
         NMSettingBond *s_a = NM_SETTING_BOND(s_old);
         NMSettingBond *s_b = NM_SETTING_BOND(s_new);
-        const char **  option_list;
+        const char   **option_list;
 
         if (!nm_device_hash_check_invalid_keys(diffs,
                                                NM_SETTING_BOND_SETTING_NAME,
@@ -567,9 +601,9 @@ can_reapply_change(NMDevice *  device,
 static void
 reapply_connection(NMDevice *device, NMConnection *con_old, NMConnection *con_new)
 {
-    NMDeviceBond * self = NM_DEVICE_BOND(device);
+    NMDeviceBond  *self = NM_DEVICE_BOND(device);
     NMSettingBond *s_bond;
-    const char *   value;
+    const char    *value;
     NMBondMode     mode;
 
     NM_DEVICE_CLASS(nm_device_bond_parent_class)->reapply_connection(device, con_old, con_new);
@@ -611,7 +645,7 @@ static void
 nm_device_bond_class_init(NMDeviceBondClass *klass)
 {
     NMDBusObjectClass *dbus_object_class = NM_DBUS_OBJECT_CLASS(klass);
-    NMDeviceClass *    device_class      = NM_DEVICE_CLASS(klass);
+    NMDeviceClass     *device_class      = NM_DEVICE_CLASS(klass);
 
     dbus_object_class->interface_infos = NM_DBUS_INTERFACE_INFOS(&interface_info_device_bond);
 
@@ -624,7 +658,7 @@ nm_device_bond_class_init(NMDeviceBondClass *klass)
     device_class->complete_connection      = complete_connection;
 
     device_class->update_connection              = update_connection;
-    device_class->master_update_slave_connection = master_update_slave_connection;
+    device_class->master_update_slave_connection = controller_update_port_connection;
 
     device_class->create_and_realize = create_and_realize;
     device_class->act_stage1_prepare = act_stage1_prepare;
@@ -642,11 +676,11 @@ nm_device_bond_class_init(NMDeviceBondClass *klass)
     (G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_BOND_DEVICE_FACTORY, NMBondDeviceFactory))
 
 static NMDevice *
-create_device(NMDeviceFactory *     factory,
-              const char *          iface,
+create_device(NMDeviceFactory      *factory,
+              const char           *iface,
               const NMPlatformLink *plink,
-              NMConnection *        connection,
-              gboolean *            out_ignore)
+              NMConnection         *connection,
+              gboolean             *out_ignore)
 {
     return g_object_new(NM_TYPE_DEVICE_BOND,
                         NM_DEVICE_IFACE,

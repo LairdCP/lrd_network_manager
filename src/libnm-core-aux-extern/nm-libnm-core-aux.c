@@ -8,6 +8,7 @@
 #include "nm-libnm-core-aux.h"
 
 #include "libnm-core-aux-intern/nm-libnm-core-utils.h"
+#include "libnm-glib-aux/nm-str-buf.h"
 
 /*****************************************************************************/
 
@@ -26,7 +27,7 @@ typedef struct {
 } ParseData;
 
 typedef struct {
-    const char *          name;
+    const char           *name;
     NMTeamLinkWatcherType watcher_type;
     KeyType               key_type;
     union {
@@ -64,8 +65,8 @@ _team_link_watcher_send_always(const NMTeamLinkWatcher *watcher)
 static const TeamLinkWatcherKeyInfo _team_link_watcher_key_infos[_NM_TEAM_LINK_WATCHER_KEY_NUM] = {
 
 #define _KEY_INFO(key_id, _name, _watcher_type, _key_type, ...) \
-    [key_id] = {.name = ""_name                                 \
-                        "",                                     \
+    [key_id] = {.name         = ""_name                         \
+                                "",                             \
                 .watcher_type = (_watcher_type),                \
                 .key_type     = _key_type,                      \
                 ##__VA_ARGS__}
@@ -188,7 +189,7 @@ char *
 nm_utils_team_link_watcher_to_string(const NMTeamLinkWatcher *watcher)
 {
     nm_auto_free_gstring GString *str = NULL;
-    const char *                  name;
+    const char                   *name;
     NMTeamLinkWatcherType         watcher_type;
     NMTeamLinkWatcherKeyId        key_id;
 
@@ -204,7 +205,7 @@ nm_utils_team_link_watcher_to_string(const NMTeamLinkWatcher *watcher)
 
     for (key_id = 0; key_id < _NM_TEAM_LINK_WATCHER_KEY_NUM; key_id++) {
         const TeamLinkWatcherKeyInfo *info = &_team_link_watcher_key_infos[key_id];
-        const char *                  vstr;
+        const char                   *vstr;
         int                           vint;
         bool                          vbool;
 
@@ -256,12 +257,12 @@ nm_utils_team_link_watcher_to_string(const NMTeamLinkWatcher *watcher)
 NMTeamLinkWatcher *
 nm_utils_team_link_watcher_from_string(const char *str, GError **error)
 {
-    gs_free const char **  tokens                                    = NULL;
+    gs_free const char   **tokens                                    = NULL;
     ParseData              parse_data[_NM_TEAM_LINK_WATCHER_KEY_NUM] = {};
     NMTeamLinkWatcherType  watcher_type;
     NMTeamLinkWatcherKeyId key_id;
     gsize                  i_token;
-    NMTeamLinkWatcher *    watcher;
+    NMTeamLinkWatcher     *watcher;
     int                    errsv;
 
     g_return_val_if_fail(str, NULL);
@@ -275,8 +276,8 @@ nm_utils_team_link_watcher_from_string(const char *str, GError **error)
 
     for (i_token = 0; tokens[i_token]; i_token++) {
         const TeamLinkWatcherKeyInfo *info;
-        const char *                  key = tokens[i_token];
-        const char *                  val;
+        const char                   *key = tokens[i_token];
+        const char                   *val;
 
         val = strchr(key, '=');
         if (!val) {
@@ -412,7 +413,7 @@ nm_utils_team_link_watcher_from_string(const char *str, GError **error)
 
 #if NM_MORE_ASSERTS > 5
     if (watcher) {
-        gs_free char *                  str2                        = NULL;
+        gs_free char                                      *str2     = NULL;
         nm_auto_unref_team_link_watcher NMTeamLinkWatcher *watcher2 = NULL;
         static _nm_thread_local int                        recursive;
 
@@ -433,4 +434,44 @@ nm_utils_team_link_watcher_from_string(const char *str, GError **error)
 #endif
 
     return watcher;
+}
+
+/*****************************************************************************/
+
+/**
+ * _nm_ip_route_to_string:
+ * @route: route to get information about
+ * @strbuf: NMStrBuf to store information about route
+ *
+ * Gets available information about route and prints it into buffer
+ */
+void
+_nm_ip_route_to_string(NMIPRoute *route, NMStrBuf *strbuf)
+{
+    const char *next_hop;
+    gint64      metric;
+
+    nm_assert(route);
+    nm_assert(strbuf);
+
+    next_hop = nm_ip_route_get_next_hop(route);
+    metric   = nm_ip_route_get_metric(route);
+
+    if (NM_IN_STRSET(nm_ip_route_get_dest(route), "0.0.0.0", "::")
+        && nm_ip_route_get_prefix(route) == 0) {
+        nm_str_buf_append_printf(strbuf, "default");
+    } else {
+        nm_str_buf_append_printf(strbuf,
+                                 "%s/%u",
+                                 nm_ip_route_get_dest(route),
+                                 nm_ip_route_get_prefix(route));
+    }
+
+    if (next_hop) {
+        nm_str_buf_append_printf(strbuf, " via %s", next_hop);
+    }
+
+    if (metric != -1) {
+        nm_str_buf_append_printf(strbuf, " metric %" G_GINT64_FORMAT, metric);
+    }
 }

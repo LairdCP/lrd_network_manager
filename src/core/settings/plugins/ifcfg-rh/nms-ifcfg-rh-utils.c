@@ -17,7 +17,7 @@
 /*****************************************************************************/
 
 gboolean
-nms_ifcfg_rh_utils_parse_unhandled_spec(const char * unhandled_spec,
+nms_ifcfg_rh_utils_parse_unhandled_spec(const char  *unhandled_spec,
                                         const char **out_unmanaged_spec,
                                         const char **out_unrecognized_spec)
 {
@@ -108,7 +108,7 @@ char *
 utils_cert_path(const char *parent, const char *suffix, const char *extension)
 {
     gs_free char *dir = NULL;
-    const char *  name;
+    const char   *name;
 
     g_return_val_if_fail(parent, NULL);
     g_return_val_if_fail(suffix, NULL);
@@ -171,7 +171,7 @@ utils_get_ifcfg_name(const char *file, gboolean only_ifcfg)
 static char *
 utils_get_extra_path(const char *parent, const char *tag)
 {
-    char *      item_path = NULL, *dirname;
+    char       *item_path = NULL, *dirname;
     const char *name;
 
     g_return_val_if_fail(parent != NULL, NULL);
@@ -221,7 +221,7 @@ shvarFile *
 utils_get_extra_ifcfg(const char *parent, const char *tag, gboolean should_create)
 {
     shvarFile *ifcfg = NULL;
-    char *     path;
+    char      *path;
 
     path = utils_get_extra_path(parent, tag);
     if (!path)
@@ -275,7 +275,7 @@ utils_has_route_file_new_syntax_content(const char *contents, gsize len)
 
     while (TRUE) {
         const char *line = contents;
-        char *      eol;
+        char       *eol;
         gboolean    found = FALSE;
 
         /* matches regex "^[[:space:]]*ADDRESS[0-9]+=" */
@@ -374,7 +374,7 @@ utils_detect_ifcfg_path(const char *path, gboolean only_ifcfg)
             return NULL;
         if (utils_is_ifcfg_alias_file(base, NULL)) {
             gs_free char *ifcfg = NULL;
-            char *        ptr;
+            char         *ptr;
 
             ifcfg = g_strdup(path);
             ptr   = strrchr(ifcfg, ':');
@@ -773,7 +773,7 @@ gboolean
 nms_ifcfg_rh_utils_is_numbered_tag_impl(const char *key,
                                         const char *tag,
                                         gsize       tag_len,
-                                        gint64 *    out_idx)
+                                        gint64     *out_idx)
 {
     gint64 idx;
 
@@ -827,6 +827,7 @@ const NMSIfcfgKeyTypeInfo nms_ifcfg_well_known_keys[] = {
     _KEY_TYPE("BAND", NMS_IFCFG_KEY_TYPE_IS_PLAIN),
     _KEY_TYPE("BONDING_MASTER", NMS_IFCFG_KEY_TYPE_IS_PLAIN),
     _KEY_TYPE("BONDING_OPTS", NMS_IFCFG_KEY_TYPE_IS_PLAIN),
+    _KEY_TYPE("BOND_PORT_QUEUE_ID", NMS_IFCFG_KEY_TYPE_IS_PLAIN),
     _KEY_TYPE("BOOTPROTO", NMS_IFCFG_KEY_TYPE_IS_PLAIN),
     _KEY_TYPE("BRIDGE", NMS_IFCFG_KEY_TYPE_IS_PLAIN),
     _KEY_TYPE("BRIDGE_MACADDR", NMS_IFCFG_KEY_TYPE_IS_PLAIN),
@@ -891,6 +892,7 @@ const NMSIfcfgKeyTypeInfo nms_ifcfg_well_known_keys[] = {
     _KEY_TYPE("DHCPv6_DUID", NMS_IFCFG_KEY_TYPE_IS_PLAIN),
     _KEY_TYPE("DHCPv6_IAID", NMS_IFCFG_KEY_TYPE_IS_PLAIN),
     _KEY_TYPE("DNS", NMS_IFCFG_KEY_TYPE_IS_NUMBERED),
+    _KEY_TYPE("DNS_OVER_TLS", NMS_IFCFG_KEY_TYPE_IS_PLAIN),
     _KEY_TYPE("DOMAIN", NMS_IFCFG_KEY_TYPE_IS_PLAIN),
     _KEY_TYPE("ESSID", NMS_IFCFG_KEY_TYPE_IS_PLAIN),
     _KEY_TYPE("ETHTOOL_OPTS", NMS_IFCFG_KEY_TYPE_IS_PLAIN),
@@ -958,6 +960,7 @@ const NMSIfcfgKeyTypeInfo nms_ifcfg_well_known_keys[] = {
     _KEY_TYPE("IPV4_DHCP_TIMEOUT", NMS_IFCFG_KEY_TYPE_IS_PLAIN),
     _KEY_TYPE("IPV4_DNS_PRIORITY", NMS_IFCFG_KEY_TYPE_IS_PLAIN),
     _KEY_TYPE("IPV4_FAILURE_FATAL", NMS_IFCFG_KEY_TYPE_IS_PLAIN),
+    _KEY_TYPE("IPV4_REQUIRED_TIMEOUT", NMS_IFCFG_KEY_TYPE_IS_PLAIN),
     _KEY_TYPE("IPV4_ROUTE_METRIC", NMS_IFCFG_KEY_TYPE_IS_PLAIN),
     _KEY_TYPE("IPV4_ROUTE_TABLE", NMS_IFCFG_KEY_TYPE_IS_PLAIN),
     _KEY_TYPE("IPV6ADDR", NMS_IFCFG_KEY_TYPE_IS_PLAIN),
@@ -980,6 +983,7 @@ const NMSIfcfgKeyTypeInfo nms_ifcfg_well_known_keys[] = {
     _KEY_TYPE("IPV6_PRIVACY", NMS_IFCFG_KEY_TYPE_IS_PLAIN),
     _KEY_TYPE("IPV6_PRIVACY_PREFER_PUBLIC_IP", NMS_IFCFG_KEY_TYPE_IS_PLAIN),
     _KEY_TYPE("IPV6_RA_TIMEOUT", NMS_IFCFG_KEY_TYPE_IS_PLAIN),
+    _KEY_TYPE("IPV6_REQUIRED_TIMEOUT", NMS_IFCFG_KEY_TYPE_IS_PLAIN),
     _KEY_TYPE("IPV6_RES_OPTIONS", NMS_IFCFG_KEY_TYPE_IS_PLAIN),
     _KEY_TYPE("IPV6_ROUTE_METRIC", NMS_IFCFG_KEY_TYPE_IS_PLAIN),
     _KEY_TYPE("IPV6_ROUTE_TABLE", NMS_IFCFG_KEY_TYPE_IS_PLAIN),

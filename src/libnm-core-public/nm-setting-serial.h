@@ -8,7 +8,7 @@
 #define __NM_SETTING_SERIAL_H__
 
 #if !defined(__NETWORKMANAGER_H_INSIDE__) && !defined(NETWORKMANAGER_COMPILATION)
-    #error "Only <NetworkManager.h> can be included directly."
+#error "Only <NetworkManager.h> can be included directly."
 #endif
 
 #include "nm-setting.h"
@@ -51,7 +51,7 @@ typedef struct _NMSettingSerialClass NMSettingSerialClass;
 
 GType nm_setting_serial_get_type(void);
 
-NMSetting *           nm_setting_serial_new(void);
+NMSetting            *nm_setting_serial_new(void);
 guint                 nm_setting_serial_get_baud(NMSettingSerial *setting);
 guint                 nm_setting_serial_get_bits(NMSettingSerial *setting);
 NMSettingSerialParity nm_setting_serial_get_parity(NMSettingSerial *setting);

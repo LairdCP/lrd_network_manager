@@ -29,17 +29,17 @@
 /*****************************************************************************/
 
 struct NMConfigCmdLineOptions {
-    char *                       config_main_file;
-    char *                       intern_config_file;
-    char *                       config_dir;
-    char *                       system_config_dir;
-    char *                       state_file;
-    char *                       no_auto_default_file;
-    char *                       plugins;
+    char                        *config_main_file;
+    char                        *intern_config_file;
+    char                        *config_dir;
+    char                        *system_config_dir;
+    char                        *state_file;
+    char                        *no_auto_default_file;
+    char                        *plugins;
     NMConfigConfigureAndQuitType configure_and_quit;
 
     gboolean is_debug;
-    char *   connectivity_uri;
+    char    *connectivity_uri;
 
     /* We store interval as signed internally to track whether it's
      * set or not via GOptionEntry
@@ -152,8 +152,8 @@ nm_config_parse_boolean(const char *str, int default_value)
 
 int
 nm_config_keyfile_get_boolean(const GKeyFile *keyfile,
-                              const char *    section,
-                              const char *    key,
+                              const char     *section,
+                              const char     *key,
                               int             default_value)
 {
     gs_free char *str = NULL;
@@ -168,8 +168,8 @@ nm_config_keyfile_get_boolean(const GKeyFile *keyfile,
 
 gint64
 nm_config_keyfile_get_int64(const GKeyFile *keyfile,
-                            const char *    section,
-                            const char *    key,
+                            const char     *section,
+                            const char     *key,
                             guint           base,
                             gint64          min,
                             gint64          max,
@@ -177,7 +177,7 @@ nm_config_keyfile_get_int64(const GKeyFile *keyfile,
 {
     gint64 v;
     int    errsv;
-    char * str;
+    char  *str;
 
     g_return_val_if_fail(keyfile, fallback);
     g_return_val_if_fail(section, fallback);
@@ -194,9 +194,9 @@ nm_config_keyfile_get_int64(const GKeyFile *keyfile,
 }
 
 char *
-nm_config_keyfile_get_value(const GKeyFile *      keyfile,
-                            const char *          section,
-                            const char *          key,
+nm_config_keyfile_get_value(const GKeyFile       *keyfile,
+                            const char           *section,
+                            const char           *key,
                             NMConfigGetValueFlags flags)
 {
     char *value;
@@ -221,9 +221,9 @@ nm_config_keyfile_get_value(const GKeyFile *      keyfile,
 }
 
 void
-nm_config_keyfile_set_string_list(GKeyFile *         keyfile,
-                                  const char *       group,
-                                  const char *       key,
+nm_config_keyfile_set_string_list(GKeyFile          *keyfile,
+                                  const char        *group,
+                                  const char        *key,
                                   const char *const *strv,
                                   gssize             len)
 {
@@ -332,11 +332,11 @@ static char **
 no_auto_default_from_file(const char *no_auto_default_file)
 {
     gs_free char *data = NULL;
-    const char ** list = NULL;
+    const char  **list = NULL;
     gsize         i;
 
     if (no_auto_default_file && g_file_get_contents(no_auto_default_file, &data, NULL, NULL))
-        list = nm_utils_strsplit_set(data, "\n");
+        list = nm_strsplit_set(data, "\n");
 
     if (list) {
         for (i = 0; list[i]; i++)
@@ -350,9 +350,9 @@ no_auto_default_from_file(const char *no_auto_default_file)
 }
 
 static gboolean
-no_auto_default_to_file(const char *       no_auto_default_file,
+no_auto_default_to_file(const char        *no_auto_default_file,
                         const char *const *no_auto_default,
-                        GError **          error)
+                        GError           **error)
 {
     nm_auto_free_gstring GString *data = NULL;
     gsize                         i;
@@ -360,7 +360,7 @@ no_auto_default_to_file(const char *       no_auto_default_file,
     data = g_string_new("");
     for (i = 0; no_auto_default && no_auto_default[i]; i++) {
         gs_free char *s_to_free = NULL;
-        const char *  s         = no_auto_default[i];
+        const char   *s         = no_auto_default[i];
 
         s = nm_utils_str_utf8safe_escape(s,
                                          NM_UTILS_STR_UTF8_SAFE_FLAG_ESCAPE_CTRL
@@ -390,14 +390,14 @@ nm_config_get_no_auto_default_for_device(NMConfig *self, NMDevice *device)
 void
 nm_config_set_no_auto_default_for_device(NMConfig *self, NMDevice *device)
 {
-    NMConfigPrivate *    priv;
-    GError *             error        = NULL;
-    NMConfigData *       new_data     = NULL;
-    gs_free char *       spec_to_free = NULL;
-    const char *         ifname;
-    const char *         hw_address;
-    const char *         spec;
-    const char *const *  no_auto_default_current;
+    NMConfigPrivate     *priv;
+    GError              *error        = NULL;
+    NMConfigData        *new_data     = NULL;
+    gs_free char        *spec_to_free = NULL;
+    const char          *ifname;
+    const char          *hw_address;
+    const char          *spec;
+    const char *const   *no_auto_default_current;
     gs_free const char **no_auto_default_new = NULL;
     gboolean             is_fake;
     gsize                len;
@@ -433,7 +433,7 @@ nm_config_set_no_auto_default_for_device(NMConfig *self, NMDevice *device)
 
     len = NM_PTRARRAY_LEN(no_auto_default_current);
 
-    idx = nm_utils_strv_find_binary_search(no_auto_default_current, len, spec);
+    idx = nm_strv_find_binary_search(no_auto_default_current, len, spec);
     if (idx >= 0) {
         /* @spec is already blocked. We don't have to update our in-memory representation.
          * Maybe we should write to no_auto_default_file anew, but let's save that too. */
@@ -529,7 +529,7 @@ nm_config_cmd_line_options_free(NMConfigCmdLineOptions *cli)
 static NMConfigConfigureAndQuitType
 string_to_configure_and_quit(const char *value, GError **error)
 {
-    NMConfigConfigureAndQuitType ret;
+    int v_bool;
 
     if (value == NULL)
         return NM_CONFIG_CONFIGURE_AND_QUIT_DISABLED;
@@ -537,26 +537,29 @@ string_to_configure_and_quit(const char *value, GError **error)
     if (nm_streq(value, "initrd"))
         return NM_CONFIG_CONFIGURE_AND_QUIT_INITRD;
 
-    ret = nm_config_parse_boolean(value, NM_CONFIG_CONFIGURE_AND_QUIT_INVALID);
-    if (ret == NM_CONFIG_CONFIGURE_AND_QUIT_INVALID)
-        g_set_error(error, 1, 0, N_("'%s' is not valid"), value);
+    v_bool = nm_config_parse_boolean(value, -1);
+    if (v_bool == -1) {
+        nm_utils_error_set(error, NM_UTILS_ERROR_UNKNOWN, N_("'%s' is not valid"), value);
+        return NM_CONFIG_CONFIGURE_AND_QUIT_INVALID;
+    }
 
-    return ret;
+    if (v_bool) {
+        _LOGW("'[main].configure-and-quit=1' in \"NetworkManager.conf\" is no longer implemented "
+              "and has no effect");
+    }
+
+    return NM_CONFIG_CONFIGURE_AND_QUIT_DISABLED;
 }
 
 static gboolean
 parse_configure_and_quit(const char *option_name,
                          const char *value,
                          gpointer    user_data,
-                         GError **   error)
+                         GError    **error)
 {
     NMConfigCmdLineOptions *cli = user_data;
 
-    if (value == NULL)
-        cli->configure_and_quit = NM_CONFIG_CONFIGURE_AND_QUIT_ENABLED;
-    else
-        cli->configure_and_quit = string_to_configure_and_quit(value, error);
-
+    cli->configure_and_quit = string_to_configure_and_quit(value, error);
     if (cli->configure_and_quit == NM_CONFIG_CONFIGURE_AND_QUIT_INVALID) {
         g_prefix_error(error, N_("Bad '%s' option: "), option_name);
         return FALSE;
@@ -692,7 +695,7 @@ char *_nm_config_match_env        = NULL;
 static gboolean
 ignore_config_snippet(GKeyFile *keyfile, gboolean is_base_config)
 {
-    GSList *             specs;
+    GSList              *specs;
     gboolean             as_bool;
     NMMatchSpecMatchType match_type;
 
@@ -796,6 +799,7 @@ static gboolean
 _setting_is_device_spec(const char *group, const char *key)
 {
 #define _IS(group_v, key_v) (nm_streq(group, "" group_v "") && nm_streq(key, "" key_v ""))
+
     return _IS(NM_CONFIG_KEYFILE_GROUP_MAIN, NM_CONFIG_KEYFILE_KEY_MAIN_NO_AUTO_DEFAULT)
            || _IS(NM_CONFIG_KEYFILE_GROUP_MAIN, NM_CONFIG_KEYFILE_KEY_MAIN_IGNORE_CARRIER)
            || _IS(NM_CONFIG_KEYFILE_GROUP_MAIN, NM_CONFIG_KEYFILE_KEY_MAIN_ASSUME_IPV6LL_ONLY)
@@ -804,6 +808,13 @@ _setting_is_device_spec(const char *group, const char *key)
                && nm_streq(key, NM_CONFIG_KEYFILE_KEY_MATCH_DEVICE))
            || (NM_STR_HAS_PREFIX(group, NM_CONFIG_KEYFILE_GROUPPREFIX_DEVICE)
                && nm_streq(key, NM_CONFIG_KEYFILE_KEY_MATCH_DEVICE));
+}
+
+static gboolean
+_setting_is_connection_spec(const char *group, const char *key)
+{
+    return NM_STR_HAS_PREFIX(group, NM_CONFIG_KEYFILE_GROUPPREFIX_DEVICE)
+           && nm_streq(key, NM_CONFIG_KEYFILE_KEY_DEVICE_ALLOWED_CONNECTIONS);
 }
 
 static gboolean
@@ -817,7 +828,7 @@ _setting_is_string_list(const char *group, const char *key)
 }
 
 typedef struct {
-    char *             group;
+    char              *group;
     const char *const *keys;
     bool               is_prefix : 1;
     bool               is_connection : 1;
@@ -878,6 +889,8 @@ static const ConfigGroup config_groups[] = {
                              NM_CONFIG_KEYFILE_KEY_DEVICE_IGNORE_CARRIER,
                              NM_CONFIG_KEYFILE_KEY_DEVICE_MANAGED,
                              NM_CONFIG_KEYFILE_KEY_DEVICE_SRIOV_NUM_VFS,
+                             NM_CONFIG_KEYFILE_KEY_DEVICE_KEEP_CONFIGURATION,
+                             NM_CONFIG_KEYFILE_KEY_DEVICE_ALLOWED_CONNECTIONS,
                              NM_CONFIG_KEYFILE_KEY_DEVICE_WIFI_BACKEND,
                              NM_CONFIG_KEYFILE_KEY_DEVICE_WIFI_SCAN_RAND_MAC_ADDRESS,
                              NM_CONFIG_KEYFILE_KEY_DEVICE_WIFI_SCAN_GENERATE_MAC_ADDRESS_MASK,
@@ -914,12 +927,12 @@ check_config_key(const char *group, const char *key)
 {
     const ConfigGroup *g;
     const char *const *k;
-    const char **      ptr;
+    const char       **ptr;
 
 #if NM_MORE_ASSERTS > 10
     {
         static gboolean checked = FALSE;
-        const char **   ptr1, **ptr2;
+        const char    **ptr1, **ptr2;
 
         /* check for duplicate elements in the static list */
 
@@ -959,16 +972,16 @@ check_config_key(const char *group, const char *key)
 }
 
 static gboolean
-read_config(GKeyFile *  keyfile,
+read_config(GKeyFile   *keyfile,
             gboolean    is_base_config,
             const char *dirname,
             const char *path,
-            GPtrArray * warnings,
-            GError **   error)
+            GPtrArray  *warnings,
+            GError    **error)
 {
     nm_auto_unref_keyfile GKeyFile *kf        = NULL;
-    gs_strfreev char **             groups    = NULL;
-    gs_free char *                  path_free = NULL;
+    gs_strfreev char              **groups    = NULL;
+    gs_free char                   *path_free = NULL;
     gsize                           ngroups;
     gsize                           nkeys;
     int                             g;
@@ -1020,7 +1033,7 @@ read_config(GKeyFile *  keyfile,
     _nm_config_sort_groups(groups, ngroups);
 
     for (g = 0; groups && groups[g]; g++) {
-        const char *       group = groups[g];
+        const char        *group = groups[g];
         gs_strfreev char **keys  = NULL;
 
         if (NM_STR_HAS_PREFIX(group, NM_CONFIG_KEYFILE_GROUPPREFIX_INTERN)) {
@@ -1032,7 +1045,7 @@ read_config(GKeyFile *  keyfile,
             continue;
         for (k = 0; keys[k]; k++) {
             gs_free char *new_value = NULL;
-            const char *  key;
+            const char   *key;
             char          last_char;
             gsize         key_len;
 
@@ -1059,11 +1072,12 @@ read_config(GKeyFile *  keyfile,
 
                 is_string_list = _setting_is_string_list(group, base_key);
 
-                if (is_string_list || _setting_is_device_spec(group, base_key)) {
-                    gs_unref_ptrarray  GPtrArray *new = g_ptr_array_new_with_free_func(g_free);
-                    char **            iter_val;
+                if (is_string_list || _setting_is_device_spec(group, base_key)
+                    || _setting_is_connection_spec(group, base_key)) {
+                    gs_unref_ptrarray GPtrArray *new = g_ptr_array_new_with_free_func(g_free);
+                    char             **iter_val;
                     gs_strfreev char **old_val = NULL;
-                    gs_free char **    new_val = NULL;
+                    gs_free char     **new_val = NULL;
 
                     if (is_string_list) {
                         gs_free_error GError *old_error = NULL;
@@ -1111,14 +1125,12 @@ read_config(GKeyFile *  keyfile,
                     /* merge the string lists, by omitting duplicates. */
 
                     for (iter_val = old_val; iter_val && *iter_val; iter_val++) {
-                        if (last_char != '-'
-                            || nm_utils_strv_find_first(new_val, -1, *iter_val) < 0)
+                        if (last_char != '-' || nm_strv_find_first(new_val, -1, *iter_val) < 0)
                             g_ptr_array_add(new, g_strdup(*iter_val));
                     }
                     for (iter_val = new_val; iter_val && *iter_val; iter_val++) {
                         /* don't add duplicates. That means an "option=a,b"; "option+=a,c" results in "option=a,b,c" */
-                        if (last_char == '+'
-                            && nm_utils_strv_find_first(old_val, -1, *iter_val) < 0)
+                        if (last_char == '+' && nm_strv_find_first(old_val, -1, *iter_val) < 0)
                             g_ptr_array_add(new, *iter_val);
                         else
                             g_free(*iter_val);
@@ -1133,10 +1145,10 @@ read_config(GKeyFile *  keyfile,
                                                               new->len);
                         else {
                             nm_auto_free_slist GSList *specs        = NULL;
-                            gs_free char *             specs_joined = NULL;
+                            gs_free char              *specs_joined = NULL;
 
                             g_ptr_array_add(new, NULL);
-                            specs = _nm_utils_strv_to_slist((char **) new->pdata, FALSE);
+                            specs = nm_strv_to_gslist((char **) new->pdata, FALSE);
 
                             specs_joined = nm_match_spec_join(specs);
 
@@ -1172,11 +1184,11 @@ read_config(GKeyFile *  keyfile,
 }
 
 static gboolean
-read_base_config(GKeyFile *  keyfile,
+read_base_config(GKeyFile   *keyfile,
                  const char *cli_config_main_file,
-                 char **     out_config_main_file,
-                 GPtrArray * warnings,
-                 GError **   error)
+                 char      **out_config_main_file,
+                 GPtrArray  *warnings,
+                 GError    **error)
 {
     GError *my_error = NULL;
 
@@ -1236,11 +1248,11 @@ read_base_config(GKeyFile *  keyfile,
 static GPtrArray *
 _get_config_dir_files(const char *config_dir)
 {
-    GFile *          dir;
+    GFile           *dir;
     GFileEnumerator *direnum;
-    GFileInfo *      info;
-    GPtrArray *      confs;
-    const char *     name;
+    GFileInfo       *info;
+    GPtrArray       *confs;
+    const char      *name;
 
     g_return_val_if_fail(config_dir, NULL);
 
@@ -1285,20 +1297,20 @@ _confs_to_description(GString *str, const GPtrArray *confs, const char *name)
 
 static GKeyFile *
 read_entire_config(const NMConfigCmdLineOptions *cli,
-                   const char *                  config_dir,
-                   const char *                  system_config_dir,
-                   char **                       out_config_main_file,
-                   char **                       out_config_description,
-                   GPtrArray *                   warnings,
-                   GError **                     error)
+                   const char                   *config_dir,
+                   const char                   *system_config_dir,
+                   char                        **out_config_main_file,
+                   char                        **out_config_description,
+                   GPtrArray                    *warnings,
+                   GError                      **error)
 {
-    nm_auto_unref_keyfile GKeyFile *keyfile   = NULL;
-    gs_unref_ptrarray GPtrArray *system_confs = NULL;
-    gs_unref_ptrarray GPtrArray *confs        = NULL;
-    gs_unref_ptrarray GPtrArray *run_confs    = NULL;
-    guint                        i;
-    gs_free char *               o_config_main_file = NULL;
-    const char *                 run_config_dir     = "";
+    nm_auto_unref_keyfile GKeyFile *keyfile      = NULL;
+    gs_unref_ptrarray GPtrArray    *system_confs = NULL;
+    gs_unref_ptrarray GPtrArray    *confs        = NULL;
+    gs_unref_ptrarray GPtrArray    *run_confs    = NULL;
+    guint                           i;
+    gs_free char                   *o_config_main_file = NULL;
+    const char                     *run_config_dir     = "";
 
     nm_assert(config_dir);
     nm_assert(system_config_dir);
@@ -1322,9 +1334,8 @@ read_entire_config(const NMConfigCmdLineOptions *cli,
         const char *filename = system_confs->pdata[i];
 
         /* if a same named file exists in config_dir or run_config_dir, skip it. */
-        if (nm_utils_strv_find_first((char **) confs->pdata, confs->len, filename) >= 0
-            || nm_utils_strv_find_first((char **) run_confs->pdata, run_confs->len, filename)
-                   >= 0) {
+        if (nm_strv_ptrarray_find_first(confs, filename) >= 0
+            || nm_strv_ptrarray_find_first(run_confs, filename) >= 0) {
             g_ptr_array_remove_index(system_confs, i);
             continue;
         }
@@ -1338,7 +1349,7 @@ read_entire_config(const NMConfigCmdLineOptions *cli,
         const char *filename = run_confs->pdata[i];
 
         /* if a same named file exists in config_dir, skip it. */
-        if (nm_utils_strv_find_first((char **) confs->pdata, confs->len, filename) >= 0) {
+        if (nm_strv_ptrarray_find_first(confs, filename) >= 0) {
             g_ptr_array_remove_index(run_confs, i);
             continue;
         }
@@ -1375,16 +1386,13 @@ read_entire_config(const NMConfigCmdLineOptions *cli,
 
         switch (cli->configure_and_quit) {
         case NM_CONFIG_CONFIGURE_AND_QUIT_INVALID:
-            g_assert_not_reached();
+            nm_assert_not_reached();
             break;
         case NM_CONFIG_CONFIGURE_AND_QUIT_DISABLED:
-            /* do nothing */
-            break;
-        case NM_CONFIG_CONFIGURE_AND_QUIT_ENABLED:
-            g_key_file_set_boolean(keyfile,
-                                   NM_CONFIG_KEYFILE_GROUP_MAIN,
-                                   "configure-and-quit",
-                                   TRUE);
+            g_key_file_set_string(keyfile,
+                                  NM_CONFIG_KEYFILE_GROUP_MAIN,
+                                  "configure-and-quit",
+                                  "no");
             break;
         case NM_CONFIG_CONFIGURE_AND_QUIT_INITRD:
             g_key_file_set_string(keyfile,
@@ -1464,7 +1472,7 @@ static char *
 _keyfile_serialize_section(GKeyFile *keyfile, const char *group)
 {
     gs_strfreev char **keys = NULL;
-    GString *          str;
+    GString           *str;
     guint              k;
 
     if (keyfile)
@@ -1476,7 +1484,7 @@ _keyfile_serialize_section(GKeyFile *keyfile, const char *group)
     str = g_string_new("1#");
 
     for (k = 0; keys[k]; k++) {
-        const char *  key   = keys[k];
+        const char   *key   = keys[k];
         gs_free char *value = NULL;
 
         _string_append_val(str, key);
@@ -1494,7 +1502,7 @@ nm_config_keyfile_has_global_dns_config(GKeyFile *keyfile, gboolean internal)
 {
     gs_strfreev char **groups = NULL;
     guint              g;
-    const char *       prefix;
+    const char        *prefix;
 
     if (!keyfile)
         return FALSE;
@@ -1535,13 +1543,13 @@ nm_config_keyfile_has_global_dns_config(GKeyFile *keyfile, gboolean internal)
  * Returns: a #GKeyFile instance with the internal configuration.
  */
 static GKeyFile *
-intern_config_read(const char *       filename,
-                   GKeyFile *         keyfile_conf,
+intern_config_read(const char        *filename,
+                   GKeyFile          *keyfile_conf,
                    const char *const *atomic_section_prefixes,
-                   gboolean *         out_needs_rewrite)
+                   gboolean          *out_needs_rewrite)
 {
-    GKeyFile *         keyfile_intern;
-    GKeyFile *         keyfile;
+    GKeyFile          *keyfile_intern;
+    GKeyFile          *keyfile;
     gboolean           needs_rewrite = FALSE;
     gs_strfreev char **groups        = NULL;
     guint              g, k;
@@ -1566,7 +1574,7 @@ intern_config_read(const char *       filename,
     groups = g_key_file_get_groups(keyfile, NULL);
     for (g = 0; groups && groups[g]; g++) {
         gs_strfreev char **keys  = NULL;
-        const char *       group = groups[g];
+        const char        *group = groups[g];
         gboolean           is_intern, is_atomic;
 
         if (nm_streq(group, NM_CONFIG_KEYFILE_GROUP_CONFIG))
@@ -1605,7 +1613,7 @@ intern_config_read(const char *       filename,
 
         for (k = 0; keys[k]; k++) {
             gs_free char *value_set = NULL;
-            const char *  key       = keys[k];
+            const char   *key       = keys[k];
 
             value_set = g_key_file_get_value(keyfile, group, key, NULL);
 
@@ -1617,7 +1625,7 @@ intern_config_read(const char *       filename,
                     continue;
                 g_key_file_set_value(keyfile_intern, group, key, value_set);
             } else if (NM_STR_HAS_PREFIX_WITH_MORE(key, NM_CONFIG_KEYFILE_KEYPREFIX_SET)) {
-                const char *  key_base   = &key[NM_STRLEN(NM_CONFIG_KEYFILE_KEYPREFIX_SET)];
+                const char   *key_base   = &key[NM_STRLEN(NM_CONFIG_KEYFILE_KEYPREFIX_SET)];
                 gs_free char *value_was  = NULL;
                 gs_free char *value_conf = NULL;
                 gs_free char *key_was =
@@ -1638,7 +1646,7 @@ intern_config_read(const char *       filename,
                 has_intern = TRUE;
                 g_key_file_set_value(keyfile_intern, group, key_base, value_set);
             } else if (NM_STR_HAS_PREFIX_WITH_MORE(key, NM_CONFIG_KEYFILE_KEYPREFIX_WAS)) {
-                const char *  key_base = &key[NM_STRLEN(NM_CONFIG_KEYFILE_KEYPREFIX_WAS)];
+                const char   *key_base = &key[NM_STRLEN(NM_CONFIG_KEYFILE_KEYPREFIX_WAS)];
                 gs_free char *key_set =
                     g_strdup_printf(NM_CONFIG_KEYFILE_KEYPREFIX_SET "%s", key_base);
                 gs_free char *value_was  = NULL;
@@ -1707,8 +1715,8 @@ out:
 }
 
 static int
-_intern_config_write_sort_fcn(const char **      a,
-                              const char **      b,
+_intern_config_write_sort_fcn(const char       **a,
+                              const char       **b,
                               const char *const *atomic_section_prefixes)
 {
     const char *g_a = *a;
@@ -1737,17 +1745,17 @@ _intern_config_write_sort_fcn(const char **      a,
 }
 
 static gboolean
-intern_config_write(const char *       filename,
-                    GKeyFile *         keyfile_intern,
-                    GKeyFile *         keyfile_conf,
+intern_config_write(const char        *filename,
+                    GKeyFile          *keyfile_intern,
+                    GKeyFile          *keyfile_conf,
                     const char *const *atomic_section_prefixes,
-                    GError **          error)
+                    GError           **error)
 {
-    GKeyFile *         keyfile;
+    GKeyFile          *keyfile;
     gs_strfreev char **groups = NULL;
     guint              g, k;
     gboolean           success = FALSE;
-    GError *           local   = NULL;
+    GError            *local   = NULL;
 
     g_return_val_if_fail(filename, FALSE);
 
@@ -1773,7 +1781,7 @@ intern_config_write(const char *       filename,
     }
     for (g = 0; groups && groups[g]; g++) {
         gs_strfreev char **keys  = NULL;
-        const char *       group = groups[g];
+        const char        *group = groups[g];
         gboolean           is_intern, is_atomic;
 
         keys = g_key_file_get_keys(keyfile_intern, group, NULL, NULL);
@@ -1808,7 +1816,7 @@ intern_config_write(const char *       filename,
         }
 
         for (k = 0; keys[k]; k++) {
-            const char *  key       = keys[k];
+            const char   *key       = keys[k];
             gs_free char *value_set = NULL;
             gs_free char *key_set   = NULL;
 
@@ -1924,9 +1932,9 @@ intern_config_write(const char *       filename,
 
 GSList *
 nm_config_get_match_spec(const GKeyFile *keyfile,
-                         const char *    group,
-                         const char *    key,
-                         gboolean *      out_has_key)
+                         const char     *group,
+                         const char     *key,
+                         gboolean       *out_has_key)
 {
     gs_free char *value = NULL;
 
@@ -1944,9 +1952,9 @@ nm_config_get_match_spec(const GKeyFile *keyfile,
 gboolean
 nm_config_set_global_dns(NMConfig *self, NMGlobalDnsConfig *global_dns, GError **error)
 {
-    NMConfigPrivate *        priv;
-    GKeyFile *               keyfile;
-    char **                  groups;
+    NMConfigPrivate         *priv;
+    GKeyFile                *keyfile;
+    char                   **groups;
     const NMGlobalDnsConfig *old_global_dns;
     guint                    i;
 
@@ -1994,7 +2002,7 @@ nm_config_set_global_dns(NMConfig *self, NMGlobalDnsConfig *global_dns, GError *
 
     for (i = 0; i < nm_global_dns_config_get_num_domains(global_dns); i++) {
         NMGlobalDnsDomain *domain     = nm_global_dns_config_get_domain(global_dns, i);
-        gs_free char *     group_name = NULL;
+        gs_free char      *group_name = NULL;
 
         group_name = g_strdup_printf(NM_CONFIG_KEYFILE_GROUPPREFIX_INTERN_GLOBAL_DNS_DOMAIN "%s",
                                      nm_global_dns_domain_get_name(domain));
@@ -2024,7 +2032,7 @@ void
 nm_config_set_connectivity_check_enabled(NMConfig *self, gboolean enabled)
 {
     NMConfigPrivate *priv;
-    GKeyFile *       keyfile;
+    GKeyFile        *keyfile;
 
     g_return_if_fail(NM_IS_CONFIG(self));
 
@@ -2082,12 +2090,12 @@ nm_config_set_values(NMConfig *self,
                      gboolean  allow_write,
                      gboolean  force_rewrite)
 {
-    NMConfigPrivate *  priv;
-    GKeyFile *         keyfile_intern_current;
-    GKeyFile *         keyfile_user;
-    GKeyFile *         keyfile_new;
-    GError *           local    = NULL;
-    NMConfigData *     new_data = NULL;
+    NMConfigPrivate   *priv;
+    GKeyFile          *keyfile_intern_current;
+    GKeyFile          *keyfile_user;
+    GKeyFile          *keyfile_new;
+    GError            *local    = NULL;
+    NMConfigData      *new_data = NULL;
     gs_strfreev char **groups   = NULL;
     int                g;
 
@@ -2183,9 +2191,9 @@ state_free(State *state)
 static State *
 state_new_from_file(const char *filename)
 {
-    GKeyFile *    keyfile;
+    GKeyFile             *keyfile;
     gs_free_error GError *error = NULL;
-    State *               state;
+    State                *state;
 
     state = state_new();
 
@@ -2242,9 +2250,9 @@ static void
 state_write(NMConfig *self)
 {
     NMConfigPrivate *priv = NM_CONFIG_GET_PRIVATE(self);
-    const char *     filename;
-    GString *        str;
-    GError *         error = NULL;
+    const char      *filename;
+    GString         *str;
+    GError          *error = NULL;
 
     if (priv->configure_and_quit != NM_CONFIG_CONFIGURE_AND_QUIT_DISABLED)
         return;
@@ -2286,7 +2294,7 @@ state_write(NMConfig *self)
 void
 _nm_config_state_set(NMConfig *self, gboolean allow_persist, gboolean force_persist, ...)
 {
-    NMConfigPrivate *            priv;
+    NMConfigPrivate             *priv;
     va_list                      ap;
     NMConfigRunStatePropertyType property_type;
 
@@ -2343,8 +2351,9 @@ _nm_config_state_set(NMConfig *self, gboolean allow_persist, gboolean force_pers
     "route-metric-default-aspired"
 #define DEVICE_RUN_STATE_KEYFILE_KEY_DEVICE_ROUTE_METRIC_DEFAULT_EFFECTIVE \
     "route-metric-default-effective"
-#define DEVICE_RUN_STATE_KEYFILE_KEY_DEVICE_ROOT_PATH   "root-path"
-#define DEVICE_RUN_STATE_KEYFILE_KEY_DEVICE_NEXT_SERVER "next-server"
+#define DEVICE_RUN_STATE_KEYFILE_KEY_DEVICE_ROOT_PATH     "root-path"
+#define DEVICE_RUN_STATE_KEYFILE_KEY_DEVICE_NEXT_SERVER   "next-server"
+#define DEVICE_RUN_STATE_KEYFILE_KEY_DEVICE_DHCP_BOOTFILE "dhcp-bootfile"
 
 static NM_UTILS_LOOKUP_STR_DEFINE(
     _device_state_managed_type_to_str,
@@ -2357,14 +2366,14 @@ static NM_UTILS_LOOKUP_STR_DEFINE(
 static NMConfigDeviceStateData *
 _config_device_state_data_new(int ifindex, GKeyFile *kf)
 {
-    NMConfigDeviceStateData *      device_state;
+    NMConfigDeviceStateData       *device_state;
     NMConfigDeviceStateManagedType managed_type      = NM_CONFIG_DEVICE_STATE_MANAGED_TYPE_UNKNOWN;
-    gs_free char *                 connection_uuid   = NULL;
-    gs_free char *                 perm_hw_addr_fake = NULL;
+    gs_free char                  *connection_uuid   = NULL;
+    gs_free char                  *perm_hw_addr_fake = NULL;
     gsize                          connection_uuid_len;
     gsize                          perm_hw_addr_fake_len;
     NMTernary                      nm_owned;
-    char *                         p;
+    char                          *p;
     guint32                        route_metric_default_effective;
     guint32                        route_metric_default_aspired;
 
@@ -2475,7 +2484,7 @@ nm_config_device_state_load(int ifindex)
     NMConfigDeviceStateData *device_state;
     char path[NM_STRLEN(NM_CONFIG_DEVICE_STATE_DIR "/") + DEVICE_STATE_FILENAME_LEN_MAX + 1];
     nm_auto_unref_keyfile GKeyFile *kf = NULL;
-    const char *                    nm_owned_str;
+    const char                     *nm_owned_str;
 
     g_return_val_if_fail(ifindex > 0, NULL);
 
@@ -2527,7 +2536,7 @@ GHashTable *
 nm_config_device_state_load_all(void)
 {
     GHashTable *states;
-    GDir *      dir;
+    GDir       *dir;
     const char *fn;
     int         ifindex;
 
@@ -2559,13 +2568,14 @@ nm_config_device_state_load_all(void)
 gboolean
 nm_config_device_state_write(int                            ifindex,
                              NMConfigDeviceStateManagedType managed,
-                             const char *                   perm_hw_addr_fake,
-                             const char *                   connection_uuid,
+                             const char                    *perm_hw_addr_fake,
+                             const char                    *connection_uuid,
                              NMTernary                      nm_owned,
                              guint32                        route_metric_default_aspired,
                              guint32                        route_metric_default_effective,
-                             const char *                   next_server,
-                             const char *                   root_path)
+                             const char                    *next_server,
+                             const char                    *root_path,
+                             const char                    *dhcp_bootfile)
 {
     char    path[NM_STRLEN(NM_CONFIG_DEVICE_STATE_DIR "/") + DEVICE_STATE_FILENAME_LEN_MAX + 1];
     GError *local                      = NULL;
@@ -2632,6 +2642,12 @@ nm_config_device_state_write(int                            ifindex,
                               DEVICE_RUN_STATE_KEYFILE_KEY_DEVICE_ROOT_PATH,
                               root_path);
     }
+    if (dhcp_bootfile) {
+        g_key_file_set_string(kf,
+                              DEVICE_RUN_STATE_KEYFILE_GROUP_DEVICE,
+                              DEVICE_RUN_STATE_KEYFILE_KEY_DEVICE_DHCP_BOOTFILE,
+                              dhcp_bootfile);
+    }
 
     if (!g_key_file_save_to_file(kf, path, &local)) {
         _LOGW("device-state: write #%d (%s) failed: %s", ifindex, path, local->message);
@@ -2639,7 +2655,9 @@ nm_config_device_state_write(int                            ifindex,
         return FALSE;
     }
     _LOGT("device-state: write #%d (%s); managed=%s%s%s%s%s%s%s, "
-          "route-metric-default=%" G_GUINT32_FORMAT "-%" G_GUINT32_FORMAT "%s%s%s%s%s%s",
+          "route-metric-default=%" G_GUINT32_FORMAT "-%" G_GUINT32_FORMAT "%s%s%s"
+          "%s%s%s"
+          "%s%s%s",
           ifindex,
           path,
           _device_state_managed_type_to_str(managed),
@@ -2648,14 +2666,15 @@ nm_config_device_state_write(int                            ifindex,
           route_metric_default_aspired,
           route_metric_default_effective,
           NM_PRINT_FMT_QUOTED(next_server, ", next-server=", next_server, "", ""),
-          NM_PRINT_FMT_QUOTED(root_path, ", root-path=", root_path, "", ""));
+          NM_PRINT_FMT_QUOTED(root_path, ", root-path=", root_path, "", ""),
+          NM_PRINT_FMT_QUOTED(dhcp_bootfile, ", dhcp-bootfile=", dhcp_bootfile, "", ""));
     return TRUE;
 }
 
 void
 nm_config_device_state_prune_stale(GHashTable *preserve_ifindexes, NMPlatform *preserve_in_platform)
 {
-    GDir *      dir;
+    GDir       *dir;
     const char *fn;
     char        buf[NM_STRLEN(NM_CONFIG_DEVICE_STATE_DIR "/") + DEVICE_STATE_FILENAME_LEN_MAX + 1] =
         NM_CONFIG_DEVICE_STATE_DIR "/";
@@ -2740,14 +2759,14 @@ nm_config_device_state_get(NMConfig *self, int ifindex)
 void
 nm_config_reload(NMConfig *self, NMConfigChangeFlags reload_flags, gboolean emit_warnings)
 {
-    NMConfigPrivate *  priv;
-    GError *           error = NULL;
-    GKeyFile *         keyfile, *keyfile_intern;
-    NMConfigData *     new_data           = NULL;
-    char *             config_main_file   = NULL;
-    char *             config_description = NULL;
-    gs_strfreev char **no_auto_default    = NULL;
-    gboolean           intern_config_needs_rewrite;
+    NMConfigPrivate             *priv;
+    GError                      *error = NULL;
+    GKeyFile                    *keyfile, *keyfile_intern;
+    NMConfigData                *new_data           = NULL;
+    char                        *config_main_file   = NULL;
+    char                        *config_description = NULL;
+    gs_strfreev char           **no_auto_default    = NULL;
+    gboolean                     intern_config_needs_rewrite;
     gs_unref_ptrarray GPtrArray *warnings = NULL;
     guint                        i;
 
@@ -2847,8 +2866,8 @@ NM_UTILS_FLAGS2STR_DEFINE(nm_config_change_flags_to_string,
 static void
 _set_config_data(NMConfig *self, NMConfigData *new_data, NMConfigChangeFlags reload_flags)
 {
-    NMConfigPrivate *   priv     = NM_CONFIG_GET_PRIVATE(self);
-    NMConfigData *      old_data = priv->config_data;
+    NMConfigPrivate    *priv     = NM_CONFIG_GET_PRIVATE(self);
+    NMConfigData       *old_data = priv->config_data;
     NMConfigChangeFlags changes, changes_diff;
     gboolean            had_new_data = !!new_data;
 
@@ -2929,10 +2948,10 @@ nm_config_setup(const NMConfigCmdLineOptions *cli, char **atomic_section_prefixe
 static void
 set_property(GObject *object, guint prop_id, const GValue *value, GParamSpec *pspec)
 {
-    NMConfig *              self = NM_CONFIG(object);
-    NMConfigPrivate *       priv = NM_CONFIG_GET_PRIVATE(self);
+    NMConfig               *self = NM_CONFIG(object);
+    NMConfigPrivate        *priv = NM_CONFIG_GET_PRIVATE(self);
     NMConfigCmdLineOptions *cli;
-    char **                 strv;
+    char                  **strv;
 
     switch (prop_id) {
     case PROP_CMD_LINE_OPTIONS:
@@ -2961,17 +2980,17 @@ set_property(GObject *object, guint prop_id, const GValue *value, GParamSpec *ps
 static gboolean
 init_sync(GInitable *initable, GCancellable *cancellable, GError **error)
 {
-    NMConfig *            self                         = NM_CONFIG(initable);
-    NMConfigPrivate *     priv                         = NM_CONFIG_GET_PRIVATE(self);
+    NMConfig                       *self               = NM_CONFIG(initable);
+    NMConfigPrivate                *priv               = NM_CONFIG_GET_PRIVATE(self);
     nm_auto_unref_keyfile GKeyFile *keyfile            = NULL;
     nm_auto_unref_keyfile GKeyFile *keyfile_intern     = NULL;
-    gs_free char *                  config_main_file   = NULL;
-    gs_free char *                  config_description = NULL;
-    gs_strfreev char **             no_auto_default    = NULL;
-    gs_unref_ptrarray GPtrArray *warnings              = NULL;
-    gs_free char *               configure_and_quit    = NULL;
-    gboolean                     intern_config_needs_rewrite;
-    const char *                 s;
+    gs_free char                   *config_main_file   = NULL;
+    gs_free char                   *config_description = NULL;
+    gs_strfreev char              **no_auto_default    = NULL;
+    gs_unref_ptrarray GPtrArray    *warnings           = NULL;
+    gs_free char                   *configure_and_quit = NULL;
+    gboolean                        intern_config_needs_rewrite;
+    const char                     *s;
 
     if (priv->config_dir) {
         /* Object is already initialized. */

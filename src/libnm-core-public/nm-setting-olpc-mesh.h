@@ -9,7 +9,7 @@
 #define __NM_SETTING_OLPC_MESH_H__
 
 #if !defined(__NETWORKMANAGER_H_INSIDE__) && !defined(NETWORKMANAGER_COMPILATION)
-    #error "Only <NetworkManager.h> can be included directly."
+#error "Only <NetworkManager.h> can be included directly."
 #endif
 
 #include "nm-setting.h"
@@ -37,8 +37,8 @@ typedef struct _NMSettingOlpcMeshClass NMSettingOlpcMeshClass;
 
 GType nm_setting_olpc_mesh_get_type(void);
 
-NMSetting * nm_setting_olpc_mesh_new(void);
-GBytes *    nm_setting_olpc_mesh_get_ssid(NMSettingOlpcMesh *setting);
+NMSetting  *nm_setting_olpc_mesh_new(void);
+GBytes     *nm_setting_olpc_mesh_get_ssid(NMSettingOlpcMesh *setting);
 guint32     nm_setting_olpc_mesh_get_channel(NMSettingOlpcMesh *setting);
 const char *nm_setting_olpc_mesh_get_dhcp_anycast_address(NMSettingOlpcMesh *setting);
 

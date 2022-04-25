@@ -8,7 +8,7 @@
 #
 
 # We're happy to rebuild all containers when one changes.
-.default_tag: &default_tag '2021-01-28.0'
+.default_tag: &default_tag '2021-11-09.0'
 
 
 # The list of all distributions we want to create job for.
@@ -18,16 +18,13 @@ distributions:
     tag: *default_tag
     base_type: fedora
     versions:
-      - '28'
-      - '29'
       - '30'
       - '31'
       - '32'
       - '33'
       - '34'
-      - 'rawhide'
-    # always:
-    #   - '33'
+      - '35'
+      - '36'
   - name: ubuntu
     tag: *default_tag
     base_type: debian
@@ -43,6 +40,7 @@ distributions:
     versions:
       - '9'
       - '10'
+      - '11'
       - 'testing'
       - 'sid'
   - name: centos
@@ -56,6 +54,7 @@ distributions:
       - '7.9.2009'
       - '8.1.1911'
       - '8.2.2004'
+      - '8.3.2011'
   - name: alpine
     tag: *default_tag
     base_type: alpine
@@ -65,4 +64,4 @@ distributions:
 # specifies which of the above distros is used as source for pages
 pages_build:
   name: fedora
-  version: '34'
+  version: '35'

@@ -7,7 +7,7 @@
 #define __NM_UTILS_PRIVATE_H__
 
 #if !((NETWORKMANAGER_COMPILATION) &NM_NETWORKMANAGER_COMPILATION_WITH_LIBNM_CORE_PRIVATE)
-    #error Cannot use this header.
+#error Cannot use this header.
 #endif
 
 #include "nm-setting-private.h"
@@ -19,43 +19,56 @@
 gboolean _nm_utils_string_slist_validate(GSList *list, const char **valid_values);
 
 gboolean _nm_utils_secret_flags_validate(NMSettingSecretFlags secret_flags,
-                                         const char *         setting_name,
-                                         const char *         property_name,
+                                         const char          *setting_name,
+                                         const char          *property_name,
                                          NMSettingSecretFlags disallowed_flags,
-                                         GError **            error);
+                                         GError             **error);
 
 gboolean _nm_utils_wps_method_validate(NMSettingWirelessSecurityWpsMethod wps_method,
-                                       const char *                       setting_name,
-                                       const char *                       property_name,
+                                       const char                        *setting_name,
+                                       const char                        *property_name,
                                        gboolean                           wps_required,
-                                       GError **                          error);
+                                       GError                           **error);
 
 /* D-Bus transform funcs */
 
+gboolean _nm_property_variant_to_gvalue(GVariant *src_value, GValue *dst_value);
+
 extern const NMSettInfoPropertType nm_sett_info_propert_type_strdict;
-
-extern const NMSettInfoPropertType nm_sett_info_propert_type_mac_address;
-
-extern const NMSettInfoPropertType nm_sett_info_propert_type_cloned_mac_address;
 
 extern const NMSettInfoPropertType nm_sett_info_propert_type_assigned_mac_address;
 
-extern const NMSettInfoPropertType nm_sett_info_propert_type_bridge_vlans;
-
-void _nm_utils_strdict_from_dbus(GVariant *dbus_value, GValue *prop_value);
+void _nm_utils_strdict_from_dbus(_NM_SETT_INFO_PROP_FROM_DBUS_GPROP_FCN_ARGS _nm_nil);
 
 void _nm_utils_bytes_from_dbus(GVariant *dbus_value, GValue *prop_value);
 
 char *_nm_utils_hwaddr_canonical_or_invalid(const char *mac, gssize length);
 
+char *
+_nm_utils_ipaddr_canonical_or_invalid(int addr_family, const char *ip, gboolean map_zero_to_null);
+
 gboolean _nm_utils_hwaddr_link_local_valid(const char *mac);
 
 gboolean _nm_sriov_vf_parse_vlans(NMSriovVF *vf, const char *str, GError **error);
 
-gboolean _nm_utils_bridge_vlan_verify_list(GPtrArray * vlans,
+gboolean _nm_utils_bridge_vlan_verify_list(GPtrArray  *vlans,
                                            gboolean    check_normalizable,
-                                           GError **   error,
+                                           GError    **error,
                                            const char *setting,
                                            const char *property);
+
+NMTernary _nm_utils_bridge_compare_vlans(GPtrArray *vlans_a, GPtrArray *vlans_b);
+
+GVariant *_nm_team_settings_property_to_dbus(_NM_SETT_INFO_PROP_TO_DBUS_FCN_ARGS _nm_nil);
+
+void _nm_team_settings_property_from_dbus_link_watchers(
+    _NM_SETT_INFO_PROP_FROM_DBUS_GPROP_FCN_ARGS _nm_nil);
+
+GVariant *_nm_utils_ip4_dns_to_variant(const char *const *dns, gssize len);
+GVariant *_nm_utils_ip6_dns_to_variant(const char *const *dns, gssize len);
+
+const char *const *nmtst_system_encodings_for_lang(const char *lang);
+const char *const *nmtst_system_encodings_get_default(void);
+const char *const *nmtst_system_encodings_get(void);
 
 #endif

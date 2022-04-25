@@ -11,8 +11,8 @@
 #include <stdlib.h>
 
 struct Opt {
-    const char *         key;
-    const char *const *  str_allowed;
+    const char          *key;
+    const char *const   *str_allowed;
     const NMSupplOptType type;
     // Laird: use signed gint32 type to allow for -1 value in ht40
     const gint32        int_low;  /* Inclusive */
@@ -263,7 +263,7 @@ validate_type_keyword(const struct Opt *opt, const char *value, const guint32 le
             s++;
         }
 
-        if (nm_utils_strv_find_first((char **) opt->str_allowed, -1, value) < 0)
+        if (nm_strv_find_first(opt->str_allowed, -1, value) < 0)
             return FALSE;
 
         if (!s)

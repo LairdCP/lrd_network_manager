@@ -7,7 +7,7 @@
 #define __NM_KEYFILE_UTILS_H__
 
 #if !((NETWORKMANAGER_COMPILATION) &NM_NETWORKMANAGER_COMPILATION_WITH_LIBNM_CORE_INTERNAL)
-    #error Cannot use this header.
+#error Cannot use this header.
 #endif
 
 /*****************************************************************************/
@@ -31,16 +31,16 @@ const char *nm_keyfile_plugin_get_setting_name_for_alias(const char *alias);
 
 /*****************************************************************************/
 
-guint *nm_keyfile_plugin_kf_get_integer_list_uint(GKeyFile *  kf,
+guint *nm_keyfile_plugin_kf_get_integer_list_uint(GKeyFile   *kf,
                                                   const char *group,
                                                   const char *key,
-                                                  gsize *     out_length,
-                                                  GError **   error);
-char **nm_keyfile_plugin_kf_get_string_list(GKeyFile *  kf,
+                                                  gsize      *out_length,
+                                                  GError    **error);
+char **nm_keyfile_plugin_kf_get_string_list(GKeyFile   *kf,
                                             const char *group,
                                             const char *key,
-                                            gsize *     out_length,
-                                            GError **   error);
+                                            gsize      *out_length,
+                                            GError    **error);
 char *
 nm_keyfile_plugin_kf_get_string(GKeyFile *kf, const char *group, const char *key, GError **error);
 gboolean
@@ -48,23 +48,23 @@ nm_keyfile_plugin_kf_get_boolean(GKeyFile *kf, const char *group, const char *ke
 char *
 nm_keyfile_plugin_kf_get_value(GKeyFile *kf, const char *group, const char *key, GError **error);
 
-void nm_keyfile_plugin_kf_set_integer_list_uint8(GKeyFile *    kf,
-                                                 const char *  group,
-                                                 const char *  key,
+void nm_keyfile_plugin_kf_set_integer_list_uint8(GKeyFile     *kf,
+                                                 const char   *group,
+                                                 const char   *key,
                                                  const guint8 *list,
                                                  gsize         length);
-void nm_keyfile_plugin_kf_set_integer_list_uint(GKeyFile *   kf,
-                                                const char * group,
-                                                const char * key,
+void nm_keyfile_plugin_kf_set_integer_list_uint(GKeyFile    *kf,
+                                                const char  *group,
+                                                const char  *key,
                                                 const guint *list,
                                                 gsize        length);
-void nm_keyfile_plugin_kf_set_string_list(GKeyFile *         kf,
-                                          const char *       group,
-                                          const char *       key,
+void nm_keyfile_plugin_kf_set_string_list(GKeyFile          *kf,
+                                          const char        *group,
+                                          const char        *key,
                                           const char *const *list,
                                           gsize              length);
 
-void nm_keyfile_plugin_kf_set_string(GKeyFile *  kf,
+void nm_keyfile_plugin_kf_set_string(GKeyFile   *kf,
                                      const char *group,
                                      const char *key,
                                      const char *value);
@@ -73,14 +73,14 @@ nm_keyfile_plugin_kf_set_boolean(GKeyFile *kf, const char *group, const char *ke
 void
 nm_keyfile_plugin_kf_set_value(GKeyFile *kf, const char *group, const char *key, const char *value);
 
-gint64 nm_keyfile_plugin_kf_get_int64(GKeyFile *  kf,
+gint64 nm_keyfile_plugin_kf_get_int64(GKeyFile   *kf,
                                       const char *group,
                                       const char *key,
                                       guint       base,
                                       gint64      min,
                                       gint64      max,
                                       gint64      fallback,
-                                      GError **   error);
+                                      GError    **error);
 
 char **
 nm_keyfile_plugin_kf_get_keys(GKeyFile *kf, const char *group, gsize *out_length, GError **error);
@@ -91,5 +91,7 @@ nm_keyfile_plugin_kf_has_key(GKeyFile *kf, const char *group, const char *key, G
 const char *nm_keyfile_key_encode(const char *name, char **out_to_free);
 
 const char *nm_keyfile_key_decode(const char *key, char **out_to_free);
+
+void nm_keyfile_add_group(GKeyFile *keyfile, const char *group);
 
 #endif /* __NM_KEYFILE_UTILS_H__ */

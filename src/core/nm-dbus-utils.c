@@ -13,8 +13,8 @@
 
 GDBusPropertyInfo *
 nm_dbus_utils_interface_info_lookup_property(const GDBusInterfaceInfo *interface_info,
-                                             const char *              property_name,
-                                             guint *                   property_idx)
+                                             const char               *property_name,
+                                             guint                    *property_idx)
 {
     guint i;
 
@@ -39,7 +39,7 @@ nm_dbus_utils_interface_info_lookup_property(const GDBusInterfaceInfo *interface
 
 GDBusMethodInfo *
 nm_dbus_utils_interface_info_lookup_method(const GDBusInterfaceInfo *interface_info,
-                                           const char *              method_name)
+                                           const char               *method_name)
 {
     guint i;
 
@@ -64,8 +64,8 @@ GVariant *
 nm_dbus_utils_get_property(GObject *obj, const char *signature, const char *property_name)
 {
     nm_auto_unset_gvalue GValue value = G_VALUE_INIT;
-    GParamSpec *                pspec;
-    GVariant *                  variant;
+    GParamSpec                 *pspec;
+    GVariant                   *variant;
 
     nm_assert(G_IS_OBJECT(obj));
     nm_assert(g_variant_type_string_is_valid(signature));
@@ -97,37 +97,23 @@ nm_dbus_utils_get_property(GObject *obj, const char *signature, const char *prop
 void
 nm_dbus_utils_g_value_set_object_path(GValue *value, gpointer object)
 {
-    const char *path;
-
-    g_return_if_fail(!object || NM_IS_DBUS_OBJECT(object));
-
-    if (object && (path = nm_dbus_object_get_path(object)))
-        g_value_set_string(value, path);
-    else
-        g_value_set_string(value, NULL);
+    g_value_set_string(value, object ? nm_dbus_object_get_path(object) : NULL);
 }
 
 void
 nm_dbus_utils_g_value_set_object_path_still_exported(GValue *value, gpointer object)
 {
-    const char *path;
-
-    g_return_if_fail(!object || NM_IS_DBUS_OBJECT(object));
-
-    if (object && (path = nm_dbus_object_get_path_still_exported(object)))
-        g_value_set_string(value, path);
-    else
-        g_value_set_string(value, "/");
+    g_value_set_string(value, object ? nm_dbus_object_get_path_still_exported(object) : "/");
 }
 
 void
 nm_dbus_utils_g_value_set_object_path_from_hash(
-    GValue *    value,
+    GValue     *value,
     GHashTable *hash /* has keys of NMDBusObject type. */,
     gboolean    expect_all_exported)
 {
-    NMDBusObject * obj;
-    char **        strv;
+    NMDBusObject  *obj;
+    char         **strv;
     guint          i, n;
     GHashTableIter iter;
 
@@ -152,7 +138,7 @@ nm_dbus_utils_g_value_set_object_path_from_hash(
     strv[i] = NULL;
 
     /* sort the names, to give a well-defined, stable order. */
-    nm_utils_strv_sort(strv, i);
+    nm_strv_sort(strv, i);
 
     g_value_take_boxed(value, strv);
 }
@@ -165,7 +151,7 @@ nm_dbus_utils_get_paths_for_clist(const CList *lst_head,
 {
     const CList *iter;
     const char **strv;
-    const char * path;
+    const char  *path;
     gsize        i, n;
 
     nm_assert(lst_head);
@@ -257,7 +243,7 @@ void
 nm_dbus_track_obj_path_set(NMDBusTrackObjPath *track, gpointer obj, gboolean visible)
 {
     gs_unref_object NMDBusObject *old_obj = NULL;
-    const char *                  old_path;
+    const char                   *old_path;
 
     nm_assert(track);
     nm_assert(G_IS_OBJECT(track->_notify_target));

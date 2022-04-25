@@ -34,7 +34,7 @@
 NM_GOBJECT_PROPERTIES_DEFINE(NMSettingBond, PROP_OPTIONS, );
 
 typedef struct {
-    GHashTable *       options;
+    GHashTable        *options;
     NMUtilsNamedValue *options_idx_cache;
 } NMSettingBondPrivate;
 
@@ -45,11 +45,11 @@ typedef struct {
  */
 struct _NMSettingBond {
     NMSetting parent;
+    /* In the past, this struct was public API. Preserve ABI! */
 };
 
 struct _NMSettingBondClass {
     NMSettingClass parent;
-
     /* In the past, this struct was public API. Preserve ABI! */
     gpointer padding[4];
 };
@@ -90,11 +90,12 @@ static const char *const valid_options_lst[] = {
     NM_SETTING_BOND_OPTION_PACKETS_PER_SLAVE,
     NM_SETTING_BOND_OPTION_TLB_DYNAMIC_LB,
     NM_SETTING_BOND_OPTION_LP_INTERVAL,
+    NM_SETTING_BOND_OPTION_PEER_NOTIF_DELAY,
     NULL,
 };
 
 typedef struct {
-    const char *       val;
+    const char        *val;
     NMBondOptionType   opt_type;
     guint              min;
     guint              max;
@@ -207,6 +208,7 @@ static NM_UTILS_STRING_TABLE_LOOKUP_STRUCT_DEFINE(
     {NM_SETTING_BOND_OPTION_NUM_GRAT_ARP, {"1", NM_BOND_OPTION_TYPE_INT, 0, 255}},
     {NM_SETTING_BOND_OPTION_NUM_UNSOL_NA, {"1", NM_BOND_OPTION_TYPE_INT, 0, 255}},
     {NM_SETTING_BOND_OPTION_PACKETS_PER_SLAVE, {"1", NM_BOND_OPTION_TYPE_INT, 0, 65535}},
+    {NM_SETTING_BOND_OPTION_PEER_NOTIF_DELAY, {"0", NM_BOND_OPTION_TYPE_INT, 0, G_MAXINT}},
     {NM_SETTING_BOND_OPTION_PRIMARY, {"", NM_BOND_OPTION_TYPE_IFNAME}},
     {NM_SETTING_BOND_OPTION_PRIMARY_RESELECT,
      {"always", NM_BOND_OPTION_TYPE_BOTH, 0, 2, _option_default_strv_primary_reselect}},
@@ -447,8 +449,8 @@ _ensure_options_idx_cache(NMSettingBondPrivate *priv)
 gboolean
 nm_setting_bond_get_option(NMSettingBond *setting,
                            guint32        idx,
-                           const char **  out_name,
-                           const char **  out_value)
+                           const char   **out_name,
+                           const char   **out_value)
 {
     NMSettingBondPrivate *priv;
     guint                 len;
@@ -776,16 +778,17 @@ _nm_setting_bond_get_option_type(NMSettingBond *setting, const char *name)
 static gboolean
 verify(NMSetting *setting, NMConnection *connection, GError **error)
 {
-    NMSettingBond *          self = NM_SETTING_BOND(setting);
-    NMSettingBondPrivate *   priv = NM_SETTING_BOND_GET_PRIVATE(setting);
+    NMSettingBond           *self = NM_SETTING_BOND(setting);
+    NMSettingBondPrivate    *priv = NM_SETTING_BOND_GET_PRIVATE(setting);
     int                      miimon;
     int                      arp_interval;
     int                      num_grat_arp;
     int                      num_unsol_na;
-    const char *             mode_str;
-    const char *             arp_ip_target = NULL;
-    const char *             lacp_rate;
-    const char *             primary;
+    int                      peer_notif_delay;
+    const char              *mode_str;
+    const char              *arp_ip_target = NULL;
+    const char              *lacp_rate;
+    const char              *primary;
     NMBondMode               bond_mode;
     guint                    i;
     const NMUtilsNamedValue *n;
@@ -810,6 +813,8 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
     arp_interval = _atoi(_bond_get_option_or_default(self, NM_SETTING_BOND_OPTION_ARP_INTERVAL));
     num_grat_arp = _atoi(_bond_get_option_or_default(self, NM_SETTING_BOND_OPTION_NUM_GRAT_ARP));
     num_unsol_na = _atoi(_bond_get_option_or_default(self, NM_SETTING_BOND_OPTION_NUM_UNSOL_NA));
+    peer_notif_delay =
+        _atoi(_bond_get_option_or_default(self, NM_SETTING_BOND_OPTION_PEER_NOTIF_DELAY));
 
     /* Option restrictions:
      *
@@ -818,6 +823,8 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
      * arp_validate does not work with [ BOND_MODE_8023AD, BOND_MODE_TLB, BOND_MODE_ALB ]
      * downdelay needs miimon
      * updelay needs miimon
+     * peer_notif_delay needs miimon enabled
+     * peer_notif_delay must be a miimon multiple
      * primary needs [ active-backup, tlb, alb ]
      */
 
@@ -926,6 +933,36 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
         }
     }
 
+    if (peer_notif_delay) {
+        if (miimon == 0) {
+            g_set_error(error,
+                        NM_CONNECTION_ERROR,
+                        NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                        _("'%s' option requires '%s' option to be enabled"),
+                        NM_SETTING_BOND_OPTION_PEER_NOTIF_DELAY,
+                        NM_SETTING_BOND_OPTION_MIIMON);
+            g_prefix_error(error, "%s.%s: ", NM_SETTING_BOND_SETTING_NAME, NM_SETTING_BOND_OPTIONS);
+            return FALSE;
+        }
+
+        /* The code disables miimon when arp is set, so they never occur together.
+         * But this occurs after this verification, so this check can occur in
+         * an invalid state, when both arp and miimon are enabled. To assure not
+         * dealing with an invalid state, this arp_interval == 0 condition,
+         * that is implicit, was made explicit.
+         */
+        if ((peer_notif_delay % miimon) && (arp_interval == 0)) {
+            g_set_error(error,
+                        NM_CONNECTION_ERROR,
+                        NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                        _("'%s' option needs to be a value multiple of '%s' value"),
+                        NM_SETTING_BOND_OPTION_PEER_NOTIF_DELAY,
+                        NM_SETTING_BOND_OPTION_MIIMON);
+            g_prefix_error(error, "%s.%s: ", NM_SETTING_BOND_SETTING_NAME, NM_SETTING_BOND_OPTIONS);
+            return FALSE;
+        }
+    }
+
     /* arp_ip_target can only be used with arp_interval, and must
      * contain a comma-separated list of IPv4 addresses.
      */
@@ -1025,7 +1062,7 @@ static gboolean
 options_equal_asym(NMSettingBond *s_bond, NMSettingBond *s_bond2, NMSettingCompareFlags flags)
 {
     GHashTableIter iter;
-    const char *   key, *value;
+    const char    *key, *value;
 
     g_hash_table_iter_init(&iter, NM_SETTING_BOND_GET_PRIVATE(s_bond)->options);
     while (g_hash_table_iter_next(&iter, (gpointer *) &key, (gpointer *) &value)) {
@@ -1053,20 +1090,9 @@ options_equal(NMSettingBond *s_bond, NMSettingBond *s_bond2, NMSettingCompareFla
 }
 
 static NMTernary
-compare_property(const NMSettInfoSetting *sett_info,
-                 guint                    property_idx,
-                 NMConnection *           con_a,
-                 NMSetting *              set_a,
-                 NMConnection *           con_b,
-                 NMSetting *              set_b,
-                 NMSettingCompareFlags    flags)
+compare_fcn_options(_NM_SETT_INFO_PROP_COMPARE_FCN_ARGS _nm_nil)
 {
-    if (nm_streq(sett_info->property_infos[property_idx].name, NM_SETTING_BOND_OPTIONS)) {
-        return (!set_b || options_equal(NM_SETTING_BOND(set_a), NM_SETTING_BOND(set_b), flags));
-    }
-
-    return NM_SETTING_CLASS(nm_setting_bond_parent_class)
-        ->compare_property(sett_info, property_idx, con_a, set_a, con_b, set_b, flags);
+    return (!set_b || options_equal(NM_SETTING_BOND(set_a), NM_SETTING_BOND(set_b), flags));
 }
 
 /*****************************************************************************/
@@ -1143,9 +1169,9 @@ finalize(GObject *object)
 static void
 nm_setting_bond_class_init(NMSettingBondClass *klass)
 {
-    GObjectClass *  object_class        = G_OBJECT_CLASS(klass);
+    GObjectClass   *object_class        = G_OBJECT_CLASS(klass);
     NMSettingClass *setting_class       = NM_SETTING_CLASS(klass);
-    GArray *        properties_override = _nm_sett_info_property_override_create_array();
+    GArray         *properties_override = _nm_sett_info_property_override_create_array();
 
     g_type_class_add_private(klass, sizeof(NMSettingBondPrivate));
 
@@ -1153,8 +1179,7 @@ nm_setting_bond_class_init(NMSettingBondClass *klass)
     object_class->set_property = set_property;
     object_class->finalize     = finalize;
 
-    setting_class->verify           = verify;
-    setting_class->compare_property = compare_property;
+    setting_class->verify = verify;
 
     /**
      * NMSettingBond:options: (type GHashTable(utf8,utf8)):
@@ -1176,9 +1201,16 @@ nm_setting_bond_class_init(NMSettingBondClass *klass)
         "",
         G_TYPE_HASH_TABLE,
         G_PARAM_READWRITE | NM_SETTING_PARAM_INFERRABLE | G_PARAM_STATIC_STRINGS);
-    _nm_properties_override_gobj(properties_override,
-                                 obj_properties[PROP_OPTIONS],
-                                 &nm_sett_info_propert_type_strdict);
+    _nm_properties_override_gobj(
+        properties_override,
+        obj_properties[PROP_OPTIONS],
+        NM_SETT_INFO_PROPERT_TYPE_GPROP(NM_G_VARIANT_TYPE("a{ss}"),
+                                        .typdata_from_dbus.gprop_fcn = _nm_utils_strdict_from_dbus,
+                                        .typdata_to_dbus.gprop_type =
+                                            NM_SETTING_PROPERTY_TO_DBUS_FCN_GPROP_TYPE_STRDICT,
+                                        .compare_fcn   = compare_fcn_options,
+                                        .from_dbus_fcn = _nm_setting_property_from_dbus_fcn_gprop,
+                                        .from_dbus_is_full = TRUE));
 
     /* ---dbus---
      * property: interface-name
@@ -1194,8 +1226,9 @@ nm_setting_bond_class_init(NMSettingBondClass *klass)
 
     g_object_class_install_properties(object_class, _PROPERTY_ENUMS_LAST, obj_properties);
 
-    _nm_setting_class_commit_full(setting_class,
-                                  NM_META_SETTING_TYPE_BOND,
-                                  NULL,
-                                  properties_override);
+    _nm_setting_class_commit(setting_class,
+                             NM_META_SETTING_TYPE_BOND,
+                             NULL,
+                             properties_override,
+                             NM_SETT_INFO_PRIVATE_OFFSET_FROM_CLASS);
 }

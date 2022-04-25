@@ -7,7 +7,7 @@
 #define __NM_SETTING_OVS_EXTERNAL_IDS_H__
 
 #if !defined(__NETWORKMANAGER_H_INSIDE__) && !defined(NETWORKMANAGER_COMPILATION)
-    #error "Only <NetworkManager.h> can be included directly."
+#error "Only <NetworkManager.h> can be included directly."
 #endif
 
 #include "nm-setting.h"
@@ -46,15 +46,15 @@ NMSetting *nm_setting_ovs_external_ids_new(void);
 
 NM_AVAILABLE_IN_1_30
 const char *const *nm_setting_ovs_external_ids_get_data_keys(NMSettingOvsExternalIDs *setting,
-                                                             guint *                  out_len);
+                                                             guint                   *out_len);
 
 NM_AVAILABLE_IN_1_30
 const char *nm_setting_ovs_external_ids_get_data(NMSettingOvsExternalIDs *setting, const char *key);
 
 NM_AVAILABLE_IN_1_30
 void nm_setting_ovs_external_ids_set_data(NMSettingOvsExternalIDs *setting,
-                                          const char *             key,
-                                          const char *             val);
+                                          const char              *key,
+                                          const char              *val);
 
 /*****************************************************************************/
 

@@ -26,8 +26,8 @@
 NM_GOBJECT_PROPERTIES_DEFINE(NMSettingUser, PROP_DATA, );
 
 typedef struct {
-    GHashTable * data;
-    GHashTable * data_invalid;
+    GHashTable  *data;
+    GHashTable  *data_invalid;
     const char **keys;
 } NMSettingUserPrivate;
 
@@ -220,7 +220,7 @@ _create_data_hash(void)
 const char *const *
 nm_setting_user_get_keys(NMSettingUser *setting, guint *out_len)
 {
-    NMSettingUser *       self = setting;
+    NMSettingUser        *self = setting;
     NMSettingUserPrivate *priv;
 
     g_return_val_if_fail(NM_IS_SETTING_USER(self), NULL);
@@ -232,7 +232,7 @@ nm_setting_user_get_keys(NMSettingUser *setting, guint *out_len)
         return priv->keys;
     }
 
-    priv->keys = nm_utils_strdict_get_keys(priv->data, TRUE, out_len);
+    priv->keys = nm_strdict_get_keys(priv->data, TRUE, out_len);
 
     /* don't return %NULL, but hijack the @keys fields as a pseudo
      * empty strv array. */
@@ -254,18 +254,10 @@ nm_setting_user_get_keys(NMSettingUser *setting, guint *out_len)
 const char *
 nm_setting_user_get_data(NMSettingUser *setting, const char *key)
 {
-    NMSettingUser *       self = setting;
-    NMSettingUserPrivate *priv;
-
-    g_return_val_if_fail(NM_IS_SETTING_USER(self), NULL);
+    g_return_val_if_fail(NM_IS_SETTING_USER(setting), NULL);
     g_return_val_if_fail(key, NULL);
 
-    priv = NM_SETTING_USER_GET_PRIVATE(self);
-
-    if (!priv->data)
-        return NULL;
-
-    return g_hash_table_lookup(priv->data, key);
+    return nm_g_hash_table_lookup(NM_SETTING_USER_GET_PRIVATE(setting)->data, key);
 }
 
 /**
@@ -284,7 +276,7 @@ nm_setting_user_get_data(NMSettingUser *setting, const char *key)
 gboolean
 nm_setting_user_set_data(NMSettingUser *setting, const char *key, const char *val, GError **error)
 {
-    NMSettingUser *       self = setting;
+    NMSettingUser        *self = setting;
     NMSettingUserPrivate *priv;
     gboolean              changed = FALSE;
 
@@ -348,12 +340,12 @@ out:
 static gboolean
 verify(NMSetting *setting, NMConnection *connection, GError **error)
 {
-    NMSettingUser *       self = NM_SETTING_USER(setting);
+    NMSettingUser        *self = NM_SETTING_USER(setting);
     NMSettingUserPrivate *priv = NM_SETTING_USER_GET_PRIVATE(self);
 
     if (priv->data_invalid) {
-        const char *   key, *val;
-        GHashTableIter iter;
+        const char           *key, *val;
+        GHashTableIter        iter;
         gs_free_error GError *local = NULL;
 
         g_hash_table_iter_init(&iter, priv->data_invalid);
@@ -397,34 +389,21 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
 }
 
 static NMTernary
-compare_property(const NMSettInfoSetting *sett_info,
-                 guint                    property_idx,
-                 NMConnection *           con_a,
-                 NMSetting *              set_a,
-                 NMConnection *           con_b,
-                 NMSetting *              set_b,
-                 NMSettingCompareFlags    flags)
+compare_fcn_data(_NM_SETT_INFO_PROP_COMPARE_FCN_ARGS _nm_nil)
 {
-    NMSettingUserPrivate *priv, *pri2;
+    NMSettingUserPrivate *priv;
+    NMSettingUserPrivate *pri2;
 
-    if (nm_streq(sett_info->property_infos[property_idx].name, NM_SETTING_USER_DATA)) {
-        if (NM_FLAGS_HAS(flags, NM_SETTING_COMPARE_FLAG_INFERRABLE))
-            return NM_TERNARY_DEFAULT;
+    if (NM_FLAGS_HAS(flags, NM_SETTING_COMPARE_FLAG_INFERRABLE))
+        return NM_TERNARY_DEFAULT;
 
-        if (!set_b)
-            return TRUE;
+    if (!set_b)
+        return TRUE;
 
-        priv = NM_SETTING_USER_GET_PRIVATE(NM_SETTING_USER(set_a));
-        pri2 = NM_SETTING_USER_GET_PRIVATE(NM_SETTING_USER(set_b));
-        return nm_utils_hashtable_equal(priv->data, pri2->data, TRUE, g_str_equal)
-               && nm_utils_hashtable_equal(priv->data_invalid,
-                                           pri2->data_invalid,
-                                           TRUE,
-                                           g_str_equal);
-    }
-
-    return NM_SETTING_CLASS(nm_setting_user_parent_class)
-        ->compare_property(sett_info, property_idx, con_a, set_a, con_b, set_b, flags);
+    priv = NM_SETTING_USER_GET_PRIVATE(NM_SETTING_USER(set_a));
+    pri2 = NM_SETTING_USER_GET_PRIVATE(NM_SETTING_USER(set_b));
+    return nm_utils_hashtable_equal(priv->data, pri2->data, TRUE, g_str_equal)
+           && nm_utils_hashtable_equal(priv->data_invalid, pri2->data_invalid, TRUE, g_str_equal);
 }
 
 /*****************************************************************************/
@@ -432,11 +411,11 @@ compare_property(const NMSettInfoSetting *sett_info,
 static void
 get_property(GObject *object, guint prop_id, GValue *value, GParamSpec *pspec)
 {
-    NMSettingUser *       self = NM_SETTING_USER(object);
+    NMSettingUser        *self = NM_SETTING_USER(object);
     NMSettingUserPrivate *priv = NM_SETTING_USER_GET_PRIVATE(self);
     GHashTableIter        iter;
-    GHashTable *          data;
-    const char *          key, *val;
+    GHashTable           *data;
+    const char           *key, *val;
 
     switch (prop_id) {
     case PROP_DATA:
@@ -462,11 +441,11 @@ get_property(GObject *object, guint prop_id, GValue *value, GParamSpec *pspec)
 static void
 set_property(GObject *object, guint prop_id, const GValue *value, GParamSpec *pspec)
 {
-    NMSettingUser *       self = NM_SETTING_USER(object);
+    NMSettingUser        *self = NM_SETTING_USER(object);
     NMSettingUserPrivate *priv = NM_SETTING_USER_GET_PRIVATE(self);
     GHashTableIter        iter;
-    GHashTable *          data;
-    const char *          key, *val;
+    GHashTable           *data;
+    const char           *key, *val;
 
     switch (prop_id) {
     case PROP_DATA:
@@ -529,7 +508,7 @@ nm_setting_user_new(void)
 static void
 finalize(GObject *object)
 {
-    NMSettingUser *       self = NM_SETTING_USER(object);
+    NMSettingUser        *self = NM_SETTING_USER(object);
     NMSettingUserPrivate *priv = NM_SETTING_USER_GET_PRIVATE(self);
 
     g_free(priv->keys);
@@ -544,16 +523,15 @@ finalize(GObject *object)
 static void
 nm_setting_user_class_init(NMSettingUserClass *klass)
 {
-    GObjectClass *  object_class        = G_OBJECT_CLASS(klass);
+    GObjectClass   *object_class        = G_OBJECT_CLASS(klass);
     NMSettingClass *setting_class       = NM_SETTING_CLASS(klass);
-    GArray *        properties_override = _nm_sett_info_property_override_create_array();
+    GArray         *properties_override = _nm_sett_info_property_override_create_array();
 
     object_class->get_property = get_property;
     object_class->set_property = set_property;
     object_class->finalize     = finalize;
 
-    setting_class->compare_property = compare_property;
-    setting_class->verify           = verify;
+    setting_class->verify = verify;
 
     /**
      * NMSettingUser:data: (type GHashTable(utf8,utf8))
@@ -581,14 +559,22 @@ nm_setting_user_class_init(NMSettingUserClass *klass)
                                                    "",
                                                    G_TYPE_HASH_TABLE,
                                                    G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
-    _nm_properties_override_gobj(properties_override,
-                                 obj_properties[PROP_DATA],
-                                 &nm_sett_info_propert_type_strdict);
+    _nm_properties_override_gobj(
+        properties_override,
+        obj_properties[PROP_DATA],
+        NM_SETT_INFO_PROPERT_TYPE_GPROP(NM_G_VARIANT_TYPE("a{ss}"),
+                                        .typdata_from_dbus.gprop_fcn = _nm_utils_strdict_from_dbus,
+                                        .typdata_to_dbus.gprop_type =
+                                            NM_SETTING_PROPERTY_TO_DBUS_FCN_GPROP_TYPE_STRDICT,
+                                        .compare_fcn   = compare_fcn_data,
+                                        .from_dbus_fcn = _nm_setting_property_from_dbus_fcn_gprop,
+                                        .from_dbus_is_full = TRUE));
 
     g_object_class_install_properties(object_class, _PROPERTY_ENUMS_LAST, obj_properties);
 
-    _nm_setting_class_commit_full(setting_class,
-                                  NM_META_SETTING_TYPE_USER,
-                                  NULL,
-                                  properties_override);
+    _nm_setting_class_commit(setting_class,
+                             NM_META_SETTING_TYPE_USER,
+                             NULL,
+                             properties_override,
+                             0);
 }

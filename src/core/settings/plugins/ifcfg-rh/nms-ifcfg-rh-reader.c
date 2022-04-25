@@ -31,6 +31,7 @@
 #include "nm-setting-ethtool.h"
 #include "nm-setting-8021x.h"
 #include "nm-setting-bond.h"
+#include "nm-setting-bond-port.h"
 #include "nm-setting-team.h"
 #include "nm-setting-team-port.h"
 #include "nm-setting-bridge.h"
@@ -74,9 +75,9 @@
 static char *
 get_full_file_path(const char *ifcfg_path, const char *file_path)
 {
-    const char *  base    = file_path;
+    const char   *base    = file_path;
     gs_free char *dirname = NULL;
-    char *        p;
+    char         *p;
 
     g_return_val_if_fail(ifcfg_path != NULL, NULL);
     g_return_val_if_fail(file_path != NULL, NULL);
@@ -98,8 +99,8 @@ static NMSettingSecretFlags
 _secret_read_ifcfg_flags(shvarFile *ifcfg, const char *flags_key)
 {
     NMSettingSecretFlags flags    = NM_SETTING_SECRET_FLAG_NONE;
-    gs_free char *       val_free = NULL;
-    const char *         val;
+    gs_free char        *val_free = NULL;
+    const char          *val;
 
     nm_assert(flags_key);
     nm_assert(g_str_has_suffix(flags_key, "_FLAGS"));
@@ -117,10 +118,10 @@ _secret_read_ifcfg_flags(shvarFile *ifcfg, const char *flags_key)
 }
 
 static void
-_secret_read_ifcfg(shvarFile *           ifcfg,
-                   shvarFile *           keys_ifcfg,
-                   const char *          name,
-                   char **               value,
+_secret_read_ifcfg(shvarFile            *ifcfg,
+                   shvarFile            *keys_ifcfg,
+                   const char           *name,
+                   char                **value,
                    NMSettingSecretFlags *flags)
 {
     char flags_key[250];
@@ -140,8 +141,8 @@ _secret_read_ifcfg(shvarFile *           ifcfg,
 
 static void
 _secret_set_from_ifcfg(gpointer    setting,
-                       shvarFile * ifcfg,
-                       shvarFile * keys_ifcfg,
+                       shvarFile  *ifcfg,
+                       shvarFile  *keys_ifcfg,
                        const char *ifcfg_key,
                        const char *property_name)
 {
@@ -164,8 +165,8 @@ _secret_set_from_ifcfg(gpointer    setting,
 static gboolean
 _secret_password_raw_to_bytes(const char *ifcfg_key,
                               const char *password_raw,
-                              GBytes **   out_bytes,
-                              GError **   error)
+                              GBytes    **out_bytes,
+                              GError    **error)
 {
     nm_auto_free_secret_buf NMSecretBuf *secret = NULL;
     gsize                                len;
@@ -221,17 +222,17 @@ _cert_get_cert_bytes(const char *ifcfg_path, const char *value, GError **error)
 }
 
 static gboolean
-_cert_get_cert(shvarFile *             ifcfg,
-               const char *            ifcfg_key,
-               GBytes **               out_cert,
+_cert_get_cert(shvarFile              *ifcfg,
+               const char             *ifcfg_key,
+               GBytes                **out_cert,
                NMSetting8021xCKScheme *out_scheme,
-               GError **               error)
+               GError                **error)
 {
     nm_auto_free_secret char *val_free = NULL;
-    const char *              val;
-    gs_unref_bytes GBytes *cert  = NULL;
-    GError *               local = NULL;
-    NMSetting8021xCKScheme scheme;
+    const char               *val;
+    gs_unref_bytes GBytes    *cert  = NULL;
+    GError                   *local = NULL;
+    NMSetting8021xCKScheme    scheme;
 
     val = svGetValueStr(ifcfg, ifcfg_key, &val_free);
     if (!val) {
@@ -265,11 +266,11 @@ err:
 
 static gboolean
 _cert_set_from_ifcfg(gpointer    setting,
-                     shvarFile * ifcfg,
+                     shvarFile  *ifcfg,
                      const char *ifcfg_key,
                      const char *property_name,
-                     GBytes **   out_cert,
-                     GError **   error)
+                     GBytes    **out_cert,
+                     GError    **error)
 {
     gs_unref_bytes GBytes *cert = NULL;
 
@@ -288,8 +289,8 @@ static void
 check_if_bond_slave(shvarFile *ifcfg, NMSettingConnection *s_con)
 {
     gs_free char *value = NULL;
-    const char *  v;
-    const char *  master;
+    const char   *v;
+    const char   *master;
 
     v = svGetValueStr(ifcfg, "MASTER_UUID", &value);
     if (!v)
@@ -321,8 +322,8 @@ static void
 check_if_team_slave(shvarFile *ifcfg, NMSettingConnection *s_con)
 {
     gs_free char *value = NULL;
-    const char *  v;
-    const char *  master;
+    const char   *v;
+    const char   *master;
 
     v = svGetValueStr(ifcfg, "TEAM_MASTER_UUID", &value);
     if (!v)
@@ -347,7 +348,7 @@ check_if_team_slave(shvarFile *ifcfg, NMSettingConnection *s_con)
 }
 
 static char *
-make_connection_name(shvarFile * ifcfg,
+make_connection_name(shvarFile  *ifcfg,
                      const char *ifcfg_name,
                      const char *suggested,
                      const char *prefix)
@@ -377,21 +378,21 @@ make_connection_name(shvarFile * ifcfg,
 
 static NMSetting *
 make_connection_setting(const char *file,
-                        shvarFile * ifcfg,
+                        shvarFile  *ifcfg,
                         const char *type,
                         const char *suggested,
                         const char *prefix)
 {
-    NMSettingConnection *   s_con;
+    NMSettingConnection    *s_con;
     NMSettingConnectionLldp lldp;
-    const char *            ifcfg_name = NULL;
-    gs_free char *          new_id     = NULL;
-    const char *            uuid;
-    gs_free char *          uuid_free = NULL;
-    gs_free char *          value     = NULL;
-    const char *            v;
-    gs_free char *          stable_id = NULL;
-    const char *const *     iter;
+    const char             *ifcfg_name = NULL;
+    gs_free char           *new_id     = NULL;
+    const char             *uuid;
+    gs_free char           *uuid_free = NULL;
+    gs_free char           *value     = NULL;
+    const char             *v;
+    gs_free char           *stable_id = NULL;
+    const char *const      *iter;
     int                     vint64, i_val;
 
     ifcfg_name = utils_get_ifcfg_name(file, TRUE);
@@ -474,7 +475,7 @@ make_connection_setting(const char *file,
     if (v) {
         gs_free const char **items = NULL;
 
-        items = nm_utils_strsplit_set(v, " ");
+        items = nm_strsplit_set(v, " ");
         for (iter = items; iter && *iter; iter++) {
             if (!nm_setting_connection_add_permission(s_con, "user", *iter, NULL))
                 PARSE_WARNING("invalid USERS item '%s'", *iter);
@@ -490,7 +491,7 @@ make_connection_setting(const char *file,
     if (v) {
         gs_free const char **items = NULL;
 
-        items = nm_utils_strsplit_set(v, " \t");
+        items = nm_strsplit_set(v, " \t");
         for (iter = items; iter && *iter; iter++) {
             if (!nm_setting_connection_add_secondary(s_con, *iter))
                 PARSE_WARNING("secondary connection UUID '%s' already added", *iter);
@@ -596,7 +597,7 @@ make_connection_setting(const char *file,
         if (vint64 != -1)
             vint64 *= 1000;
         else if (v[0] != '\0') {
-            char * endptr;
+            char  *endptr;
             double d;
 
             d      = nm_g_ascii_strtod(v, &endptr);
@@ -633,18 +634,27 @@ make_connection_setting(const char *file,
         PARSE_WARNING("invalid LLMNR setting");
     g_object_set(s_con, NM_SETTING_CONNECTION_LLMNR, i_val, NULL);
 
+    i_val = NM_SETTING_CONNECTION_DNS_OVER_TLS_DEFAULT;
+    if (!svGetValueEnum(ifcfg,
+                        "DNS_OVER_TLS",
+                        nm_setting_connection_dns_over_tls_get_type(),
+                        &i_val,
+                        NULL))
+        PARSE_WARNING("invalid DNS_OVER_TLS setting");
+    g_object_set(s_con, NM_SETTING_CONNECTION_DNS_OVER_TLS, i_val, NULL);
+
     return NM_SETTING(s_con);
 }
 
 static gboolean
-read_ip4_address(shvarFile * ifcfg,
+read_ip4_address(shvarFile  *ifcfg,
                  const char *tag,
-                 gboolean *  out_has_key,
-                 guint32 *   out_addr,
-                 GError **   error)
+                 gboolean   *out_has_key,
+                 guint32    *out_addr,
+                 GError    **error)
 {
     gs_free char *value_to_free = NULL;
-    const char *  value;
+    const char   *value;
     in_addr_t     a;
 
     nm_assert(ifcfg);
@@ -704,18 +714,18 @@ is_any_ip4_address_defined(shvarFile *ifcfg, int *idx)
 
 /* Returns TRUE on missing address or valid address */
 static gboolean
-read_full_ip4_address(shvarFile *   ifcfg,
+read_full_ip4_address(shvarFile    *ifcfg,
                       gint32        which,
-                      NMIPAddress * base_addr,
+                      NMIPAddress  *base_addr,
                       NMIPAddress **out_address,
-                      char **       out_gateway,
-                      GError **     error)
+                      char        **out_gateway,
+                      GError      **error)
 {
     char          tag[256];
     char          prefix_tag[256];
     guint32       ipaddr;
     gs_free char *value = NULL;
-    const char *  v;
+    const char   *v;
     int           prefix = 0;
     gboolean      has_key;
     guint32       a;
@@ -908,9 +918,9 @@ enum {
 static int
 parse_route_line(const char *line,
                  int         addr_family,
-                 NMIPRoute * options_route,
+                 NMIPRoute  *options_route,
                  NMIPRoute **out_route,
-                 GError **   error)
+                 GError    **error)
 {
     static const ParseLineInfo parse_infos[] = {
         [PARSE_LINE_ATTR_ROUTE_TYPE] =
@@ -1006,9 +1016,9 @@ parse_route_line(const char *line,
             },
     };
     nm_auto_unref_ip_route NMIPRoute *route      = NULL;
-    gs_free const char **             words_free = NULL;
-    const char *const *               words;
-    const char *                      s;
+    gs_free const char              **words_free = NULL;
+    const char *const                *words;
+    const char                       *s;
     gsize                             i_words;
     guint                             i;
     char                              buf1[256];
@@ -1036,7 +1046,7 @@ parse_route_line(const char *line,
      * Maybe later we want to support some form of quotation here.
      * Which of course, would be incompatible with initscripts.
      */
-    words_free = nm_utils_strsplit_set(line, " \t\n");
+    words_free = nm_strsplit_set(line, " \t\n");
 
     words = words_free ?: NM_PTRARRAY_EMPTY(const char *);
 
@@ -1044,7 +1054,7 @@ parse_route_line(const char *line,
         const gsize          i_words0 = i_words;
         const char *const    w        = words[i_words0];
         const ParseLineInfo *p_info;
-        ParseLineData *      p_data;
+        ParseLineData       *p_data;
         gboolean             unqualified_addr = FALSE;
 
         for (i = 0; i < G_N_ELEMENTS(parse_infos); i++) {
@@ -1333,7 +1343,7 @@ next:;
 
     for (i = 0; i < G_N_ELEMENTS(parse_infos); i++) {
         const ParseLineInfo *p_info = &parse_infos[i];
-        ParseLineData *      p_data = &parse_datas[i];
+        ParseLineData       *p_data = &parse_datas[i];
 
         if (!p_data->has)
             continue;
@@ -1404,7 +1414,7 @@ read_one_ip4_route(shvarFile *ifcfg, guint32 which, NMIPRoute **out_route, GErro
     guint32       next_hop;
     guint32       netmask;
     gboolean      has_key;
-    const char *  v;
+    const char   *v;
     gs_free char *value = NULL;
     gint64        prefix, metric;
     char          inet_buf[NM_UTILS_INET_ADDRSTRLEN];
@@ -1489,11 +1499,11 @@ read_one_ip4_route(shvarFile *ifcfg, guint32 which, NMIPRoute **out_route, GErro
 
 static gboolean
 read_route_file_parse(int                addr_family,
-                      const char *       filename,
-                      const char *       contents,
+                      const char        *filename,
+                      const char        *contents,
                       gsize              len,
                       NMSettingIPConfig *s_ip,
-                      GError **          error)
+                      GError           **error)
 {
     gsize line_num;
 
@@ -1507,10 +1517,10 @@ read_route_file_parse(int                addr_family,
     line_num = 0;
     while (TRUE) {
         nm_auto_unref_ip_route NMIPRoute *route = NULL;
-        gs_free_error GError *local             = NULL;
-        const char *          line              = contents;
-        char *                eol;
-        int                   e;
+        gs_free_error GError             *local = NULL;
+        const char                       *line  = contents;
+        char                             *eol;
+        int                               e;
 
         eol = strchr(contents, '\n');
         if (eol) {
@@ -1572,7 +1582,7 @@ static void
 parse_dns_options(NMSettingIPConfig *ip_config, const char *value)
 {
     gs_free const char **options = NULL;
-    const char *const *  item;
+    const char *const   *item;
 
     g_return_if_fail(ip_config);
 
@@ -1582,7 +1592,7 @@ parse_dns_options(NMSettingIPConfig *ip_config, const char *value)
     if (!nm_setting_ip_config_has_dns_options(ip_config))
         nm_setting_ip_config_clear_dns_options(ip_config, TRUE);
 
-    options = nm_utils_strsplit_set(value, " ");
+    options = nm_strsplit_set(value, " ");
     if (options) {
         for (item = options; *item; item++) {
             if (!nm_setting_ip_config_add_dns_option(ip_config, *item))
@@ -1592,11 +1602,11 @@ parse_dns_options(NMSettingIPConfig *ip_config, const char *value)
 }
 
 static gboolean
-parse_full_ip6_address(shvarFile *   ifcfg,
-                       const char *  addr_str,
+parse_full_ip6_address(shvarFile    *ifcfg,
+                       const char   *addr_str,
                        int           i,
                        NMIPAddress **out_address,
-                       GError **     error)
+                       GError      **error)
 {
     NMIPAddress *addr;
     NMIPAddr     addr_bin;
@@ -1629,12 +1639,12 @@ parse_full_ip6_address(shvarFile *   ifcfg,
 static NMSetting *
 make_user_setting(shvarFile *ifcfg)
 {
-    gboolean        has_user_data         = FALSE;
-    gs_unref_object NMSettingUser *s_user = NULL;
-    gs_unref_hashtable GHashTable *keys   = NULL;
+    gboolean                       has_user_data = FALSE;
+    gs_unref_object NMSettingUser *s_user        = NULL;
+    gs_unref_hashtable GHashTable *keys          = NULL;
     GHashTableIter                 iter;
-    const char *                   key;
-    nm_auto_free_gstring GString *str = NULL;
+    const char                    *key;
+    nm_auto_free_gstring GString  *str = NULL;
 
     keys = svGetKeys(ifcfg, SV_KEY_TYPE_USER);
     if (!keys)
@@ -1642,7 +1652,7 @@ make_user_setting(shvarFile *ifcfg)
 
     g_hash_table_iter_init(&iter, keys);
     while (g_hash_table_iter_next(&iter, (gpointer *) &key, NULL)) {
-        const char *  value;
+        const char   *value;
         gs_free char *value_to_free = NULL;
 
         value = svGetValue(ifcfg, key, &value_to_free);
@@ -1669,7 +1679,7 @@ make_user_setting(shvarFile *ifcfg)
 }
 
 static void
-make_match_setting_prop(const char *     v,
+make_match_setting_prop(const char      *v,
                         NMSettingMatch **s_match,
                         void (*add_fcn)(NMSettingMatch *s_match, const char *value))
 {
@@ -1690,11 +1700,11 @@ static NMSetting *
 make_match_setting(shvarFile *ifcfg)
 {
     NMSettingMatch *s_match   = NULL;
-    gs_free char *  value_ifn = NULL;
-    gs_free char *  value_kcl = NULL;
-    gs_free char *  value_d   = NULL;
-    gs_free char *  value_p   = NULL;
-    const char *    v;
+    gs_free char   *value_ifn = NULL;
+    gs_free char   *value_kcl = NULL;
+    gs_free char   *value_d   = NULL;
+    gs_free char   *value_p   = NULL;
+    const char     *v;
 
     v = svGetValueStr(ifcfg, "MATCH_INTERFACE_NAME", &value_ifn);
     make_match_setting_prop(v, &s_match, nm_setting_match_add_interface_name);
@@ -1711,9 +1721,9 @@ make_match_setting(shvarFile *ifcfg)
 static NMSetting *
 make_proxy_setting(shvarFile *ifcfg)
 {
-    NMSettingProxy *     s_proxy = NULL;
-    gs_free char *       value   = NULL;
-    const char *         v;
+    NMSettingProxy      *s_proxy = NULL;
+    gs_free char        *value   = NULL;
+    const char          *v;
     NMSettingProxyMethod method;
 
     v = svGetValueStr(ifcfg, "PROXY_METHOD", &value);
@@ -1757,24 +1767,24 @@ static NMSetting *
 make_ip4_setting(shvarFile *ifcfg,
                  shvarFile *network_ifcfg,
                  gboolean   routes_read,
-                 gboolean * out_has_defroute,
-                 GError **  error)
+                 gboolean  *out_has_defroute,
+                 GError   **error)
 {
     gs_unref_object NMSettingIPConfig *s_ip4      = NULL;
-    gs_free char *                     route_path = NULL;
-    gs_free char *                     value      = NULL;
-    const char *                       v;
-    char *                             method;
-    gs_free char *                     dns_options_free = NULL;
-    const char *                       dns_options      = NULL;
-    gs_free char *                     gateway          = NULL;
+    gs_free char                      *route_path = NULL;
+    gs_free char                      *value      = NULL;
+    const char                        *v;
+    char                              *method;
+    gs_free char                      *dns_options_free = NULL;
+    const char                        *dns_options      = NULL;
+    gs_free char                      *gateway          = NULL;
     int                                i;
     guint32                            a;
     gboolean                           has_key;
     gboolean                           never_default;
     gint64                             i64;
     int                                priority;
-    const char *const *                item;
+    const char *const                 *item;
     guint32                            route_table;
 
     nm_assert(out_has_defroute && !*out_has_defroute);
@@ -1797,7 +1807,7 @@ make_ip4_setting(shvarFile *ifcfg,
     /* Then check if GATEWAYDEV; it's global and overrides DEFROUTE */
     if (network_ifcfg) {
         gs_free char *gatewaydev_value = NULL;
-        const char *  gatewaydev;
+        const char   *gatewaydev;
 
         /* Get the connection ifcfg device name and the global gateway device */
         v           = svGetValueStr(ifcfg, "DEVICE", &value);
@@ -1895,6 +1905,8 @@ make_ip4_setting(shvarFile *ifcfg,
                  svGetValueBoolean(ifcfg, "DHCP_SEND_HOSTNAME", TRUE),
                  NM_SETTING_IP_CONFIG_DHCP_TIMEOUT,
                  (int) svGetValueInt64(ifcfg, "IPV4_DHCP_TIMEOUT", 10, 0, G_MAXINT32, 0),
+                 NM_SETTING_IP_CONFIG_REQUIRED_TIMEOUT,
+                 (int) svGetValueInt64(ifcfg, "IPV4_REQUIRED_TIMEOUT", 10, 0, G_MAXINT32, -1),
                  NULL);
 
     nm_clear_g_free(&value);
@@ -1972,22 +1984,27 @@ make_ip4_setting(shvarFile *ifcfg,
         /* DNS servers
          * Pick up just IPv4 addresses (IPv6 addresses are taken by make_ip6_setting())
          */
-        for (i = 1; i <= 10; i++) {
+        for (i = 1; i < 10000; i++) {
             char tag[256];
 
             numbered_tag(tag, "DNS", i);
             nm_clear_g_free(&value);
             v = svGetValueStr(ifcfg, tag, &value);
-            if (v) {
-                if (nm_utils_ipaddr_is_valid(AF_INET, v)) {
-                    if (!nm_setting_ip_config_add_dns(s_ip4, v))
-                        PARSE_WARNING("duplicate DNS server %s", tag);
-                } else if (nm_utils_ipaddr_is_valid(AF_INET6, v)) {
-                    /* Ignore IPv6 addresses */
-                } else {
-                    PARSE_WARNING("invalid DNS server address %s", v);
-                    return NULL;
-                }
+            if (!v)
+                break;
+
+            if (nm_utils_ipaddr_is_valid(AF_INET, v)) {
+                if (!nm_setting_ip_config_add_dns(s_ip4, v))
+                    PARSE_WARNING("duplicate DNS server %s", tag);
+            } else if (nm_utils_ipaddr_is_valid(AF_INET6, v)) {
+                /* Ignore IPv6 addresses */
+            } else {
+                g_set_error(error,
+                            NM_SETTINGS_ERROR,
+                            NM_SETTINGS_ERROR_INVALID_CONNECTION,
+                            "Invalid DNS server address '%s'",
+                            v);
+                return NULL;
             }
         }
 
@@ -1997,7 +2014,7 @@ make_ip4_setting(shvarFile *ifcfg,
         if (v) {
             gs_free const char **searches = NULL;
 
-            searches = nm_utils_strsplit_set(v, " ");
+            searches = nm_strsplit_set(v, " ");
             if (searches) {
                 for (item = searches; *item; item++) {
                     if (!nm_setting_ip_config_add_dns_search(s_ip4, *item))
@@ -2057,7 +2074,7 @@ make_ip4_setting(shvarFile *ifcfg,
         if (v) {
             gs_free const char **searches = NULL;
 
-            searches = nm_utils_strsplit_set(v, " ");
+            searches = nm_strsplit_set(v, " ");
             if (searches) {
                 for (item = searches; *item; item++) {
                     if (!nm_setting_ip_config_add_dns_search(s_ip4, *item))
@@ -2098,11 +2115,11 @@ make_ip4_setting(shvarFile *ifcfg,
 static void
 read_aliases(NMSettingIPConfig *s_ip4, gboolean read_defroute, const char *filename)
 {
-    GDir *        dir;
+    GDir         *dir;
     gs_free char *dirname   = NULL;
     gs_free char *base      = NULL;
-    NMIPAddress * base_addr = NULL;
-    GError *      err       = NULL;
+    NMIPAddress  *base_addr = NULL;
+    GError       *err       = NULL;
 
     g_return_if_fail(s_ip4 != NULL);
     g_return_if_fail(filename != NULL);
@@ -2117,17 +2134,17 @@ read_aliases(NMSettingIPConfig *s_ip4, gboolean read_defroute, const char *filen
 
     dir = g_dir_open(dirname, 0, &err);
     if (dir) {
-        const char * item;
+        const char  *item;
         NMIPAddress *addr;
         gboolean     ok;
 
         while ((item = g_dir_read_name(dir))) {
             nm_auto_shvar_file_close shvarFile *parsed       = NULL;
-            gs_free char *                      gateway      = NULL;
-            gs_free char *                      device_value = NULL;
-            gs_free char *                      full_path    = NULL;
-            const char *                        device;
-            const char *                        p;
+            gs_free char                       *gateway      = NULL;
+            gs_free char                       *device_value = NULL;
+            gs_free char                       *full_path    = NULL;
+            const char                         *device;
+            const char                         *p;
 
             if (!utils_is_ifcfg_alias_file(item, base))
                 continue;
@@ -2151,6 +2168,8 @@ read_aliases(NMSettingIPConfig *s_ip4, gboolean read_defroute, const char *filen
                 g_clear_error(&err);
                 continue;
             }
+
+            svWarnInvalid(parsed, "alias", _NMLOG_DOMAIN);
 
             device = svGetValueStr(parsed, "DEVICE", &device_value);
             if (!device) {
@@ -2220,27 +2239,28 @@ static NMSetting *
 make_ip6_setting(shvarFile *ifcfg, shvarFile *network_ifcfg, gboolean routes_read, GError **error)
 {
     gs_unref_object NMSettingIPConfig *s_ip6 = NULL;
-    const char *                       v;
-    gs_free char *                     value = NULL;
+    const char                        *v;
+    gs_free char                      *value = NULL;
     gboolean                           ipv6init;
     gboolean                           ipv6forwarding;
     gboolean                           disabled;
     gboolean                           dhcp6  = FALSE;
-    char *                             method = NM_SETTING_IP6_CONFIG_METHOD_MANUAL;
-    const char *                       ipv6addr, *ipv6addr_secondaries;
-    gs_free char *                     ipv6addr_to_free             = NULL;
-    gs_free char *                     ipv6addr_secondaries_to_free = NULL;
-    gs_free const char **              list                         = NULL;
-    const char *const *                iter;
+    char                              *method = NM_SETTING_IP6_CONFIG_METHOD_MANUAL;
+    const char                        *ipv6addr, *ipv6addr_secondaries;
+    gs_free char                      *ipv6addr_to_free             = NULL;
+    gs_free char                      *ipv6addr_secondaries_to_free = NULL;
+    gs_free const char               **list                         = NULL;
+    const char *const                 *iter;
     guint32                            i;
     gint64                             i64;
     int                                i_val;
-    GError *                           local = NULL;
+    GError                            *local = NULL;
     int                                priority;
     gboolean                           never_default = FALSE;
     gboolean                           ip6_privacy   = FALSE, ip6_privacy_prefer_public_ip;
     NMSettingIP6ConfigPrivacy          ip6_privacy_val;
     guint32                            route_table;
+    gboolean                           is_disabled;
 
     s_ip6 = (NMSettingIPConfig *) nm_setting_ip6_config_new();
 
@@ -2256,10 +2276,10 @@ make_ip6_setting(shvarFile *ifcfg, shvarFile *network_ifcfg, gboolean routes_rea
      * When both are set, the device specified in IPV6_DEFAULTGW takes preference.
      */
     if (network_ifcfg) {
-        const char *  ipv6_defaultgw, *ipv6_defaultdev;
+        const char   *ipv6_defaultgw, *ipv6_defaultdev;
         gs_free char *ipv6_defaultgw_to_free  = NULL;
         gs_free char *ipv6_defaultdev_to_free = NULL;
-        const char *  default_dev             = NULL;
+        const char   *default_dev             = NULL;
 
         /* Get the connection ifcfg device name and the global default route device */
         nm_clear_g_free(&value);
@@ -2367,10 +2387,9 @@ make_ip6_setting(shvarFile *ifcfg, shvarFile *network_ifcfg, gboolean routes_rea
                  NULL);
 
     /* Don't bother to read IP, DNS and routes when IPv6 is disabled */
-    if (NM_IN_STRSET(method,
-                     NM_SETTING_IP6_CONFIG_METHOD_IGNORE,
-                     NM_SETTING_IP6_CONFIG_METHOD_DISABLED))
-        return NM_SETTING(g_steal_pointer(&s_ip6));
+    is_disabled = NM_IN_STRSET(method,
+                               NM_SETTING_IP6_CONFIG_METHOD_IGNORE,
+                               NM_SETTING_IP6_CONFIG_METHOD_DISABLED);
 
     nm_clear_g_free(&value);
     v = svGetValueStr(ifcfg, "DHCPV6_DUID", &value);
@@ -2403,6 +2422,8 @@ make_ip6_setting(shvarFile *ifcfg, shvarFile *network_ifcfg, gboolean routes_rea
                  svGetValueBoolean(ifcfg, "DHCPV6_SEND_HOSTNAME", TRUE),
                  NM_SETTING_IP_CONFIG_DHCP_TIMEOUT,
                  (int) svGetValueInt64(ifcfg, "IPV6_DHCP_TIMEOUT", 10, 0, G_MAXINT32, 0),
+                 NM_SETTING_IP_CONFIG_REQUIRED_TIMEOUT,
+                 (int) svGetValueInt64(ifcfg, "IPV6_REQUIRED_TIMEOUT", 10, 0, G_MAXINT32, -1),
                  NM_SETTING_IP6_CONFIG_RA_TIMEOUT,
                  (int) svGetValueInt64(ifcfg, "IPV6_RA_TIMEOUT", 10, 0, G_MAXINT32, 0),
                  NULL);
@@ -2427,16 +2448,24 @@ make_ip6_setting(shvarFile *ifcfg, shvarFile *network_ifcfg, gboolean routes_rea
                       ipv6addr_secondaries ?: "",
                       NULL);
 
-    list = nm_utils_strsplit_set(value, " ");
-    for (iter = list, i = 0; iter && *iter; iter++, i++) {
-        NMIPAddress *addr = NULL;
+    list = nm_strsplit_set(value, " ");
+    if (list) {
+        if (is_disabled)
+            PARSE_WARNING("ignore IPv6 addresses with method disabled/ignore");
+        else {
+            for (iter = list, i = 0; *iter; iter++, i++) {
+                nm_auto_unref_ip_address NMIPAddress *addr = NULL;
 
-        if (!parse_full_ip6_address(ifcfg, *iter, i, &addr, error))
-            return NULL;
+                if (!parse_full_ip6_address(ifcfg, *iter, i, &addr, is_disabled ? NULL : error)) {
+                    if (is_disabled)
+                        break;
+                    return NULL;
+                }
 
-        if (!nm_setting_ip_config_add_address(s_ip6, addr))
-            PARSE_WARNING("duplicate IP6 address");
-        nm_ip_address_unref(addr);
+                if (!nm_setting_ip_config_add_address(s_ip6, addr))
+                    PARSE_WARNING("duplicate IP6 address");
+            }
+        }
     }
 
     /* Gateway */
@@ -2452,18 +2481,20 @@ make_ip6_setting(shvarFile *ifcfg, shvarFile *network_ifcfg, gboolean routes_rea
         }
         if (v) {
             char *ptr;
+
             if ((ptr = strchr(v, '%')) != NULL)
                 *ptr = '\0'; /* remove %interface prefix if present */
             if (!nm_utils_ipaddr_is_valid(AF_INET6, v)) {
-                g_set_error(error,
-                            NM_SETTINGS_ERROR,
-                            NM_SETTINGS_ERROR_INVALID_CONNECTION,
-                            "Invalid IP6 address '%s'",
-                            v);
-                return NULL;
-            }
-
-            g_object_set(s_ip6, NM_SETTING_IP_CONFIG_GATEWAY, v, NULL);
+                if (!is_disabled) {
+                    g_set_error(error,
+                                NM_SETTINGS_ERROR,
+                                NM_SETTINGS_ERROR_INVALID_CONNECTION,
+                                "Invalid IP6 address '%s'",
+                                v);
+                    return NULL;
+                }
+            } else
+                g_object_set(s_ip6, NM_SETTING_IP_CONFIG_GATEWAY, v, NULL);
         }
     }
 
@@ -2487,24 +2518,32 @@ make_ip6_setting(shvarFile *ifcfg, shvarFile *network_ifcfg, gboolean routes_rea
     /* DNS servers
      * Pick up just IPv6 addresses (IPv4 addresses are taken by make_ip4_setting())
      */
-    for (i = 1; i <= 10; i++) {
+    for (i = 1; i < 10000; i++) {
         char tag[256];
 
         numbered_tag(tag, "DNS", i);
         nm_clear_g_free(&value);
         v = svGetValueStr(ifcfg, tag, &value);
-        if (!v) {
-            /* all done */
+        if (!v)
             break;
-        }
 
         if (nm_utils_ipaddr_is_valid(AF_INET6, v)) {
+            if (is_disabled) {
+                PARSE_WARNING("ignore DNS server addresses with method disabled/ignore");
+                break;
+            }
             if (!nm_setting_ip_config_add_dns(s_ip6, v))
                 PARSE_WARNING("duplicate DNS server %s", tag);
         } else if (nm_utils_ipaddr_is_valid(AF_INET, v)) {
             /* Ignore IPv4 addresses */
         } else {
-            PARSE_WARNING("invalid DNS server address %s", v);
+            if (is_disabled)
+                continue;
+            g_set_error(error,
+                        NM_SETTINGS_ERROR,
+                        NM_SETTINGS_ERROR_INVALID_CONNECTION,
+                        "Invalid DNS server address '%s'",
+                        v);
             return NULL;
         }
     }
@@ -2526,11 +2565,15 @@ make_ip6_setting(shvarFile *ifcfg, shvarFile *network_ifcfg, gboolean routes_rea
     if (v) {
         gs_free const char **searches = NULL;
 
-        searches = nm_utils_strsplit_set(v, " ");
+        searches = nm_strsplit_set(v, " ");
         if (searches) {
-            for (iter = searches; *iter; iter++) {
-                if (!nm_setting_ip_config_add_dns_search(s_ip6, *iter))
-                    PARSE_WARNING("duplicate DNS domain '%s'", *iter);
+            if (is_disabled) {
+                PARSE_WARNING("ignore IPV6_DOMAIN with method disabled/ignore");
+            } else {
+                for (iter = searches; *iter; iter++) {
+                    if (!nm_setting_ip_config_add_dns_search(s_ip6, *iter))
+                        PARSE_WARNING("duplicate DNS domain '%s'", *iter);
+                }
             }
         }
     }
@@ -2586,10 +2629,10 @@ static NMSetting *
 make_sriov_setting(shvarFile *ifcfg)
 {
     gs_unref_hashtable GHashTable *keys = NULL;
-    gs_unref_ptrarray GPtrArray *vfs    = NULL;
-    int                          autoprobe_drivers;
-    NMSettingSriov *             s_sriov;
-    gint64                       total_vfs;
+    gs_unref_ptrarray GPtrArray   *vfs  = NULL;
+    int                            autoprobe_drivers;
+    NMSettingSriov                *s_sriov;
+    gint64                         total_vfs;
 
     total_vfs = svGetValueInt64(ifcfg, "SRIOV_TOTAL_VFS", 10, 0, G_MAXUINT32, -1);
 
@@ -2603,14 +2646,14 @@ make_sriov_setting(shvarFile *ifcfg)
     keys = svGetKeys(ifcfg, SV_KEY_TYPE_SRIOV_VF);
     if (keys) {
         GHashTableIter iter;
-        const char *   key;
+        const char    *key;
 
         g_hash_table_iter_init(&iter, keys);
         while (g_hash_table_iter_next(&iter, (gpointer *) &key, NULL)) {
             gs_free_error GError *error         = NULL;
-            gs_free char *        value_to_free = NULL;
-            const char *          value;
-            NMSriovVF *           vf;
+            gs_free char         *value_to_free = NULL;
+            const char           *value;
+            NMSriovVF            *vf;
 
             nm_assert(g_str_has_prefix(key, "SRIOV_VF"));
 
@@ -2662,10 +2705,10 @@ make_tc_setting(shvarFile *ifcfg)
     s_tc = (NMSettingTCConfig *) nm_setting_tc_config_new();
 
     for (i = 1;; i++) {
-        NMTCQdisc *   qdisc         = NULL;
+        NMTCQdisc    *qdisc         = NULL;
         gs_free char *value_to_free = NULL;
-        const char *  value         = NULL;
-        GError *      local         = NULL;
+        const char   *value         = NULL;
+        GError       *local         = NULL;
 
         value = svGetValueStr(ifcfg, numbered_tag(tag, "QDISC", i), &value_to_free);
         if (!value)
@@ -2684,10 +2727,10 @@ make_tc_setting(shvarFile *ifcfg)
     }
 
     for (i = 1;; i++) {
-        NMTCTfilter * tfilter       = NULL;
-        gs_free char *value_to_free = NULL;
-        const char *  value         = NULL;
-        gs_free_error GError *local = NULL;
+        NMTCTfilter          *tfilter       = NULL;
+        gs_free char         *value_to_free = NULL;
+        const char           *value         = NULL;
+        gs_free_error GError *local         = NULL;
 
         value = svGetValueStr(ifcfg, numbered_tag(tag, "FILTER", i), &value_to_free);
         if (!value)
@@ -2769,16 +2812,16 @@ read_dcb_flags(shvarFile *ifcfg, DcbFlagsProperty *property)
 }
 
 static gboolean
-read_dcb_app(shvarFile *       ifcfg,
-             NMSettingDcb *    s_dcb,
-             const char *      app,
+read_dcb_app(shvarFile        *ifcfg,
+             NMSettingDcb     *s_dcb,
+             const char       *app,
              DcbFlagsProperty *flags_prop,
-             const char *      priority_prop,
-             GError **         error)
+             const char       *priority_prop,
+             GError          **error)
 {
     NMSettingDcbFlags flags = NM_SETTING_DCB_FLAG_NONE;
-    gs_free char *    value = NULL;
-    const char *      v;
+    gs_free char     *value = NULL;
+    const char       *v;
     gboolean          success  = TRUE;
     int               priority = -1;
     char              key[255];
@@ -2819,16 +2862,16 @@ read_dcb_app(shvarFile *       ifcfg,
 typedef void (*DcbSetBoolFunc)(NMSettingDcb *, guint, gboolean);
 
 static gboolean
-read_dcb_bool_array(shvarFile *       ifcfg,
-                    NMSettingDcb *    s_dcb,
+read_dcb_bool_array(shvarFile        *ifcfg,
+                    NMSettingDcb     *s_dcb,
                     NMSettingDcbFlags flags,
-                    const char *      prop,
-                    const char *      desc,
+                    const char       *prop,
+                    const char       *desc,
                     DcbSetBoolFunc    set_func,
-                    GError **         error)
+                    GError          **error)
 {
     gs_free char *value = NULL;
-    const char *  v;
+    const char   *v;
     guint         i;
 
     v = svGetValueStr(ifcfg, prop, &value);
@@ -2867,14 +2910,14 @@ read_dcb_bool_array(shvarFile *       ifcfg,
 typedef void (*DcbSetUintFunc)(NMSettingDcb *, guint, guint);
 
 static gboolean
-read_dcb_uint_array(shvarFile *       ifcfg,
-                    NMSettingDcb *    s_dcb,
+read_dcb_uint_array(shvarFile        *ifcfg,
+                    NMSettingDcb     *s_dcb,
                     NMSettingDcbFlags flags,
-                    const char *      prop,
-                    const char *      desc,
+                    const char       *prop,
+                    const char       *desc,
                     gboolean          f_allowed,
                     DcbSetUintFunc    set_func,
-                    GError **         error)
+                    GError          **error)
 {
     gs_free char *val = NULL;
     guint         i;
@@ -2920,18 +2963,18 @@ read_dcb_uint_array(shvarFile *       ifcfg,
 }
 
 static gboolean
-read_dcb_percent_array(shvarFile *       ifcfg,
-                       NMSettingDcb *    s_dcb,
+read_dcb_percent_array(shvarFile        *ifcfg,
+                       NMSettingDcb     *s_dcb,
                        NMSettingDcbFlags flags,
-                       const char *      prop,
-                       const char *      desc,
+                       const char       *prop,
+                       const char       *desc,
                        gboolean          sum_pct,
                        DcbSetUintFunc    set_func,
-                       GError **         error)
+                       GError          **error)
 {
-    gs_free char *       val   = NULL;
+    gs_free char        *val   = NULL;
     gs_free const char **split = NULL;
-    const char *const *  iter;
+    const char *const   *iter;
     guint                i, sum = 0;
 
     val = svGetValueStr_cp(ifcfg, prop);
@@ -2943,7 +2986,7 @@ read_dcb_percent_array(shvarFile *       ifcfg,
         return TRUE;
     }
 
-    split = nm_utils_strsplit_set(val, ",");
+    split = nm_strsplit_set(val, ",");
     if (NM_PTRARRAY_LEN(split) != 8) {
         PARSE_WARNING("invalid %s percentage list value '%s'", prop, val);
         g_set_error_literal(error,
@@ -2987,6 +3030,7 @@ make_dcb_setting(shvarFile *ifcfg, NMSetting **out_setting, GError **error)
     gs_unref_object NMSettingDcb *s_dcb = NULL;
     gboolean                      dcb_on;
     NMSettingDcbFlags             flags = NM_SETTING_DCB_FLAG_NONE;
+    gs_free char                 *val   = NULL;
 
     g_return_val_if_fail(out_setting, FALSE);
     *out_setting = NULL;
@@ -3006,21 +3050,18 @@ make_dcb_setting(shvarFile *ifcfg, NMSetting **out_setting, GError **error)
                       error)) {
         return FALSE;
     }
-    if (nm_setting_dcb_get_app_fcoe_flags(s_dcb) & NM_SETTING_DCB_FLAG_ENABLE) {
-        gs_free char *val = NULL;
 
-        val = svGetValueStr_cp(ifcfg, KEY_DCB_APP_FCOE_MODE);
-        if (val) {
-            if (NM_IN_STRSET(val, NM_SETTING_DCB_FCOE_MODE_FABRIC, NM_SETTING_DCB_FCOE_MODE_VN2VN))
-                g_object_set(G_OBJECT(s_dcb), NM_SETTING_DCB_APP_FCOE_MODE, val, NULL);
-            else {
-                PARSE_WARNING("invalid FCoE mode '%s'", val);
-                g_set_error_literal(error,
-                                    NM_SETTINGS_ERROR,
-                                    NM_SETTINGS_ERROR_INVALID_CONNECTION,
-                                    "invalid FCoE mode");
-                return FALSE;
-            }
+    val = svGetValueStr_cp(ifcfg, KEY_DCB_APP_FCOE_MODE);
+    if (val) {
+        if (NM_IN_STRSET(val, NM_SETTING_DCB_FCOE_MODE_FABRIC, NM_SETTING_DCB_FCOE_MODE_VN2VN))
+            g_object_set(G_OBJECT(s_dcb), NM_SETTING_DCB_APP_FCOE_MODE, val, NULL);
+        else {
+            PARSE_WARNING("invalid FCoE mode '%s'", val);
+            g_set_error_literal(error,
+                                NM_SETTINGS_ERROR,
+                                NM_SETTINGS_ERROR_INVALID_CONNECTION,
+                                "invalid FCoE mode");
+            return FALSE;
         }
     }
 
@@ -3124,16 +3165,16 @@ make_dcb_setting(shvarFile *ifcfg, NMSetting **out_setting, GError **error)
 }
 
 static gboolean
-add_one_wep_key(shvarFile *                ifcfg,
-                const char *               shvar_key,
+add_one_wep_key(shvarFile                 *ifcfg,
+                const char                *shvar_key,
                 guint8                     key_idx,
                 gboolean                   passphrase,
                 NMSettingWirelessSecurity *s_wsec,
-                GError **                  error)
+                GError                   **error)
 {
     gs_free char *value_free = NULL;
-    const char *  value;
-    const char *  key = NULL;
+    const char   *value;
+    const char   *key = NULL;
 
     g_return_val_if_fail(ifcfg != NULL, FALSE);
     g_return_val_if_fail(shvar_key != NULL, FALSE);
@@ -3192,11 +3233,11 @@ add_one_wep_key(shvarFile *                ifcfg,
 }
 
 static gboolean
-read_wep_keys(shvarFile *                ifcfg,
+read_wep_keys(shvarFile                 *ifcfg,
               NMWepKeyType               key_type,
               guint8                     def_idx,
               NMSettingWirelessSecurity *s_wsec,
-              GError **                  error)
+              GError                   **error)
 {
     if (key_type != NM_WEP_KEY_TYPE_PASSPHRASE) {
         if (!add_one_wep_key(ifcfg, "KEY1", 0, FALSE, s_wsec, error))
@@ -3229,8 +3270,8 @@ static NMSetting *
 make_wep_setting(shvarFile *ifcfg, const char *file, GError **error)
 {
     gs_unref_object NMSettingWirelessSecurity *s_wsec          = NULL;
-    gs_free char *                             value           = NULL;
-    shvarFile *                                keys_ifcfg      = NULL;
+    gs_free char                              *value           = NULL;
+    shvarFile                                 *keys_ifcfg      = NULL;
     int                                        default_key_idx = 0;
     gboolean                                   has_default_key = FALSE;
     NMSettingSecretFlags                       key_flags;
@@ -3265,7 +3306,7 @@ make_wep_setting(shvarFile *ifcfg, const char *file, GError **error)
     /* Read keys in the ifcfg file if they are system-owned */
     if (key_flags == NM_SETTING_SECRET_FLAG_NONE) {
         NMWepKeyType  key_type;
-        const char *  v;
+        const char   *v;
         gs_free char *to_free = NULL;
 
         v = svGetValueStr(ifcfg, "KEY_TYPE", &to_free);
@@ -3352,17 +3393,17 @@ make_wep_setting(shvarFile *ifcfg, const char *file, GError **error)
 static gboolean
 fill_wpa_ciphers(shvarFile *ifcfg, NMSettingWirelessSecurity *wsec, gboolean group, gboolean adhoc)
 {
-    gs_free char *       value = NULL;
-    const char *         p;
+    gs_free char        *value = NULL;
+    const char          *p;
     gs_free const char **list = NULL;
-    const char *const *  iter;
+    const char *const   *iter;
     int                  i = 0;
 
     p = svGetValueStr(ifcfg, group ? "CIPHER_GROUP" : "CIPHER_PAIRWISE", &value);
     if (!p)
         return TRUE;
 
-    list = nm_utils_strsplit_set(p, " ");
+    list = nm_strsplit_set(p, " ");
     for (iter = list; iter && *iter; iter++, i++) {
         if (!strcmp(*iter, "CCMP")) {
             if (group)
@@ -3393,7 +3434,7 @@ fill_wpa_ciphers(shvarFile *ifcfg, NMSettingWirelessSecurity *wsec, gboolean gro
 static char *
 parse_wpa_psk(shvarFile *ifcfg, const char *file, GBytes *ssid, GError **error)
 {
-    shvarFile *   keys_ifcfg;
+    shvarFile    *keys_ifcfg;
     gs_free char *psk = NULL;
     size_t        plen;
 
@@ -3443,17 +3484,17 @@ parse_wpa_psk(shvarFile *ifcfg, const char *file, GBytes *ssid, GError **error)
 }
 
 static gboolean
-eap_simple_reader(const char *    eap_method,
-                  shvarFile *     ifcfg,
-                  shvarFile *     keys_ifcfg,
+eap_simple_reader(const char     *eap_method,
+                  shvarFile      *ifcfg,
+                  shvarFile      *keys_ifcfg,
                   NMSetting8021x *s_8021x,
                   gboolean        phase2,
-                  GError **       error)
+                  GError        **error)
 {
     NMSettingSecretFlags      flags;
-    gs_free char *            identity_free    = NULL;
-    nm_auto_free_secret char *password_raw_str = NULL;
-    gs_unref_bytes GBytes *password_raw_bytes  = NULL;
+    gs_free char             *identity_free      = NULL;
+    nm_auto_free_secret char *password_raw_str   = NULL;
+    gs_unref_bytes GBytes    *password_raw_bytes = NULL;
 
     g_object_set(s_8021x,
                  NM_SETTING_802_1X_IDENTITY,
@@ -3484,19 +3525,19 @@ eap_simple_reader(const char *    eap_method,
 }
 
 static gboolean
-eap_tls_reader(const char *    eap_method,
-               shvarFile *     ifcfg,
-               shvarFile *     keys_ifcfg,
+eap_tls_reader(const char     *eap_method,
+               shvarFile      *ifcfg,
+               shvarFile      *keys_ifcfg,
                NMSetting8021x *s_8021x,
                gboolean        phase2,
-               GError **       error)
+               GError        **error)
 {
     gs_unref_bytes GBytes *privkey       = NULL;
     gs_unref_bytes GBytes *client_cert   = NULL;
-    gs_free char *         identity_free = NULL;
-    gs_free char *         value_to_free = NULL;
-    const char *           client_cert_var;
-    const char *           client_cert_prop;
+    gs_free char          *identity_free = NULL;
+    gs_free char          *value_to_free = NULL;
+    const char            *client_cert_var;
+    const char            *client_cert_prop;
     NMSetting8021xCKFormat format;
 
     g_object_set(s_8021x,
@@ -3575,16 +3616,16 @@ eap_tls_reader(const char *    eap_method,
 }
 
 static gboolean
-parse_8021x_phase2_auth(shvarFile *     ifcfg,
-                        shvarFile *     keys_ifcfg,
+parse_8021x_phase2_auth(shvarFile      *ifcfg,
+                        shvarFile      *keys_ifcfg,
                         NMSetting8021x *s_8021x,
-                        GError **       error)
+                        GError        **error)
 {
-    gs_free char *       inner_auth = NULL;
-    gs_free char *       v_free     = NULL;
-    const char *         v;
+    gs_free char        *inner_auth = NULL;
+    gs_free char        *v_free     = NULL;
+    const char          *v;
     gs_free const char **list = NULL;
-    const char *const *  iter;
+    const char *const   *iter;
     guint                num_auth    = 0;
     guint                num_autheap = 0;
 
@@ -3598,7 +3639,7 @@ parse_8021x_phase2_auth(shvarFile *     ifcfg,
     }
 
     inner_auth = g_ascii_strdown(v, -1);
-    list       = nm_utils_strsplit_set(inner_auth, " ");
+    list       = nm_strsplit_set(inner_auth, " ");
     for (iter = list; iter && *iter; iter++) {
         if (NM_IN_STRSET(*iter, "pap", "chap", "mschap", "mschapv2", "gtc", "otp", "md5")) {
             if (num_auth == 0) {
@@ -3658,15 +3699,15 @@ parse_8021x_phase2_auth(shvarFile *     ifcfg,
 }
 
 static gboolean
-eap_peap_reader(const char *    eap_method,
-                shvarFile *     ifcfg,
-                shvarFile *     keys_ifcfg,
+eap_peap_reader(const char     *eap_method,
+                shvarFile      *ifcfg,
+                shvarFile      *keys_ifcfg,
                 NMSetting8021x *s_8021x,
                 gboolean        phase2,
-                GError **       error)
+                GError        **error)
 {
     gs_free char *value = NULL;
-    const char *  v;
+    const char   *v;
 
     if (!_cert_set_from_ifcfg(s_8021x,
                               ifcfg,
@@ -3713,15 +3754,15 @@ eap_peap_reader(const char *    eap_method,
 }
 
 static gboolean
-eap_ttls_reader(const char *    eap_method,
-                shvarFile *     ifcfg,
-                shvarFile *     keys_ifcfg,
+eap_ttls_reader(const char     *eap_method,
+                shvarFile      *ifcfg,
+                shvarFile      *keys_ifcfg,
                 NMSetting8021x *s_8021x,
                 gboolean        phase2,
-                GError **       error)
+                GError        **error)
 {
     gs_free char *value = NULL;
-    const char *  v;
+    const char   *v;
 
     if (!_cert_set_from_ifcfg(s_8021x,
                               ifcfg,
@@ -3748,19 +3789,19 @@ eap_ttls_reader(const char *    eap_method,
 }
 
 static gboolean
-eap_fast_reader(const char *    eap_method,
-                shvarFile *     ifcfg,
-                shvarFile *     keys_ifcfg,
+eap_fast_reader(const char     *eap_method,
+                shvarFile      *ifcfg,
+                shvarFile      *keys_ifcfg,
                 NMSetting8021x *s_8021x,
                 gboolean        phase2,
-                GError **       error)
+                GError        **error)
 {
-    gs_free char *     anon_ident        = NULL;
-    gs_free char *     pac_file          = NULL;
-    gs_free char *     real_pac_path     = NULL;
-    gs_free char *     fast_provisioning = NULL;
+    gs_free char      *anon_ident        = NULL;
+    gs_free char      *pac_file          = NULL;
+    gs_free char      *real_pac_path     = NULL;
+    gs_free char      *fast_provisioning = NULL;
     const char *const *iter;
-    const char *       pac_prov_str;
+    const char        *pac_prov_str;
     gboolean           allow_unauth = FALSE, allow_auth = FALSE;
 
     pac_file = svGetValueStr_cp(ifcfg, "IEEE_8021X_PAC_FILE");
@@ -3773,7 +3814,7 @@ eap_fast_reader(const char *    eap_method,
     if (fast_provisioning) {
         gs_free const char **list = NULL;
 
-        list = nm_utils_strsplit_set(fast_provisioning, " \t");
+        list = nm_strsplit_set(fast_provisioning, " \t");
         for (iter = list; iter && *iter; iter++) {
             if (strcmp(*iter, "allow-unauth") == 0)
                 allow_unauth = TRUE;
@@ -3811,12 +3852,12 @@ eap_fast_reader(const char *    eap_method,
 
 typedef struct {
     const char *method;
-    gboolean (*reader)(const char *    eap_method,
-                       shvarFile *     ifcfg,
-                       shvarFile *     keys_ifcfg,
+    gboolean (*reader)(const char     *eap_method,
+                       shvarFile      *ifcfg,
+                       shvarFile      *keys_ifcfg,
                        NMSetting8021x *s_8021x,
                        gboolean        phase2,
-                       GError **       error);
+                       GError        **error);
     gboolean wifi_phase2_only;
 } EAPReader;
 
@@ -3834,14 +3875,14 @@ static EAPReader eap_readers[] = {{"md5", eap_simple_reader, TRUE},
                                   {NULL, NULL}};
 
 static void
-read_8021x_list_value(shvarFile *     ifcfg,
-                      const char *    ifcfg_var_name,
+read_8021x_list_value(shvarFile      *ifcfg,
+                      const char     *ifcfg_var_name,
                       NMSetting8021x *setting,
-                      const char *    prop_name)
+                      const char     *prop_name)
 {
-    gs_free char *       value = NULL;
+    gs_free char        *value = NULL;
     gs_free const char **strv  = NULL;
-    const char *         v;
+    const char          *v;
 
     g_return_if_fail(ifcfg != NULL);
     g_return_if_fail(ifcfg_var_name != NULL);
@@ -3851,7 +3892,7 @@ read_8021x_list_value(shvarFile *     ifcfg,
     if (!v)
         return;
 
-    strv = nm_utils_strsplit_set(v, " \t");
+    strv = nm_strsplit_set(v, " \t");
     if (strv)
         g_object_set(setting, prop_name, strv, NULL);
 }
@@ -3860,13 +3901,13 @@ static NMSetting8021x *
 fill_8021x(shvarFile *ifcfg, const char *file, const char *key_mgmt, gboolean wifi, GError **error)
 {
     nm_auto_shvar_file_close shvarFile *keys_ifcfg = NULL;
-    gs_unref_object NMSetting8021x *s_8021x        = NULL;
-    gs_free char *                  value          = NULL;
-    const char *                    v;
-    gs_free const char **           list = NULL;
-    const char *const *             iter;
-    gint64                          timeout;
-    int                             i_val;
+    gs_unref_object NMSetting8021x     *s_8021x    = NULL;
+    gs_free char                       *value      = NULL;
+    const char                         *v;
+    gs_free const char                **list = NULL;
+    const char *const                  *iter;
+    gint64                              timeout;
+    int                                 i_val;
 
     v = svGetValueStr(ifcfg, "IEEE_8021X_EAP_METHODS", &value);
     if (!v) {
@@ -3878,7 +3919,7 @@ fill_8021x(shvarFile *ifcfg, const char *file, const char *key_mgmt, gboolean wi
         return NULL;
     }
 
-    list = nm_utils_strsplit_set(v, " ");
+    list = nm_strsplit_set(v, " ");
 
     s_8021x = (NMSetting8021x *) nm_setting_802_1x_new();
 
@@ -3887,7 +3928,7 @@ fill_8021x(shvarFile *ifcfg, const char *file, const char *key_mgmt, gboolean wi
 
     /* Validate and handle each EAP method */
     for (iter = list; iter && *iter; iter++) {
-        EAPReader *   eap   = &eap_readers[0];
+        EAPReader    *eap   = &eap_readers[0];
         gboolean      found = FALSE;
         gs_free char *lower = NULL;
 
@@ -3999,16 +4040,16 @@ next:
 }
 
 static NMSetting *
-make_wpa_setting(shvarFile *      ifcfg,
-                 const char *     file,
-                 GBytes *         ssid,
+make_wpa_setting(shvarFile       *ifcfg,
+                 const char      *file,
+                 GBytes          *ssid,
                  gboolean         adhoc,
                  NMSetting8021x **s_8021x,
-                 GError **        error)
+                 GError         **error)
 {
     gs_unref_object NMSettingWirelessSecurity *wsec  = NULL;
-    gs_free char *                             value = NULL;
-    const char *                               v;
+    gs_free char                              *value = NULL;
+    const char                                *v;
     gboolean wpa_psk = FALSE, wpa_sae = FALSE, wpa_owe = FALSE, wpa_eap = FALSE, ieee8021x = FALSE,
              wpa3_eap = FALSE;
     int     i_val;
@@ -4049,7 +4090,7 @@ make_wpa_setting(shvarFile *      ifcfg,
         nm_setting_wireless_security_add_proto(wsec, "rsn");
     } else {
         gs_free char *value2 = NULL;
-        const char *  v2;
+        const char   *v2;
 
         v2 = svGetValueStr(ifcfg, "WPA_ALLOW_WPA", &value2);
         if (v2 && svParseBoolean(v2, TRUE))
@@ -4142,8 +4183,8 @@ static NMSetting *
 make_leap_setting(shvarFile *ifcfg, const char *file, GError **error)
 {
     gs_unref_object NMSettingWirelessSecurity *wsec = NULL;
-    shvarFile *                                keys_ifcfg;
-    gs_free char *                             value = NULL;
+    shvarFile                                 *keys_ifcfg;
+    gs_free char                              *value = NULL;
     NMSettingSecretFlags                       flags;
 
     wsec = NM_SETTING_WIRELESS_SECURITY(nm_setting_wireless_security_new());
@@ -4199,12 +4240,12 @@ make_leap_setting(shvarFile *ifcfg, const char *file, GError **error)
 }
 
 static NMSetting *
-make_wireless_security_setting(shvarFile *      ifcfg,
-                               const char *     file,
-                               GBytes *         ssid,
+make_wireless_security_setting(shvarFile       *ifcfg,
+                               const char      *file,
+                               GBytes          *ssid,
                                gboolean         adhoc,
                                NMSetting8021x **s_8021x,
-                               GError **        error)
+                               GError         **error)
 {
     NMSetting *wsec;
 
@@ -4239,7 +4280,7 @@ transform_hwaddr_blacklist(const char *blacklist)
     const char **strv;
     gsize        i, j;
 
-    strv = nm_utils_strsplit_set(blacklist, " \t");
+    strv = nm_strsplit_set(blacklist, " \t");
     if (!strv)
         return NULL;
     for (i = 0, j = 0; strv[j]; j++) {
@@ -4258,9 +4299,9 @@ transform_hwaddr_blacklist(const char *blacklist)
 static NMSetting *
 make_wireless_setting(shvarFile *ifcfg, GError **error)
 {
-    NMSettingWireless *        s_wireless;
-    const char *               cvalue;
-    char *                     value = NULL;
+    NMSettingWireless         *s_wireless;
+    const char                *cvalue;
+    char                      *value = NULL;
     gint64                     chan  = 0;
     NMSettingMacRandomization  mac_randomization;
     NMSettingWirelessPowersave powersave = NM_SETTING_WIRELESS_POWERSAVE_DEFAULT;
@@ -4327,7 +4368,7 @@ make_wireless_setting(shvarFile *ifcfg, GError **error)
 
     value = svGetValueStr_cp(ifcfg, "MODE");
     if (value) {
-        char *      lcase;
+        char       *lcase;
         const char *mode = NULL;
 
         lcase = g_ascii_strdown(value, -1);
@@ -4524,16 +4565,16 @@ error:
 static NMConnection *
 wireless_connection_from_ifcfg(const char *file, shvarFile *ifcfg, GError **error)
 {
-    NMConnection *  connection       = NULL;
-    NMSetting *     con_setting      = NULL;
-    NMSetting *     wireless_setting = NULL;
+    NMConnection   *connection       = NULL;
+    NMSetting      *con_setting      = NULL;
+    NMSetting      *wireless_setting = NULL;
     NMSetting8021x *s_8021x          = NULL;
-    GBytes *        ssid;
-    NMSetting *     security_setting = NULL;
-    gs_free char *  ssid_utf8        = NULL;
-    const char *    mode;
+    GBytes         *ssid;
+    NMSetting      *security_setting = NULL;
+    gs_free char   *ssid_utf8        = NULL;
+    const char     *mode;
     gboolean        adhoc = FALSE;
-    GError *        local = NULL;
+    GError         *local = NULL;
 
     g_return_val_if_fail(file != NULL, NULL);
     g_return_val_if_fail(ifcfg != NULL, NULL);
@@ -4603,12 +4644,12 @@ typedef struct {
  * pointing to the next unprocessed option or NULL
  * in case of failure */
 static const char **
-_next_ethtool_options_nmternary(const char **         words,
+_next_ethtool_options_nmternary(const char          **words,
                                 NMEthtoolType         ethtool_type,
                                 NMEthtoolIfcfgOption *out_value)
 {
-    const char *         opt;
-    const char *         opt_val;
+    const char          *opt;
+    const char          *opt_val;
     const NMEthtoolData *d     = NULL;
     NMTernary            onoff = NM_TERNARY_DEFAULT;
 
@@ -4655,13 +4696,13 @@ _next_ethtool_options_nmternary(const char **         words,
  * pointing to the next unprocessed option or NULL
  * in case of failure */
 static const char **
-_next_ethtool_options_uint32(const char **         words,
+_next_ethtool_options_uint32(const char          **words,
                              NMEthtoolType         ethtool_type,
                              NMEthtoolIfcfgOption *out_value)
 {
     gint64               i64;
-    const char *         opt;
-    const char *         opt_val;
+    const char          *opt;
+    const char          *opt_val;
     const NMEthtoolData *d = NULL;
 
     nm_assert(out_value);
@@ -4711,21 +4752,21 @@ static NM_UTILS_STRING_TABLE_LOOKUP_DEFINE(
     {"-K", NM_ETHTOOL_TYPE_FEATURE}, );
 
 static void
-parse_ethtool_option(const char *             value,
+parse_ethtool_option(const char              *value,
                      NMSettingWiredWakeOnLan *out_flags,
-                     char **                  out_password,
-                     gboolean *               out_autoneg,
-                     guint32 *                out_speed,
-                     const char **            out_duplex,
-                     NMSettingEthtool **      out_s_ethtool)
+                     char                   **out_password,
+                     gboolean                *out_autoneg,
+                     guint32                 *out_speed,
+                     const char             **out_duplex,
+                     NMSettingEthtool       **out_s_ethtool)
 {
     guint                i;
-    const char **        w_iter;
+    const char         **w_iter;
     NMEthtoolIfcfgOption ifcfg_option;
     gs_free const char **words        = NULL;
     NMEthtoolType        ethtool_type = NM_ETHTOOL_TYPE_UNKNOWN;
 
-    words = nm_utils_strsplit_set(value, " \t\n");
+    words = nm_strsplit_set(value, " \t\n");
     if (!words)
         return;
 
@@ -4888,7 +4929,7 @@ static GPtrArray *
 read_routing_rules_parse(shvarFile *ifcfg, gboolean routes_read)
 {
     gs_unref_ptrarray GPtrArray *arr  = NULL;
-    gs_free const char **        keys = NULL;
+    gs_free const char         **keys = NULL;
     guint                        i, len;
 
     keys = svGetKeysSorted(ifcfg, SV_KEY_TYPE_ROUTING_RULE4 | SV_KEY_TYPE_ROUTING_RULE6, &len);
@@ -4903,12 +4944,12 @@ read_routing_rules_parse(shvarFile *ifcfg, gboolean routes_read)
 
     arr = g_ptr_array_new_full(len, (GDestroyNotify) nm_ip_routing_rule_unref);
     for (i = 0; i < len; i++) {
-        const char *                  key                   = keys[i];
-        nm_auto_unref_ip_routing_rule NMIPRoutingRule *rule = NULL;
-        gs_free_error GError *local                         = NULL;
-        gs_free char *        value_to_free                 = NULL;
-        const char *          value;
-        gboolean              key_is_ipv4;
+        const char                                    *key           = keys[i];
+        nm_auto_unref_ip_routing_rule NMIPRoutingRule *rule          = NULL;
+        gs_free_error GError                          *local         = NULL;
+        gs_free char                                  *value_to_free = NULL;
+        const char                                    *value;
+        gboolean                                       key_is_ipv4;
 
         key_is_ipv4 = (key[NM_STRLEN("ROUTING_RULE")] == '_');
         nm_assert(key_is_ipv4 == NM_STR_HAS_PREFIX(key, "ROUTING_RULE_"));
@@ -4940,7 +4981,7 @@ read_routing_rules_parse(shvarFile *ifcfg, gboolean routes_read)
 }
 
 static void
-read_routing_rules(shvarFile *        ifcfg,
+read_routing_rules(shvarFile         *ifcfg,
                    gboolean           routes_read,
                    NMSettingIPConfig *s_ip4,
                    NMSettingIPConfig *s_ip6)
@@ -4964,17 +5005,17 @@ read_routing_rules(shvarFile *        ifcfg,
 static void
 parse_ethtool_options(shvarFile *ifcfg, NMConnection *connection)
 {
-    NMSettingWired *s_wired;
+    NMSettingWired                   *s_wired;
     gs_unref_object NMSettingEthtool *s_ethtool         = NULL;
     NMSettingWiredWakeOnLan           wol_flags         = NM_SETTING_WIRED_WAKE_ON_LAN_DEFAULT;
-    gs_free char *                    ethtool_opts_free = NULL;
-    const char *                      ethtool_opts;
-    gs_free char *                    wol_password   = NULL;
-    gs_free char *                    wol_value_free = NULL;
-    const char *                      tmp;
+    gs_free char                     *ethtool_opts_free = NULL;
+    const char                       *ethtool_opts;
+    gs_free char                     *wol_password   = NULL;
+    gs_free char                     *wol_value_free = NULL;
+    const char                       *tmp;
     gboolean                          autoneg     = FALSE;
     guint32                           speed       = 0;
-    const char *                      duplex      = NULL;
+    const char                       *duplex      = NULL;
     gboolean                          wired_found = FALSE;
 
     ethtool_opts = svGetValue(ifcfg, "ETHTOOL_OPTS", &ethtool_opts_free);
@@ -4985,9 +5026,9 @@ parse_ethtool_options(shvarFile *ifcfg, NMConnection *connection)
             wol_flags = NM_SETTING_WIRED_WAKE_ON_LAN_IGNORE;
         else {
             gs_free const char **opts = NULL;
-            const char *const *  iter;
+            const char *const   *iter;
 
-            opts = nm_utils_strsplit_set(ethtool_opts, ";");
+            opts = nm_strsplit_set(ethtool_opts, ";");
             for (iter = opts; iter && iter[0]; iter++) {
                 /* in case of repeated wol_passwords, parse_ethtool_option()
                  * will do the right thing and clear wol_password before resetting. */
@@ -5045,8 +5086,8 @@ static NMSetting *
 make_wired_setting(shvarFile *ifcfg, const char *file, NMSetting8021x **s_8021x, GError **error)
 {
     gs_unref_object NMSettingWired *s_wired = NULL;
-    const char *                    cvalue;
-    gs_free char *                  value = NULL;
+    const char                     *cvalue;
+    gs_free char                   *value = NULL;
     gboolean                        found = FALSE;
     NMTernary                       accept_all_mac_addresses;
 
@@ -5095,7 +5136,7 @@ make_wired_setting(shvarFile *ifcfg, const char *file, NMSetting8021x **s_8021x,
                 gs_free const char **chans = NULL;
                 guint32              num_chans;
 
-                chans     = nm_utils_strsplit_set(cvalue, ",");
+                chans     = nm_strsplit_set(cvalue, ",");
                 num_chans = NM_PTRARRAY_LEN(chans);
                 if (num_chans < 2 || num_chans > 3) {
                     PARSE_WARNING("invalid SUBCHANNELS '%s' (%u channels, 2 or 3 expected)",
@@ -5230,11 +5271,11 @@ make_wired_setting(shvarFile *ifcfg, const char *file, NMSetting8021x **s_8021x,
 static NMConnection *
 wired_connection_from_ifcfg(const char *file, shvarFile *ifcfg, GError **error)
 {
-    NMConnection *  connection    = NULL;
-    NMSetting *     con_setting   = NULL;
-    NMSetting *     wired_setting = NULL;
+    NMConnection   *connection    = NULL;
+    NMSetting      *con_setting   = NULL;
+    NMSetting      *wired_setting = NULL;
     NMSetting8021x *s_8021x       = NULL;
-    GError *        local         = NULL;
+    GError         *local         = NULL;
 
     g_return_val_if_fail(file != NULL, NULL);
     g_return_val_if_fail(ifcfg != NULL, NULL);
@@ -5272,8 +5313,8 @@ wired_connection_from_ifcfg(const char *file, shvarFile *ifcfg, GError **error)
 static gboolean
 parse_infiniband_p_key(shvarFile *ifcfg, int *out_p_key, char **out_parent, GError **error)
 {
-    char *   device = NULL, *physdev = NULL, *pkey_id = NULL;
-    char *   ifname = NULL;
+    char    *device = NULL, *physdev = NULL, *pkey_id = NULL;
+    char    *ifname = NULL;
     int      id;
     gboolean ret = FALSE;
 
@@ -5331,7 +5372,7 @@ static NMSetting *
 make_infiniband_setting(shvarFile *ifcfg, const char *file, GError **error)
 {
     NMSettingInfiniband *s_infiniband;
-    char *               value = NULL;
+    char                *value = NULL;
 
     s_infiniband = NM_SETTING_INFINIBAND(nm_setting_infiniband_new());
 
@@ -5383,8 +5424,8 @@ static NMConnection *
 infiniband_connection_from_ifcfg(const char *file, shvarFile *ifcfg, GError **error)
 {
     NMConnection *connection         = NULL;
-    NMSetting *   con_setting        = NULL;
-    NMSetting *   infiniband_setting = NULL;
+    NMSetting    *con_setting        = NULL;
+    NMSetting    *infiniband_setting = NULL;
 
     g_return_val_if_fail(file != NULL, NULL);
     g_return_val_if_fail(ifcfg != NULL, NULL);
@@ -5417,7 +5458,7 @@ static void
 handle_bond_option(NMSettingBond *s_bond, const char *key, const char *value)
 {
     gs_free char *sanitized = NULL;
-    const char *  p         = value;
+    const char   *p         = value;
 
     /* Remove any quotes or +/- from arp_ip_target */
     if (nm_streq0(key, NM_SETTING_BOND_OPTION_ARP_IP_TARGET) && value && value[0]) {
@@ -5447,8 +5488,8 @@ static NMSetting *
 make_bond_setting(shvarFile *ifcfg, const char *file, GError **error)
 {
     NMSettingBond *s_bond;
-    gs_free char * value = NULL;
-    const char *   v;
+    gs_free char  *value = NULL;
+    const char    *v;
 
     v = svGetValueStr(ifcfg, "DEVICE", &value);
     if (!v) {
@@ -5465,12 +5506,12 @@ make_bond_setting(shvarFile *ifcfg, const char *file, GError **error)
     v = svGetValueStr(ifcfg, "BONDING_OPTS", &value);
     if (v) {
         gs_free const char **items = NULL;
-        const char *const *  iter;
+        const char *const   *iter;
 
-        items = nm_utils_strsplit_set(v, " ");
+        items = nm_strsplit_set(v, " ");
         for (iter = items; iter && *iter; iter++) {
             gs_free char *key = NULL;
-            const char *  val;
+            const char   *val;
 
             val = strchr(*iter, '=');
             if (!val)
@@ -5485,15 +5526,40 @@ make_bond_setting(shvarFile *ifcfg, const char *file, GError **error)
     return (NMSetting *) s_bond;
 }
 
+static NMSetting *
+make_bond_port_setting(shvarFile *ifcfg)
+{
+    NMSetting    *s_port        = NULL;
+    gs_free char *value_to_free = NULL;
+    const char   *value;
+    guint         queue_id;
+
+    g_return_val_if_fail(ifcfg != NULL, FALSE);
+
+    value = svGetValue(ifcfg, "BOND_PORT_QUEUE_ID", &value_to_free);
+    if (value) {
+        s_port = nm_setting_bond_port_new();
+        queue_id =
+            _nm_utils_ascii_str_to_uint64(value, 10, 0, G_MAXUINT16, NM_BOND_PORT_QUEUE_ID_DEF);
+        if (errno != 0) {
+            PARSE_WARNING("Invalid bond port queue_id value '%s'", value);
+            return s_port;
+        }
+        g_object_set(G_OBJECT(s_port), NM_SETTING_BOND_PORT_QUEUE_ID, queue_id, NULL);
+    }
+
+    return s_port;
+}
+
 static NMConnection *
 bond_connection_from_ifcfg(const char *file, shvarFile *ifcfg, GError **error)
 {
-    NMConnection *  connection    = NULL;
-    NMSetting *     con_setting   = NULL;
-    NMSetting *     bond_setting  = NULL;
-    NMSetting *     wired_setting = NULL;
+    NMConnection   *connection    = NULL;
+    NMSetting      *con_setting   = NULL;
+    NMSetting      *bond_setting  = NULL;
+    NMSetting      *wired_setting = NULL;
     NMSetting8021x *s_8021x       = NULL;
-    GError *        local         = NULL;
+    GError         *local         = NULL;
 
     g_return_val_if_fail(file != NULL, NULL);
     g_return_val_if_fail(ifcfg != NULL, NULL);
@@ -5539,7 +5605,7 @@ bond_connection_from_ifcfg(const char *file, shvarFile *ifcfg, GError **error)
 static NMSetting *
 make_team_setting(shvarFile *ifcfg, const char *file, GError **error)
 {
-    NMSetting *   s_team;
+    NMSetting    *s_team;
     gs_free char *value_device = NULL;
     gs_free char *value        = NULL;
 
@@ -5559,12 +5625,12 @@ make_team_setting(shvarFile *ifcfg, const char *file, GError **error)
 static NMConnection *
 team_connection_from_ifcfg(const char *file, shvarFile *ifcfg, GError **error)
 {
-    NMConnection *  connection    = NULL;
-    NMSetting *     con_setting   = NULL;
-    NMSetting *     team_setting  = NULL;
-    NMSetting *     wired_setting = NULL;
+    NMConnection   *connection    = NULL;
+    NMSetting      *con_setting   = NULL;
+    NMSetting      *team_setting  = NULL;
+    NMSetting      *wired_setting = NULL;
     NMSetting8021x *s_8021x       = NULL;
-    GError *        local         = NULL;
+    GError         *local         = NULL;
 
     g_return_val_if_fail(file != NULL, NULL);
     g_return_val_if_fail(ifcfg != NULL, NULL);
@@ -5614,22 +5680,22 @@ typedef enum {
     BRIDGE_OPT_TYPE_PORT_OPTION,
 } BridgeOptType;
 
-typedef void (*BridgeOptFunc)(NMSetting *   setting,
+typedef void (*BridgeOptFunc)(NMSetting    *setting,
                               gboolean      stp,
-                              const char *  key,
-                              const char *  value,
+                              const char   *key,
+                              const char   *value,
                               BridgeOptType opt_type);
 
 static void
-handle_bridge_option(NMSetting *   setting,
+handle_bridge_option(NMSetting    *setting,
                      gboolean      stp,
-                     const char *  key,
-                     const char *  value,
+                     const char   *key,
+                     const char   *value,
                      BridgeOptType opt_type)
 {
     static const struct {
-        const char *  key;
-        const char *  property_name;
+        const char   *key;
+        const char   *property_name;
         BridgeOptType opt_type;
         gboolean      only_with_stp;
         gboolean      extended_bool;
@@ -5768,19 +5834,19 @@ warn:
 }
 
 static void
-handle_bridging_opts(NMSetting *   setting,
+handle_bridging_opts(NMSetting    *setting,
                      gboolean      stp,
-                     const char *  value,
+                     const char   *value,
                      BridgeOptFunc func,
                      BridgeOptType opt_type)
 {
     gs_free const char **items = NULL;
-    const char *const *  iter;
+    const char *const   *iter;
 
-    items = nm_utils_strsplit_set(value, " ");
+    items = nm_strsplit_set(value, " ");
     for (iter = items; iter && *iter; iter++) {
         gs_free char *key = NULL;
-        const char *  val;
+        const char   *val;
 
         val = strchr(*iter, '=');
         if (!val)
@@ -5796,15 +5862,15 @@ static void
 read_bridge_vlans(shvarFile *ifcfg, const char *key, NMSetting *setting, const char *property)
 {
     gs_unref_ptrarray GPtrArray *array         = NULL;
-    gs_free char *               value_to_free = NULL;
-    const char *                 value;
+    gs_free char                *value_to_free = NULL;
+    const char                  *value;
 
     value = svGetValueStr(ifcfg, key, &value_to_free);
     if (value) {
         gs_free const char **strv = NULL;
-        const char *const *  iter;
-        GError *             local = NULL;
-        NMBridgeVlan *       vlan;
+        const char *const   *iter;
+        GError              *local = NULL;
+        NMBridgeVlan        *vlan;
 
         array = g_ptr_array_new_with_free_func((GDestroyNotify) nm_bridge_vlan_unref);
 
@@ -5830,8 +5896,8 @@ static NMSetting *
 make_bridge_setting(shvarFile *ifcfg, const char *file, GError **error)
 {
     gs_unref_object NMSettingBridge *s_bridge      = NULL;
-    gs_free char *                   value_to_free = NULL;
-    const char *                     value;
+    gs_free char                    *value_to_free = NULL;
+    const char                      *value;
     gboolean                         stp     = FALSE;
     gboolean                         stp_set = FALSE;
 
@@ -5896,12 +5962,12 @@ make_bridge_setting(shvarFile *ifcfg, const char *file, GError **error)
 static NMConnection *
 bridge_connection_from_ifcfg(const char *file, shvarFile *ifcfg, GError **error)
 {
-    NMConnection *  connection     = NULL;
-    NMSetting *     con_setting    = NULL;
-    NMSetting *     bridge_setting = NULL;
-    NMSetting *     wired_setting  = NULL;
+    NMConnection   *connection     = NULL;
+    NMSetting      *con_setting    = NULL;
+    NMSetting      *bridge_setting = NULL;
+    NMSetting      *wired_setting  = NULL;
     NMSetting8021x *s_8021x        = NULL;
-    GError *        local          = NULL;
+    GError         *local          = NULL;
 
     g_return_val_if_fail(file != NULL, NULL);
     g_return_val_if_fail(ifcfg != NULL, NULL);
@@ -5947,9 +6013,9 @@ bridge_connection_from_ifcfg(const char *file, shvarFile *ifcfg, GError **error)
 static NMSetting *
 make_bridge_port_setting(shvarFile *ifcfg)
 {
-    NMSetting *   s_port        = NULL;
+    NMSetting    *s_port        = NULL;
     gs_free char *value_to_free = NULL;
-    const char *  value;
+    const char   *value;
 
     g_return_val_if_fail(ifcfg != NULL, FALSE);
 
@@ -5979,7 +6045,7 @@ make_bridge_port_setting(shvarFile *ifcfg)
 static NMSetting *
 make_team_port_setting(shvarFile *ifcfg)
 {
-    NMSetting *   s_port;
+    NMSetting    *s_port;
     gs_free char *value = NULL;
 
     value = svGetValueStr_cp(ifcfg, "TEAM_PORT_CONFIG");
@@ -6030,15 +6096,15 @@ is_wifi_device(const char *name, shvarFile *parsed)
 static void
 parse_prio_map_list(NMSettingVlan *s_vlan, shvarFile *ifcfg, const char *key, NMVlanPriorityMap map)
 {
-    gs_free char *       value = NULL;
+    gs_free char        *value = NULL;
     gs_free const char **list  = NULL;
-    const char *const *  iter;
-    const char *         v;
+    const char *const   *iter;
+    const char          *v;
 
     v = svGetValueStr(ifcfg, key, &value);
     if (!v)
         return;
-    list = nm_utils_strsplit_set(v, ",");
+    list = nm_strsplit_set(v, ",");
 
     for (iter = list; iter && *iter; iter++) {
         if (!strchr(*iter, ':'))
@@ -6052,10 +6118,10 @@ static NMSetting *
 make_vlan_setting(shvarFile *ifcfg, const char *file, GError **error)
 {
     gs_unref_object NMSettingVlan *s_vlan     = NULL;
-    gs_free char *                 parent     = NULL;
-    gs_free char *                 iface_name = NULL;
-    gs_free char *                 value      = NULL;
-    const char *                   v          = NULL;
+    gs_free char                  *parent     = NULL;
+    gs_free char                  *iface_name = NULL;
+    gs_free char                  *value      = NULL;
+    const char                    *v          = NULL;
     int                            vlan_id    = -1;
     guint32                        vlan_flags = 0;
     int                            gvrp, reorder_hdr;
@@ -6147,9 +6213,9 @@ make_vlan_setting(shvarFile *ifcfg, const char *file, GError **error)
     v = svGetValueStr(ifcfg, "VLAN_FLAGS", &value);
     if (v) {
         gs_free const char **strv = NULL;
-        const char *const *  ptr;
+        const char *const   *ptr;
 
-        strv = nm_utils_strsplit_set(v, ", ");
+        strv = nm_strsplit_set(v, ", ");
         for (ptr = strv; ptr && *ptr; ptr++) {
             if (nm_streq(*ptr, "GVRP") && gvrp == -1)
                 vlan_flags |= NM_VLAN_FLAG_GVRP;
@@ -6178,12 +6244,12 @@ make_vlan_setting(shvarFile *ifcfg, const char *file, GError **error)
 static NMConnection *
 vlan_connection_from_ifcfg(const char *file, shvarFile *ifcfg, GError **error)
 {
-    NMConnection *  connection    = NULL;
-    NMSetting *     con_setting   = NULL;
-    NMSetting *     wired_setting = NULL;
-    NMSetting *     vlan_setting  = NULL;
+    NMConnection   *connection    = NULL;
+    NMSetting      *con_setting   = NULL;
+    NMSetting      *wired_setting = NULL;
+    NMSetting      *vlan_setting  = NULL;
     NMSetting8021x *s_8021x       = NULL;
-    GError *        local         = NULL;
+    GError         *local         = NULL;
 
     g_return_val_if_fail(file != NULL, NULL);
     g_return_val_if_fail(ifcfg != NULL, NULL);
@@ -6227,14 +6293,14 @@ vlan_connection_from_ifcfg(const char *file, shvarFile *ifcfg, GError **error)
 
 static NMConnection *
 create_unhandled_connection(const char *filename,
-                            shvarFile * ifcfg,
+                            shvarFile  *ifcfg,
                             const char *type,
-                            char **     out_spec)
+                            char      **out_spec)
 {
     NMConnection *connection;
-    NMSetting *   s_con;
+    NMSetting    *s_con;
     gs_free char *value = NULL;
-    const char *  v;
+    const char   *v;
 
     nm_assert(out_spec && !*out_spec);
 
@@ -6288,14 +6354,14 @@ check_dns_search_domains(shvarFile *ifcfg, NMSetting *s_ip4, NMSetting *s_ip6)
     if (!s_ip4 || nm_setting_ip_config_get_num_dns_searches(NM_SETTING_IP_CONFIG(s_ip4)) == 0) {
         /* DNS searches */
         gs_free char *value = NULL;
-        const char *  v;
+        const char   *v;
 
         v = svGetValueStr(ifcfg, "DOMAIN", &value);
         if (v) {
             gs_free const char **searches = NULL;
-            const char *const *  item;
+            const char *const   *item;
 
-            searches = nm_utils_strsplit_set(v, " ");
+            searches = nm_strsplit_set(v, " ");
             if (searches) {
                 for (item = searches; *item; item++) {
                     if (!nm_setting_ip_config_add_dns_search(NM_SETTING_IP_CONFIG(s_ip6), *item))
@@ -6310,22 +6376,23 @@ static NMConnection *
 connection_from_file_full(const char *filename,
                           const char *network_file, /* for unit tests only */
                           const char *test_type,    /* for unit tests only */
-                          char **     out_unhandled,
-                          GError **   error,
-                          gboolean *  out_ignore_error)
+                          char      **out_unhandled,
+                          GError    **error,
+                          gboolean   *out_ignore_error)
 {
     nm_auto_shvar_file_close shvarFile *main_ifcfg    = NULL;
     nm_auto_shvar_file_close shvarFile *network_ifcfg = NULL;
-    gs_unref_object NMConnection *connection          = NULL;
-    gs_free char *                type                = NULL;
-    char *                        devtype, *bootproto;
-    NMSetting *                   setting;
-    NMSetting *                   s_ip4;
-    NMSetting *                   s_ip6;
-    const char *                  ifcfg_name       = NULL;
-    gboolean                      has_ip4_defroute = FALSE;
-    gboolean                      has_complex_routes_v4;
-    gboolean                      has_complex_routes_v6;
+    gs_unref_object NMConnection       *connection    = NULL;
+    gs_free char                       *type          = NULL;
+    char                               *devtype, *bootproto;
+    NMSetting                          *setting;
+    NMSetting                          *s_ip4;
+    NMSetting                          *s_ip6;
+    const char                         *ifcfg_name       = NULL;
+    gs_free char                       *s_tmp            = NULL;
+    gboolean                            has_ip4_defroute = FALSE;
+    gboolean                            has_complex_routes_v4;
+    gboolean                            has_complex_routes_v6;
 
     g_return_val_if_fail(filename != NULL, NULL);
     g_return_val_if_fail(out_unhandled && !*out_unhandled, NULL);
@@ -6350,8 +6417,6 @@ connection_from_file_full(const char *filename,
     if (!main_ifcfg)
         return NULL;
 
-    network_ifcfg = svOpenFile(network_file, NULL);
-
     if (!svGetValueBoolean(main_ifcfg, "NM_CONTROLLED", TRUE)) {
         connection = create_unhandled_connection(filename, main_ifcfg, "unmanaged", out_unhandled);
         if (!connection) {
@@ -6364,6 +6429,16 @@ connection_from_file_full(const char *filename,
         }
         return g_steal_pointer(&connection);
     }
+
+    if (NM_IN_STRSET(svGetValueStr(main_ifcfg, "DEVICE", &s_tmp), "lo")) {
+        /* "lo" is not handled by NetworkManager and we ignore it. */
+    } else
+        svWarnInvalid(main_ifcfg, "ifcfg", _NMLOG_DOMAIN);
+    nm_clear_g_free(&s_tmp);
+
+    network_ifcfg = svOpenFile(network_file, NULL);
+    /* we don't call svWarnInvalid(network_ifcfg), because we will load this file for
+     * every profile. So we would get a large number of duplicate warnings. */
 
     /* iBFT is handled by nm-initrd-generator during boot. */
     bootproto = svGetValueStr_cp(main_ifcfg, "BOOTPROTO");
@@ -6413,7 +6488,7 @@ connection_from_file_full(const char *filename,
 
     if (!type) {
         gs_free char *tmp = NULL;
-        char *        device;
+        char         *device;
 
         if ((tmp = svGetValueStr_cp(main_ifcfg, "IPV6TUNNELIPV4"))) {
             NM_SET_OUT(out_ignore_error, TRUE);
@@ -6453,7 +6528,7 @@ connection_from_file_full(const char *filename,
                 type = g_strdup(TYPE_WIRELESS);
             else {
                 gs_free char *p_path = NULL;
-                char *        p_device;
+                char         *p_device;
                 gsize         i;
 
                 /* network-functions detects DEVICETYPE based on the ifcfg-* name and the existence
@@ -6643,6 +6718,10 @@ connection_from_file_full(const char *filename,
     if (setting)
         nm_connection_add_setting(connection, setting);
 
+    setting = make_bond_port_setting(main_ifcfg);
+    if (setting)
+        nm_connection_add_setting(connection, setting);
+
     setting = make_team_port_setting(main_ifcfg);
     if (setting)
         nm_connection_add_setting(connection, setting);
@@ -6660,9 +6739,9 @@ connection_from_file_full(const char *filename,
 
 NMConnection *
 connection_from_file(const char *filename,
-                     char **     out_unhandled,
-                     GError **   error,
-                     gboolean *  out_ignore_error)
+                     char      **out_unhandled,
+                     GError    **error,
+                     gboolean   *out_ignore_error)
 {
     return connection_from_file_full(filename, NULL, NULL, out_unhandled, error, out_ignore_error);
 }
@@ -6671,8 +6750,8 @@ NMConnection *
 nmtst_connection_from_file(const char *filename,
                            const char *network_file,
                            const char *test_type,
-                           char **     out_unhandled,
-                           GError **   error)
+                           char      **out_unhandled,
+                           GError    **error)
 {
     return connection_from_file_full(filename, network_file, test_type, out_unhandled, error, NULL);
 }

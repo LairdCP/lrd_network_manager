@@ -10,14 +10,18 @@
 #include <unistd.h>
 
 #include "alloc-util.h"
+#include "chase-symlinks.h"
 #include "dirent-util.h"
+#include "errno-util.h"
 #include "fd-util.h"
 #include "fileio.h"
+#include "filesystems.h"
 #include "fs-util.h"
 #include "macro.h"
 #include "missing_fs.h"
 #include "missing_magic.h"
 #include "missing_syscall.h"
+#include "nulstr-util.h"
 #include "parse-util.h"
 #include "stat-util.h"
 #include "string-util.h"
@@ -74,27 +78,41 @@ int is_device_node(const char *path) {
 
 int dir_is_empty_at(int dir_fd, const char *path) {
         _cleanup_close_ int fd = -1;
-        _cleanup_closedir_ DIR *d = NULL;
+        /* Allocate space for at least 3 full dirents, since every dir has at least two entries ("."  +
+         * ".."), and only once we have seen if there's a third we know whether the dir is empty or not. */
+        DEFINE_DIRENT_BUFFER(buffer, 3);
         struct dirent *de;
+        ssize_t n;
 
         if (path) {
+                assert(dir_fd >= 0 || dir_fd == AT_FDCWD);
+
                 fd = openat(dir_fd, path, O_RDONLY|O_DIRECTORY|O_CLOEXEC);
                 if (fd < 0)
                         return -errno;
+        } else if (dir_fd == AT_FDCWD) {
+                fd = open(".", O_RDONLY|O_DIRECTORY|O_CLOEXEC);
+                if (fd < 0)
+                        return -errno;
         } else {
-                /* Note that DUPing is not enough, as the internal pointer
-                 * would still be shared and moved by FOREACH_DIRENT. */
-                fd = fd_reopen(dir_fd, O_CLOEXEC);
+                /* Note that DUPing is not enough, as the internal pointer would still be shared and moved
+                 * getedents64(). */
+                assert(dir_fd >= 0);
+
+                fd = fd_reopen(dir_fd, O_RDONLY|O_DIRECTORY|O_CLOEXEC);
                 if (fd < 0)
                         return fd;
         }
 
-        d = take_fdopendir(&fd);
-        if (!d)
+        n = getdents64(fd, &buffer, sizeof(buffer));
+        if (n < 0)
                 return -errno;
 
-        FOREACH_DIRENT(de, d, return -errno)
-                return 0;
+        msan_unpoison(&buffer, n);
+
+        FOREACH_DIRENT_IN_BUFFER(de, &buffer.de, n)
+                if (!dot_or_dot_dot(de->d_name))
+                        return 0;
 
         return 1;
 }
@@ -159,6 +177,7 @@ int path_is_read_only_fs(const char *path) {
 
         return false;
 }
+#endif /* NM_IGNORED */
 
 int files_same(const char *filea, const char *fileb, int flags) {
         struct stat a, b;
@@ -183,6 +202,7 @@ bool is_fs_type(const struct statfs *s, statfs_f_type_t magic_value) {
         return F_TYPE_EQUAL(s->f_type, magic_value);
 }
 
+#if 0 /* NM_IGNORED */
 int fd_is_fs_type(int fd, statfs_f_type_t magic_value) {
         struct statfs s;
 
@@ -191,6 +211,7 @@ int fd_is_fs_type(int fd, statfs_f_type_t magic_value) {
 
         return is_fs_type(&s, magic_value);
 }
+#endif /* NM_IGNORE */
 
 int path_is_fs_type(const char *path, statfs_f_type_t magic_value) {
         struct statfs s;
@@ -201,20 +222,13 @@ int path_is_fs_type(const char *path, statfs_f_type_t magic_value) {
         return is_fs_type(&s, magic_value);
 }
 
+#if 0 /* NM_IGNORE */
 bool is_temporary_fs(const struct statfs *s) {
-        return is_fs_type(s, TMPFS_MAGIC) ||
-                is_fs_type(s, RAMFS_MAGIC);
+        return fs_in_group(s, FILESYSTEM_SET_TEMPORARY);
 }
 
 bool is_network_fs(const struct statfs *s) {
-        return is_fs_type(s, CIFS_MAGIC_NUMBER) ||
-                is_fs_type(s, CODA_SUPER_MAGIC) ||
-                is_fs_type(s, NCP_SUPER_MAGIC) ||
-                is_fs_type(s, NFS_SUPER_MAGIC) ||
-                is_fs_type(s, SMB_SUPER_MAGIC) ||
-                is_fs_type(s, V9FS_MAGIC) ||
-                is_fs_type(s, AFS_SUPER_MAGIC) ||
-                is_fs_type(s, OCFS2_SUPER_MAGIC);
+        return fs_in_group(s, FILESYSTEM_SET_NETWORK);
 }
 
 int fd_is_temporary_fs(int fd) {
@@ -392,6 +406,7 @@ int device_path_parse_major_minor(const char *path, mode_t *ret_mode, dev_t *ret
 
         return 0;
 }
+#endif /* NM_IGNORED */
 
 int proc_mounted(void) {
         int r;
@@ -405,6 +420,7 @@ int proc_mounted(void) {
         return r;
 }
 
+#if 0 /* NM_IGNORED */
 bool stat_inode_unmodified(const struct stat *a, const struct stat *b) {
 
         /* Returns if the specified stat structures reference the same, unmodified inode. This check tries to

@@ -14,9 +14,12 @@
 #include <termios.h>
 #include <unistd.h>
 #include <locale.h>
-#include <glib-unix.h>
+#if HAVE_EDITLINE_READLINE
+#include <editline/readline.h>
+#else
 #include <readline/readline.h>
 #include <readline/history.h>
+#endif
 
 #include "libnmc-base/nm-client-utils.h"
 
@@ -28,9 +31,9 @@
 #include "settings.h"
 
 #if defined(NM_DIST_VERSION)
-    #define NMCLI_VERSION NM_DIST_VERSION
+#define NMCLI_VERSION NM_DIST_VERSION
 #else
-    #define NMCLI_VERSION VERSION
+#define NMCLI_VERSION VERSION
 #endif
 
 #define _NMC_COLOR_PALETTE_INIT()                              \
@@ -115,7 +118,7 @@ typedef struct {
 } ArgsInfo;
 
 /* --- Global variables --- */
-GMainLoop *    loop = NULL;
+GMainLoop     *loop = NULL;
 struct termios termios_orig;
 
 NM_CACHED_QUARK_FCN("nmcli-error-quark", nmcli_error_quark);
@@ -147,10 +150,10 @@ static void
 complete_one(gpointer key, gpointer value, gpointer user_data)
 {
     const char **option_with_value = user_data;
-    const char * option            = option_with_value[0];
-    const char * prefix            = option_with_value[1];
-    const char * name              = key;
-    const char * last;
+    const char  *option            = option_with_value[0];
+    const char  *prefix            = option_with_value[1];
+    const char  *name              = key;
+    const char  *last;
 
     last = strrchr(prefix, ',');
     if (last)
@@ -269,9 +272,9 @@ static gboolean
 matches_arg(NmCli *nmc, int *argc, const char *const **argv, const char *pattern, char **arg)
 {
     gs_free char *opt_free = NULL;
-    const char *  opt      = (*argv)[0];
+    const char   *opt      = (*argv)[0];
     gs_free char *arg_tmp  = NULL;
-    const char *  s;
+    const char   *s;
 
     nm_assert(opt);
     nm_assert(opt[0] == '-');
@@ -374,7 +377,7 @@ check_colors_check_palette_one_file(const char *base_dir, const char *name, cons
 
     for (i = 0; i < G_N_ELEMENTS(extensions); i++) {
         gs_free char *filename = NULL;
-        char *        contents;
+        char         *contents;
 
         filename = check_colors_construct_filename(base_dir, name, term, extensions[i]);
         if (g_file_get_contents(filename, &contents, NULL, NULL))
@@ -467,9 +470,9 @@ check_colors_check_palette(const char *base_dir_1,
 static gboolean
 check_colors(NmcColorOption color_option, char **out_palette_str)
 {
-    const char *      base_dir_1, *base_dir_2;
+    const char       *base_dir_1, *base_dir_2;
     const char *const NAME = "nmcli";
-    const char *      term;
+    const char       *term;
 
     *out_palette_str = NULL;
 
@@ -678,8 +681,8 @@ parse_color_scheme(char *palette_buffer, NmcColorPalette *out_palette, GError **
 
 static void
 set_colors(NmcColorOption   color_option,
-           bool *           out_use_colors,
-           char **          out_palette_buffer,
+           bool            *out_use_colors,
+           char           **out_palette_buffer,
            NmcColorPalette *out_palette)
 {
     gs_free char *palette_str = NULL;
@@ -727,7 +730,7 @@ process_command_line(NmCli *nmc, int argc, char **argv_orig)
         {NULL, nmc_command_func_overview, usage, TRUE, TRUE},
     };
     NmcColorOption     colors = NMC_USE_COLOR_AUTO;
-    const char *       base;
+    const char        *base;
     const char *const *argv;
 
     base = strrchr(argv_orig[0], '/');

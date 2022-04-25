@@ -36,20 +36,20 @@ test_dhcp_create(void)
 static void
 test_lldp_create(void)
 {
-    sd_lldp *lldp = NULL;
-    int      r;
+    sd_lldp_rx *lldp = NULL;
+    int         r;
 
-    r = sd_lldp_new(&lldp);
+    r = sd_lldp_rx_new(&lldp);
     g_assert(r == 0);
     g_assert(lldp);
 
-    sd_lldp_unref(lldp);
+    sd_lldp_rx_unref(lldp);
 }
 
 /*****************************************************************************/
 
 typedef struct {
-    GMainLoop *      mainloop;
+    GMainLoop       *mainloop;
     sd_event_source *event_source;
 } TestSdEventData;
 
@@ -76,7 +76,7 @@ test_sd_event(void)
         guint           sd_id = 0;
         int             r;
         int             i, n;
-        sd_event *      other_events[3] = {NULL}, *event = NULL;
+        sd_event       *other_events[3] = {NULL}, *event = NULL;
         TestSdEventData user_data = {0};
 
         g_assert_cmpint(sd_event_default(NULL), ==, 0);
@@ -125,10 +125,10 @@ test_path_equal(void)
 #define _path_equal_check(path, expected)                \
     G_STMT_START                                         \
     {                                                    \
-        const char *  _path0    = (path);                \
-        const char *  _expected = (expected);            \
+        const char   *_path0    = (path);                \
+        const char   *_expected = (expected);            \
         gs_free char *_path     = g_strdup(_path0);      \
-        const char *  _path_result;                      \
+        const char   *_path_result;                      \
                                                          \
         _path_result = nm_sd_utils_path_simplify(_path); \
         g_assert(_path_result == _path);                 \
@@ -177,8 +177,8 @@ _test_unbase64char(char ch, gboolean maybe_invalid)
 static void
 _test_unbase64mem_mem(const char *base64, const guint8 *expected_arr, gsize expected_len)
 {
-    gs_free char *expected_base64 = NULL;
-    int           r;
+    gs_free char        *expected_base64 = NULL;
+    int                  r;
     nm_auto_free guint8 *exp2_arr = NULL;
     nm_auto_free guint8 *exp3_arr = NULL;
     gsize                exp2_len;

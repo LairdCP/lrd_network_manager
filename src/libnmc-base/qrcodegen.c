@@ -28,9 +28,9 @@
 #include "qrcodegen.h"
 
 #ifndef QRCODEGEN_TEST
-    #define testable static  // Keep functions private
+#define testable static  // Keep functions private
 #else
-    #define testable  // Expose private functions
+#define testable  // Expose private functions
 #endif
 
 /*---- Forward declarations for private functions ----*/
@@ -133,7 +133,7 @@ static const int PENALTY_N4 = 10;
 
 // Public function - see documentation comment in header file.
 bool
-qrcodegen_encodeText(const char *        text,
+qrcodegen_encodeText(const char         *text,
                      uint8_t             tempBuffer[],
                      uint8_t             qrcode[],
                      enum qrcodegen_Ecc  ecl,

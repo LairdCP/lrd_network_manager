@@ -1077,6 +1077,9 @@ class Device(ExportedObj):
         elif isinstance(self, WifiDevice):
             if con_inst.get_type() == NM.SETTING_WIRELESS_SETTING_NAME:
                 return True
+        elif isinstance(self, VlanDevice):
+            if con_inst.get_type() == NM.SETTING_VLAN_SETTING_NAME:
+                return True
         return False
 
     def available_connections_get(self):
@@ -1489,10 +1492,6 @@ class ActiveConnection(ExportedObj):
 
     def start_deactivation(self):
         assert self._deactivation_id is None
-        self._set_state(
-            NM.ActiveConnectionState.DEACTIVATING,
-            NM.ActiveConnectionStateReason.USER_DISCONNECTED,
-        )
         self.device.set_state(
             NM.DeviceState.DEACTIVATING, NM.DeviceStateReason.USER_REQUESTED
         )
@@ -1566,8 +1565,8 @@ class NetworkManager(ExportedObj):
         pass
 
     def set_state(self, new_state):
-        self._dbus_property_set(IFACE_NM, PRP_NM_STATE, state)
-        self.StateChanged(dbus.UInt32(self.state))
+        self._dbus_property_set(IFACE_NM, PRP_NM_STATE, new_state)
+        self.StateChanged(dbus.UInt32(new_state))
 
     @dbus.service.method(dbus_interface=IFACE_NM, in_signature="", out_signature="ao")
     def GetDevices(self):
@@ -1634,6 +1633,9 @@ class NetworkManager(ExportedObj):
 
         ac = ActiveConnection(device, con_inst, None)
         self.active_connection_add(ac)
+
+        gl.manager.devices_available_connections_update()
+
         return ExportedObj.to_path(ac)
 
     def active_connection_add(self, ac):
@@ -2270,7 +2272,7 @@ class IP4Config(ExportedObj):
     def __init__(self, generate_seed=_DEFAULT_ARG):
         ExportedObj.__init__(self, ExportedObj.create_path(IP4Config))
 
-        if generate_seed == _DEFAULT_ARG:
+        if generate_seed is _DEFAULT_ARG:
             generate_seed = self.path
 
         props = self._props_generate(generate_seed)
@@ -2469,7 +2471,7 @@ class IP6Config(ExportedObj):
     def __init__(self, generate_seed=_DEFAULT_ARG):
         ExportedObj.__init__(self, ExportedObj.create_path(IP6Config))
 
-        if generate_seed == _DEFAULT_ARG:
+        if generate_seed is _DEFAULT_ARG:
             generate_seed = self.path
 
         props = self._props_generate(generate_seed)
@@ -2643,7 +2645,7 @@ class Dhcp4Config(ExportedObj):
     def __init__(self, generate_seed=_DEFAULT_ARG):
         ExportedObj.__init__(self, ExportedObj.create_path(Dhcp4Config))
 
-        if generate_seed == _DEFAULT_ARG:
+        if generate_seed is _DEFAULT_ARG:
             generate_seed = self.path
 
         props = self._props_generate(generate_seed)
@@ -2684,7 +2686,7 @@ class Dhcp6Config(ExportedObj):
     def __init__(self, generate_seed=_DEFAULT_ARG):
         ExportedObj.__init__(self, ExportedObj.create_path(Dhcp6Config))
 
-        if generate_seed == _DEFAULT_ARG:
+        if generate_seed is _DEFAULT_ARG:
             generate_seed = self.path
 
         props = self._props_generate(generate_seed)

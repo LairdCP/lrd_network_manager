@@ -8,7 +8,7 @@
 #include "nm-meta-setting-base.h"
 
 #if _NM_META_SETTING_BASE_IMPL_LIBNM
-    #include "libnm-core-impl/nm-default-libnm-core.h"
+#include "libnm-core-impl/nm-default-libnm-core.h"
 #endif
 
 #include "nm-setting-6lowpan.h"
@@ -16,6 +16,7 @@
 #include "nm-setting-adsl.h"
 #include "nm-setting-bluetooth.h"
 #include "nm-setting-bond.h"
+#include "nm-setting-bond-port.h"
 #include "nm-setting-bridge-port.h"
 #include "nm-setting-bridge.h"
 #include "nm-setting-cdma.h"
@@ -64,7 +65,7 @@
 #include "nm-setting-wpan.h"
 
 #if _NM_META_SETTING_BASE_IMPL_LIBNM
-    #include "nm-setting-private.h"
+#include "nm-setting-private.h"
 #endif
 
 /*****************************************************************************/
@@ -189,6 +190,13 @@ const NMMetaSettingInfo nm_meta_setting_infos[] = {
             .setting_priority  = NM_SETTING_PRIORITY_HW_BASE,
             .setting_name      = NM_SETTING_BOND_SETTING_NAME,
             .get_setting_gtype = nm_setting_bond_get_type,
+        },
+    [NM_META_SETTING_TYPE_BOND_PORT] =
+        {
+            .meta_type         = NM_META_SETTING_TYPE_BOND_PORT,
+            .setting_priority  = NM_SETTING_PRIORITY_AUX,
+            .setting_name      = NM_SETTING_BOND_PORT_SETTING_NAME,
+            .get_setting_gtype = nm_setting_bond_port_get_type,
         },
     [NM_META_SETTING_TYPE_BRIDGE] =
         {
@@ -519,6 +527,75 @@ const NMMetaSettingInfo nm_meta_setting_infos[] = {
         },
 };
 
+const NMMetaSettingType nm_meta_setting_types_by_priority[] = {
+
+    /* NM_SETTING_PRIORITY_CONNECTION */
+    NM_META_SETTING_TYPE_CONNECTION,
+
+    /* NM_SETTING_PRIORITY_HW_BASE */
+    NM_META_SETTING_TYPE_6LOWPAN,
+    NM_META_SETTING_TYPE_OLPC_MESH,
+    NM_META_SETTING_TYPE_WIRELESS,
+    NM_META_SETTING_TYPE_WIRED,
+    NM_META_SETTING_TYPE_ADSL,
+    NM_META_SETTING_TYPE_BOND,
+    NM_META_SETTING_TYPE_BRIDGE,
+    NM_META_SETTING_TYPE_CDMA,
+    NM_META_SETTING_TYPE_DUMMY,
+    NM_META_SETTING_TYPE_GENERIC,
+    NM_META_SETTING_TYPE_GSM,
+    NM_META_SETTING_TYPE_INFINIBAND,
+    NM_META_SETTING_TYPE_IP_TUNNEL,
+    NM_META_SETTING_TYPE_MACSEC,
+    NM_META_SETTING_TYPE_MACVLAN,
+    NM_META_SETTING_TYPE_OVS_BRIDGE,
+    NM_META_SETTING_TYPE_OVS_DPDK,
+    NM_META_SETTING_TYPE_OVS_INTERFACE,
+    NM_META_SETTING_TYPE_OVS_PATCH,
+    NM_META_SETTING_TYPE_OVS_PORT,
+    NM_META_SETTING_TYPE_TEAM,
+    NM_META_SETTING_TYPE_TUN,
+    NM_META_SETTING_TYPE_VETH,
+    NM_META_SETTING_TYPE_VLAN,
+    NM_META_SETTING_TYPE_VPN,
+    NM_META_SETTING_TYPE_VRF,
+    NM_META_SETTING_TYPE_VXLAN,
+    NM_META_SETTING_TYPE_WIFI_P2P,
+    NM_META_SETTING_TYPE_WIMAX,
+    NM_META_SETTING_TYPE_WIREGUARD,
+    NM_META_SETTING_TYPE_WPAN,
+
+    /* NM_SETTING_PRIORITY_HW_NON_BASE */
+    NM_META_SETTING_TYPE_BLUETOOTH,
+
+    /* NM_SETTING_PRIORITY_HW_AUX */
+    NM_META_SETTING_TYPE_WIRELESS_SECURITY,
+    NM_META_SETTING_TYPE_802_1X,
+    NM_META_SETTING_TYPE_DCB,
+    NM_META_SETTING_TYPE_SERIAL,
+    NM_META_SETTING_TYPE_SRIOV,
+
+    /* NM_SETTING_PRIORITY_AUX  */
+    NM_META_SETTING_TYPE_BOND_PORT,
+    NM_META_SETTING_TYPE_BRIDGE_PORT,
+    NM_META_SETTING_TYPE_ETHTOOL,
+    NM_META_SETTING_TYPE_MATCH,
+    NM_META_SETTING_TYPE_OVS_EXTERNAL_IDS,
+    NM_META_SETTING_TYPE_PPP,
+    NM_META_SETTING_TYPE_PPPOE,
+    NM_META_SETTING_TYPE_TEAM_PORT,
+
+    /* NM_SETTING_PRIORITY_IP */
+    NM_META_SETTING_TYPE_HOSTNAME,
+    NM_META_SETTING_TYPE_IP4_CONFIG,
+    NM_META_SETTING_TYPE_IP6_CONFIG,
+    NM_META_SETTING_TYPE_PROXY,
+    NM_META_SETTING_TYPE_TC_CONFIG,
+
+    /* NM_SETTING_PRIORITY_USER */
+    NM_META_SETTING_TYPE_USER,
+};
+
 const NMMetaSettingInfo *
 nm_meta_setting_infos_by_name(const char *name)
 {
@@ -569,8 +646,8 @@ nm_meta_setting_infos_by_gtype(GType gtype)
 {
 #if _NM_META_SETTING_BASE_IMPL_LIBNM
     nm_auto_unref_gtypeclass GTypeClass *gtypeclass_unref = NULL;
-    GTypeClass *                         gtypeclass;
-    NMSettingClass *                     klass;
+    GTypeClass                          *gtypeclass;
+    NMSettingClass                      *klass;
 
     if (!g_type_is_a(gtype, NM_TYPE_SETTING))
         goto out_none;
