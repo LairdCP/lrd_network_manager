@@ -3410,12 +3410,6 @@ get_property(GObject *object, guint prop_id, GValue *value, GParamSpec *pspec)
     case PROP_PHASE2_ALTSUBJECT_MATCHES:
         g_value_take_boxed(value, _nm_utils_slist_to_strv(priv->phase2_altsubject_matches, TRUE));
         break;
-    case PROP_TLS_DISABLE_TIME_CHECKS:
-        g_value_set_string(value, priv->tls_disable_time_checks);
-        break;
-    case PROP_PAC_FILE_PASSWORD:
-        g_value_set_string(value, priv->pac_file_password);
-        break;
     default:
         _nm_setting_property_get_property_direct(object, prop_id, value, pspec);
         break;
@@ -3448,14 +3442,6 @@ set_property(GObject *object, guint prop_id, const GValue *value, GParamSpec *ps
     case PROP_PHASE2_ALTSUBJECT_MATCHES:
         g_slist_free_full(priv->phase2_altsubject_matches, g_free);
         priv->phase2_altsubject_matches = nm_strv_to_gslist(g_value_get_boxed(value), TRUE);
-        break;
-    case PROP_TLS_DISABLE_TIME_CHECKS:
-        g_free(priv->tls_disable_time_checks);
-        priv->tls_disable_time_checks = g_value_dup_string(value);
-        break;
-    case PROP_PAC_FILE_PASSWORD:
-        g_free(priv->pac_file_password);
-        priv->pac_file_password = g_value_dup_string(value);
         break;
     default:
         _nm_setting_property_set_property_direct(object, prop_id, value, pspec);
@@ -4671,17 +4657,19 @@ nm_setting_802_1x_class_init(NMSetting8021xClass *klass)
      * testing purposes). This property may be set to "0" or "1".
      **/
     /* ---ifcfg-rh---
-     * property: phase1-peapver
-     * variable: IEEE_8021X_PEAP_VERSION(+)
+     * property: disable-time-checks
+     * variable: ??
      * values: 0, 1
      * description: Use to ignore certificate validity time
      * ---end---
      */
-    obj_properties[PROP_TLS_DISABLE_TIME_CHECKS] =
-         g_param_spec_string (NM_SETTING_802_1X_TLS_DISABLE_TIME_CHECKS, "", "",
-                              NULL,
-                              G_PARAM_READWRITE |
-                              G_PARAM_STATIC_STRINGS);
+    _nm_setting_property_define_direct_string(properties_override,
+                                              obj_properties,
+                                              NM_SETTING_802_1X_TLS_DISABLE_TIME_CHECKS,
+                                              PROP_TLS_DISABLE_TIME_CHECKS,
+                                              NM_SETTING_PARAM_NONE,
+                                              NMSetting8021xPrivate,
+                                              tls_disable_time_checks);
 
     /**
      * NMSetting8021x:pac-file-password:
@@ -4694,11 +4682,13 @@ nm_setting_802_1x_class_init(NMSetting8021xClass *klass)
      * description: Password for decrypting a manually provisioned PAC file.
      * ---end---
      */
-    obj_properties[PROP_PAC_FILE_PASSWORD] =
-         g_param_spec_string (NM_SETTING_802_1X_PAC_FILE_PASSWORD, "", "",
-                              NULL,
-                              G_PARAM_READWRITE |
-                              G_PARAM_STATIC_STRINGS);
+    _nm_setting_property_define_direct_string(properties_override,
+                                              obj_properties,
+                                              NM_SETTING_802_1X_PAC_FILE_PASSWORD,
+                                              PROP_PAC_FILE_PASSWORD,
+                                              NM_SETTING_PARAM_SECRET,
+                                              NMSetting8021xPrivate,
+                                              pac_file_password);
 
     g_object_class_install_properties(object_class, _PROPERTY_ENUMS_LAST, obj_properties);
 

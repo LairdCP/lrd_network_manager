@@ -86,7 +86,7 @@ typedef struct {
     char *proactive_key_caching;
 
     /* FT */
-    NMSettingWirelessSecurityFt ft;
+    int ft;
 
     guint32      wep_tx_keyidx;
     guint32      wps_method;
@@ -1472,13 +1472,6 @@ get_property(GObject *object, guint prop_id, GValue *value, GParamSpec *pspec)
     case PROP_WEP_KEY_TYPE:
         g_value_set_enum(value, priv->wep_key_type);
         break;
-    case PROP_PROACTIVE_KEY_CACHING:
-        g_value_set_string (value, priv->proactive_key_caching);
-        break;
-        break;
-    case PROP_FT:
-        g_value_set_int (value, nm_setting_wireless_security_get_ft (setting));
-        break;
     default:
         _nm_setting_property_get_property_direct(object, prop_id, value, pspec);
         break;
@@ -1507,14 +1500,6 @@ set_property(GObject *object, guint prop_id, const GValue *value, GParamSpec *ps
         break;
     case PROP_WEP_KEY_TYPE:
         priv->wep_key_type = g_value_get_enum(value);
-        break;
-    case PROP_PROACTIVE_KEY_CACHING:
-        g_free (priv->proactive_key_caching);
-        str = g_value_get_string (value);
-        priv->proactive_key_caching = str ? g_ascii_strdown (str, -1) : NULL;
-        break;
-    case PROP_FT:
-        priv->ft = g_value_get_int (value);
         break;
     default:
         _nm_setting_property_set_property_direct(object, prop_id, value, pspec);
@@ -1550,8 +1535,6 @@ finalize(GObject *object)
     NMSettingWirelessSecurity        *self = NM_SETTING_WIRELESS_SECURITY(object);
     NMSettingWirelessSecurityPrivate *priv = NM_SETTING_WIRELESS_SECURITY_GET_PRIVATE(self);
 
-
-    g_free (priv->proactive_key_caching);
 
     g_slist_free_full(priv->proto, g_free);
     g_slist_free_full(priv->pairwise, g_free);
@@ -2083,12 +2066,14 @@ nm_setting_wireless_security_class_init(NMSettingWirelessSecurityClass *klass)
      * description: Key caching method.
      * ---end---
      */
-    obj_properties[PROP_PROACTIVE_KEY_CACHING] =
-         g_param_spec_string (NM_SETTING_WIRELESS_SECURITY_PROACTIVE_KEY_CACHING, "", "",
-                              NULL,
-                              G_PARAM_READWRITE |
-                              NM_SETTING_PARAM_REQUIRED |
-                              G_PARAM_STATIC_STRINGS);
+    _nm_setting_property_define_direct_string(properties_override,
+                                              obj_properties,
+                                              NM_SETTING_WIRELESS_SECURITY_PROACTIVE_KEY_CACHING,
+                                              PROP_PROACTIVE_KEY_CACHING,
+                                              NM_SETTING_PARAM_REQUIRED,
+                                              NMSettingWirelessSecurityPrivate,
+                                              proactive_key_caching,
+                                              .direct_set_string_ascii_strdown = TRUE);
 
     /**
      * NMSettingWirelessSecurity:ft:
@@ -2112,13 +2097,16 @@ nm_setting_wireless_security_class_init(NMSettingWirelessSecurityClass *klass)
      * example: FT=required
      * ---end---
      */
-    obj_properties[PROP_FT] =
-        g_param_spec_int (NM_SETTING_WIRELESS_SECURITY_FT, "", "",
-                          G_MININT32, G_MAXINT32, 0,
-                          G_PARAM_READWRITE |
-                          G_PARAM_CONSTRUCT |
-                          NM_SETTING_PARAM_FUZZY_IGNORE |
-                          G_PARAM_STATIC_STRINGS);
+    _nm_setting_property_define_direct_int32(properties_override,
+                                             obj_properties,
+                                             NM_SETTING_WIRELESS_SECURITY_FT,
+                                             PROP_FT,
+                                             0,
+                                             NM_SETTING_WIRELESS_SECURITY_FT_LAST,
+                                             NM_SETTING_WIRELESS_SECURITY_FT_DEFAULT,
+                                             NM_SETTING_PARAM_FUZZY_IGNORE,
+                                             NMSettingWirelessSecurityPrivate,
+                                             ft);
 
     g_object_class_install_properties(object_class, _PROPERTY_ENUMS_LAST, obj_properties);
 

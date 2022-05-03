@@ -1763,9 +1763,6 @@ get_property(GObject *object, guint prop_id, GValue *value, GParamSpec *pspec)
     NMSettingWirelessPrivate *priv    = NM_SETTING_WIRELESS_GET_PRIVATE(object);
 
     switch (prop_id) {
-    case PROP_CHANNEL_WIDTH:
-        g_value_set_string (value, nm_setting_wireless_get_channel_width (setting));
-        break;
     case PROP_CLONED_MAC_ADDRESS:
         g_value_set_string(value, nm_setting_wireless_get_cloned_mac_address(setting));
         break;
@@ -1778,51 +1775,6 @@ get_property(GObject *object, guint prop_id, GValue *value, GParamSpec *pspec)
             priv->seen_bssids
                 ? nm_strv_dup((char **) priv->seen_bssids->pdata, priv->seen_bssids->len, TRUE)
                 : NULL);
-        break;
-    case PROP_CCX:
-        g_value_set_uint (value, nm_setting_wireless_get_ccx (setting));
-        break;
-    case PROP_CLIENT_NAME:
-        g_value_set_string (value, nm_setting_wireless_get_client_name (setting));
-        break;
-    case PROP_SCAN_DELAY:
-        g_value_set_uint (value, nm_setting_wireless_get_scan_delay (setting));
-        break;
-    case PROP_SCAN_DWELL:
-        g_value_set_uint (value, nm_setting_wireless_get_scan_dwell (setting));
-        break;
-    case PROP_SCAN_PASSIVE_DWELL:
-        g_value_set_uint (value, nm_setting_wireless_get_scan_passive_dwell (setting));
-        break;
-    case PROP_SCAN_SUSPEND_TIME:
-        g_value_set_uint (value, nm_setting_wireless_get_scan_suspend_time (setting));
-        break;
-    case PROP_SCAN_ROAM_DELTA:
-        g_value_set_uint (value, nm_setting_wireless_get_scan_roam_delta (setting));
-        break;
-    case PROP_BGSCAN:
-        g_value_set_string (value, nm_setting_wireless_get_bgscan (setting));
-        break;
-    case PROP_AUTH_TIMEOUT:
-        g_value_set_uint (value, nm_setting_wireless_get_auth_timeout (setting));
-        break;
-    case PROP_FREQUENCY_LIST:
-        g_value_set_string (value, nm_setting_wireless_get_frequency_list (setting));
-        break;
-    case PROP_FREQUENCY_DFS:
-        g_value_set_uint (value, nm_setting_wireless_get_frequency_dfs (setting));
-        break;
-    case PROP_MAX_SCAN_INTERVAL:
-        g_value_set_uint (value, nm_setting_wireless_get_max_scan_interval (setting));
-        break;
-    case PROP_DMS:
-        g_value_set_uint (value, nm_setting_wireless_get_dms (setting));
-        break;
-    case PROP_ACS:
-        g_value_set_uint (value, nm_setting_wireless_get_acs (setting));
-        break;
-    case PROP_AP_CONFIG_FILE:
-        g_value_set_string (value, nm_setting_wireless_get_ap_config_file (setting));
         break;
     default:
         _nm_setting_property_get_property_direct(object, prop_id, value, pspec);
@@ -1839,10 +1791,6 @@ set_property(GObject *object, guint prop_id, const GValue *value, GParamSpec *ps
     gboolean                  bool_val;
 
     switch (prop_id) {
-    case PROP_CHANNEL_WIDTH:
-        g_free (priv->channel_width);
-        priv->channel_width = g_value_dup_string (value);
-        break;
     case PROP_CLONED_MAC_ADDRESS:
         bool_val = !!priv->cloned_mac_address;
         g_free(priv->cloned_mac_address);
@@ -1887,55 +1835,6 @@ set_property(GObject *object, guint prop_id, const GValue *value, GParamSpec *ps
         }
         break;
     }
-    case PROP_CCX:
-        priv->ccx = g_value_get_uint (value);
-        break;
-    case PROP_CLIENT_NAME:
-        g_free (priv->client_name);
-        priv->client_name = g_value_dup_string (value);
-        break;
-    case PROP_SCAN_DELAY:
-        priv->scan_delay = g_value_get_uint (value);
-        break;
-    case PROP_SCAN_DWELL:
-        priv->scan_dwell = g_value_get_uint (value);
-        break;
-    case PROP_SCAN_PASSIVE_DWELL:
-        priv->scan_passive_dwell = g_value_get_uint (value);
-        break;
-    case PROP_SCAN_SUSPEND_TIME:
-        priv->scan_suspend_time = g_value_get_uint (value);
-        break;
-    case PROP_SCAN_ROAM_DELTA:
-        priv->scan_roam_delta = g_value_get_uint (value);
-        break;
-    case PROP_BGSCAN:
-        g_free (priv->bgscan);
-        priv->bgscan = g_value_dup_string (value);
-        break;
-    case PROP_AUTH_TIMEOUT:
-        priv->auth_timeout = g_value_get_uint (value);
-        break;
-    case PROP_FREQUENCY_LIST:
-        g_free (priv->frequency_list);
-        priv->frequency_list = g_value_dup_string (value);
-        break;
-    case PROP_FREQUENCY_DFS:
-        priv->frequency_dfs = g_value_get_uint (value);
-        break;
-    case PROP_MAX_SCAN_INTERVAL:
-        priv->max_scan_interval = g_value_get_uint (value);
-        break;
-    case PROP_DMS:
-        priv->dms = g_value_get_uint (value);
-        break;
-    case PROP_ACS:
-        priv->acs = g_value_get_uint (value);
-        break;
-    case PROP_AP_CONFIG_FILE:
-        g_free (priv->ap_config_file);
-        priv->ap_config_file = g_value_dup_string (value);
-        break;
     default:
         _nm_setting_property_set_property_direct(object, prop_id, value, pspec);
         break;
@@ -2111,11 +2010,13 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
      * example: CHANNEL_WIDTH=20
      * ---end---
      */
-    obj_properties[PROP_CHANNEL_WIDTH] =
-        g_param_spec_string (NM_SETTING_WIRELESS_CHANNEL_WIDTH, "", "",
-                             NULL,
-                             G_PARAM_READWRITE |
-                             G_PARAM_STATIC_STRINGS);
+    _nm_setting_property_define_direct_string(properties_override,
+                                              obj_properties,
+                                              NM_SETTING_WIRELESS_CHANNEL_WIDTH,
+                                              PROP_CHANNEL_WIDTH,
+                                              NM_SETTING_PARAM_NONE,
+                                              NMSettingWirelessPrivate,
+                                              channel_width);
 
     /**
      * NMSettingWireless:bssid:
@@ -2532,13 +2433,16 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
      *
      * Since: 1.8
      **/
-    obj_properties[PROP_CCX] =
-         g_param_spec_uint (NM_SETTING_WIRELESS_CCX, "", "",
-                            0, G_MAXUINT32, 0,
-                            G_PARAM_READWRITE |
-                            G_PARAM_CONSTRUCT |
-                            NM_SETTING_PARAM_FUZZY_IGNORE |
-                            G_PARAM_STATIC_STRINGS);
+    _nm_setting_property_define_direct_uint32(properties_override,
+                                              obj_properties,
+                                              NM_SETTING_WIRELESS_CCX,
+                                              PROP_CCX,
+                                              0,
+                                              G_MAXUINT32,
+                                              0,
+                                              NM_SETTING_PARAM_FUZZY_IGNORE,
+                                              NMSettingWirelessPrivate,
+                                              ccx);
 
     /**
      * NMSettingWireless:client_name:
@@ -2549,11 +2453,13 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
      *
      * Since: 1.8
      **/
-    obj_properties[PROP_CLIENT_NAME] =
-         g_param_spec_string (NM_SETTING_WIRELESS_CLIENT_NAME, "", "",
-                              NULL,
-                              G_PARAM_READWRITE |
-                              G_PARAM_STATIC_STRINGS);
+    _nm_setting_property_define_direct_string(properties_override,
+                                              obj_properties,
+                                              NM_SETTING_WIRELESS_CLIENT_NAME,
+                                              PROP_CLIENT_NAME,
+                                              NM_SETTING_PARAM_NONE,
+                                              NMSettingWirelessPrivate,
+                                              client_name);
 
     /**
      * NMSettingWireless:scan_delay:
@@ -2563,13 +2469,16 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
      *
      * Since: 1.8
      **/
-    obj_properties[PROP_SCAN_DELAY] =
-         g_param_spec_uint (NM_SETTING_WIRELESS_SCAN_DELAY, "", "",
-                            0, G_MAXUINT32, 0,
-                            G_PARAM_READWRITE |
-                            G_PARAM_CONSTRUCT |
-                            NM_SETTING_PARAM_FUZZY_IGNORE |
-                            G_PARAM_STATIC_STRINGS);
+    _nm_setting_property_define_direct_uint32(properties_override,
+                                              obj_properties,
+                                              NM_SETTING_WIRELESS_SCAN_DELAY,
+                                              PROP_SCAN_DELAY,
+                                              0,
+                                              G_MAXUINT32,
+                                              0,
+                                              NM_SETTING_PARAM_FUZZY_IGNORE,
+                                              NMSettingWirelessPrivate,
+                                              scan_delay);
 
     /**
      * NMSettingWireless:scan_dwell:
@@ -2579,13 +2488,16 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
      *
      * Since: 1.8
      **/
-    obj_properties[PROP_SCAN_DWELL] =
-         g_param_spec_uint (NM_SETTING_WIRELESS_SCAN_DWELL, "", "",
-                            0, G_MAXUINT32, 0,
-                            G_PARAM_READWRITE |
-                            G_PARAM_CONSTRUCT |
-                            NM_SETTING_PARAM_FUZZY_IGNORE |
-                            G_PARAM_STATIC_STRINGS);
+    _nm_setting_property_define_direct_uint32(properties_override,
+                                              obj_properties,
+                                              NM_SETTING_WIRELESS_SCAN_DWELL,
+                                              PROP_SCAN_DWELL,
+                                              0,
+                                              G_MAXUINT32,
+                                              0,
+                                              NM_SETTING_PARAM_FUZZY_IGNORE,
+                                              NMSettingWirelessPrivate,
+                                              scan_dwell);
 
     /**
      * NMSettingWireless:scan_passive_dwell:
@@ -2594,13 +2506,16 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
      *
      * Since: 1.8
      **/
-    obj_properties[PROP_SCAN_PASSIVE_DWELL] =
-         g_param_spec_uint (NM_SETTING_WIRELESS_SCAN_PASSIVE_DWELL, "", "",
-                            0, G_MAXUINT32, 0,
-                            G_PARAM_READWRITE |
-                            G_PARAM_CONSTRUCT |
-                            NM_SETTING_PARAM_FUZZY_IGNORE |
-                            G_PARAM_STATIC_STRINGS);
+    _nm_setting_property_define_direct_uint32(properties_override,
+                                              obj_properties,
+                                              NM_SETTING_WIRELESS_SCAN_PASSIVE_DWELL,
+                                              PROP_SCAN_PASSIVE_DWELL,
+                                              0,
+                                              G_MAXUINT32,
+                                              0,
+                                              NM_SETTING_PARAM_FUZZY_IGNORE,
+                                              NMSettingWirelessPrivate,
+                                              scan_passive_dwell);
 
     /**
      * NMSettingWireless:scan_suspend_time:
@@ -2610,13 +2525,16 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
      *
      * Since: 1.8
      **/
-    obj_properties[PROP_SCAN_SUSPEND_TIME] =
-         g_param_spec_uint (NM_SETTING_WIRELESS_SCAN_SUSPEND_TIME, "", "",
-                            0, G_MAXUINT32, 0,
-                            G_PARAM_READWRITE |
-                            G_PARAM_CONSTRUCT |
-                            NM_SETTING_PARAM_FUZZY_IGNORE |
-                            G_PARAM_STATIC_STRINGS);
+    _nm_setting_property_define_direct_uint32(properties_override,
+                                              obj_properties,
+                                              NM_SETTING_WIRELESS_SCAN_SUSPEND_TIME,
+                                              PROP_SCAN_SUSPEND_TIME,
+                                              0,
+                                              G_MAXUINT32,
+                                              0,
+                                              NM_SETTING_PARAM_FUZZY_IGNORE,
+                                              NMSettingWirelessPrivate,
+                                              scan_suspend_time);
 
     /**
      * NMSettingWireless:scan_roam_delta:
@@ -2626,13 +2544,16 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
      *
      * Since: 1.8
      **/
-    obj_properties[PROP_SCAN_ROAM_DELTA] =
-         g_param_spec_uint (NM_SETTING_WIRELESS_SCAN_ROAM_DELTA, "", "",
-                            0, G_MAXUINT32, 0,
-                            G_PARAM_READWRITE |
-                            G_PARAM_CONSTRUCT |
-                            NM_SETTING_PARAM_FUZZY_IGNORE |
-                            G_PARAM_STATIC_STRINGS);
+    _nm_setting_property_define_direct_uint32(properties_override,
+                                              obj_properties,
+                                              NM_SETTING_WIRELESS_SCAN_ROAM_DELTA,
+                                              PROP_SCAN_ROAM_DELTA,
+                                              0,
+                                              G_MAXUINT32,
+                                              0,
+                                              NM_SETTING_PARAM_FUZZY_IGNORE,
+                                              NMSettingWirelessPrivate,
+                                              scan_roam_delta);
 
     /**
      * NMSettingWireless:bgscan:
@@ -2642,11 +2563,13 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
      *
      * Since: 1.8
      **/
-    obj_properties[PROP_BGSCAN] =
-         g_param_spec_string (NM_SETTING_WIRELESS_BGSCAN, "", "",
-                              NULL,
-                              G_PARAM_READWRITE |
-                              G_PARAM_STATIC_STRINGS);
+    _nm_setting_property_define_direct_string(properties_override,
+                                              obj_properties,
+                                              NM_SETTING_WIRELESS_BGSCAN,
+                                              PROP_BGSCAN,
+                                              NM_SETTING_PARAM_NONE,
+                                              NMSettingWirelessPrivate,
+                                              bgscan);
 
     /**
      * NMSettingWireless:auth_timeout:
@@ -2656,13 +2579,16 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
      *
      * Since: 1.8
      **/
-    obj_properties[PROP_AUTH_TIMEOUT] =
-         g_param_spec_uint (NM_SETTING_WIRELESS_AUTH_TIMEOUT, "", "",
-                            0, 60, 0,
-                            G_PARAM_READWRITE |
-                            G_PARAM_CONSTRUCT |
-                            NM_SETTING_PARAM_FUZZY_IGNORE |
-                            G_PARAM_STATIC_STRINGS);
+    _nm_setting_property_define_direct_uint32(properties_override,
+                                              obj_properties,
+                                              NM_SETTING_WIRELESS_AUTH_TIMEOUT,
+                                              PROP_AUTH_TIMEOUT,
+                                              0,
+                                              60,
+                                              0,
+                                              NM_SETTING_PARAM_FUZZY_IGNORE,
+                                              NMSettingWirelessPrivate,
+                                              auth_timeout);
 
     /**
      * NMSettingWireless:frequency_list:
@@ -2671,11 +2597,13 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
      *
      * Since: 1.8
      **/
-    obj_properties[PROP_FREQUENCY_LIST] =
-         g_param_spec_string (NM_SETTING_WIRELESS_FREQUENCY_LIST, "", "",
-                              NULL,
-                              G_PARAM_READWRITE |
-                              G_PARAM_STATIC_STRINGS);
+    _nm_setting_property_define_direct_string(properties_override,
+                                              obj_properties,
+                                              NM_SETTING_WIRELESS_FREQUENCY_LIST,
+                                              PROP_FREQUENCY_LIST,
+                                              NM_SETTING_PARAM_NONE,
+                                              NMSettingWirelessPrivate,
+                                              frequency_list);
 
     /**
      * NMSettingWireless:frequency_dfs:
@@ -2684,13 +2612,16 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
      *
      * Since: 1.8
      **/
-    obj_properties[PROP_FREQUENCY_DFS] =
-         g_param_spec_uint (NM_SETTING_WIRELESS_FREQUENCY_DFS, "", "",
-                            0, 1, NM_SETTING_WIRELESS_FREQUENCY_DFS_DEFAULT,
-                            G_PARAM_READWRITE |
-                            G_PARAM_CONSTRUCT |
-                            NM_SETTING_PARAM_FUZZY_IGNORE |
-                            G_PARAM_STATIC_STRINGS);
+    _nm_setting_property_define_direct_uint32(properties_override,
+                                              obj_properties,
+                                              NM_SETTING_WIRELESS_FREQUENCY_DFS,
+                                              PROP_FREQUENCY_DFS,
+                                              0,
+                                              1,
+                                              NM_SETTING_WIRELESS_FREQUENCY_DFS_DEFAULT,
+                                              NM_SETTING_PARAM_FUZZY_IGNORE,
+                                              NMSettingWirelessPrivate,
+                                              frequency_dfs);
 
     /**
      * NMSettingWireless:max_scan_interval:
@@ -2699,13 +2630,16 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
      *
      * Since: 1.8
      **/
-    obj_properties[PROP_MAX_SCAN_INTERVAL] =
-         g_param_spec_uint (NM_SETTING_WIRELESS_MAX_SCAN_INTERVAL, "", "",
-                            0, 60, 0,
-                            G_PARAM_READWRITE |
-                            G_PARAM_CONSTRUCT |
-                            NM_SETTING_PARAM_FUZZY_IGNORE |
-                            G_PARAM_STATIC_STRINGS);
+    _nm_setting_property_define_direct_uint32(properties_override,
+                                              obj_properties,
+                                              NM_SETTING_WIRELESS_MAX_SCAN_INTERVAL,
+                                              PROP_MAX_SCAN_INTERVAL,
+                                              0,
+                                              60,
+                                              0,
+                                              NM_SETTING_PARAM_FUZZY_IGNORE,
+                                              NMSettingWirelessPrivate,
+                                              max_scan_interval);
 
     /**
      * NMSettingWireless:dms:
@@ -2714,13 +2648,16 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
      *
      * Since: 1.12.0
      **/
-    obj_properties[PROP_DMS] =
-         g_param_spec_uint (NM_SETTING_WIRELESS_DMS, "", "",
-                            0, G_MAXUINT32, 0,
-                            G_PARAM_READWRITE |
-                            G_PARAM_CONSTRUCT |
-                            NM_SETTING_PARAM_FUZZY_IGNORE |
-                            G_PARAM_STATIC_STRINGS);
+    _nm_setting_property_define_direct_uint32(properties_override,
+                                              obj_properties,
+                                              NM_SETTING_WIRELESS_DMS,
+                                              PROP_DMS,
+                                              0,
+                                              G_MAXUINT32,
+                                              0,
+                                              NM_SETTING_PARAM_FUZZY_IGNORE,
+                                              NMSettingWirelessPrivate,
+                                              dms);
 
     /**
      * NMSettingWireless:acs:
@@ -2731,13 +2668,16 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
      *
      * Since: 1.12.0
      **/
-    obj_properties[PROP_ACS] =
-         g_param_spec_uint (NM_SETTING_WIRELESS_ACS, "", "",
-                            0, G_MAXUINT32, 0,
-                            G_PARAM_READWRITE |
-                            G_PARAM_CONSTRUCT |
-                            NM_SETTING_PARAM_FUZZY_IGNORE |
-                            G_PARAM_STATIC_STRINGS);
+    _nm_setting_property_define_direct_uint32(properties_override,
+                                              obj_properties,
+                                              NM_SETTING_WIRELESS_ACS,
+                                              PROP_ACS,
+                                              0,
+                                              G_MAXUINT32,
+                                              0,
+                                              NM_SETTING_PARAM_FUZZY_IGNORE,
+                                              NMSettingWirelessPrivate,
+                                              acs);
 
     /**
      * NMSettingWireless:ap_config_file:
@@ -2746,11 +2686,13 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
      *
      * Since: 1.xx
      **/
-    obj_properties[PROP_AP_CONFIG_FILE] =
-         g_param_spec_string (NM_SETTING_WIRELESS_AP_CONFIG_FILE, "", "",
-                              NULL,
-                              G_PARAM_READWRITE |
-                              G_PARAM_STATIC_STRINGS);
+    _nm_setting_property_define_direct_string(properties_override,
+                                              obj_properties,
+                                              NM_SETTING_WIRELESS_AP_CONFIG_FILE,
+                                              PROP_AP_CONFIG_FILE,
+                                              NM_SETTING_PARAM_NONE,
+                                              NMSettingWirelessPrivate,
+                                              ap_config_file);
 
     /* Compatibility for deprecated property */
     /* ---ifcfg-rh---

@@ -235,49 +235,6 @@ static void
 nm_setting_wifi_p2p_init(NMSettingWifiP2P *setting)
 {}
 
-static void
-get_property(GObject *object, guint prop_id, GValue *value, GParamSpec *pspec)
-{
-    NMSettingWifiP2P *setting = NM_SETTING_WIFI_P2P(object);
-
-    switch (prop_id) {
-    case PROP_DEVICE_NAME:
-        g_value_set_string(value, nm_setting_wifi_p2p_get_device_name(setting));
-        break;
-    case PROP_PEER_DEVICE_NAME:
-        g_value_set_string(value, nm_setting_wifi_p2p_get_peer_device_name(setting));
-        break;
-    case PROP_FREQUENCY:
-        g_value_set_uint(value, nm_setting_wifi_p2p_get_frequency(setting));
-        break;
-    default:
-        _nm_setting_property_get_property_direct(object, prop_id, value, pspec);
-    }
-}
-
-static void
-set_property(GObject *object, guint prop_id, const GValue *value, GParamSpec *pspec)
-{
-    NMSettingWifiP2PPrivate *priv = NM_SETTING_WIFI_P2P_GET_PRIVATE(object);
-
-    switch (prop_id) {
-    case PROP_DEVICE_NAME:
-        g_free(priv->device_name);
-        priv->device_name = g_value_dup_string(value);
-        break;
-    case PROP_PEER_DEVICE_NAME:
-        g_free(priv->peer_device_name);
-        priv->peer_device_name = g_value_dup_string(value);
-        break;
-    case PROP_FREQUENCY:
-        priv->frequency = g_value_get_uint(value);
-        break;
-    default:
-        _nm_setting_property_set_property_direct(object, prop_id, value, pspec);
-    }
-}
-
-
 /**
  * nm_setting_wifi_p2p_new:
  *
@@ -294,26 +251,14 @@ nm_setting_wifi_p2p_new(void)
 }
 
 static void
-finalize(GObject *object)
-{
-    NMSettingWifiP2PPrivate *priv = NM_SETTING_WIFI_P2P_GET_PRIVATE(object);
-
-    g_free(priv->device_name);
-    g_free(priv->peer_device_name);
-
-    G_OBJECT_CLASS(nm_setting_wifi_p2p_parent_class)->finalize(object);
-}
-
-static void
 nm_setting_wifi_p2p_class_init(NMSettingWifiP2PClass *setting_wifi_p2p_class)
 {
     GObjectClass   *object_class        = G_OBJECT_CLASS(setting_wifi_p2p_class);
     NMSettingClass *setting_class       = NM_SETTING_CLASS(setting_wifi_p2p_class);
     GArray         *properties_override = _nm_sett_info_property_override_create_array();
 
-    object_class->get_property = get_property;
-    object_class->set_property = set_property;
-    object_class->finalize     = finalize;
+    object_class->get_property = _nm_setting_property_get_property_direct;
+    object_class->set_property = _nm_setting_property_set_property_direct;
 
     setting_class->verify = verify;
 
@@ -394,11 +339,13 @@ nm_setting_wifi_p2p_class_init(NMSettingWifiP2PClass *setting_wifi_p2p_class)
      * description: P2P device name to be used for this device.
      * ---end---
      */
-    obj_properties[PROP_DEVICE_NAME] =
-        g_param_spec_string (NM_SETTING_WIFI_P2P_DEVICE_NAME, "", "",
-                             NULL,
-                             G_PARAM_READWRITE |
-                             G_PARAM_STATIC_STRINGS);
+    _nm_setting_property_define_direct_string(properties_override,
+                                              obj_properties,
+                                              NM_SETTING_WIFI_P2P_DEVICE_NAME,
+                                              PROP_DEVICE_NAME,
+                                              NM_SETTING_PARAM_NONE,
+                                              NMSettingWifiP2P,
+                                              _priv.device_name);
 
     /**
      * NMSettingWifiP2P:peer-device-name:
@@ -413,11 +360,13 @@ nm_setting_wifi_p2p_class_init(NMSettingWifiP2PClass *setting_wifi_p2p_class)
      * description: P2P device name of the peer.
      * ---end---
      */
-    obj_properties[PROP_PEER_DEVICE_NAME] =
-        g_param_spec_string (NM_SETTING_WIFI_P2P_PEER_DEVICE_NAME, "", "",
-                             NULL,
-                             G_PARAM_READWRITE |
-                             G_PARAM_STATIC_STRINGS);
+    _nm_setting_property_define_direct_string(properties_override,
+                                              obj_properties,
+                                              NM_SETTING_WIFI_P2P_PEER_DEVICE_NAME,
+                                              PROP_PEER_DEVICE_NAME,
+                                              NM_SETTING_PARAM_NONE,
+                                              NMSettingWifiP2P,
+                                              _priv.peer_device_name);
 
     /**
      * NMSettingWifiP2P:frequency:
@@ -426,15 +375,16 @@ nm_setting_wifi_p2p_class_init(NMSettingWifiP2PClass *setting_wifi_p2p_class)
      *
      * Since: 1.18
      */
-    obj_properties[PROP_FREQUENCY] =
-        g_param_spec_uint (NM_SETTING_WIFI_P2P_FREQUENCY, "", "",
-                           0,
-                           G_MAXUINT32,
-                           0,
-                           G_PARAM_READWRITE |
-                           G_PARAM_CONSTRUCT |
-                           NM_SETTING_PARAM_FUZZY_IGNORE |
-                           G_PARAM_STATIC_STRINGS);
+    _nm_setting_property_define_direct_int32(properties_override,
+                                             obj_properties,
+                                             NM_SETTING_WIFI_P2P_FREQUENCY,
+                                             PROP_FREQUENCY,
+                                             0,
+                                             G_MAXINT32,
+                                             0,
+                                             NM_SETTING_PARAM_FUZZY_IGNORE,
+                                             NMSettingWifiP2P,
+                                             _priv.frequency);
 
     g_object_class_install_properties(object_class, _PROPERTY_ENUMS_LAST, obj_properties);
 
