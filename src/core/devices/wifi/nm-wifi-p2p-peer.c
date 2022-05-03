@@ -565,9 +565,7 @@ nm_wifi_p2p_peer_check_compatible(NMWifiP2PPeer *self, NMConnection *connection,
 
     hwaddr = nm_setting_wifi_p2p_get_peer(s_wifi_p2p);
     if (hwaddr) {
-        if (!priv->address
-            || !nm_utils_hwaddr_matches (hwaddr, -1, priv->address, -1))
-        {
+        if (!priv->address || !nm_utils_hwaddr_matches(hwaddr, -1, priv->address, -1)) {
             return FALSE;
         }
         compatible = TRUE;
@@ -577,7 +575,7 @@ nm_wifi_p2p_peer_check_compatible(NMWifiP2PPeer *self, NMConnection *connection,
         && !nm_wifi_p2p_peer_get_wfd_ies(self))
         return FALSE;
 
-    peer_device_name = nm_setting_wifi_p2p_get_peer_device_name (s_wifi_p2p);
+    peer_device_name = nm_setting_wifi_p2p_get_peer_device_name(s_wifi_p2p);
     if (peer_device_name) {
         if (strcmp(priv->name, peer_device_name)) {
             return FALSE;

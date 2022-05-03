@@ -328,7 +328,7 @@ security_from_vardict(GVariant *security)
                 flags |= NM_802_11_AP_SEC_PAIR_GCMP_128;
             else if (NM_IN_STRSET(v, "gcmp-256"))
                 flags |= NM_802_11_AP_SEC_PAIR_GCMP_256;
-       }
+        }
         g_free(array);
     }
 
@@ -341,23 +341,23 @@ security_from_vardict(GVariant *security)
             flags |= NM_802_11_AP_SEC_GROUP_TKIP;
         else if (nm_streq(tmp, "ccmp"))
             flags |= NM_802_11_AP_SEC_GROUP_CCMP;
-        if (strcmp (tmp, "ccmp-256") == 0)
+        if (strcmp(tmp, "ccmp-256") == 0)
             flags |= NM_802_11_AP_SEC_GROUP_CCMP_256;
-        if (strcmp (tmp, "gcmp") == 0)
+        if (strcmp(tmp, "gcmp") == 0)
             flags |= NM_802_11_AP_SEC_GROUP_GCMP_128;
-        if (strcmp (tmp, "gcmp-256") == 0)
+        if (strcmp(tmp, "gcmp-256") == 0)
             flags |= NM_802_11_AP_SEC_GROUP_GCMP_256;
     }
 
     // group management cipher
-    if (g_variant_lookup (security, "MgmtGroup", "&s", &tmp)) {
-        if (strcmp (tmp, "aes128cmac") == 0)
+    if (g_variant_lookup(security, "MgmtGroup", "&s", &tmp)) {
+        if (strcmp(tmp, "aes128cmac") == 0)
             flags |= NM_802_11_AP_SEC_MGMT_GROUP_CMAC_128;
-        if (strcmp (tmp, "bip-gmac-256") == 0)
+        if (strcmp(tmp, "bip-gmac-256") == 0)
             flags |= NM_802_11_AP_SEC_MGMT_GROUP_GMAC_256;
-        if (strcmp (tmp, "bip-gmac-128") == 0)
+        if (strcmp(tmp, "bip-gmac-128") == 0)
             flags |= NM_802_11_AP_SEC_MGMT_GROUP_GMAC_128;
-        if (strcmp (tmp, "bip-gmac-256") == 0)
+        if (strcmp(tmp, "bip-gmac-256") == 0)
             flags |= NM_802_11_AP_SEC_MGMT_GROUP_GMAC_256;
     }
 
@@ -1420,7 +1420,7 @@ nm_supplicant_interface_get_capability(NMSupplicantInterface *self, NMSupplCapTy
 }
 
 static gboolean
-_get_capability_laird (NMSupplicantInterface *self)
+_get_capability_laird(NMSupplicantInterface *self)
 {
     return nm_supplicant_interface_get_capability(self, NM_SUPPL_CAP_TYPE_LAIRD) == NM_TERNARY_TRUE;
 }
@@ -2490,133 +2490,127 @@ assoc_fail_on_idle_cb(gpointer user_data)
 }
 
 static void
-set_ccx_cb (GVariant *ret, GError *error, gpointer user_data)
+set_ccx_cb(GVariant *ret, GError *error, gpointer user_data)
 {
-    NMSupplicantInterface *self;
+    NMSupplicantInterface        *self;
     NMSupplicantInterfacePrivate *priv;
 
-    if (nm_utils_error_is_cancelled (error))
+    if (nm_utils_error_is_cancelled(error))
         return;
 
-    self = NM_SUPPLICANT_INTERFACE (user_data);
-    priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
+    self = NM_SUPPLICANT_INTERFACE(user_data);
+    priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE(self);
 
     if (error) {
-        if (_nm_dbus_error_has_name (error, "org.freedesktop.DBus.Error.InvalidArgs")) {
-            _LOGD ("CCX mode is not supported");
+        if (_nm_dbus_error_has_name(error, "org.freedesktop.DBus.Error.InvalidArgs")) {
+            _LOGD("CCX mode is not supported");
         } else {
-            assoc_return (self, error, "failure to set CCX mode");
+            assoc_return(self, error, "failure to set CCX mode");
         }
         return;
     }
 
-    _LOGI ("config: set interface ccx to %d",
-           nm_supplicant_config_get_ccx (priv->assoc_data->cfg));
-
+    _LOGI("config: set interface ccx to %d", nm_supplicant_config_get_ccx(priv->assoc_data->cfg));
 }
 
 static void
-laird_set_global_cb (GVariant *ret, GError *error, gpointer user_data,
-    const char *key)
+laird_set_global_cb(GVariant *ret, GError *error, gpointer user_data, const char *key)
 {
-    NMSupplicantInterface *self;
+    NMSupplicantInterface        *self;
     NMSupplicantInterfacePrivate *priv;
 
-    if (nm_utils_error_is_cancelled (error))
+    if (nm_utils_error_is_cancelled(error))
         return;
 
-    self = NM_SUPPLICANT_INTERFACE (user_data);
-    priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
+    self = NM_SUPPLICANT_INTERFACE(user_data);
+    priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE(self);
 
     if (error) {
-        if (_nm_dbus_error_has_name (error, "org.freedesktop.DBus.Error.InvalidArgs")) {
-            _LOGD ("%s is not supported", key);
+        if (_nm_dbus_error_has_name(error, "org.freedesktop.DBus.Error.InvalidArgs")) {
+            _LOGD("%s is not supported", key);
             return;
         }
         // other error handled below with !reply
-        _LOGW ("couldn't send %s to the supplicant interface: %s",
-               key, error->message);
+        _LOGW("couldn't send %s to the supplicant interface: %s", key, error->message);
         return;
     }
 
-    _LOGD ("config: set interface %s", key);
+    _LOGD("config: set interface %s", key);
 }
 
 static void
-set_scan_delay_cb (GVariant *ret, GError *error, gpointer user_data)
+set_scan_delay_cb(GVariant *ret, GError *error, gpointer user_data)
 {
     laird_set_global_cb(ret, error, user_data, "scan delay");
 }
 
 static void
-set_scan_dwell_cb (GVariant *ret, GError *error, gpointer user_data)
+set_scan_dwell_cb(GVariant *ret, GError *error, gpointer user_data)
 {
     laird_set_global_cb(ret, error, user_data, "scan dwell");
 }
 
 static void
-set_scan_passive_dwell_cb (GVariant *ret, GError *error, gpointer user_data)
+set_scan_passive_dwell_cb(GVariant *ret, GError *error, gpointer user_data)
 {
     laird_set_global_cb(ret, error, user_data, "scan passive dwell");
 }
 
 static void
-set_scan_suspend_time_cb (GVariant *ret, GError *error, gpointer user_data)
+set_scan_suspend_time_cb(GVariant *ret, GError *error, gpointer user_data)
 {
     laird_set_global_cb(ret, error, user_data, "scan suspend time");
 }
 
 static void
-set_scan_roam_delta_cb (GVariant *ret, GError *error, gpointer user_data)
+set_scan_roam_delta_cb(GVariant *ret, GError *error, gpointer user_data)
 {
     laird_set_global_cb(ret, error, user_data, "scan roam delta");
 }
 
 static void
-set_disable_dfs_cb (GVariant *ret, GError *error, gpointer user_data)
+set_disable_dfs_cb(GVariant *ret, GError *error, gpointer user_data)
 {
     laird_set_global_cb(ret, error, user_data, "frequency dfs");
 }
 
 /*================================*/
 static void
-laird_proxy_guint32(NMSupplicantInterface *self,
-                    GCancellable *cancellable,
-                    const char *key,
-                    guint32 value,
+laird_proxy_guint32(NMSupplicantInterface        *self,
+                    GCancellable                 *cancellable,
+                    const char                   *key,
+                    guint32                       value,
                     NMDBusConnectionCallDefaultCb cb)
 {
     NMSupplicantInterfacePrivate *priv;
-    char valstr[10];
+    char                          valstr[10];
 
     _LOGD("%s: setting %s %d ...", __func__, key, value);
 
-    priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
+    priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE(self);
 
-    g_snprintf (valstr, sizeof(valstr), "%d", value);
+    g_snprintf(valstr, sizeof(valstr), "%d", value);
 
-    nm_dbus_connection_call_set (priv->dbus_connection,
-                                 priv->name_owner->str,
-                                 priv->object_path->str,
-                                 NM_WPAS_DBUS_IFACE_INTERFACE,
-                                 key,
-                                 g_variant_new_string (valstr),
-                                 DBUS_TIMEOUT_MSEC,
-                                 cancellable,
-                                 cb,
-                                 self);
+    nm_dbus_connection_call_set(priv->dbus_connection,
+                                priv->name_owner->str,
+                                priv->object_path->str,
+                                NM_WPAS_DBUS_IFACE_INTERFACE,
+                                key,
+                                g_variant_new_string(valstr),
+                                DBUS_TIMEOUT_MSEC,
+                                cancellable,
+                                cb,
+                                self);
 }
 
 static void
-laird_scan_set_globals (NMSupplicantInterface *self,
-                        GCancellable *cancellable,
-                        LairdScanGlobals *g)
+laird_scan_set_globals(NMSupplicantInterface *self, GCancellable *cancellable, LairdScanGlobals *g)
 {
     NMSupplicantInterfacePrivate *priv;
 
-    g_return_if_fail (NM_IS_SUPPLICANT_INTERFACE (self));
+    g_return_if_fail(NM_IS_SUPPLICANT_INTERFACE(self));
 
-    priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
+    priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE(self);
 
     if (!_get_capability_laird(self))
         return;
@@ -2624,30 +2618,26 @@ laird_scan_set_globals (NMSupplicantInterface *self,
     // push changes to the supplicant
     if (g->scan_delay != priv->laird.pushed.scan_delay) {
         guint32 value = g->scan_delay;
-        laird_proxy_guint32(self, cancellable,
-                            "LairdScanDelay", value,
-                            set_scan_delay_cb);
+        laird_proxy_guint32(self, cancellable, "LairdScanDelay", value, set_scan_delay_cb);
         priv->laird.pushed.scan_delay = g->scan_delay;
     }
     if (g->scan_dwell != priv->laird.pushed.scan_dwell) {
         guint32 value = g->scan_dwell;
-        laird_proxy_guint32(self, cancellable,
-                            "LairdScanDwell", value,
-                            set_scan_dwell_cb);
+        laird_proxy_guint32(self, cancellable, "LairdScanDwell", value, set_scan_dwell_cb);
         priv->laird.pushed.scan_dwell = g->scan_dwell;
     }
     if (g->scan_passive_dwell != priv->laird.pushed.scan_passive_dwell) {
         guint32 value = g->scan_passive_dwell;
-        laird_proxy_guint32(self, cancellable,
-                            "LairdPassiveDwell", value,
+        laird_proxy_guint32(self,
+                            cancellable,
+                            "LairdPassiveDwell",
+                            value,
                             set_scan_passive_dwell_cb);
         priv->laird.pushed.scan_passive_dwell = g->scan_passive_dwell;
     }
     if (g->disable_dfs != priv->laird.pushed.disable_dfs) {
         guint32 value = g->disable_dfs;
-        laird_proxy_guint32(self, cancellable,
-                            "DisableDfs", value,
-                            set_disable_dfs_cb);
+        laird_proxy_guint32(self, cancellable, "DisableDfs", value, set_disable_dfs_cb);
         priv->laird.pushed.disable_dfs = g->disable_dfs;
     }
     // TBD: add support for setting connected state variables
@@ -2711,40 +2701,43 @@ nm_supplicant_interface_assoc(NMSupplicantInterface       *self,
 
     assoc_data->cancellable = g_cancellable_new();
 
-    g_snprintf (ccx, 2, "%d", nm_supplicant_config_get_ccx (priv->assoc_data->cfg));
+    g_snprintf(ccx, 2, "%d", nm_supplicant_config_get_ccx(priv->assoc_data->cfg));
 
     if (_get_capability_laird(self)) {
+        nm_dbus_connection_call_set(priv->dbus_connection,
+                                    priv->name_owner->str,
+                                    priv->object_path->str,
+                                    NM_WPAS_DBUS_IFACE_INTERFACE,
+                                    "Ccx",
+                                    g_variant_new_string(ccx),
+                                    DBUS_TIMEOUT_MSEC,
+                                    assoc_data->cancellable,
+                                    set_ccx_cb,
+                                    self);
 
-        nm_dbus_connection_call_set (priv->dbus_connection,
-                                     priv->name_owner->str,
-                                     priv->object_path->str,
-                                     NM_WPAS_DBUS_IFACE_INTERFACE,
-                                     "Ccx",
-                                     g_variant_new_string (ccx),
-                                     DBUS_TIMEOUT_MSEC,
-                                     assoc_data->cancellable,
-                                     set_ccx_cb,
-                                     self);
-
-        guint32 value;
+        guint32          value;
         LairdScanGlobals g;
         memset(&g, 0, sizeof(g));
-        g.scan_delay = nm_supplicant_config_get_scan_delay (cfg);
-        g.scan_dwell = nm_supplicant_config_get_scan_dwell (cfg);
-        g.scan_passive_dwell = nm_supplicant_config_get_scan_passive_dwell (cfg);
-        g.disable_dfs = !nm_supplicant_config_get_frequency_dfs (cfg);
+        g.scan_delay         = nm_supplicant_config_get_scan_delay(cfg);
+        g.scan_dwell         = nm_supplicant_config_get_scan_dwell(cfg);
+        g.scan_passive_dwell = nm_supplicant_config_get_scan_passive_dwell(cfg);
+        g.disable_dfs        = !nm_supplicant_config_get_frequency_dfs(cfg);
         laird_scan_set_globals(self, priv->assoc_data->cancellable, &g);
 
-        value = nm_supplicant_config_get_scan_suspend_time (cfg);
+        value = nm_supplicant_config_get_scan_suspend_time(cfg);
         if (value) {
-            laird_proxy_guint32(self, priv->assoc_data->cancellable,
-                                "LairdScanSuspendTime", value,
+            laird_proxy_guint32(self,
+                                priv->assoc_data->cancellable,
+                                "LairdScanSuspendTime",
+                                value,
                                 set_scan_suspend_time_cb);
         }
-        value = nm_supplicant_config_get_scan_roam_delta (cfg);
+        value = nm_supplicant_config_get_scan_roam_delta(cfg);
         if (value) {
-            laird_proxy_guint32(self, priv->assoc_data->cancellable,
-                                "LairdRoamDelta", value,
+            laird_proxy_guint32(self,
+                                priv->assoc_data->cancellable,
+                                "LairdRoamDelta",
+                                value,
                                 set_scan_roam_delta_cb);
         }
     }
@@ -2850,13 +2843,13 @@ scan_request_cb(GObject *source, GAsyncResult *result, gpointer user_data)
 }
 
 void
-nm_supplicant_interface_request_scan_laird(NMSupplicantInterface             *self,
-                                     GBytes *const                           *ssids,
-                                     guint                                    ssids_len,
-                                     GCancellable                            *cancellable,
-                                     NMSupplicantInterfaceRequestScanCallback callback,
-                                     gpointer                                 user_data,
-                                     LairdScanSettings *                      lss)
+nm_supplicant_interface_request_scan_laird(NMSupplicantInterface                   *self,
+                                           GBytes *const                           *ssids,
+                                           guint                                    ssids_len,
+                                           GCancellable                            *cancellable,
+                                           NMSupplicantInterfaceRequestScanCallback callback,
+                                           gpointer                                 user_data,
+                                           LairdScanSettings                       *lss)
 {
     NMSupplicantInterfacePrivate *priv;
     GVariantBuilder               builder;
@@ -2905,29 +2898,29 @@ nm_supplicant_interface_request_scan_laird(NMSupplicantInterface             *se
         cancellable = priv->main_cancellable;
     }
 
-    if (lss && _get_capability_laird(self) &&
-        (priv->state <= NM_SUPPLICANT_INTERFACE_STATE_SCANNING
-         || !priv->net_path))
-    {
+    if (lss && _get_capability_laird(self)
+        && (priv->state <= NM_SUPPLICANT_INTERFACE_STATE_SCANNING || !priv->net_path)) {
         // not connected, use disconnected settings
         LairdScanGlobals g;
         memset(&g, 0, sizeof(g));
-        g.scan_delay = lss->scan_delay;
-        g.scan_dwell = lss->scan_dwell;
+        g.scan_delay         = lss->scan_delay;
+        g.scan_dwell         = lss->scan_dwell;
         g.scan_passive_dwell = lss->scan_passive_dwell;
-        g.disable_dfs = !lss->frequency_dfs;
+        g.disable_dfs        = !lss->frequency_dfs;
         laird_scan_set_globals(self, cancellable, &g);
 
         if (lss->freqs.count) {
             GVariantBuilder channel_builder;
-            guint32 *f = lss->freqs.ptr;
-            int i;
-            g_variant_builder_init (&channel_builder, G_VARIANT_TYPE_ARRAY);
-            for (i=0; i<lss->freqs.count; i++) {
-                g_variant_builder_add (&channel_builder, "(uu)", *f++, 20);
+            guint32        *f = lss->freqs.ptr;
+            int             i;
+            g_variant_builder_init(&channel_builder, G_VARIANT_TYPE_ARRAY);
+            for (i = 0; i < lss->freqs.count; i++) {
+                g_variant_builder_add(&channel_builder, "(uu)", *f++, 20);
             }
-            g_variant_builder_add (&builder, "{sv}", "Channels",
-                                   g_variant_builder_end (&channel_builder));
+            g_variant_builder_add(&builder,
+                                  "{sv}",
+                                  "Channels",
+                                  g_variant_builder_end(&channel_builder));
         }
     }
 
@@ -2944,17 +2937,20 @@ nm_supplicant_interface_request_scan_laird(NMSupplicantInterface             *se
 }
 
 void
-nm_supplicant_interface_request_scan (NMSupplicantInterface *self,
-                                      GBytes *const*ssids,
-                                      guint ssids_len,
-                                      GCancellable *cancellable,
-                                      NMSupplicantInterfaceRequestScanCallback callback,
-                                      gpointer user_data)
+nm_supplicant_interface_request_scan(NMSupplicantInterface                   *self,
+                                     GBytes *const                           *ssids,
+                                     guint                                    ssids_len,
+                                     GCancellable                            *cancellable,
+                                     NMSupplicantInterfaceRequestScanCallback callback,
+                                     gpointer                                 user_data)
 {
-    nm_supplicant_interface_request_scan_laird (self, ssids, ssids_len,
-                                                cancellable,
-                                                callback, user_data,
-                                                NULL);
+    nm_supplicant_interface_request_scan_laird(self,
+                                               ssids,
+                                               ssids_len,
+                                               cancellable,
+                                               callback,
+                                               user_data,
+                                               NULL);
 }
 
 /*****************************************************************************/
@@ -3011,41 +3007,41 @@ nm_supplicant_interface_get_max_scan_ssids(NMSupplicantInterface *self)
 }
 
 /*****************************************************************************/
-void nm_supplicant_interface_p2p_device_config (NMSupplicantInterface *self,
-                                             NMConnection *connection)
+void
+nm_supplicant_interface_p2p_device_config(NMSupplicantInterface *self, NMConnection *connection)
 {
     NMSupplicantInterfacePrivate *priv;
-    NMSettingWifiP2P *s_wifi_p2p;
-    GVariantBuilder builder;
-    const char *device_name = NULL;
+    NMSettingWifiP2P             *s_wifi_p2p;
+    GVariantBuilder               builder;
+    const char                   *device_name = NULL;
 
-    g_return_if_fail (NM_IS_SUPPLICANT_INTERFACE (self));
-    g_return_if_fail (NM_IS_CONNECTION (connection));
+    g_return_if_fail(NM_IS_SUPPLICANT_INTERFACE(self));
+    g_return_if_fail(NM_IS_CONNECTION(connection));
 
-    priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE (self);
+    priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE(self);
 
-    s_wifi_p2p = NM_SETTING_WIFI_P2P (nm_connection_get_setting (connection, NM_TYPE_SETTING_WIFI_P2P));
+    s_wifi_p2p =
+        NM_SETTING_WIFI_P2P(nm_connection_get_setting(connection, NM_TYPE_SETTING_WIFI_P2P));
 
-    g_variant_builder_init (&builder, G_VARIANT_TYPE_VARDICT);
+    g_variant_builder_init(&builder, G_VARIANT_TYPE_VARDICT);
 
-    device_name = nm_setting_wifi_p2p_get_device_name (s_wifi_p2p);
+    device_name = nm_setting_wifi_p2p_get_device_name(s_wifi_p2p);
     if (!device_name)
         device_name = "";
 
-    g_variant_builder_add (&builder, "{sv}", "DeviceName", g_variant_new_string (device_name));
+    g_variant_builder_add(&builder, "{sv}", "DeviceName", g_variant_new_string(device_name));
 
-    nm_dbus_connection_call_set (priv->dbus_connection,
-                                 priv->name_owner->str,
-                                 priv->object_path->str,
-                                 NM_WPAS_DBUS_IFACE_INTERFACE_P2P_DEVICE,
-                                 "P2PDeviceConfig",
-                                 g_variant_new ("a{sv}", &builder),
-                                 DBUS_TIMEOUT_MSEC,
-                                 NULL,
-                                 NULL,
-                                 NULL);
+    nm_dbus_connection_call_set(priv->dbus_connection,
+                                priv->name_owner->str,
+                                priv->object_path->str,
+                                NM_WPAS_DBUS_IFACE_INTERFACE_P2P_DEVICE,
+                                "P2PDeviceConfig",
+                                g_variant_new("a{sv}", &builder),
+                                DBUS_TIMEOUT_MSEC,
+                                NULL,
+                                NULL,
+                                NULL);
 }
-
 
 void
 nm_supplicant_interface_p2p_start_find(NMSupplicantInterface *self, guint timeout)
@@ -3103,7 +3099,7 @@ nm_supplicant_interface_p2p_connect(NMSupplicantInterface *self,
     g_variant_builder_add(&builder, "{sv}", "persistent", g_variant_new_boolean(FALSE));
     g_variant_builder_add(&builder, "{sv}", "go_intent", g_variant_new_int32(7));
     if (frequency) {
-        g_variant_builder_add (&builder, "{sv}", "frequency", g_variant_new_int32 (frequency));
+        g_variant_builder_add(&builder, "{sv}", "frequency", g_variant_new_int32(frequency));
     }
 
     _dbus_connection_call_simple(self,

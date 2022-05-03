@@ -50,14 +50,15 @@ NMWifiAP *nm_wifi_ap_new_fake_from_connection(NMConnection *connection);
 gboolean nm_wifi_ap_update_from_properties(NMWifiAP                          *ap,
                                            const struct _NMSupplicantBssInfo *bss_info);
 
-gboolean nm_wifi_ap_check_compatible(NMWifiAP *self, NMConnection *connection,
+gboolean nm_wifi_ap_check_compatible(NMWifiAP                *self,
+                                     NMConnection            *connection,
                                      NMDeviceWifiCapabilities dev_caps);
 
-gboolean nm_wifi_ap_complete_connection(NMWifiAP     *self,
-                                        NMConnection *connection,
-                                        gboolean      lock_bssid,
+gboolean nm_wifi_ap_complete_connection(NMWifiAP                *self,
+                                        NMConnection            *connection,
+                                        gboolean                 lock_bssid,
                                         NMDeviceWifiCapabilities dev_cap,
-                                        GError      **error);
+                                        GError                 **error);
 
 static inline NMRefString *
 nm_wifi_ap_get_supplicant_path(NMWifiAP *ap)
@@ -92,7 +93,8 @@ nm_wifi_ap_to_string(const NMWifiAP *self, char *str_buf, gulong buf_len, gint64
 
 const char **nm_wifi_aps_get_paths(const CList *aps_lst_head, gboolean include_without_ssid);
 
-NMWifiAP *nm_wifi_aps_find_first_compatible(const CList *aps_lst_head, NMConnection *connection,
+NMWifiAP *nm_wifi_aps_find_first_compatible(const CList             *aps_lst_head,
+                                            NMConnection            *connection,
                                             NMDeviceWifiCapabilities dev_caps);
 
 NMWifiAP *nm_wifi_ap_lookup_for_device(NMDevice *device, const char *exported_path);

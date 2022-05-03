@@ -32,11 +32,12 @@
 
 /*****************************************************************************/
 
-NM_GOBJECT_PROPERTIES_DEFINE_BASE(PROP_PEER, PROP_WPS_METHOD, PROP_WFD_IES,
-    PROP_DEVICE_NAME,
-    PROP_PEER_DEVICE_NAME,
-    PROP_FREQUENCY,
-);
+NM_GOBJECT_PROPERTIES_DEFINE_BASE(PROP_PEER,
+                                  PROP_WPS_METHOD,
+                                  PROP_WFD_IES,
+                                  PROP_DEVICE_NAME,
+                                  PROP_PEER_DEVICE_NAME,
+                                  PROP_FREQUENCY, );
 
 typedef struct {
     char   *peer;
@@ -45,7 +46,7 @@ typedef struct {
 
     char *device_name;
     char *peer_device_name;
-    int frequency;
+    int   frequency;
 
 } NMSettingWifiP2PPrivate;
 
@@ -90,11 +91,11 @@ nm_setting_wifi_p2p_get_peer(NMSettingWifiP2P *setting)
  * Since: 1.18
  **/
 const char *
-nm_setting_wifi_p2p_get_device_name (NMSettingWifiP2P *setting)
+nm_setting_wifi_p2p_get_device_name(NMSettingWifiP2P *setting)
 {
-    g_return_val_if_fail (NM_IS_SETTING_WIFI_P2P (setting), NULL);
+    g_return_val_if_fail(NM_IS_SETTING_WIFI_P2P(setting), NULL);
 
-    return NM_SETTING_WIFI_P2P_GET_PRIVATE (setting)->device_name;
+    return NM_SETTING_WIFI_P2P_GET_PRIVATE(setting)->device_name;
 }
 
 /**
@@ -106,11 +107,11 @@ nm_setting_wifi_p2p_get_device_name (NMSettingWifiP2P *setting)
  * Since: 1.18
  **/
 const char *
-nm_setting_wifi_p2p_get_peer_device_name (NMSettingWifiP2P *setting)
+nm_setting_wifi_p2p_get_peer_device_name(NMSettingWifiP2P *setting)
 {
-    g_return_val_if_fail (NM_IS_SETTING_WIFI_P2P (setting), NULL);
+    g_return_val_if_fail(NM_IS_SETTING_WIFI_P2P(setting), NULL);
 
-    return NM_SETTING_WIFI_P2P_GET_PRIVATE (setting)->peer_device_name;
+    return NM_SETTING_WIFI_P2P_GET_PRIVATE(setting)->peer_device_name;
 }
 
 /**
@@ -122,11 +123,11 @@ nm_setting_wifi_p2p_get_peer_device_name (NMSettingWifiP2P *setting)
  * Since: 1.18
  **/
 int
-nm_setting_wifi_p2p_get_frequency (NMSettingWifiP2P *setting)
+nm_setting_wifi_p2p_get_frequency(NMSettingWifiP2P *setting)
 {
-    g_return_val_if_fail (NM_IS_SETTING_WIFI_P2P (setting), (int) NULL);
+    g_return_val_if_fail(NM_IS_SETTING_WIFI_P2P(setting), (int) NULL);
 
-    return NM_SETTING_WIFI_P2P_GET_PRIVATE (setting)->frequency;
+    return NM_SETTING_WIFI_P2P_GET_PRIVATE(setting)->frequency;
 }
 
 /**
@@ -170,9 +171,7 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
     NMSettingWifiP2PPrivate *priv = NM_SETTING_WIFI_P2P_GET_PRIVATE(setting);
 
     // need at least one of the 'peer' properties to be set to identify the peer
-    if (!priv->peer &&
-        !priv->peer_device_name)
-    {
+    if (!priv->peer && !priv->peer_device_name) {
         g_set_error_literal(error,
                             NM_CONNECTION_ERROR,
                             NM_CONNECTION_ERROR_MISSING_PROPERTY,
@@ -186,11 +185,14 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
 
     if (priv->peer) {
         if (!nm_utils_hwaddr_valid(priv->peer, ETH_ALEN)) {
-            g_set_error_literal (error,
-                                 NM_CONNECTION_ERROR,
-                                 NM_CONNECTION_ERROR_INVALID_PROPERTY,
-                                 _("property is invalid"));
-            g_prefix_error (error, "%s.%s: ", NM_SETTING_WIFI_P2P_SETTING_NAME, NM_SETTING_WIFI_P2P_PEER);
+            g_set_error_literal(error,
+                                NM_CONNECTION_ERROR,
+                                NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                                _("property is invalid"));
+            g_prefix_error(error,
+                           "%s.%s: ",
+                           NM_SETTING_WIFI_P2P_SETTING_NAME,
+                           NM_SETTING_WIFI_P2P_PEER);
             return FALSE;
         }
     }
@@ -198,11 +200,14 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
     if (priv->device_name) {
         int len = strlen(priv->device_name);
         if (len < 1 || len > 32) {
-            g_set_error_literal (error,
-                                 NM_CONNECTION_ERROR,
-                                 NM_CONNECTION_ERROR_INVALID_PROPERTY,
-                                 _("property is invalid"));
-            g_prefix_error (error, "%s.%s: ", NM_SETTING_WIFI_P2P_SETTING_NAME, NM_SETTING_WIFI_P2P_DEVICE_NAME);
+            g_set_error_literal(error,
+                                NM_CONNECTION_ERROR,
+                                NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                                _("property is invalid"));
+            g_prefix_error(error,
+                           "%s.%s: ",
+                           NM_SETTING_WIFI_P2P_SETTING_NAME,
+                           NM_SETTING_WIFI_P2P_DEVICE_NAME);
             return FALSE;
         }
     }
@@ -210,11 +215,14 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
     if (priv->peer_device_name) {
         int len = strlen(priv->peer_device_name);
         if (len < 1 || len > 32) {
-            g_set_error_literal (error,
-                                 NM_CONNECTION_ERROR,
-                                 NM_CONNECTION_ERROR_INVALID_PROPERTY,
-                                 _("property is invalid"));
-            g_prefix_error (error, "%s.%s: ", NM_SETTING_WIFI_P2P_SETTING_NAME, NM_SETTING_WIFI_P2P_PEER_DEVICE_NAME);
+            g_set_error_literal(error,
+                                NM_CONNECTION_ERROR,
+                                NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                                _("property is invalid"));
+            g_prefix_error(error,
+                           "%s.%s: ",
+                           NM_SETTING_WIFI_P2P_SETTING_NAME,
+                           NM_SETTING_WIFI_P2P_PEER_DEVICE_NAME);
             return FALSE;
         }
     }

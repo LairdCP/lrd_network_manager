@@ -1034,16 +1034,16 @@ delete_connection(NMSettingsPlugin *plugin, NMSettingsStorage *storage_x, GError
         } else
             operation_message = "does not exist on disk";
     } else {
-        char *lease_path = g_strdup_printf (NMSTATEDIR "/*-%s-*.lease", uuid);
+        char  *lease_path = g_strdup_printf(NMSTATEDIR "/*-%s-*.lease", uuid);
         glob_t globbuf;
         size_t i;
 
-        if (!glob (lease_path, GLOB_NOSORT, NULL, &globbuf)) {
+        if (!glob(lease_path, GLOB_NOSORT, NULL, &globbuf)) {
             for (i = 0; i < globbuf.gl_pathc; ++i)
-                unlink (globbuf.gl_pathv[i]);
-            globfree (&globbuf);
+                unlink(globbuf.gl_pathv[i]);
+            globfree(&globbuf);
         }
-        g_free (lease_path);
+        g_free(lease_path);
         operation_message = "deleted from disk";
     }
 

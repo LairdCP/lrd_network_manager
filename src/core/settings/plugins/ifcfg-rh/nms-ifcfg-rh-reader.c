@@ -4061,10 +4061,11 @@ make_wpa_setting(shvarFile       *ifcfg,
     wpa_psk   = nm_streq0(v, "WPA-PSK");
     wpa_sae   = nm_streq0(v, "SAE");
     wpa_owe   = nm_streq0(v, "OWE");
-    wpa_eap = nm_streq0 (v, "WPA-EAP")
-        || nm_streq0 (v, "WPA-EAP-SUITE-B") || nm_streq0 (v, "WPA-EAP-SUITE-B-192");
     wpa3_eap  = nm_streq0(v, "WPA-EAP-SUITE-B-192");
     ieee8021x = nm_streq0(v, "IEEE8021X");
+
+    wpa_eap = nm_streq0(v, "WPA-EAP") || nm_streq0(v, "WPA-EAP-SUITE-B")
+              || nm_streq0(v, "WPA-EAP-SUITE-B-192");
     if (!wpa_psk && !wpa_sae && !wpa_owe && !wpa_eap && !wpa3_eap && !ieee8021x)
         return NULL; /* Not WPA or Dynamic WEP */
 
@@ -4165,11 +4166,9 @@ make_wpa_setting(shvarFile       *ifcfg,
     g_object_set(wsec, NM_SETTING_WIRELESS_SECURITY_FILS, i_val, NULL);
 
     i_val = NM_SETTING_WIRELESS_SECURITY_FT_DEFAULT;
-    if (!svGetValueEnum (ifcfg, "FT",
-                         nm_setting_wireless_security_ft_get_type (),
-                         &i_val, error))
+    if (!svGetValueEnum(ifcfg, "FT", nm_setting_wireless_security_ft_get_type(), &i_val, error))
         return NULL;
-    g_object_set (wsec, NM_SETTING_WIRELESS_SECURITY_FT, i_val, NULL);
+    g_object_set(wsec, NM_SETTING_WIRELESS_SECURITY_FT, i_val, NULL);
 
     nm_clear_g_free(&value);
     v = svGetValueStr(ifcfg, "SECURITYMODE", &value);
@@ -4417,21 +4416,20 @@ make_wireless_setting(shvarFile *ifcfg, GError **error)
         g_free(value);
     }
 
-    value = svGetValueStr_cp (ifcfg, "CHANNEL_WIDTH");
+    value = svGetValueStr_cp(ifcfg, "CHANNEL_WIDTH");
     if (value) {
-        if (strcmp (value, "20") &&
-            strcmp (value, "40") &&
-            strcmp (value, "40+") &&
-            strcmp (value, "40-") &&
-            strcmp (value, "80"))
-        {
-            g_set_error (error, NM_SETTINGS_ERROR, NM_SETTINGS_ERROR_INVALID_CONNECTION,
-                         "Invalid wireless channel width '%s'", value);
-            g_free (value);
+        if (strcmp(value, "20") && strcmp(value, "40") && strcmp(value, "40+")
+            && strcmp(value, "40-") && strcmp(value, "80")) {
+            g_set_error(error,
+                        NM_SETTINGS_ERROR,
+                        NM_SETTINGS_ERROR_INVALID_CONNECTION,
+                        "Invalid wireless channel width '%s'",
+                        value);
+            g_free(value);
             goto error;
         }
-        g_object_set (s_wireless, NM_SETTING_WIRELESS_CHANNEL_WIDTH, value, NULL);
-        g_free (value);
+        g_object_set(s_wireless, NM_SETTING_WIRELESS_CHANNEL_WIDTH, value, NULL);
+        g_free(value);
     }
 
     value = svGetValueStr_cp(ifcfg, "BAND");

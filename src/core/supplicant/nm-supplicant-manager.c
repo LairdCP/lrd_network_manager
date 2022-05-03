@@ -235,8 +235,7 @@ nm_supplicant_manager_set_wfd_ies(NMSupplicantManager *self, GBytes *wfd_ies)
 
     priv = NM_SUPPLICANT_MANAGER_GET_PRIVATE(self);
 
-    if (NM_TERNARY_TRUE != NM_SUPPL_CAP_MASK_GET (priv->capabilities,
-                                                   NM_SUPPL_CAP_TYPE_WFD)) {
+    if (NM_TERNARY_TRUE != NM_SUPPL_CAP_MASK_GET(priv->capabilities, NM_SUPPL_CAP_TYPE_WFD)) {
         return;
     }
     if (!priv->name_owner)
@@ -926,7 +925,10 @@ _dbus_get_capabilities_cb(GVariant *res, GError *error, gpointer user_data)
                     _caps_set(priv, NM_SUPPL_CAP_TYPE_SUITEB192, NM_TERNARY_FALSE);
                     if (array) {
                         for (a = array; *a; a++) {
-                            if (nm_streq (*a, "laird-features"))   { _caps_set (priv, NM_SUPPL_CAP_TYPE_LAIRD,   NM_TERNARY_TRUE); continue; }
+                            if (nm_streq(*a, "laird-features")) {
+                                _caps_set(priv, NM_SUPPL_CAP_TYPE_LAIRD, NM_TERNARY_TRUE);
+                                continue;
+                            }
                             if (nm_streq(*a, "ap")) {
                                 _caps_set(priv, NM_SUPPL_CAP_TYPE_AP, NM_TERNARY_TRUE);
                                 continue;

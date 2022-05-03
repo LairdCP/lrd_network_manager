@@ -314,6 +314,7 @@ typedef enum { /*< flags >*/
                NM_WIFI_DEVICE_CAP_FREQ_5GHZ     = 0x00000400,
                NM_WIFI_DEVICE_CAP_MESH          = 0x00001000,
                NM_WIFI_DEVICE_CAP_IBSS_RSN      = 0x00002000,
+               /* Laird: this separator prevents clang-reformat of upstream */
                NM_WIFI_DEVICE_CAP_CIPHER_CCMP_256 = 0x00010000,
                NM_WIFI_DEVICE_CAP_CIPHER_GCMP_128 = 0x00020000,
                NM_WIFI_DEVICE_CAP_CIPHER_GCMP_256 = 0x00040000,
@@ -431,38 +432,25 @@ typedef enum { /*< underscore_name=nm_802_11_ap_security_flags, flags >*/
 
 #define NM_802_11_AP_SEC_GROUP_CCMP_128 NM_802_11_AP_SEC_GROUP_CCMP
 
-#define NM_802_11_AP_SEC_PAIR_MASK \
-    (NM_802_11_AP_SEC_PAIR_WEP40|               \
-     NM_802_11_AP_SEC_PAIR_WEP104|              \
-     NM_802_11_AP_SEC_PAIR_TKIP|                \
-     NM_802_11_AP_SEC_PAIR_CCMP|                \
-     NM_802_11_AP_SEC_PAIR_CCMP_256|            \
-     NM_802_11_AP_SEC_PAIR_GCMP_128|            \
-     NM_802_11_AP_SEC_PAIR_GCMP_256)
+#define NM_802_11_AP_SEC_PAIR_MASK                                                           \
+    (NM_802_11_AP_SEC_PAIR_WEP40 | NM_802_11_AP_SEC_PAIR_WEP104 | NM_802_11_AP_SEC_PAIR_TKIP \
+     | NM_802_11_AP_SEC_PAIR_CCMP | NM_802_11_AP_SEC_PAIR_CCMP_256                           \
+     | NM_802_11_AP_SEC_PAIR_GCMP_128 | NM_802_11_AP_SEC_PAIR_GCMP_256)
 
-#define NM_802_11_AP_SEC_GROUP_MASK             \
-    (NM_802_11_AP_SEC_GROUP_WEP40|              \
-     NM_802_11_AP_SEC_GROUP_WEP104|             \
-     NM_802_11_AP_SEC_GROUP_TKIP|               \
-     NM_802_11_AP_SEC_GROUP_CCMP|               \
-     NM_802_11_AP_SEC_GROUP_CCMP_256|           \
-     NM_802_11_AP_SEC_GROUP_GCMP_128|           \
-     NM_802_11_AP_SEC_GROUP_GCMP_256)
+#define NM_802_11_AP_SEC_GROUP_MASK                                                             \
+    (NM_802_11_AP_SEC_GROUP_WEP40 | NM_802_11_AP_SEC_GROUP_WEP104 | NM_802_11_AP_SEC_GROUP_TKIP \
+     | NM_802_11_AP_SEC_GROUP_CCMP | NM_802_11_AP_SEC_GROUP_CCMP_256                            \
+     | NM_802_11_AP_SEC_GROUP_GCMP_128 | NM_802_11_AP_SEC_GROUP_GCMP_256)
 
-#define NM_802_11_AP_SEC_KEY_MGMT_MASK          \
-    (NM_802_11_AP_SEC_KEY_MGMT_PSK|             \
-     NM_802_11_AP_SEC_KEY_MGMT_802_1X|          \
-     NM_802_11_AP_SEC_KEY_MGMT_SAE|             \
-     NM_802_11_AP_SEC_KEY_MGMT_CCKM|            \
-     NM_802_11_AP_SEC_KEY_MGMT_SUITE_B|         \
-     NM_802_11_AP_SEC_KEY_MGMT_EAP_SUITE_B_192| \
-     NM_802_11_AP_SEC_KEY_MGMT_OWE)
+#define NM_802_11_AP_SEC_KEY_MGMT_MASK                                               \
+    (NM_802_11_AP_SEC_KEY_MGMT_PSK | NM_802_11_AP_SEC_KEY_MGMT_802_1X                \
+     | NM_802_11_AP_SEC_KEY_MGMT_SAE | NM_802_11_AP_SEC_KEY_MGMT_CCKM                \
+     | NM_802_11_AP_SEC_KEY_MGMT_SUITE_B | NM_802_11_AP_SEC_KEY_MGMT_EAP_SUITE_B_192 \
+     | NM_802_11_AP_SEC_KEY_MGMT_OWE)
 
-#define NM_802_11_AP_SEC_MGMT_GROUP_MASK        \
-    (NM_802_11_AP_SEC_MGMT_GROUP_CMAC_128|      \
-     NM_802_11_AP_SEC_MGMT_GROUP_CMAC_256|      \
-     NM_802_11_AP_SEC_MGMT_GROUP_GMAC_128|      \
-     NM_802_11_AP_SEC_MGMT_GROUP_GMAC_256)
+#define NM_802_11_AP_SEC_MGMT_GROUP_MASK                                         \
+    (NM_802_11_AP_SEC_MGMT_GROUP_CMAC_128 | NM_802_11_AP_SEC_MGMT_GROUP_CMAC_256 \
+     | NM_802_11_AP_SEC_MGMT_GROUP_GMAC_128 | NM_802_11_AP_SEC_MGMT_GROUP_GMAC_256)
 
 /**
  * NM80211Mode:

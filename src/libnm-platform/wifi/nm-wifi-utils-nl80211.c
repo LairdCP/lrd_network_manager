@@ -557,7 +557,7 @@ nla_put_failure:
 }
 
 static gboolean
-wifi_nl80211_get_can_apscan (NMWifiUtils *data)
+wifi_nl80211_get_can_apscan(NMWifiUtils *data)
 {
     NMWifiUtilsNl80211 *self = (NMWifiUtilsNl80211 *) data;
     if (!self->can_apscan)
@@ -577,7 +577,7 @@ struct nl80211_device_info {
     gboolean            supported;
     gboolean            success;
     gboolean            can_wowlan;
-    gboolean can_apscan;
+    gboolean            can_apscan;
 };
 
 #define WLAN_CIPHER_SUITE_USE_GROUP 0x000FAC00

@@ -3059,15 +3059,15 @@ nm_platform_wifi_set_wake_on_wlan(NMPlatform *self, int ifindex, _NMSettingWirel
 }
 
 gboolean
-nm_platform_wifi_get_can_apscan (NMPlatform *self, int ifindex)
+nm_platform_wifi_get_can_apscan(NMPlatform *self, int ifindex)
 {
-    _CHECK_SELF (self, klass, FALSE);
+    _CHECK_SELF(self, klass, FALSE);
 
-    g_return_val_if_fail (ifindex > 0, FALSE);
+    g_return_val_if_fail(ifindex > 0, FALSE);
 
-    g_return_val_if_fail (klass->wifi_get_can_apscan != NULL, FALSE);
+    g_return_val_if_fail(klass->wifi_get_can_apscan != NULL, FALSE);
 
-    return klass->wifi_get_can_apscan (self, ifindex);
+    return klass->wifi_get_can_apscan(self, ifindex);
 }
 
 guint32

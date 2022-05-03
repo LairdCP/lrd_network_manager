@@ -118,10 +118,8 @@ typedef struct {
     _NMSettingWirelessWakeOnWLan wowlan_restore;
 
     NMDeviceWifiP2P *p2p_device;
-
-    guint8            max_scan_interval; // max scan_interval while disconnected
-
     _NM80211Mode     mode;
+    guint8           max_scan_interval;  // max scan_interval while disconnected
 
     guint32 failed_iface_count;
     gint32  hw_addr_scan_expire;
@@ -958,12 +956,11 @@ deactivate(NMDevice *device)
      * (usually older ones) don't scan well in adhoc mode.
      */
     /* BZ14067: 60: stop NM from changing AP interface to managed */
-    if (nm_platform_wifi_get_mode (nm_device_get_platform (device), ifindex) == NM_802_11_MODE_AP &&
-        nm_platform_wifi_get_can_apscan (nm_device_get_platform (device), ifindex))
-    {
+    if (nm_platform_wifi_get_mode(nm_device_get_platform(device), ifindex) == NM_802_11_MODE_AP
+        && nm_platform_wifi_get_can_apscan(nm_device_get_platform(device), ifindex)) {
         ; /* leave in AP mode if can_apscan */
-    }
-    else if (nm_platform_wifi_get_mode (nm_device_get_platform (device), ifindex) != NM_802_11_MODE_INFRA) {
+    } else if (nm_platform_wifi_get_mode(nm_device_get_platform(device), ifindex)
+               != NM_802_11_MODE_INFRA) {
         nm_device_take_down(NM_DEVICE(self), TRUE);
         nm_platform_wifi_set_mode(nm_device_get_platform(device), ifindex, _NM_802_11_MODE_INFRA);
         nm_device_bring_up(NM_DEVICE(self), TRUE, NULL);
@@ -984,73 +981,72 @@ deactivate_reset_hw_addr(NMDevice *device)
 }
 
 static gboolean
-warn_wireless_requires_laird_support(NMDeviceWifi *self, NMSettingWireless *s_wireless, NMSetting8021x *s_8021x)
+warn_wireless_requires_laird_support(NMDeviceWifi      *self,
+                                     NMSettingWireless *s_wireless,
+                                     NMSetting8021x    *s_8021x)
 {
     gboolean rv = FALSE;
     // note, logging macros require self
     if (nm_setting_wireless_get_ccx(s_wireless) != NM_SETTING_WIRELESS_CCX_DISABLE) {
-        _LOGW (LOGD_WIFI, "Supplicant does not support CCX.");
+        _LOGW(LOGD_WIFI, "Supplicant does not support CCX.");
         rv = TRUE;
     }
     if (nm_setting_wireless_get_client_name(s_wireless)) {
-        _LOGW (LOGD_WIFI, "Supplicant does not support client name.");
+        _LOGW(LOGD_WIFI, "Supplicant does not support client name.");
         rv = TRUE;
     }
-    if (nm_setting_wireless_get_scan_delay (s_wireless) != 0) {
-        _LOGW (LOGD_WIFI, "Supplicant does not support scan-delay.");
+    if (nm_setting_wireless_get_scan_delay(s_wireless) != 0) {
+        _LOGW(LOGD_WIFI, "Supplicant does not support scan-delay.");
         rv = TRUE;
     }
-    if (nm_setting_wireless_get_scan_dwell (s_wireless) != 0) {
-        _LOGW (LOGD_WIFI, "Supplicant does not support scan-dwell.");
+    if (nm_setting_wireless_get_scan_dwell(s_wireless) != 0) {
+        _LOGW(LOGD_WIFI, "Supplicant does not support scan-dwell.");
         rv = TRUE;
     }
-    if (nm_setting_wireless_get_scan_passive_dwell (s_wireless) != 0) {
-        _LOGW (LOGD_WIFI, "Supplicant does not support scan-passive-dwell.");
+    if (nm_setting_wireless_get_scan_passive_dwell(s_wireless) != 0) {
+        _LOGW(LOGD_WIFI, "Supplicant does not support scan-passive-dwell.");
         rv = TRUE;
     }
-    if (nm_setting_wireless_get_scan_suspend_time (s_wireless) != 0) {
-        _LOGW (LOGD_WIFI, "Supplicant does not support scan-suspend-time.");
+    if (nm_setting_wireless_get_scan_suspend_time(s_wireless) != 0) {
+        _LOGW(LOGD_WIFI, "Supplicant does not support scan-suspend-time.");
         rv = TRUE;
     }
-    if (nm_setting_wireless_get_scan_roam_delta (s_wireless) != 0) {
-        _LOGW (LOGD_WIFI, "Supplicant does not support scan-roam-delta.");
+    if (nm_setting_wireless_get_scan_roam_delta(s_wireless) != 0) {
+        _LOGW(LOGD_WIFI, "Supplicant does not support scan-roam-delta.");
         rv = TRUE;
     }
-    if (nm_setting_wireless_get_auth_timeout (s_wireless) != 0) {
-        _LOGW (LOGD_WIFI, "Supplicant does not support auth-timeout.");
+    if (nm_setting_wireless_get_auth_timeout(s_wireless) != 0) {
+        _LOGW(LOGD_WIFI, "Supplicant does not support auth-timeout.");
         rv = TRUE;
     }
-    if (nm_setting_802_1x_get_pac_file_password (s_8021x) != 0) {
-        _LOGW (LOGD_WIFI, "Supplicant does not support pac-file-password.");
+    if (nm_setting_802_1x_get_pac_file_password(s_8021x) != 0) {
+        _LOGW(LOGD_WIFI, "Supplicant does not support pac-file-password.");
         rv = TRUE;
     }
     return rv;
 }
 
-
 static gboolean
-has_proto (NMSettingWirelessSecurity *s_wsec, const char *proto)
+has_proto(NMSettingWirelessSecurity *s_wsec, const char *proto)
 {
     int i;
 
-    for (i = 0; i < nm_setting_wireless_security_get_num_protos (s_wsec); i++) {
-        if (g_strcmp0 (proto, nm_setting_wireless_security_get_proto (s_wsec, i)) == 0)
+    for (i = 0; i < nm_setting_wireless_security_get_num_protos(s_wsec); i++) {
+        if (g_strcmp0(proto, nm_setting_wireless_security_get_proto(s_wsec, i)) == 0)
             return TRUE;
     }
     return FALSE;
 }
 
-#define WPA_CAPS (NM_WIFI_DEVICE_CAP_CIPHER_TKIP | \
-                  NM_WIFI_DEVICE_CAP_CIPHER_CCMP | \
-                  NM_WIFI_DEVICE_CAP_WPA | \
-                  NM_WIFI_DEVICE_CAP_RSN)
+#define WPA_CAPS                                                                              \
+    (NM_WIFI_DEVICE_CAP_CIPHER_TKIP | NM_WIFI_DEVICE_CAP_CIPHER_CCMP | NM_WIFI_DEVICE_CAP_WPA \
+     | NM_WIFI_DEVICE_CAP_RSN)
 
 #define RSN_CAPS (NM_WIFI_DEVICE_CAP_CIPHER_CCMP | NM_WIFI_DEVICE_CAP_RSN)
 
-#define RSN_CAPS_PMF (NM_WIFI_DEVICE_CAP_CIPHER_CMAC_128 |  \
-                      NM_WIFI_DEVICE_CAP_CIPHER_CMAC_256 |  \
-                      NM_WIFI_DEVICE_CAP_CIPHER_GMAC_128 |  \
-                      NM_WIFI_DEVICE_CAP_CIPHER_GMAC_256)
+#define RSN_CAPS_PMF                                                         \
+    (NM_WIFI_DEVICE_CAP_CIPHER_CMAC_128 | NM_WIFI_DEVICE_CAP_CIPHER_CMAC_256 \
+     | NM_WIFI_DEVICE_CAP_CIPHER_GMAC_128 | NM_WIFI_DEVICE_CAP_CIPHER_GMAC_256)
 
 static gboolean
 check_connection_compatible(NMDevice *device, NMConnection *connection, GError **error)
@@ -1058,14 +1054,15 @@ check_connection_compatible(NMDevice *device, NMConnection *connection, GError *
     NMDeviceWifi        *self = NM_DEVICE_WIFI(device);
     NMDeviceWifiPrivate *priv = NM_DEVICE_WIFI_GET_PRIVATE(self);
     NMSettingWireless   *s_wireless;
-    NMSettingWirelessSecurity *s_wsec;
-    NMDeviceWifiCapabilities wifi_caps;
-    const char          *key_mgmt;
     const char          *mac;
     const char *const   *mac_blacklist;
     int                  i;
     const char          *mode;
     const char          *perm_hw_addr;
+
+    NMSettingWirelessSecurity *s_wsec;
+    NMDeviceWifiCapabilities   wifi_caps;
+    const char                *key_mgmt;
 
     if (!NM_DEVICE_CLASS(nm_device_wifi_parent_class)
              ->check_connection_compatible(device, connection, error))
@@ -1155,67 +1152,82 @@ check_connection_compatible(NMDevice *device, NMConnection *connection, GError *
     // FIXME: check bitrate against device capabilities
 
     /* Check device capabilities; we assume all devices can do WEP at least */
-    s_wsec = nm_connection_get_setting_wireless_security (connection);
+    s_wsec = nm_connection_get_setting_wireless_security(connection);
     if (s_wsec) {
         /* Connection has security, verify it against the device's capabilities */
-        key_mgmt = nm_setting_wireless_security_get_key_mgmt (s_wsec);
-        if (   !g_strcmp0 (key_mgmt, "wpa-psk")
-            || !g_strcmp0 (key_mgmt, "sae")
-            || !g_strcmp0 (key_mgmt, "wpa-eap-suite-b")
-            || !g_strcmp0 (key_mgmt, "wpa-eap-suite-b-192")
-            || !g_strcmp0 (key_mgmt, "owe")
-            || !g_strcmp0 (key_mgmt, "owe-only")
-            || !g_strcmp0 (key_mgmt, "wpa-eap")) {
-
+        key_mgmt = nm_setting_wireless_security_get_key_mgmt(s_wsec);
+        if (!g_strcmp0(key_mgmt, "wpa-psk") || !g_strcmp0(key_mgmt, "sae")
+            || !g_strcmp0(key_mgmt, "wpa-eap-suite-b")
+            || !g_strcmp0(key_mgmt, "wpa-eap-suite-b-192") || !g_strcmp0(key_mgmt, "owe")
+            || !g_strcmp0(key_mgmt, "owe-only") || !g_strcmp0(key_mgmt, "wpa-eap")) {
             wifi_caps = priv->capabilities;
 
             /* Is device only WEP capable? */
             if (!(wifi_caps & WPA_CAPS)) {
-                g_set_error_literal (error, NM_DEVICE_ERROR, NM_DEVICE_ERROR_INCOMPATIBLE_CONNECTION,
-                                     _("The device is lacking capabilities required by the connection."));
+                g_set_error_literal(
+                    error,
+                    NM_DEVICE_ERROR,
+                    NM_DEVICE_ERROR_INCOMPATIBLE_CONNECTION,
+                    _("The device is lacking capabilities required by the connection."));
                 return FALSE;
             }
 
             /* Make sure WPA2/RSN-only connections don't get chosen for WPA-only cards */
-            if ( (has_proto (s_wsec, "rsn")||has_proto (s_wsec, "wpa3"))
-                 && !has_proto (s_wsec, "wpa") && !(wifi_caps & RSN_CAPS)) {
-                g_set_error_literal (error, NM_DEVICE_ERROR, NM_DEVICE_ERROR_INCOMPATIBLE_CONNECTION,
-                                     _("The device is lacking WPA2/RSN capabilities required by the connection."));
+            if ((has_proto(s_wsec, "rsn") || has_proto(s_wsec, "wpa3")) && !has_proto(s_wsec, "wpa")
+                && !(wifi_caps & RSN_CAPS)) {
+                g_set_error_literal(
+                    error,
+                    NM_DEVICE_ERROR,
+                    NM_DEVICE_ERROR_INCOMPATIBLE_CONNECTION,
+                    _("The device is lacking WPA2/RSN capabilities required by the connection."));
                 return FALSE;
             }
 
-            if (has_proto (s_wsec, "wpa3")) {
+            if (has_proto(s_wsec, "wpa3")) {
                 if (!(wifi_caps & RSN_CAPS_PMF)) {
-                    g_set_error_literal (error, NM_DEVICE_ERROR, NM_DEVICE_ERROR_INCOMPATIBLE_CONNECTION,
-                                         _("The device is lacking PMF capabilities required by the connection."));
+                    g_set_error_literal(
+                        error,
+                        NM_DEVICE_ERROR,
+                        NM_DEVICE_ERROR_INCOMPATIBLE_CONNECTION,
+                        _("The device is lacking PMF capabilities required by the connection."));
                     return FALSE;
                 }
-                if (!g_strcmp0 (key_mgmt, "wpa-eap-suite-b-192") &&
-                    !(wifi_caps & NM_WIFI_DEVICE_CAP_CIPHER_GCMP_256) &&
-                    !(wifi_caps & NM_WIFI_DEVICE_CAP_CIPHER_GMAC_256))
-                {
-                    g_set_error_literal (error, NM_DEVICE_ERROR, NM_DEVICE_ERROR_INCOMPATIBLE_CONNECTION,
-                                         _("The device is lacking wpa3 suite-b-192 gcmp-256/gmac-256 capabilities required by the connection."));
+                if (!g_strcmp0(key_mgmt, "wpa-eap-suite-b-192")
+                    && !(wifi_caps & NM_WIFI_DEVICE_CAP_CIPHER_GCMP_256)
+                    && !(wifi_caps & NM_WIFI_DEVICE_CAP_CIPHER_GMAC_256)) {
+                    g_set_error_literal(
+                        error,
+                        NM_DEVICE_ERROR,
+                        NM_DEVICE_ERROR_INCOMPATIBLE_CONNECTION,
+                        _("The device is lacking wpa3 suite-b-192 gcmp-256/gmac-256 capabilities "
+                          "required by the connection."));
                     return FALSE;
                 }
             } else {
-                if (!g_strcmp0 (key_mgmt, "wpa-eap-suite-b-192") &&
-                    !(wifi_caps & (NM_WIFI_DEVICE_CAP_CIPHER_CCMP_256|
-                                   NM_WIFI_DEVICE_CAP_CIPHER_GCMP_256)) &&
-                    !(wifi_caps & (NM_WIFI_DEVICE_CAP_CIPHER_CMAC_256|
-                                   NM_WIFI_DEVICE_CAP_CIPHER_GMAC_256)))
-                {
-                    g_set_error_literal (error, NM_DEVICE_ERROR, NM_DEVICE_ERROR_INCOMPATIBLE_CONNECTION,
-                                         _("The device is lacking suite-b-192 ccmp-256/gcmp-256, or cmac-256/gmac-256 capabilities required by the connection."));
+                if (!g_strcmp0(key_mgmt, "wpa-eap-suite-b-192")
+                    && !(
+                        wifi_caps
+                        & (NM_WIFI_DEVICE_CAP_CIPHER_CCMP_256 | NM_WIFI_DEVICE_CAP_CIPHER_GCMP_256))
+                    && !(wifi_caps
+                         & (NM_WIFI_DEVICE_CAP_CIPHER_CMAC_256
+                            | NM_WIFI_DEVICE_CAP_CIPHER_GMAC_256))) {
+                    g_set_error_literal(
+                        error,
+                        NM_DEVICE_ERROR,
+                        NM_DEVICE_ERROR_INCOMPATIBLE_CONNECTION,
+                        _("The device is lacking suite-b-192 ccmp-256/gcmp-256, or "
+                          "cmac-256/gmac-256 capabilities required by the connection."));
                     return FALSE;
                 }
             }
-            if (!g_strcmp0 (key_mgmt, "wpa-eap-suite-b") &&
-                !(wifi_caps & NM_WIFI_DEVICE_CAP_CIPHER_GCMP_128) &&
-                !(wifi_caps & NM_WIFI_DEVICE_CAP_CIPHER_GMAC_128))
-            {
-                g_set_error_literal (error, NM_DEVICE_ERROR, NM_DEVICE_ERROR_INCOMPATIBLE_CONNECTION,
-                                     _("The device is lacking suite-b gcmp/gmac capabilities required by the connection."));
+            if (!g_strcmp0(key_mgmt, "wpa-eap-suite-b")
+                && !(wifi_caps & NM_WIFI_DEVICE_CAP_CIPHER_GCMP_128)
+                && !(wifi_caps & NM_WIFI_DEVICE_CAP_CIPHER_GMAC_128)) {
+                g_set_error_literal(error,
+                                    NM_DEVICE_ERROR,
+                                    NM_DEVICE_ERROR_INCOMPATIBLE_CONNECTION,
+                                    _("The device is lacking suite-b gcmp/gmac capabilities "
+                                      "required by the connection."));
                 return FALSE;
             }
         }
@@ -1336,7 +1348,9 @@ complete_connection(NMDevice            *device,
 
         if (!nm_streq0(mode, NM_SETTING_WIRELESS_MODE_AP)) {
             /* Find a compatible AP in the scan list */
-            ap = nm_wifi_aps_find_first_compatible(&priv->aps_lst_head, connection, priv->capabilities);
+            ap = nm_wifi_aps_find_first_compatible(&priv->aps_lst_head,
+                                                   connection,
+                                                   priv->capabilities);
 
             /* If we still don't have an AP, then the WiFI settings needs to be
              * fully specified by the client.  Might not be able to find an AP
@@ -1693,29 +1707,31 @@ _nm_device_wifi_request_scan(NMDeviceWifi          *self,
 
 typedef struct {
     int *ptr;
-    int count;
+    int  count;
 } int_list;
 
 // creates an ordered array of unique integers (frequencies)
 static void
 int_list_add_int(int_list *plist, int v)
 {
-    int *pint = plist->ptr;
-    int num_int = plist->count;
-    int i;
-    for (i=0; i<num_int; i++) {
-        if (v == pint[i]) return;
-        if (v < pint[i]) break;
+    int *pint    = plist->ptr;
+    int  num_int = plist->count;
+    int  i;
+    for (i = 0; i < num_int; i++) {
+        if (v == pint[i])
+            return;
+        if (v < pint[i])
+            break;
     }
     pint = realloc(pint, sizeof(int) * (num_int + 1));
     if (!pint)
-        return; // allocate failed? return unmodified list.
+        return;  // allocate failed? return unmodified list.
     if (i != num_int) {
         // move entries up
-        memmove(&pint[i+1], &pint[i], sizeof(int) * (num_int - i));
+        memmove(&pint[i + 1], &pint[i], sizeof(int) * (num_int - i));
     }
-    pint[i] = v;
-    plist->ptr = pint;
+    pint[i]      = v;
+    plist->ptr   = pint;
     plist->count = num_int + 1;
 }
 
@@ -1733,8 +1749,8 @@ int_list_add_string(int_list *plist, const char *v)
             v++;
         } else {
             guint32 add_int;
-            char *end;
-            add_int = strtoul (v, &end, 10);
+            char   *end;
+            add_int = strtoul(v, &end, 10);
             if (*end != '\0' && *end != ' ') {
                 // invalid characters in list
                 return;
@@ -1756,45 +1772,36 @@ int_list_add_aint(int_list *plist, const int *v)
 }
 
 typedef struct {
-    const char *ifname; // ifname for filtering connections
-    int profile_count; // count of profiles
-    int require_bcast_ssid; // set if any profile has hidden==0
-    int require_all_freq; // set if any profile does not have a frequency_list
-    int require_dfs; // set if any profile has dfs channels enabled
-    int max_scan_interval; // the smallest non-default(0) max_scan_interval
+    const char       *ifname;              // ifname for filtering connections
+    int               profile_count;       // count of profiles
+    int               require_bcast_ssid;  // set if any profile has hidden==0
+    int               require_all_freq;    // set if any profile does not have a frequency_list
+    int               require_dfs;         // set if any profile has dfs channels enabled
+    int               max_scan_interval;   // the smallest non-default(0) max_scan_interval
     LairdScanSettings lss;
 } BuildLSS;
 
 // note: should match lists in src/supplicant/nm-supplicant-config.c
-static int scan_a_freq[] = {
-    5180, 5200, 5220, 5240,
-    5260, 5280, 5300, 5320,
-    5500, 5520, 5540, 5560,
-    5580, 5600, 5620, 5640,
-    5660, 5680, 5700, 5720,
-    5745, 5765, 5785, 5805, 5825,
-    0
-};
+static int scan_a_freq[] = {5180, 5200, 5220, 5240, 5260, 5280, 5300, 5320, 5500,
+                            5520, 5540, 5560, 5580, 5600, 5620, 5640, 5660, 5680,
+                            5700, 5720, 5745, 5765, 5785, 5805, 5825, 0};
 
-static int scan_bg_freq[] = {
-    2412, 2417, 2422, 2427, 2432, 2437, 2442, 2447, 2452, 2457, 2462, 2467,
-    2472,
-    2484,
-    0
-};
+static int scan_bg_freq[] =
+    {2412, 2417, 2422, 2427, 2432, 2437, 2442, 2447, 2452, 2457, 2462, 2467, 2472, 2484, 0};
 
 // similar to nm_utils_wifi_freq_to_channel()
 // converts a channel/band to one of the above supported frequencies
 // returns 0 if no match is found
-static int _channel_to_freq(guint32 channel, const char *band)
+static int
+_channel_to_freq(guint32 channel, const char *band)
 {
-    if (!strcmp (band, "bg")) {
+    if (!strcmp(band, "bg")) {
         if (1 <= channel && channel <= 14) {
             return scan_bg_freq[channel - 1];
         }
         return 0;
     }
-    if (!strcmp (band, "a")) {
+    if (!strcmp(band, "a")) {
         if (0 < channel && channel < 200) {
             return 5000 + 5 * channel;
         }
@@ -1808,42 +1815,42 @@ static int _channel_to_freq(guint32 channel, const char *band)
 static void
 build_laird_scan(NMSettingWireless *s_wifi, gpointer user_data)
 {
-    BuildLSS *scan = (BuildLSS*)user_data;
+    BuildLSS   *scan = (BuildLSS *) user_data;
     const char *frequency_list;
     const char *band;
-    guint32 channel;
-    guint32 v;
+    guint32     channel;
+    guint32     v;
 
     scan->profile_count++;
 
     // if any profile is not a hidden ssid, then include broadcast ssid
-    if (nm_setting_wireless_get_hidden (s_wifi) == 0)
+    if (nm_setting_wireless_get_hidden(s_wifi) == 0)
         scan->require_bcast_ssid = 1;
 
     if (!scan->require_all_freq) {
-        frequency_list = nm_setting_wireless_get_frequency_list (s_wifi);
-        band = nm_setting_wireless_get_band (s_wifi);
-        channel = nm_setting_wireless_get_channel (s_wifi);
+        frequency_list = nm_setting_wireless_get_frequency_list(s_wifi);
+        band           = nm_setting_wireless_get_band(s_wifi);
+        channel        = nm_setting_wireless_get_channel(s_wifi);
         // accumulate frequency list from profiles
         if (frequency_list) {
-            int_list_add_string((int_list*)(&scan->lss.freqs), frequency_list);
-        } else  if (band) {
+            int_list_add_string((int_list *) (&scan->lss.freqs), frequency_list);
+        } else if (band) {
             const int *pifreqs = NULL;
-            gint32 freq = 0;
-            int aifreqs[2];
+            gint32     freq    = 0;
+            int        aifreqs[2];
             if (channel) {
-                freq = _channel_to_freq (channel, band);
+                freq = _channel_to_freq(channel, band);
             }
             if (freq) {
                 aifreqs[0] = freq;
                 aifreqs[1] = 0;
-                pifreqs = aifreqs;
-            } else if (!strcmp (band, "a"))
+                pifreqs    = aifreqs;
+            } else if (!strcmp(band, "a"))
                 pifreqs = scan_a_freq;
-            else if (!strcmp (band, "bg"))
+            else if (!strcmp(band, "bg"))
                 pifreqs = scan_bg_freq;
             if (pifreqs) {
-                int_list_add_aint((int_list*)(&scan->lss.freqs), pifreqs);
+                int_list_add_aint((int_list *) (&scan->lss.freqs), pifreqs);
             } else {
                 scan->require_all_freq = 1;
             }
@@ -1853,7 +1860,7 @@ build_laird_scan(NMSettingWireless *s_wifi, gpointer user_data)
         if (scan->require_all_freq) {
             // clear scan frequency list
             free(scan->lss.freqs.ptr);
-            scan->lss.freqs.ptr = NULL;
+            scan->lss.freqs.ptr   = NULL;
             scan->lss.freqs.count = 0;
         }
     }
@@ -1861,7 +1868,7 @@ build_laird_scan(NMSettingWireless *s_wifi, gpointer user_data)
     // disable dfs channels if all profiles have dfs disabled
     if (!scan->require_dfs) {
         if (nm_setting_wireless_get_frequency_dfs(s_wifi)) {
-            scan->require_dfs = 1;
+            scan->require_dfs       = 1;
             scan->lss.frequency_dfs = 1;
         } else {
             scan->lss.frequency_dfs = 0;
@@ -1877,11 +1884,14 @@ build_laird_scan(NMSettingWireless *s_wifi, gpointer user_data)
 
     // take the largest scan_delay/scan_dwell/scan_passive_dwell
     v = nm_setting_wireless_get_scan_delay(s_wifi);
-    if (v > scan->lss.scan_delay) scan->lss.scan_delay = v;
+    if (v > scan->lss.scan_delay)
+        scan->lss.scan_delay = v;
     v = nm_setting_wireless_get_scan_dwell(s_wifi);
-    if (v > scan->lss.scan_dwell) scan->lss.scan_dwell = v;
+    if (v > scan->lss.scan_dwell)
+        scan->lss.scan_dwell = v;
     v = nm_setting_wireless_get_scan_passive_dwell(s_wifi);
-    if (v > scan->lss.scan_passive_dwell) scan->lss.scan_passive_dwell = v;
+    if (v > scan->lss.scan_passive_dwell)
+        scan->lss.scan_passive_dwell = v;
 }
 
 static void
@@ -1891,7 +1901,7 @@ build_laird_scan_init(NMDeviceWifi *self, BuildLSS *blss)
     // default to dfs channels enabled; will get cleared if all profile have dfs disabled
     blss->lss.frequency_dfs = 1;
     // ifname to use to filter connections
-    blss->ifname = nm_device_get_iface ((NMDevice *) self);
+    blss->ifname = nm_device_get_iface((NMDevice *) self);
     // default: use bcast ssid if there are no configurations for the interface
     blss->require_bcast_ssid = 1;
 }
@@ -1904,13 +1914,11 @@ build_laird_scan_end(BuildLSS *blss)
 
 // do not scan if interface names are set, and don't match
 static gboolean
-laird_filter_func (NMSettings *settings,
-                   NMConnection *connection,
-                   gpointer user_data)
+laird_filter_func(NMSettings *settings, NMConnection *connection, gpointer user_data)
 {
-    BuildLSS *scan = (BuildLSS*)user_data;
+    BuildLSS   *scan = (BuildLSS *) user_data;
     const char *ifname2;
-    ifname2 = nm_connection_get_interface_name (connection);
+    ifname2 = nm_connection_get_interface_name(connection);
     if (scan->ifname && ifname2 && (strcmp(scan->ifname, ifname2) != 0))
         return FALSE;
 
@@ -1934,10 +1942,10 @@ hidden_filter_func(NMSettings *settings, NMSettingsConnection *set_con, gpointer
     s_wifi = nm_connection_get_setting_wireless(connection);
     if (!s_wifi)
         return FALSE;
-    if (user_data) { //
-        if (laird_filter_func(settings, connection, user_data) == FALSE) //
-            return FALSE; //
-    } //
+    if (user_data) {                                                      //
+        if (laird_filter_func(settings, connection, user_data) == FALSE)  //
+            return FALSE;                                                 //
+    }                                                                     //
     if (nm_streq0(nm_setting_wireless_get_mode(s_wifi), NM_SETTING_WIRELESS_MODE_AP))
         return FALSE;
     if (user_data) {
@@ -1950,7 +1958,7 @@ static GPtrArray *
 _scan_request_ssids_build_hidden(NMDeviceWifi *self,
                                  gint64        now_msec,
                                  gboolean     *out_has_hidden_profiles,
-                                 BuildLSS *blss)
+                                 BuildLSS     *blss)
 {
     NMDeviceWifiPrivate *priv = NM_DEVICE_WIFI_GET_PRIVATE(self);
     guint max_scan_ssids      = nm_supplicant_interface_get_max_scan_ssids(priv->sup_iface);
@@ -2107,10 +2115,9 @@ _scan_kickoff(NMDeviceWifi *self)
     gboolean                     has_hidden_profiles;
     gint64                       now_msec;
     gint64                       ratelimit_duration_msec;
-    BuildLSS blss;
+    BuildLSS                     blss;
 
     build_laird_scan_init(self, &blss);  // builds laird scan parameters
-
 
     if (!priv->sup_iface) {
         _LOGT_scan("kickoff: don't scan (has no supplicant interface)");
@@ -2274,12 +2281,12 @@ _scan_kickoff(NMDeviceWifi *self)
 
     priv->scan_request_cancellable = g_cancellable_new();
     nm_supplicant_interface_request_scan_laird(priv->sup_iface,
-                                         ssids ? (GBytes *const *) ssids->pdata : NULL,
-                                         ssids ? ssids->len : 0u,
-                                         priv->scan_request_cancellable,
-                                         _scan_supplicant_request_scan_cb,
-                                         self,
-                                         &blss.lss);
+                                               ssids ? (GBytes *const *) ssids->pdata : NULL,
+                                               ssids ? ssids->len : 0u,
+                                               priv->scan_request_cancellable,
+                                               _scan_supplicant_request_scan_cb,
+                                               self,
+                                               &blss.lss);
 
     build_laird_scan_end(&blss);
 
@@ -2923,9 +2930,11 @@ supplicant_iface_state(NMDeviceWifi              *self,
                becomes NM_DEVICE_STATE_ACTIVATED, NM also has to invalidate the current ap before updating
                the device state - so just leave this case to be handled by the link_timeout_cb function.
             */
-            if((devstate != NM_DEVICE_STATE_ACTIVATED) && (priv->mode == NM_802_11_MODE_AP)) {
-                _LOGW (LOGD_DEVICE | LOGD_WIFI, "Disconnected by supplicant");
-                nm_device_state_changed (device, NM_DEVICE_STATE_DISCONNECTED, NM_DEVICE_STATE_REASON_SUPPLICANT_DISCONNECT);
+            if ((devstate != NM_DEVICE_STATE_ACTIVATED) && (priv->mode == NM_802_11_MODE_AP)) {
+                _LOGW(LOGD_DEVICE | LOGD_WIFI, "Disconnected by supplicant");
+                nm_device_state_changed(device,
+                                        NM_DEVICE_STATE_DISCONNECTED,
+                                        NM_DEVICE_STATE_REASON_SUPPLICANT_DISCONNECT);
                 break;
             }
             /* Disconnect of an 802.1x/LEAP connection during authentication,
@@ -3285,12 +3294,12 @@ supplicant_connection_timeout_cb(gpointer user_data)
 static NMSupplCapMask
 _get_supp_device_capabilities(NMDeviceWifi *self)
 {
-    NMDeviceWifiPrivate *priv = NM_DEVICE_WIFI_GET_PRIVATE (self);
-    NMSupplCapMask caps;
-    caps = nm_supplicant_interface_get_capabilities (priv->sup_iface);
+    NMDeviceWifiPrivate *priv = NM_DEVICE_WIFI_GET_PRIVATE(self);
+    NMSupplCapMask       caps;
+    caps = nm_supplicant_interface_get_capabilities(priv->sup_iface);
     if (0 == (priv->capabilities & RSN_CAPS_PMF)) {
         // if the device does not support PMF, clear PMF in caps
-        caps = NM_SUPPL_CAP_MASK_SET (caps, NM_SUPPL_CAP_TYPE_PMF, NM_TERNARY_FALSE);
+        caps = NM_SUPPL_CAP_MASK_SET(caps, NM_SUPPL_CAP_TYPE_PMF, NM_TERNARY_FALSE);
     }
     return caps;
 }
@@ -3325,12 +3334,13 @@ build_supplicant_config(NMDeviceWifi *self,
     }
 
     /* Warn if Laird features are not supported */
-    if (nm_supplicant_interface_get_capability(priv->sup_iface, NM_SUPPL_CAP_TYPE_LAIRD) != NM_TERNARY_TRUE) {
+    if (nm_supplicant_interface_get_capability(priv->sup_iface, NM_SUPPL_CAP_TYPE_LAIRD)
+        != NM_TERNARY_TRUE) {
         NMSetting8021x *s_8021x;
         s_8021x = nm_connection_get_setting_802_1x(connection);
         // warnings if Laird features are configured
         if (warn_wireless_requires_laird_support(self, s_wireless, s_8021x)) {
-            _LOGW (LOGD_WIFI, "Laird features will be excluded from config.");
+            _LOGW(LOGD_WIFI, "Laird features will be excluded from config.");
         }
     }
 
@@ -3389,14 +3399,15 @@ build_supplicant_config(NMDeviceWifi *self,
         }
 
         /* Configure FT (802.11r) */
-        ft = nm_setting_wireless_security_get_ft (s_wireless_sec);
+        ft = nm_setting_wireless_security_get_ft(s_wireless_sec);
         if (ft == NM_SETTING_WIRELESS_SECURITY_FT_DEFAULT) {
-            ft = nm_config_data_get_connection_default_int64 (NM_CONFIG_GET_DATA,
-                                                                "wifi-sec.ft",
-                                                                NM_DEVICE (self),
-                                                                NM_SETTING_WIRELESS_SECURITY_FT_DISABLE,
-                                                                NM_SETTING_WIRELESS_SECURITY_FT_REQUIRED,
-                                                                NM_SETTING_WIRELESS_SECURITY_FT_DISABLE);
+            ft = nm_config_data_get_connection_default_int64(
+                NM_CONFIG_GET_DATA,
+                "wifi-sec.ft",
+                NM_DEVICE(self),
+                NM_SETTING_WIRELESS_SECURITY_FT_DISABLE,
+                NM_SETTING_WIRELESS_SECURITY_FT_REQUIRED,
+                NM_SETTING_WIRELESS_SECURITY_FT_DISABLE);
         }
 
         s_8021x = nm_connection_get_setting_802_1x(connection);

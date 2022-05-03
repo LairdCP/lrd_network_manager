@@ -1503,11 +1503,11 @@ nm_setting_802_1x_get_phase1_auth_flags(NMSetting8021x *setting)
  * Returns: the number of phase2-auth entries.
  **/
 guint32
-nm_setting_802_1x_get_num_phase2_auths (NMSetting8021x *setting)
+nm_setting_802_1x_get_num_phase2_auths(NMSetting8021x *setting)
 {
-    g_return_val_if_fail (NM_IS_SETTING_802_1X(setting), 0);
+    g_return_val_if_fail(NM_IS_SETTING_802_1X(setting), 0);
 
-    return g_slist_length (NM_SETTING_802_1X_GET_PRIVATE (setting)->phase2_auth);
+    return g_slist_length(NM_SETTING_802_1X_GET_PRIVATE(setting)->phase2_auth);
 }
 
 /**
@@ -1526,7 +1526,7 @@ nm_setting_802_1x_get_phase2_auth(NMSetting8021x *setting, guint32 i)
     g_return_val_if_fail(NM_IS_SETTING_802_1X(setting), NULL);
 
     priv = NM_SETTING_802_1X_GET_PRIVATE(setting);
-    g_return_val_if_fail(i <= g_slist_length (priv->phase2_auth), NULL);
+    g_return_val_if_fail(i <= g_slist_length(priv->phase2_auth), NULL);
 
     return (const char *) g_slist_nth_data(priv->phase2_auth, i);
 }
@@ -1541,24 +1541,22 @@ nm_setting_802_1x_get_phase2_auth(NMSetting8021x *setting, guint32 i)
  *  successfully added, %FALSE if it was already allowed.
  **/
 gboolean
-nm_setting_802_1x_add_phase2_auth (NMSetting8021x *setting,
-                                   const char *phase2_auth)
+nm_setting_802_1x_add_phase2_auth(NMSetting8021x *setting, const char *phase2_auth)
 {
     NMSetting8021xPrivate *priv;
-    GSList *iter;
+    GSList                *iter;
 
-    g_return_val_if_fail (NM_IS_SETTING_802_1X (setting), FALSE);
-    g_return_val_if_fail (phase2_auth != NULL, FALSE);
+    g_return_val_if_fail(NM_IS_SETTING_802_1X(setting), FALSE);
+    g_return_val_if_fail(phase2_auth != NULL, FALSE);
 
-    priv = NM_SETTING_802_1X_GET_PRIVATE (setting);
-    for (iter = priv->phase2_auth; iter; iter = g_slist_next (iter)) {
-        if (!strcmp (phase2_auth, (char *) iter->data))
+    priv = NM_SETTING_802_1X_GET_PRIVATE(setting);
+    for (iter = priv->phase2_auth; iter; iter = g_slist_next(iter)) {
+        if (!strcmp(phase2_auth, (char *) iter->data))
             return FALSE;
     }
 
-    priv->phase2_auth = g_slist_append (priv->phase2_auth,
-                                                      g_strdup (phase2_auth));
-    g_object_notify (G_OBJECT (setting), NM_SETTING_802_1X_PHASE2_AUTH);
+    priv->phase2_auth = g_slist_append(priv->phase2_auth, g_strdup(phase2_auth));
+    g_object_notify(G_OBJECT(setting), NM_SETTING_802_1X_PHASE2_AUTH);
     return TRUE;
 }
 
@@ -1570,22 +1568,21 @@ nm_setting_802_1x_add_phase2_auth (NMSetting8021x *setting,
  * Removes the allowed "phase 2" auth at the specified index.
  **/
 void
-nm_setting_802_1x_remove_phase2_auth (NMSetting8021x *setting, guint32 i)
+nm_setting_802_1x_remove_phase2_auth(NMSetting8021x *setting, guint32 i)
 {
     NMSetting8021xPrivate *priv;
-    GSList *elt;
+    GSList                *elt;
 
-    g_return_if_fail (NM_IS_SETTING_802_1X (setting));
+    g_return_if_fail(NM_IS_SETTING_802_1X(setting));
 
-    priv = NM_SETTING_802_1X_GET_PRIVATE (setting);
-    elt = g_slist_nth (priv->phase2_auth, i);
-    g_return_if_fail (elt != NULL);
+    priv = NM_SETTING_802_1X_GET_PRIVATE(setting);
+    elt  = g_slist_nth(priv->phase2_auth, i);
+    g_return_if_fail(elt != NULL);
 
-    g_free (elt->data);
-    priv->phase2_auth = g_slist_delete_link (priv->phase2_auth, elt);
-    g_object_notify (G_OBJECT (setting), NM_SETTING_802_1X_PHASE2_AUTH);
+    g_free(elt->data);
+    priv->phase2_auth = g_slist_delete_link(priv->phase2_auth, elt);
+    g_object_notify(G_OBJECT(setting), NM_SETTING_802_1X_PHASE2_AUTH);
 }
-
 
 /**
  * nm_setting_802_1x_remove_phase2_auth_by_value:
@@ -1598,20 +1595,19 @@ nm_setting_802_1x_remove_phase2_auth (NMSetting8021x *setting, guint32 i)
  *          %FALSE if it was not.
  **/
 gboolean
-nm_setting_802_1x_remove_phase2_auth_by_value (NMSetting8021x *setting,
-                                                           const char *phase2_auth)
+nm_setting_802_1x_remove_phase2_auth_by_value(NMSetting8021x *setting, const char *phase2_auth)
 {
     NMSetting8021xPrivate *priv;
-    GSList *iter;
+    GSList                *iter;
 
-    g_return_val_if_fail (NM_IS_SETTING_802_1X (setting), FALSE);
-    g_return_val_if_fail (phase2_auth != NULL, FALSE);
+    g_return_val_if_fail(NM_IS_SETTING_802_1X(setting), FALSE);
+    g_return_val_if_fail(phase2_auth != NULL, FALSE);
 
-    priv = NM_SETTING_802_1X_GET_PRIVATE (setting);
-    for (iter = priv->phase2_auth; iter; iter = g_slist_next (iter)) {
-        if (!strcmp (phase2_auth, (char *) iter->data)) {
-            priv->phase2_auth = g_slist_delete_link (priv->phase2_auth, iter);
-            g_object_notify (G_OBJECT (setting), NM_SETTING_802_1X_PHASE2_AUTH);
+    priv = NM_SETTING_802_1X_GET_PRIVATE(setting);
+    for (iter = priv->phase2_auth; iter; iter = g_slist_next(iter)) {
+        if (!strcmp(phase2_auth, (char *) iter->data)) {
+            priv->phase2_auth = g_slist_delete_link(priv->phase2_auth, iter);
+            g_object_notify(G_OBJECT(setting), NM_SETTING_802_1X_PHASE2_AUTH);
             return TRUE;
         }
     }
@@ -1625,16 +1621,16 @@ nm_setting_802_1x_remove_phase2_auth_by_value (NMSetting8021x *setting,
  * Clears all "phase 2" auth.
  **/
 void
-nm_setting_802_1x_clear_phase2_auth (NMSetting8021x *setting)
+nm_setting_802_1x_clear_phase2_auth(NMSetting8021x *setting)
 {
     NMSetting8021xPrivate *priv;
 
-    g_return_if_fail (NM_IS_SETTING_802_1X (setting));
+    g_return_if_fail(NM_IS_SETTING_802_1X(setting));
 
-    priv = NM_SETTING_802_1X_GET_PRIVATE (setting);
-    g_slist_free_full (priv->phase2_auth, g_free);
+    priv = NM_SETTING_802_1X_GET_PRIVATE(setting);
+    g_slist_free_full(priv->phase2_auth, g_free);
     priv->phase2_auth = NULL;
-    g_object_notify (G_OBJECT (setting), NM_SETTING_802_1X_PHASE2_AUTH);
+    g_object_notify(G_OBJECT(setting), NM_SETTING_802_1X_PHASE2_AUTH);
 }
 
 /**
@@ -1647,11 +1643,11 @@ nm_setting_802_1x_clear_phase2_auth (NMSetting8021x *setting)
  * Returns: the number of phase2-autheap entries.
  **/
 guint32
-nm_setting_802_1x_get_num_phase2_autheaps (NMSetting8021x *setting)
+nm_setting_802_1x_get_num_phase2_autheaps(NMSetting8021x *setting)
 {
-    g_return_val_if_fail (NM_IS_SETTING_802_1X (setting), 0);
+    g_return_val_if_fail(NM_IS_SETTING_802_1X(setting), 0);
 
-    return g_slist_length (NM_SETTING_802_1X_GET_PRIVATE (setting)->phase2_autheap);
+    return g_slist_length(NM_SETTING_802_1X_GET_PRIVATE(setting)->phase2_autheap);
 }
 
 /**
@@ -1670,7 +1666,7 @@ nm_setting_802_1x_get_phase2_autheap(NMSetting8021x *setting, guint32 i)
     g_return_val_if_fail(NM_IS_SETTING_802_1X(setting), NULL);
 
     priv = NM_SETTING_802_1X_GET_PRIVATE(setting);
-    g_return_val_if_fail (i <= g_slist_length(priv->phase2_autheap), NULL);
+    g_return_val_if_fail(i <= g_slist_length(priv->phase2_autheap), NULL);
 
     return (const char *) g_slist_nth_data(priv->phase2_autheap, i);
 }
@@ -1685,24 +1681,22 @@ nm_setting_802_1x_get_phase2_autheap(NMSetting8021x *setting, guint32 i)
  *  successfully added, %FALSE if it was already allowed.
  **/
 gboolean
-nm_setting_802_1x_add_phase2_autheap (NMSetting8021x *setting,
-                                   const char *phase2_autheap)
+nm_setting_802_1x_add_phase2_autheap(NMSetting8021x *setting, const char *phase2_autheap)
 {
     NMSetting8021xPrivate *priv;
-    GSList *iter;
+    GSList                *iter;
 
-    g_return_val_if_fail(NM_IS_SETTING_802_1X (setting), FALSE);
+    g_return_val_if_fail(NM_IS_SETTING_802_1X(setting), FALSE);
     g_return_val_if_fail(phase2_autheap != NULL, FALSE);
 
     priv = NM_SETTING_802_1X_GET_PRIVATE(setting);
-    for (iter = priv->phase2_autheap; iter; iter = g_slist_next (iter)) {
-        if (!strcmp (phase2_autheap, (char *) iter->data))
+    for (iter = priv->phase2_autheap; iter; iter = g_slist_next(iter)) {
+        if (!strcmp(phase2_autheap, (char *) iter->data))
             return FALSE;
     }
 
-    priv->phase2_autheap = g_slist_append (priv->phase2_autheap,
-                                                      g_strdup (phase2_autheap));
-    g_object_notify (G_OBJECT (setting), NM_SETTING_802_1X_PHASE2_AUTHEAP);
+    priv->phase2_autheap = g_slist_append(priv->phase2_autheap, g_strdup(phase2_autheap));
+    g_object_notify(G_OBJECT(setting), NM_SETTING_802_1X_PHASE2_AUTHEAP);
     return TRUE;
 }
 
@@ -1714,22 +1708,21 @@ nm_setting_802_1x_add_phase2_autheap (NMSetting8021x *setting,
  * Removes the allowed "phase 2" autheap at the specified index.
  **/
 void
-nm_setting_802_1x_remove_phase2_autheap (NMSetting8021x *setting, guint32 i)
+nm_setting_802_1x_remove_phase2_autheap(NMSetting8021x *setting, guint32 i)
 {
     NMSetting8021xPrivate *priv;
-    GSList *elt;
+    GSList                *elt;
 
-    g_return_if_fail (NM_IS_SETTING_802_1X (setting));
+    g_return_if_fail(NM_IS_SETTING_802_1X(setting));
 
-    priv = NM_SETTING_802_1X_GET_PRIVATE (setting);
-    elt = g_slist_nth (priv->phase2_autheap, i);
-    g_return_if_fail (elt != NULL);
+    priv = NM_SETTING_802_1X_GET_PRIVATE(setting);
+    elt  = g_slist_nth(priv->phase2_autheap, i);
+    g_return_if_fail(elt != NULL);
 
-    g_free (elt->data);
-    priv->phase2_autheap = g_slist_delete_link (priv->phase2_autheap, elt);
-    g_object_notify (G_OBJECT (setting), NM_SETTING_802_1X_PHASE2_AUTHEAP);
+    g_free(elt->data);
+    priv->phase2_autheap = g_slist_delete_link(priv->phase2_autheap, elt);
+    g_object_notify(G_OBJECT(setting), NM_SETTING_802_1X_PHASE2_AUTHEAP);
 }
-
 
 /**
  * nm_setting_802_1x_remove_phase2_autheap_by_value:
@@ -1742,20 +1735,20 @@ nm_setting_802_1x_remove_phase2_autheap (NMSetting8021x *setting, guint32 i)
  *          %FALSE if it was not.
  **/
 gboolean
-nm_setting_802_1x_remove_phase2_autheap_by_value (NMSetting8021x *setting,
-                                                           const char *phase2_autheap)
+nm_setting_802_1x_remove_phase2_autheap_by_value(NMSetting8021x *setting,
+                                                 const char     *phase2_autheap)
 {
     NMSetting8021xPrivate *priv;
-    GSList *iter;
+    GSList                *iter;
 
-    g_return_val_if_fail (NM_IS_SETTING_802_1X (setting), FALSE);
-    g_return_val_if_fail (phase2_autheap != NULL, FALSE);
+    g_return_val_if_fail(NM_IS_SETTING_802_1X(setting), FALSE);
+    g_return_val_if_fail(phase2_autheap != NULL, FALSE);
 
-    priv = NM_SETTING_802_1X_GET_PRIVATE (setting);
-    for (iter = priv->phase2_autheap; iter; iter = g_slist_next (iter)) {
-        if (!strcmp (phase2_autheap, (char *) iter->data)) {
-            priv->phase2_autheap = g_slist_delete_link (priv->phase2_autheap, iter);
-            g_object_notify (G_OBJECT (setting), NM_SETTING_802_1X_PHASE2_AUTHEAP);
+    priv = NM_SETTING_802_1X_GET_PRIVATE(setting);
+    for (iter = priv->phase2_autheap; iter; iter = g_slist_next(iter)) {
+        if (!strcmp(phase2_autheap, (char *) iter->data)) {
+            priv->phase2_autheap = g_slist_delete_link(priv->phase2_autheap, iter);
+            g_object_notify(G_OBJECT(setting), NM_SETTING_802_1X_PHASE2_AUTHEAP);
             return TRUE;
         }
     }
@@ -1769,18 +1762,17 @@ nm_setting_802_1x_remove_phase2_autheap_by_value (NMSetting8021x *setting,
  * Clears all "phase 2" autheap.
  **/
 void
-nm_setting_802_1x_clear_phase2_autheap (NMSetting8021x *setting)
+nm_setting_802_1x_clear_phase2_autheap(NMSetting8021x *setting)
 {
     NMSetting8021xPrivate *priv;
 
-    g_return_if_fail (NM_IS_SETTING_802_1X (setting));
+    g_return_if_fail(NM_IS_SETTING_802_1X(setting));
 
-    priv = NM_SETTING_802_1X_GET_PRIVATE (setting);
-    g_slist_free_full (priv->phase2_autheap, g_free);
+    priv = NM_SETTING_802_1X_GET_PRIVATE(setting);
+    g_slist_free_full(priv->phase2_autheap, g_free);
     priv->phase2_autheap = NULL;
-    g_object_notify (G_OBJECT (setting), NM_SETTING_802_1X_PHASE2_AUTHEAP);
+    g_object_notify(G_OBJECT(setting), NM_SETTING_802_1X_PHASE2_AUTHEAP);
 }
-
 
 /**
  * nm_setting_802_1x_get_phase2_ca_path:
@@ -2460,11 +2452,11 @@ nm_setting_802_1x_get_private_key_uri(NMSetting8021x *setting)
  *  during wpa-eap authentications. Valid values are "0" (enable), and "1" (disable).
  **/
 const char *
-nm_setting_802_1x_get_tls_disable_time_checks (NMSetting8021x *setting)
+nm_setting_802_1x_get_tls_disable_time_checks(NMSetting8021x *setting)
 {
-    g_return_val_if_fail (NM_IS_SETTING_802_1X (setting), NULL);
+    g_return_val_if_fail(NM_IS_SETTING_802_1X(setting), NULL);
 
-    return NM_SETTING_802_1X_GET_PRIVATE (setting)->tls_disable_time_checks;
+    return NM_SETTING_802_1X_GET_PRIVATE(setting)->tls_disable_time_checks;
 }
 
 /**
@@ -2474,11 +2466,11 @@ nm_setting_802_1x_get_tls_disable_time_checks (NMSetting8021x *setting)
  * Returns: the value to be used to decrypt a manually provisioned pac file.
  **/
 const char *
-nm_setting_802_1x_get_pac_file_password (NMSetting8021x *setting)
+nm_setting_802_1x_get_pac_file_password(NMSetting8021x *setting)
 {
-    g_return_val_if_fail (NM_IS_SETTING_802_1X (setting), NULL);
+    g_return_val_if_fail(NM_IS_SETTING_802_1X(setting), NULL);
 
-    return NM_SETTING_802_1X_GET_PRIVATE (setting)->pac_file_password;
+    return NM_SETTING_802_1X_GET_PRIVATE(setting)->pac_file_password;
 }
 
 /**
@@ -3116,7 +3108,7 @@ verify_identity(NMSetting8021x *self, gboolean phase2, GError **error)
 static void
 need_secrets_phase2(NMSetting8021x *self, GPtrArray *secrets, gboolean phase2)
 {
-    NMSetting8021xPrivate *priv   = NM_SETTING_802_1X_GET_PRIVATE(self);
+    NMSetting8021xPrivate *priv = NM_SETTING_802_1X_GET_PRIVATE(self);
     GSList                *iter;
     int                    i;
     gboolean               auth_method_found = FALSE;
@@ -3129,20 +3121,20 @@ need_secrets_phase2(NMSetting8021x *self, GPtrArray *secrets, gboolean phase2)
         iter = priv->phase2_autheap;
 
     if (!iter) {
-        g_warning ("Couldn't find AUTH method.");
+        g_warning("Couldn't find AUTH method.");
         g_assert_not_reached();
         return;
     }
 
-    for(iter; iter && !auth_method_found; iter = g_slist_next (iter)) {
+    for (iter; iter && !auth_method_found; iter = g_slist_next(iter)) {
         const char *method = (const char *) iter->data;
 
         /* Ask the configured phase2 method if it needs secrets */
         for (i = 0; eap_methods_table[i].method; i++) {
             if (eap_methods_table[i].ns_func == NULL)
                 continue;
-            if (!strcmp (eap_methods_table[i].method, method)) {
-                (*eap_methods_table[i].ns_func) (self, secrets, TRUE);
+            if (!strcmp(eap_methods_table[i].method, method)) {
+                (*eap_methods_table[i].ns_func)(self, secrets, TRUE);
                 if (secrets->len > 0)
                     auth_method_found = TRUE;
                 break;
@@ -3176,9 +3168,10 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
     NMSetting8021xPrivate *priv = NM_SETTING_802_1X_GET_PRIVATE(self);
     const char            *valid_eap[] =
         {"leap", "md5", "tls", "peap", "ttls", "sim", "fast", "pwd", "external", NULL};
-    const char *valid_phase2_auth[] = { "pap", "chap", "mschap", "mschapv2", "gtc", "otp", "md5", "tls", NULL };
-    const char *valid_phase2_autheap[] = { "md5", "mschapv2", "otp", "gtc", "tls", NULL };
-    GSList *iter;
+    const char *valid_phase2_auth[] =
+        {"pap", "chap", "mschap", "mschapv2", "gtc", "otp", "md5", "tls", NULL};
+    const char *valid_phase2_autheap[] = {"md5", "mschapv2", "otp", "gtc", "tls", NULL};
+    GSList     *iter;
 
     if (error)
         g_return_val_if_fail(*error == NULL, FALSE);
@@ -3282,11 +3275,12 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
         return FALSE;
     }
 
-    if (priv->phase2_auth && !_nm_utils_string_slist_validate (priv->phase2_auth, valid_phase2_auth)) {
-        g_set_error_literal (error,
-                    NM_CONNECTION_ERROR,
-                    NM_CONNECTION_ERROR_MISSING_PROPERTY,
-                    _("property is missing"));
+    if (priv->phase2_auth
+        && !_nm_utils_string_slist_validate(priv->phase2_auth, valid_phase2_auth)) {
+        g_set_error_literal(error,
+                            NM_CONNECTION_ERROR,
+                            NM_CONNECTION_ERROR_MISSING_PROPERTY,
+                            _("property is missing"));
         g_prefix_error(error,
                        "%s.%s: ",
                        NM_SETTING_802_1X_SETTING_NAME,
@@ -3294,11 +3288,12 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
         return FALSE;
     }
 
-    if (priv->phase2_autheap && !_nm_utils_string_slist_validate (priv->phase2_autheap, valid_phase2_autheap)) {
-        g_set_error_literal (error,
-                    NM_CONNECTION_ERROR,
-                    NM_CONNECTION_ERROR_MISSING_PROPERTY,
-                    _("property is missing"));
+    if (priv->phase2_autheap
+        && !_nm_utils_string_slist_validate(priv->phase2_autheap, valid_phase2_autheap)) {
+        g_set_error_literal(error,
+                            NM_CONNECTION_ERROR,
+                            NM_CONNECTION_ERROR_MISSING_PROPERTY,
+                            _("property is missing"));
         g_prefix_error(error,
                        "%s.%s: ",
                        NM_SETTING_802_1X_SETTING_NAME,
@@ -3402,10 +3397,10 @@ get_property(GObject *object, guint prop_id, GValue *value, GParamSpec *pspec)
         g_value_take_boxed(value, _nm_utils_slist_to_strv(priv->altsubject_matches, TRUE));
         break;
     case PROP_PHASE2_AUTH:
-        g_value_take_boxed (value, _nm_utils_slist_to_strv (priv->phase2_auth, TRUE));
+        g_value_take_boxed(value, _nm_utils_slist_to_strv(priv->phase2_auth, TRUE));
         break;
     case PROP_PHASE2_AUTHEAP:
-        g_value_take_boxed (value, _nm_utils_slist_to_strv (priv->phase2_autheap, TRUE));
+        g_value_take_boxed(value, _nm_utils_slist_to_strv(priv->phase2_autheap, TRUE));
         break;
     case PROP_PHASE2_ALTSUBJECT_MATCHES:
         g_value_take_boxed(value, _nm_utils_slist_to_strv(priv->phase2_altsubject_matches, TRUE));
@@ -3432,12 +3427,12 @@ set_property(GObject *object, guint prop_id, const GValue *value, GParamSpec *ps
         priv->altsubject_matches = nm_strv_to_gslist(g_value_get_boxed(value), TRUE);
         break;
     case PROP_PHASE2_AUTH:
-        g_slist_free_full (priv->phase2_auth, g_free);
-        priv->phase2_auth = nm_strv_to_gslist(g_value_get_boxed (value), TRUE);
+        g_slist_free_full(priv->phase2_auth, g_free);
+        priv->phase2_auth = nm_strv_to_gslist(g_value_get_boxed(value), TRUE);
         break;
     case PROP_PHASE2_AUTHEAP:
-        g_slist_free_full (priv->phase2_autheap, g_free);
-        priv->phase2_autheap = nm_strv_to_gslist(g_value_get_boxed (value), TRUE);
+        g_slist_free_full(priv->phase2_autheap, g_free);
+        priv->phase2_autheap = nm_strv_to_gslist(g_value_get_boxed(value), TRUE);
         break;
     case PROP_PHASE2_ALTSUBJECT_MATCHES:
         g_slist_free_full(priv->phase2_altsubject_matches, g_free);
@@ -3978,9 +3973,11 @@ nm_setting_802_1x_class_init(NMSetting8021xClass *klass)
      * ---end---
      */
     obj_properties[PROP_PHASE2_AUTH] =
-        g_param_spec_boxed (NM_SETTING_802_1X_PHASE2_AUTH, "", "",
-                             G_TYPE_STRV,
-                            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+        g_param_spec_boxed(NM_SETTING_802_1X_PHASE2_AUTH,
+                           "",
+                           "",
+                           G_TYPE_STRV,
+                           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     /**
      * NMSetting8021x:phase2-autheap:
@@ -4002,9 +3999,11 @@ nm_setting_802_1x_class_init(NMSetting8021xClass *klass)
      * ---end---
      */
     obj_properties[PROP_PHASE2_AUTHEAP] =
-        g_param_spec_boxed (NM_SETTING_802_1X_PHASE2_AUTHEAP, "", "",
-                             G_TYPE_STRV,
-                            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+        g_param_spec_boxed(NM_SETTING_802_1X_PHASE2_AUTHEAP,
+                           "",
+                           "",
+                           G_TYPE_STRV,
+                           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     /**
      * NMSetting8021x:phase2-ca-cert:

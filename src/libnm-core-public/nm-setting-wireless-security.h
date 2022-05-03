@@ -145,12 +145,12 @@ typedef enum {
  * Since: 1.12
  **/
 typedef enum {
-    NM_SETTING_WIRELESS_SECURITY_FT_DEFAULT       = 0,
-    NM_SETTING_WIRELESS_SECURITY_FT_DISABLE       = 1,
-    NM_SETTING_WIRELESS_SECURITY_FT_OPTIONAL      = 2,
-    NM_SETTING_WIRELESS_SECURITY_FT_REQUIRED      = 3,
-    _NM_SETTING_WIRELESS_SECURITY_FT_NUM, /*< skip >*/
-    NM_SETTING_WIRELESS_SECURITY_FT_LAST          =  _NM_SETTING_WIRELESS_SECURITY_FT_NUM - 1, /*< skip >*/
+    NM_SETTING_WIRELESS_SECURITY_FT_DEFAULT  = 0,
+    NM_SETTING_WIRELESS_SECURITY_FT_DISABLE  = 1,
+    NM_SETTING_WIRELESS_SECURITY_FT_OPTIONAL = 2,
+    NM_SETTING_WIRELESS_SECURITY_FT_REQUIRED = 3,
+    _NM_SETTING_WIRELESS_SECURITY_FT_NUM,                                            /*< skip >*/
+    NM_SETTING_WIRELESS_SECURITY_FT_LAST = _NM_SETTING_WIRELESS_SECURITY_FT_NUM - 1, /*< skip >*/
 } NMSettingWirelessSecurityFt;
 
 #define NM_SETTING_WIRELESS_SECURITY_KEY_MGMT            "key-mgmt"
@@ -173,8 +173,9 @@ typedef enum {
 #define NM_SETTING_WIRELESS_SECURITY_LEAP_PASSWORD_FLAGS "leap-password-flags"
 #define NM_SETTING_WIRELESS_SECURITY_WPS_METHOD          "wps-method"
 #define NM_SETTING_WIRELESS_SECURITY_FILS                "fils"
+
 #define NM_SETTING_WIRELESS_SECURITY_PROACTIVE_KEY_CACHING "proactive-key-caching"
-#define NM_SETTING_WIRELESS_SECURITY_FT "ft"
+#define NM_SETTING_WIRELESS_SECURITY_FT                    "ft"
 
 typedef struct _NMSettingWirelessSecurityClass NMSettingWirelessSecurityClass;
 
@@ -243,10 +244,11 @@ nm_setting_wireless_security_get_wps_method(NMSettingWirelessSecurity *setting);
 NM_AVAILABLE_IN_1_12
 NMSettingWirelessSecurityFils
 nm_setting_wireless_security_get_fils(NMSettingWirelessSecurity *setting);
-const char *nm_setting_wireless_security_get_proactive_key_caching    (NMSettingWirelessSecurity *setting);
+const char *
+nm_setting_wireless_security_get_proactive_key_caching(NMSettingWirelessSecurity *setting);
 
 NM_AVAILABLE_IN_1_16
-NMSettingWirelessSecurityFt nm_setting_wireless_security_get_ft (NMSettingWirelessSecurity *setting);
+NMSettingWirelessSecurityFt nm_setting_wireless_security_get_ft(NMSettingWirelessSecurity *setting);
 
 G_END_DECLS
 

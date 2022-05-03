@@ -81,7 +81,7 @@ typedef enum { /*< flags, underscore_name=nm_setting_802_1x_auth_flags >*/
                NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_0_DISABLE = 0x1,
                NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_1_DISABLE = 0x2,
                NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_2_DISABLE = 0x4,
-               NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_3_ENABLE = 0x8,
+               NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_3_ENABLE  = 0x8,
 
                NM_SETTING_802_1X_AUTH_FLAGS_ALL = 0xf,
 } NMSetting8021xAuthFlags;
@@ -145,8 +145,8 @@ typedef enum { /*< flags, underscore_name=nm_setting_802_1x_auth_flags >*/
 #define NM_SETTING_802_1X_SYSTEM_CA_CERTS                   "system-ca-certs"
 #define NM_SETTING_802_1X_AUTH_TIMEOUT                      "auth-timeout"
 #define NM_SETTING_802_1X_OPTIONAL                          "optional"
-#define NM_SETTING_802_1X_TLS_DISABLE_TIME_CHECKS "tls-disable-time-checks"
-#define NM_SETTING_802_1X_PAC_FILE_PASSWORD "pac-file-password"
+#define NM_SETTING_802_1X_TLS_DISABLE_TIME_CHECKS           "tls-disable-time-checks"
+#define NM_SETTING_802_1X_PAC_FILE_PASSWORD                 "pac-file-password"
 
 /* PRIVATE KEY NOTE: when setting PKCS#12 private keys directly via properties
  * using the "blob" scheme, the data must be passed in PKCS#12 binary format.
@@ -249,16 +249,12 @@ const char *nm_setting_802_1x_get_phase1_peaplabel(NMSetting8021x *setting);
 
 const char *nm_setting_802_1x_get_phase1_fast_provisioning(NMSetting8021x *setting);
 
-const char *      nm_setting_802_1x_get_phase2_auth                  (NMSetting8021x *setting,
-								      guint32 i);
-guint32	          nm_setting_802_1x_get_num_phase2_auths	     (NMSetting8021x *setting);
-gboolean          nm_setting_802_1x_add_phase2_auth                  (NMSetting8021x *setting,
-								      const char *phase2_auth);
-const char *      nm_setting_802_1x_get_phase2_autheap               (NMSetting8021x *setting,
-								      guint32 i);
-guint32	          nm_setting_802_1x_get_num_phase2_autheaps	     (NMSetting8021x *setting);
-gboolean          nm_setting_802_1x_add_phase2_autheap               (NMSetting8021x *setting,
-								      const char *phase2_auth);
+const char *nm_setting_802_1x_get_phase2_auth(NMSetting8021x *setting, guint32 i);
+guint32     nm_setting_802_1x_get_num_phase2_auths(NMSetting8021x *setting);
+gboolean    nm_setting_802_1x_add_phase2_auth(NMSetting8021x *setting, const char *phase2_auth);
+const char *nm_setting_802_1x_get_phase2_autheap(NMSetting8021x *setting, guint32 i);
+guint32     nm_setting_802_1x_get_num_phase2_autheaps(NMSetting8021x *setting);
+gboolean    nm_setting_802_1x_add_phase2_autheap(NMSetting8021x *setting, const char *phase2_auth);
 NMSetting8021xCKScheme nm_setting_802_1x_get_phase2_ca_cert_scheme(NMSetting8021x *setting);
 GBytes                *nm_setting_802_1x_get_phase2_ca_cert_blob(NMSetting8021x *setting);
 const char            *nm_setting_802_1x_get_phase2_ca_cert_path(NMSetting8021x *setting);
@@ -357,17 +353,15 @@ int nm_setting_802_1x_get_auth_timeout(NMSetting8021x *setting);
 NM_AVAILABLE_IN_1_22
 gboolean nm_setting_802_1x_get_optional(NMSetting8021x *setting);
 
-const char *           nm_setting_802_1x_get_tls_disable_time_checks	 (NMSetting8021x *setting);
-const char *           nm_setting_802_1x_get_pac_file_password           (NMSetting8021x *setting);
+const char *nm_setting_802_1x_get_tls_disable_time_checks(NMSetting8021x *setting);
+const char *nm_setting_802_1x_get_pac_file_password(NMSetting8021x *setting);
 
-gboolean               nm_setting_802_1x_remove_phase2_auth_by_value     (NMSetting8021x *setting,
-                                                                          const char *phase2_auth);
-gboolean               nm_setting_802_1x_remove_phase2_autheap_by_value  (NMSetting8021x *setting,
-                                                                          const char *phase2_autheap);
-void                   nm_setting_802_1x_remove_phase2_auth              (NMSetting8021x *setting,
-                                                                          guint32 i);
-void                   nm_setting_802_1x_remove_phase2_autheap           (NMSetting8021x *setting,
-                                                                          guint32 i);
+gboolean nm_setting_802_1x_remove_phase2_auth_by_value(NMSetting8021x *setting,
+                                                       const char     *phase2_auth);
+gboolean nm_setting_802_1x_remove_phase2_autheap_by_value(NMSetting8021x *setting,
+                                                          const char     *phase2_autheap);
+void     nm_setting_802_1x_remove_phase2_auth(NMSetting8021x *setting, guint32 i);
+void     nm_setting_802_1x_remove_phase2_autheap(NMSetting8021x *setting, guint32 i);
 
 G_END_DECLS
 

@@ -110,7 +110,7 @@ build_supplicant_config(NMConnection  *connection,
     if (s_wsec) {
         NMSettingWirelessSecurityPmf  pmf  = nm_setting_wireless_security_get_pmf(s_wsec);
         NMSettingWirelessSecurityFils fils = nm_setting_wireless_security_get_fils(s_wsec);
-        NMSettingWirelessSecurityFt ft     = nm_setting_wireless_security_get_ft (s_wsec);
+        NMSettingWirelessSecurityFt   ft   = nm_setting_wireless_security_get_ft(s_wsec);
         s_8021x                            = nm_connection_get_setting_802_1x(connection);
         success =
             nm_supplicant_config_add_setting_wireless_security(config,

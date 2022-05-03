@@ -4318,10 +4318,10 @@ _gobject_enum_pre_set_notify_fcn_wireless_security_wep_key_type(
 }
 
 static const char *
-_validate_fcn_frequency_list (const char *value, char **out_to_free, GError **error)
+_validate_fcn_frequency_list(const char *value, char **out_to_free, GError **error)
 {
-    int numchan;
-    int len1;
+    int         numchan;
+    int         len1;
     const char *v;
 
     if (!value) {
@@ -4331,34 +4331,38 @@ _validate_fcn_frequency_list (const char *value, char **out_to_free, GError **er
 
     len1 = strspn(value, "1234567890 ");
     if (len1 != strlen(value)) {
-        g_set_error (error, 1, 0, _("frequency-list '%s' has invalid characters"), value);
+        g_set_error(error, 1, 0, _("frequency-list '%s' has invalid characters"), value);
         return NULL;
     }
 
     // Loop through the string checking the frequencies
-    v = value;
+    v       = value;
     numchan = 0;
     while (*v) {
         if (*v == ' ') {
             v++;
         } else {
             guint32 freq_int;
-            char *end;
-            freq_int = strtoul (v, &end, 10);
+            char   *end;
+            freq_int = strtoul(v, &end, 10);
             if (*end != '\0' && *end != ' ') {
-                g_set_error (error, 1, 0, _("frequency-list '%s' is invalid"), value);
+                g_set_error(error, 1, 0, _("frequency-list '%s' is invalid"), value);
                 return NULL;
             }
             v = end;
-            if (0 == nm_utils_wifi_freq_to_channel (freq_int)) {
-                g_set_error (error, 1, 0, _("'%" G_GUINT32_FORMAT "' is not a valid frequency"), freq_int);
+            if (0 == nm_utils_wifi_freq_to_channel(freq_int)) {
+                g_set_error(error,
+                            1,
+                            0,
+                            _("'%" G_GUINT32_FORMAT "' is not a valid frequency"),
+                            freq_int);
                 return NULL;
             }
             numchan++;
         }
     }
     if (!numchan) {
-        g_set_error (error, 1, 0, _("frequency-list is empty"));
+        g_set_error(error, 1, 0, _("frequency-list is empty"));
         return NULL;
     }
     return value;

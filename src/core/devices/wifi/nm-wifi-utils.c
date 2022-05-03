@@ -398,12 +398,11 @@ verify_wpa_psk(NMSettingWirelessSecurity *s_wsec,
     return TRUE;
 }
 
-static gboolean
-verify_cckm (NMSettingWirelessSecurity *s_wsec,
-                NMSetting8021x *s_8021x,
-                guint32 wpa_flags,
-                guint32 rsn_flags,
-                GError **error);
+static gboolean verify_cckm(NMSettingWirelessSecurity *s_wsec,
+                            NMSetting8021x            *s_8021x,
+                            guint32                    wpa_flags,
+                            guint32                    rsn_flags,
+                            GError                   **error);
 
 static gboolean
 verify_wpa_eap(NMSettingWirelessSecurity *s_wsec,
@@ -422,10 +421,8 @@ verify_wpa_eap(NMSettingWirelessSecurity *s_wsec,
         if (!strcmp(key_mgmt, "cckm")) {
             return verify_cckm(s_wsec, s_8021x, wpa_flags, rsn_flags, error);
         }
-        if (!strcmp(key_mgmt, "wpa-eap") ||
-            !strcmp(key_mgmt, "wpa-eap-suite-b") ||
-            !strcmp(key_mgmt, "wpa-eap-suite-b-192"))
-        {
+        if (!strcmp(key_mgmt, "wpa-eap") || !strcmp(key_mgmt, "wpa-eap-suite-b")
+            || !strcmp(key_mgmt, "wpa-eap-suite-b-192")) {
             if (!s_8021x) {
                 g_set_error_literal(error,
                                     NM_CONNECTION_ERROR,
@@ -477,44 +474,46 @@ verify_wpa_eap(NMSettingWirelessSecurity *s_wsec,
 }
 
 static gboolean
-verify_cckm (NMSettingWirelessSecurity *s_wsec,
-                NMSetting8021x *s_8021x,
-                guint32 wpa_flags,
-                guint32 rsn_flags,
-                GError **error)
+verify_cckm(NMSettingWirelessSecurity *s_wsec,
+            NMSetting8021x            *s_8021x,
+            guint32                    wpa_flags,
+            guint32                    rsn_flags,
+            GError                   **error)
 {
     const char *auth_alg;
 
-    auth_alg = nm_setting_wireless_security_get_auth_alg (s_wsec);
+    auth_alg = nm_setting_wireless_security_get_auth_alg(s_wsec);
 
     if (!s_8021x) {
-        g_set_error_literal (error,
-                             NM_CONNECTION_ERROR,
-                             NM_CONNECTION_ERROR_MISSING_SETTING,
-                             _("CCKM authentication requires an 802.1x setting"));
-        g_prefix_error (error, "%s: ", NM_SETTING_802_1X_SETTING_NAME);
+        g_set_error_literal(error,
+                            NM_CONNECTION_ERROR,
+                            NM_CONNECTION_ERROR_MISSING_SETTING,
+                            _("CCKM authentication requires an 802.1x setting"));
+        g_prefix_error(error, "%s: ", NM_SETTING_802_1X_SETTING_NAME);
         return FALSE;
     }
 
-    if (auth_alg && strcmp (auth_alg, "open")) {
+    if (auth_alg && strcmp(auth_alg, "open")) {
         /* WPA must use "open" authentication */
-        g_set_error_literal (error,
-                             NM_CONNECTION_ERROR,
-                             NM_CONNECTION_ERROR_INVALID_PROPERTY,
-                             _("CCKM requires 'open' authentication"));
-        g_prefix_error (error, "%s.%s: ", NM_SETTING_WIRELESS_SECURITY_SETTING_NAME,
-                        NM_SETTING_WIRELESS_SECURITY_AUTH_ALG);
+        g_set_error_literal(error,
+                            NM_CONNECTION_ERROR,
+                            NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                            _("CCKM requires 'open' authentication"));
+        g_prefix_error(error,
+                       "%s.%s: ",
+                       NM_SETTING_WIRELESS_SECURITY_SETTING_NAME,
+                       NM_SETTING_WIRELESS_SECURITY_AUTH_ALG);
         return FALSE;
     }
 
     /* Make sure the AP's capabilities support CCKM */
-    if (   !(wpa_flags & NM_802_11_AP_SEC_KEY_MGMT_CCKM)
-           && !(rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_CCKM)) {
-        g_set_error_literal (error,
-                             NM_CONNECTION_ERROR,
-                             NM_CONNECTION_ERROR_INVALID_SETTING,
-                             _("Access point does not support CCKM but setting requires it"));
-        g_prefix_error (error, "%s: ", NM_SETTING_802_1X_SETTING_NAME);
+    if (!(wpa_flags & NM_802_11_AP_SEC_KEY_MGMT_CCKM)
+        && !(rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_CCKM)) {
+        g_set_error_literal(error,
+                            NM_CONNECTION_ERROR,
+                            NM_CONNECTION_ERROR_INVALID_SETTING,
+                            _("Access point does not support CCKM but setting requires it"));
+        g_prefix_error(error, "%s: ", NM_SETTING_802_1X_SETTING_NAME);
         return FALSE;
     }
     return TRUE;
@@ -1463,8 +1462,10 @@ eap_method_config_to_iwd_config(GKeyFile       *file,
             return eap_method_config_to_iwd_config(file,
                                                    s_8021x,
                                                    TRUE,
-                                                   // Laird:  Handle single-phase2-authentication method only
-                                                   //         todo:  expand - see bug 10820
+                                                   /* Laird:  Handle single-phase2-authentication
+                                                    *         method only
+                                                    *         todo:  expand- see bug 10820
+                                                    */
                                                    nm_setting_802_1x_get_phase2_autheap(s_8021x, 0),
                                                    prefix_buf,
                                                    error);

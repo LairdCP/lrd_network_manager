@@ -43,7 +43,7 @@ typedef struct {
                             guint32     *out_rate);
 
     /* Get can_apscan from an interface */
-    gboolean (*get_can_apscan) (NMWifiUtils *data);
+    gboolean (*get_can_apscan)(NMWifiUtils *data);
 
     /* OLPC Mesh-only functions */
 

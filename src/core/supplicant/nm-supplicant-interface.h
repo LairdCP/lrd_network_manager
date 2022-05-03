@@ -164,8 +164,7 @@ const char *nm_supplicant_interface_get_p2p_group_path(NMSupplicantInterface *se
 
 gboolean nm_supplicant_interface_get_p2p_group_owner(NMSupplicantInterface *self);
 
-void nm_supplicant_interface_p2p_device_config (NMSupplicantInterface *self,
-                                                NMConnection *conn);
+void     nm_supplicant_interface_p2p_device_config(NMSupplicantInterface *self, NMConnection *conn);
 gboolean nm_supplicant_interface_get_p2p_assigned_addr(NMSupplicantInterface *self,
                                                        in_addr_t             *assigned_addr,
                                                        guint8                *plen);
@@ -201,23 +200,22 @@ void nm_supplicant_interface_set_bridge(NMSupplicantInterface *self, const char 
 
 // scan settings to use if in disconnected state
 typedef struct {
-	struct {
-		int *ptr; // ptr to int[count] list of frequencies
-		int count;
-	} freqs; // the union of frequency_list from all profiles
-	guint32 frequency_dfs; // set if dfs enabled in any profile (or no profiles)
-	guint32 scan_delay; // largest value from profiles
-	guint32 scan_dwell; // largest value from profiles
-	guint32 scan_passive_dwell; // largest value from profiles
+    struct {
+        int *ptr;  // ptr to int[count] list of frequencies
+        int  count;
+    } freqs;                     // the union of frequency_list from all profiles
+    guint32 frequency_dfs;       // set if dfs enabled in any profile (or no profiles)
+    guint32 scan_delay;          // largest value from profiles
+    guint32 scan_dwell;          // largest value from profiles
+    guint32 scan_passive_dwell;  // largest value from profiles
 } LairdScanSettings;
 
-void
-nm_supplicant_interface_request_scan_laird (NMSupplicantInterface *self,
-                                      GBytes *const*ssids,
-                                      guint ssids_len,
-                                      GCancellable *cancellable,
-                                      NMSupplicantInterfaceRequestScanCallback callback,
-                                      gpointer user_data,
-                                      LairdScanSettings *lss);
+void nm_supplicant_interface_request_scan_laird(NMSupplicantInterface *self,
+                                                GBytes *const         *ssids,
+                                                guint                  ssids_len,
+                                                GCancellable          *cancellable,
+                                                NMSupplicantInterfaceRequestScanCallback callback,
+                                                gpointer                                 user_data,
+                                                LairdScanSettings                       *lss);
 
 #endif /* __NM_SUPPLICANT_INTERFACE_H__ */

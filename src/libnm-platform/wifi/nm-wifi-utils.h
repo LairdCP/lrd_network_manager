@@ -63,7 +63,7 @@ _NMSettingWirelessWakeOnWLan nm_wifi_utils_get_wake_on_wlan(NMWifiUtils *data);
 
 gboolean nm_wifi_utils_set_wake_on_wlan(NMWifiUtils *data, _NMSettingWirelessWakeOnWLan wowl);
 
-gboolean nm_wifi_utils_get_can_apscan (NMWifiUtils *data);
+gboolean nm_wifi_utils_get_can_apscan(NMWifiUtils *data);
 
 /* OLPC Mesh-only functions */
 guint32 nm_wifi_utils_get_mesh_channel(NMWifiUtils *data);

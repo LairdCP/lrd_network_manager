@@ -228,6 +228,7 @@ typedef enum {
     _NM_WIFI_DEVICE_CAP_FREQ_5GHZ     = 0x00000400,
     _NM_WIFI_DEVICE_CAP_MESH          = 0x00001000,
     _NM_WIFI_DEVICE_CAP_IBSS_RSN      = 0x00002000,
+    /* Laird: this separator prevents clang-reformat of upstream */
     _NM_WIFI_DEVICE_CAP_CIPHER_CCMP_256 = 0x00010000,
     _NM_WIFI_DEVICE_CAP_CIPHER_GCMP_128 = 0x00020000,
     _NM_WIFI_DEVICE_CAP_CIPHER_GCMP_256 = 0x00040000,

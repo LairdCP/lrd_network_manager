@@ -15,8 +15,8 @@ struct Opt {
     const char *const   *str_allowed;
     const NMSupplOptType type;
     // Laird: use signed gint32 type to allow for -1 value in ht40
-    const gint32        int_low;  /* Inclusive */
-    const gint32        int_high; /* Inclusive; max length for strings */
+    const gint32 int_low;  /* Inclusive */
+    const gint32 int_high; /* Inclusive; max length for strings */
 };
 
 typedef gboolean (*validate_func)(const struct Opt *, const char *, const guint32);
@@ -68,16 +68,10 @@ static const struct Opt opt_table[] = {
     OPT_INT("fragment_size", 1, 2000),
     OPT_KEYWORD("freq_list", NULL),
     OPT_INT("frequency", 2412, 5825),
-    OPT_KEYWORD ("group",   NM_MAKE_STRV (
-                                "CCMP",
-                                "TKIP",
-                                "WEP104",
-                                "WEP40",
-                                "CCMP-256", "GCMP", "GCMP-256",
-                            )),
-    OPT_KEYWORD("group_mgmt", NM_MAKE_STRV (
-                                "AES-128-CMAC", "BIP-CMAC-256","BIP-GMAC-128","BIP-GMAC-256",
-                              )),
+    OPT_KEYWORD("group",
+                NM_MAKE_STRV("CCMP", "TKIP", "WEP104", "WEP40", "CCMP-256", "GCMP", "GCMP-256", )),
+    OPT_KEYWORD("group_mgmt",
+                NM_MAKE_STRV("AES-128-CMAC", "BIP-CMAC-256", "BIP-GMAC-128", "BIP-GMAC-256", )),
     OPT_INT("ht40", -1, 1),
     OPT_BYTES("identity", 0),
     OPT_INT("ieee80211w", 0, 2),
@@ -102,8 +96,8 @@ static const struct Opt opt_table[] = {
                              "OWE",
                              "NONE",
                              "CCKM",
-                             "WPA-EAP-SUITE-B", "WPA-EAP-SUITE-B-192",
-                            )),
+                             "WPA-EAP-SUITE-B",
+                             "WPA-EAP-SUITE-B-192", )),
     OPT_INT("laird_auth_timeout", 0, 60),
     OPT_BYTES("laird_ccx_client_name", 16),
     OPT_INT("macsec_integ_only", 0, 1),
@@ -116,12 +110,7 @@ static const struct Opt opt_table[] = {
     OPT_INT("owe_only", 0, 1),
     OPT_BYTES("pac_file", 0),
     OPT_BYTES("pac_file_password", 1024),
-    OPT_KEYWORD("pairwise", NM_MAKE_STRV(
-                                "CCMP",
-                                "TKIP",
-                                "NONE",
-                                "CCMP-256", "GCMP", "GCMP-256",
-                            )),
+    OPT_KEYWORD("pairwise", NM_MAKE_STRV("CCMP", "TKIP", "NONE", "CCMP-256", "GCMP", "GCMP-256", )),
     OPT_UTF8("password", 0),
     OPT_BYTES("pcsc", 0),
     OPT_KEYWORD("phase1",
@@ -146,8 +135,7 @@ static const struct Opt opt_table[] = {
                              "tls_disable_time_checks=0",
                              "tls_disable_time_checks=1",
                              "tls_suiteb=0",
-                             "tls_suiteb=1",
-                            )),
+                             "tls_suiteb=1", )),
     OPT_KEYWORD("phase2",
                 NM_MAKE_STRV("auth=PAP",
                              "auth=CHAP",

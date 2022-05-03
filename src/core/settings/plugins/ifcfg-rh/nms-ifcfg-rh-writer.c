@@ -616,14 +616,14 @@ write_wireless_security_setting(NMConnection *connection,
     } else if (!strcmp(key_mgmt, "wpa-eap")) {
         svSetValueStr(ifcfg, "KEY_MGMT", "WPA-EAP");
         wpa = TRUE;
-    } else if (!strcmp (key_mgmt, "wpa-eap-suite-b")) {
-        svSetValueStr (ifcfg, "KEY_MGMT", "WPA-EAP-SUITE-B");
+    } else if (!strcmp(key_mgmt, "wpa-eap-suite-b")) {
+        svSetValueStr(ifcfg, "KEY_MGMT", "WPA-EAP-SUITE-B");
         wpa = TRUE;
     } else if (!strcmp(key_mgmt, "wpa-eap-suite-b-192")) {
         svSetValueStr(ifcfg, "KEY_MGMT", "WPA-EAP-SUITE-B-192");
         wpa = TRUE;
-    } else if (!strcmp (key_mgmt, "owe") || !strcmp (key_mgmt, "owe-only")) {
-        svSetValueStr (ifcfg, "KEY_MGMT", "OWE");
+    } else if (!strcmp(key_mgmt, "owe") || !strcmp(key_mgmt, "owe-only")) {
+        svSetValueStr(ifcfg, "KEY_MGMT", "OWE");
         wpa = TRUE;
     }
 
@@ -746,8 +746,8 @@ write_wireless_security_setting(NMConnection *connection,
             svSetValueStr(ifcfg, "WPA_ALLOW_WPA", "yes");
         else if (proto && !strcmp(proto, "rsn"))
             svSetValueStr(ifcfg, "WPA_ALLOW_WPA2", "yes");
-        else if (proto && !strcmp (proto, "wpa3"))
-            svSetValueStr (ifcfg, "WPA_ALLOW_WPA2", "yes");
+        else if (proto && !strcmp(proto, "wpa3"))
+            svSetValueStr(ifcfg, "WPA_ALLOW_WPA2", "yes");
     }
 
     /* WPA Pairwise ciphers */
@@ -812,11 +812,13 @@ write_wireless_security_setting(NMConnection *connection,
                        nm_setting_wireless_security_get_fils(s_wsec));
     }
 
-    if (nm_setting_wireless_security_get_ft (s_wsec) == NM_SETTING_WIRELESS_SECURITY_FT_DEFAULT)
-        svUnsetValue (ifcfg, "FT");
+    if (nm_setting_wireless_security_get_ft(s_wsec) == NM_SETTING_WIRELESS_SECURITY_FT_DEFAULT)
+        svUnsetValue(ifcfg, "FT");
     else {
-        svSetValueEnum (ifcfg, "FT", nm_setting_wireless_security_ft_get_type (),
-                        nm_setting_wireless_security_get_ft (s_wsec));
+        svSetValueEnum(ifcfg,
+                       "FT",
+                       nm_setting_wireless_security_ft_get_type(),
+                       nm_setting_wireless_security_get_ft(s_wsec));
     }
 
     return TRUE;
@@ -952,7 +954,7 @@ write_wireless_setting(NMConnection *connection,
     chan = nm_setting_wireless_get_channel(s_wireless);
     if (chan) {
         svSetValueInt64(ifcfg, "CHANNEL", chan);
-        svSetValueStr (ifcfg, "CHANNEL_WIDTH", nm_setting_wireless_get_channel_width (s_wireless));
+        svSetValueStr(ifcfg, "CHANNEL_WIDTH", nm_setting_wireless_get_channel_width(s_wireless));
     } else {
         /* Band only set if channel is not, since channel implies band */
         svSetValueStr(ifcfg, "BAND", nm_setting_wireless_get_band(s_wireless));

@@ -82,14 +82,13 @@ typedef struct {
     NMWepKeyType wep_key_type;
     gint32       pmf;
     gint32       fils;
+    guint32      wep_tx_keyidx;
+    guint32      wps_method;
 
     char *proactive_key_caching;
 
     /* FT */
     int ft;
-
-    guint32      wep_tx_keyidx;
-    guint32      wps_method;
 } NMSettingWirelessSecurityPrivate;
 
 /**
@@ -829,11 +828,11 @@ nm_setting_wireless_security_get_fils(NMSettingWirelessSecurity *setting)
  * Returns: the #NMSettingWirelessSecurity:proactive_key_caching property of the setting
  **/
 const char *
-nm_setting_wireless_security_get_proactive_key_caching (NMSettingWirelessSecurity *setting)
+nm_setting_wireless_security_get_proactive_key_caching(NMSettingWirelessSecurity *setting)
 {
-    g_return_val_if_fail (NM_IS_SETTING_WIRELESS_SECURITY (setting), NULL);
+    g_return_val_if_fail(NM_IS_SETTING_WIRELESS_SECURITY(setting), NULL);
 
-    return NM_SETTING_WIRELESS_SECURITY_GET_PRIVATE (setting)->proactive_key_caching;
+    return NM_SETTING_WIRELESS_SECURITY_GET_PRIVATE(setting)->proactive_key_caching;
 }
 
 /*
@@ -845,11 +844,11 @@ nm_setting_wireless_security_get_proactive_key_caching (NMSettingWirelessSecurit
  * Since: 1.16
  **/
 NMSettingWirelessSecurityFt
-nm_setting_wireless_security_get_ft (NMSettingWirelessSecurity *setting)
+nm_setting_wireless_security_get_ft(NMSettingWirelessSecurity *setting)
 {
-    g_return_val_if_fail (NM_IS_SETTING_WIRELESS_SECURITY (setting), 0);
+    g_return_val_if_fail(NM_IS_SETTING_WIRELESS_SECURITY(setting), 0);
 
-    return NM_SETTING_WIRELESS_SECURITY_GET_PRIVATE (setting)->ft;
+    return NM_SETTING_WIRELESS_SECURITY_GET_PRIVATE(setting)->ft;
 }
 
 static GPtrArray *
@@ -915,8 +914,15 @@ need_secrets(NMSetting *setting)
         goto no_secrets;
     }
 
-    if (NM_IN_STRSET(priv->key_mgmt, "ieee8021x", "wpa-eap", "owe", "wpa-eap-suite-b-192",
-                                     "wpa-eap-suite-b", "cckm", "owe-only", "owe")) {
+    if (NM_IN_STRSET(priv->key_mgmt,
+                     "ieee8021x",
+                     "wpa-eap",
+                     "owe",
+                     "wpa-eap-suite-b-192",
+                     "wpa-eap-suite-b",
+                     "cckm",
+                     "owe-only",
+                     "owe")) {
         /* Let caller check the 802.1x setting for secrets */
         goto no_secrets;
     }
@@ -931,63 +937,72 @@ no_secrets:
     return NULL;
 }
 
-
 static gboolean
-has_proto (NMSettingWirelessSecurity *s_wsec, const char *proto)
+has_proto(NMSettingWirelessSecurity *s_wsec, const char *proto)
 {
     int i;
 
-    for (i = 0; i < nm_setting_wireless_security_get_num_protos (s_wsec); i++) {
-        if (g_strcmp0 (proto, nm_setting_wireless_security_get_proto (s_wsec, i)) == 0)
+    for (i = 0; i < nm_setting_wireless_security_get_num_protos(s_wsec); i++) {
+        if (g_strcmp0(proto, nm_setting_wireless_security_get_proto(s_wsec, i)) == 0)
             return TRUE;
     }
     return FALSE;
 }
 
 static gboolean
-has_proto_only (NMSettingWirelessSecurity *s_wsec, const char *proto)
+has_proto_only(NMSettingWirelessSecurity *s_wsec, const char *proto)
 {
-    if (1 != nm_setting_wireless_security_get_num_protos (s_wsec))
+    if (1 != nm_setting_wireless_security_get_num_protos(s_wsec))
         return FALSE;
-    return has_proto (s_wsec, proto);
+    return has_proto(s_wsec, proto);
 }
-
-
 
 static gboolean
 verify(NMSetting *setting, NMConnection *connection, GError **error)
 {
     NMSettingWirelessSecurity        *self = NM_SETTING_WIRELESS_SECURITY(setting);
     NMSettingWirelessSecurityPrivate *priv = NM_SETTING_WIRELESS_SECURITY_GET_PRIVATE(self);
-    const char                       *_valid_key_mgmt[] =
-        {"none", "ieee8021x", "wpa-psk", "wpa-eap", "sae", "owe",
-         "cckm", "wpa-eap-suite-b", "wpa-eap-suite-b-192", "owe-only", NULL};
-    const char        *valid_auth_algs[] = {"open", "shared", "leap", NULL};
-    const char *       _valid_protos[]    = {"wpa", "rsn", NULL };
-    const char *       _valid_pairwise[]  = {"tkip", "ccmp", "ccmp-256", "gcmp", "gcmp-256", NULL};
-    const char *       _valid_groups[]    = {"wep40", "wep104", "tkip", "ccmp", "ccmp-256", "gcmp", "gcmp-256", NULL};
+    const char                       *_valid_key_mgmt[] = {"none",
+                                     "ieee8021x",
+                                     "wpa-psk",
+                                     "wpa-eap",
+                                     "sae",
+                                     "owe",
+                                     "cckm",
+                                     "wpa-eap-suite-b",
+                                     "wpa-eap-suite-b-192",
+                                     "owe-only",
+                                     NULL};
+    const char                       *valid_auth_algs[] = {"open", "shared", "leap", NULL};
+    const char                       *_valid_protos[]   = {"wpa", "rsn", NULL};
+    const char *_valid_pairwise[] = {"tkip", "ccmp", "ccmp-256", "gcmp", "gcmp-256", NULL};
+    const char *_valid_groups[] =
+        {"wep40", "wep104", "tkip", "ccmp", "ccmp-256", "gcmp", "gcmp-256", NULL};
 
-    const char *wpa3_valid_key_mgmt[] = {
-        "wpa-psk" /* wpa3-sae transition mode */,
-        "wpa-eap", "sae",
-        /* ?? "cckm",*/
-        "wpa-eap-suite-b", "wpa-eap-suite-b-192", "owe", "owe-only", NULL };
-    const char *wpa3_valid_protos[] = { "wpa3", NULL };
-    const char *wpa3_valid_ciphers[] =
-        { "ccmp", "ccmp-256", "gcmp", "gcmp-256", NULL };
+    const char *wpa3_valid_key_mgmt[] = {"wpa-psk" /* wpa3-sae transition mode */,
+                                         "wpa-eap",
+                                         "sae",
+                                         /* ?? "cckm",*/
+                                         "wpa-eap-suite-b",
+                                         "wpa-eap-suite-b-192",
+                                         "owe",
+                                         "owe-only",
+                                         NULL};
+    const char *wpa3_valid_protos[]   = {"wpa3", NULL};
+    const char *wpa3_valid_ciphers[]  = {"ccmp", "ccmp-256", "gcmp", "gcmp-256", NULL};
 
-    const char *sb_valid_ciphers[] = { "gcmp", NULL };
-    const char *wpa3_sb192_valid_ciphers[] = { "gcmp-256", NULL };
-    const char *sb192_valid_ciphers[] = { "ccmp-256", "gcmp-256", NULL };
+    const char *sb_valid_ciphers[]         = {"gcmp", NULL};
+    const char *wpa3_sb192_valid_ciphers[] = {"gcmp-256", NULL};
+    const char *sb192_valid_ciphers[]      = {"ccmp-256", "gcmp-256", NULL};
 
     const char **valid_key_mgmt = _valid_key_mgmt;
-    const char **valid_protos = _valid_protos;
+    const char **valid_protos   = _valid_protos;
     const char **valid_pairwise = _valid_pairwise;
-    const char **valid_groups = _valid_groups;
+    const char **valid_groups   = _valid_groups;
 
     NMSettingWireless *s_wifi;
     const char        *wifi_mode;
-    gboolean wpa3_only;
+    gboolean           wpa3_only;
 
     s_wifi    = connection ? nm_connection_get_setting_wireless(connection) : NULL;
     wifi_mode = s_wifi ? nm_setting_wireless_get_mode(s_wifi) : NULL;
@@ -1007,37 +1022,40 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
     wpa3_only = has_proto_only(self, "wpa3");
 
     if (wpa3_only) {
-        if (g_strcmp0 (wifi_mode, NM_SETTING_WIRELESS_MODE_INFRA) != 0 &&
-			g_strcmp0 (wifi_mode, NM_SETTING_WIRELESS_MODE_AP) != 0
-			)
-		{
-            g_set_error (error,
-                         NM_CONNECTION_ERROR,
-                         NM_CONNECTION_ERROR_INVALID_PROPERTY,
-                         _("'%s' is only valid for '%s' mode connections"),
-                         "wpa3", NM_SETTING_WIRELESS_MODE_INFRA);
-            g_prefix_error (error, "%s.%s: ", NM_SETTING_WIRELESS_SECURITY_SETTING_NAME, NM_SETTING_WIRELESS_SECURITY_PROTO);
+        if (g_strcmp0(wifi_mode, NM_SETTING_WIRELESS_MODE_INFRA) != 0
+            && g_strcmp0(wifi_mode, NM_SETTING_WIRELESS_MODE_AP) != 0) {
+            g_set_error(error,
+                        NM_CONNECTION_ERROR,
+                        NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                        _("'%s' is only valid for '%s' mode connections"),
+                        "wpa3",
+                        NM_SETTING_WIRELESS_MODE_INFRA);
+            g_prefix_error(error,
+                           "%s.%s: ",
+                           NM_SETTING_WIRELESS_SECURITY_SETTING_NAME,
+                           NM_SETTING_WIRELESS_SECURITY_PROTO);
             return FALSE;
         }
     }
 
     if (wpa3_only) {
         valid_key_mgmt = wpa3_valid_key_mgmt;
-        valid_protos = wpa3_valid_protos;
+        valid_protos   = wpa3_valid_protos;
         valid_pairwise = wpa3_valid_ciphers;
-        valid_groups = wpa3_valid_ciphers;
+        valid_groups   = wpa3_valid_ciphers;
     }
 
-    if (strcmp (priv->key_mgmt, "wpa-eap-suite-b") == 0) {
+    if (strcmp(priv->key_mgmt, "wpa-eap-suite-b") == 0) {
         valid_pairwise = sb_valid_ciphers;
-        valid_groups = sb_valid_ciphers;
-    } else if (strcmp (priv->key_mgmt, "wpa-eap-suite-b-192") == 0) {
+        valid_groups   = sb_valid_ciphers;
+    } else if (strcmp(priv->key_mgmt, "wpa-eap-suite-b-192") == 0) {
         if (wpa3_only) {
             valid_pairwise = wpa3_sb192_valid_ciphers;
-            valid_groups = wpa3_sb192_valid_ciphers;
+            valid_groups   = wpa3_sb192_valid_ciphers;
         } else {
-;           valid_pairwise = sb192_valid_ciphers;
-            valid_groups = sb192_valid_ciphers;
+            ;
+            valid_pairwise = sb192_valid_ciphers;
+            valid_groups   = sb192_valid_ciphers;
         }
     }
 
@@ -1100,10 +1118,9 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
         if (nm_streq(priv->key_mgmt, "ieee8021x") || nm_streq(priv->key_mgmt, "wpa-eap")
             || nm_streq(priv->key_mgmt, "wpa-eap-suite-b-192")) {
             /* Need an 802.1x setting too */
-			if (g_strcmp0 (wifi_mode, NM_SETTING_WIRELESS_MODE_AP) == 0) {
-				// AP mode -- 802.1x settings set via ap-config-file
-			} else
-            if (connection && !nm_connection_get_setting_802_1x(connection)) {
+            if (g_strcmp0(wifi_mode, NM_SETTING_WIRELESS_MODE_AP) == 0) {
+                // AP mode -- 802.1x settings set via ap-config-file
+            } else if (connection && !nm_connection_get_setting_802_1x(connection)) {
                 g_set_error(error,
                             NM_CONNECTION_ERROR,
                             NM_CONNECTION_ERROR_MISSING_SETTING,
@@ -1225,47 +1242,51 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
         // wpa3: do not allow pmf disabled
         // wpa3: do not allow pmf optional (except wpa3-sae transition mode)
         if (priv->pmf == NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE) {
-            g_set_error (error,
-                         NM_CONNECTION_ERROR,
-                         NM_CONNECTION_ERROR_INVALID_PROPERTY,
-                         _("must not be disabled for wpa3"));
-            g_prefix_error (error, "%s.%s: ", NM_SETTING_WIRELESS_SECURITY_SETTING_NAME, NM_SETTING_WIRELESS_SECURITY_PMF);
+            g_set_error(error,
+                        NM_CONNECTION_ERROR,
+                        NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                        _("must not be disabled for wpa3"));
+            g_prefix_error(error,
+                           "%s.%s: ",
+                           NM_SETTING_WIRELESS_SECURITY_SETTING_NAME,
+                           NM_SETTING_WIRELESS_SECURITY_PMF);
             return FALSE;
         } else if (priv->pmf == NM_SETTING_WIRELESS_SECURITY_PMF_OPTIONAL) {
             if (strcmp(priv->key_mgmt, "wpa-psk") != 0) {
-                g_set_error (error,
-                             NM_CONNECTION_ERROR,
-                             NM_CONNECTION_ERROR_INVALID_PROPERTY,
-                             _("wpa3 only allows optional for wpa3-psk (wpa3-sae transition mode)"));
-                g_prefix_error (error, "%s.%s: ", NM_SETTING_WIRELESS_SECURITY_SETTING_NAME, NM_SETTING_WIRELESS_SECURITY_PMF);
+                g_set_error(error,
+                            NM_CONNECTION_ERROR,
+                            NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                            _("wpa3 only allows optional for wpa3-psk (wpa3-sae transition mode)"));
+                g_prefix_error(error,
+                               "%s.%s: ",
+                               NM_SETTING_WIRELESS_SECURITY_SETTING_NAME,
+                               NM_SETTING_WIRELESS_SECURITY_PMF);
                 return FALSE;
             }
         }
-    } else
-    if (strcmp (priv->key_mgmt, "wpa-eap-suite-b") == 0 ||
-        strcmp (priv->key_mgmt, "wpa-eap-suite-b-192") == 0)
-    {
-        if (   NM_IN_SET (priv->pmf,
-                          NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE))
-        {
-            g_set_error (error,
-                         NM_CONNECTION_ERROR,
-                         NM_CONNECTION_ERROR_INVALID_PROPERTY,
-                         _("must not be disabled for suite-b"));
-            g_prefix_error (error, "%s.%s: ", NM_SETTING_WIRELESS_SECURITY_SETTING_NAME, NM_SETTING_WIRELESS_SECURITY_PMF);
+    } else if (strcmp(priv->key_mgmt, "wpa-eap-suite-b") == 0
+               || strcmp(priv->key_mgmt, "wpa-eap-suite-b-192") == 0) {
+        if (NM_IN_SET(priv->pmf, NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE)) {
+            g_set_error(error,
+                        NM_CONNECTION_ERROR,
+                        NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                        _("must not be disabled for suite-b"));
+            g_prefix_error(error,
+                           "%s.%s: ",
+                           NM_SETTING_WIRELESS_SECURITY_SETTING_NAME,
+                           NM_SETTING_WIRELESS_SECURITY_PMF);
             return FALSE;
         }
-    } else
-    if (NM_IN_SET(priv->pmf,
-                  NM_SETTING_WIRELESS_SECURITY_PMF_OPTIONAL,
-                  NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED)
-        && !NM_IN_STRSET(priv->key_mgmt,
-                         "wpa-eap",
-                         "wpa-eap-suite-b-192",
-                         "wpa-psk",
-                         "sae",
-                         "owe",
-                         "cckm")) {
+    } else if (NM_IN_SET(priv->pmf,
+                         NM_SETTING_WIRELESS_SECURITY_PMF_OPTIONAL,
+                         NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED)
+               && !NM_IN_STRSET(priv->key_mgmt,
+                                "wpa-eap",
+                                "wpa-eap-suite-b-192",
+                                "wpa-psk",
+                                "sae",
+                                "owe",
+                                "cckm")) {
         g_set_error(error,
                     NM_CONNECTION_ERROR,
                     NM_CONNECTION_ERROR_INVALID_PROPERTY,
@@ -1534,7 +1555,6 @@ finalize(GObject *object)
 {
     NMSettingWirelessSecurity        *self = NM_SETTING_WIRELESS_SECURITY(object);
     NMSettingWirelessSecurityPrivate *priv = NM_SETTING_WIRELESS_SECURITY_GET_PRIVATE(self);
-
 
     g_slist_free_full(priv->proto, g_free);
     g_slist_free_full(priv->pairwise, g_free);

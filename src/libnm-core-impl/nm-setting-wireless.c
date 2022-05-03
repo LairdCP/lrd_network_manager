@@ -79,26 +79,25 @@ typedef struct {
     guint32    tx_power;
     guint32    mtu;
     guint32    powersave;
+    guint32    wake_on_wlan;
+    bool       hidden;
 
-    guint ccx;
-    char *client_name;
+    guint   ccx;
+    char   *client_name;
     guint32 scan_delay;
     guint32 scan_dwell;
     guint32 scan_passive_dwell;
     guint32 scan_suspend_time;
     guint32 scan_roam_delta;
-    char *bgscan;
+    char   *bgscan;
     guint32 auth_timeout;
-    char *frequency_list;
+    char   *frequency_list;
     guint32 frequency_dfs;
     guint32 max_scan_interval;
     guint32 dms;
     guint32 acs;
-    char *channel_width;
-    char *ap_config_file;
-
-    guint32    wake_on_wlan;
-    bool       hidden;
+    char   *channel_width;
+    char   *ap_config_file;
 } NMSettingWirelessPrivate;
 
 /**
@@ -141,28 +140,27 @@ match_cipher(const char *cipher,
 }
 
 static gboolean
-has_proto (NMSettingWirelessSecurity *s_wsec, const char *proto)
+has_proto(NMSettingWirelessSecurity *s_wsec, const char *proto)
 {
     int i;
 
-    for (i = 0; i < nm_setting_wireless_security_get_num_protos (s_wsec); i++) {
-        if (g_strcmp0 (proto, nm_setting_wireless_security_get_proto (s_wsec, i)) == 0)
+    for (i = 0; i < nm_setting_wireless_security_get_num_protos(s_wsec); i++) {
+        if (g_strcmp0(proto, nm_setting_wireless_security_get_proto(s_wsec, i)) == 0)
             return TRUE;
     }
     return FALSE;
 }
 
 static gboolean
-has_proto_only (NMSettingWirelessSecurity *s_wsec, const char *proto)
+has_proto_only(NMSettingWirelessSecurity *s_wsec, const char *proto)
 {
-    if (1 != nm_setting_wireless_security_get_num_protos (s_wsec))
+    if (1 != nm_setting_wireless_security_get_num_protos(s_wsec))
         return FALSE;
-    return has_proto (s_wsec, proto);
+    return has_proto(s_wsec, proto);
 }
 
 static gboolean
-has_ap_flags_valid_set(NM80211ApFlags ap_flags,
-                       NM80211ApFlags mask, NM80211ApFlags valid)
+has_ap_flags_valid_set(NM80211ApFlags ap_flags, NM80211ApFlags mask, NM80211ApFlags valid)
 {
     if (0 == (ap_flags & valid))
         return FALSE; /* must have one of valid bits set */
@@ -248,19 +246,19 @@ nm_setting_wireless_ap_security_compatible(NMSettingWireless         *s_wireless
  * security flags and mode, %FALSE if they are not.
  */
 gboolean
-nm_setting_wireless_ap_security_compatible2(NMSettingWireless *s_wireless,
+nm_setting_wireless_ap_security_compatible2(NMSettingWireless         *s_wireless,
                                             NMSettingWirelessSecurity *s_wireless_sec,
-                                            NM80211ApFlags ap_flags,
-                                            NM80211ApSecurityFlags ap_wpa,
-                                            NM80211ApSecurityFlags ap_rsn,
-                                            NM80211Mode ap_mode,
-                                            NMDeviceWifiCapabilities dev_caps)
+                                            NM80211ApFlags             ap_flags,
+                                            NM80211ApSecurityFlags     ap_wpa,
+                                            NM80211ApSecurityFlags     ap_rsn,
+                                            NM80211Mode                ap_mode,
+                                            NMDeviceWifiCapabilities   dev_caps)
 {
     const char *key_mgmt = NULL, *cipher;
     guint32     num, i;
     gboolean    found = FALSE;
-    gboolean wpa3_only;
-    gboolean pmf_check = FALSE;
+    gboolean    wpa3_only;
+    gboolean    pmf_check = FALSE;
 
     g_return_val_if_fail(NM_IS_SETTING_WIRELESS(s_wireless), FALSE);
 
@@ -289,18 +287,15 @@ nm_setting_wireless_ap_security_compatible2(NMSettingWireless *s_wireless,
     }
 
     if (!strcmp(key_mgmt, "owe")) {
-        if (   (ap_flags & NM_802_11_AP_FLAGS_PRIVACY) == 0
-            && (ap_wpa == NM_802_11_AP_SEC_NONE)
+        if ((ap_flags & NM_802_11_AP_FLAGS_PRIVACY) == 0 && (ap_wpa == NM_802_11_AP_SEC_NONE)
             && (ap_rsn == NM_802_11_AP_SEC_NONE))
             return TRUE;
     }
 
     if (!strcmp(key_mgmt, "owe-only")) {
         // accept an open AP, only if it has the OWE IE
-        if (   (ap_flags & NM_802_11_AP_FLAGS_PRIVACY) == 0
-            && (ap_flags & NM_802_11_AP_FLAGS_OWE_IE)
-            && (ap_wpa == NM_802_11_AP_SEC_NONE)
-            && (ap_rsn == NM_802_11_AP_SEC_NONE))
+        if ((ap_flags & NM_802_11_AP_FLAGS_PRIVACY) == 0 && (ap_flags & NM_802_11_AP_FLAGS_OWE_IE)
+            && (ap_wpa == NM_802_11_AP_SEC_NONE) && (ap_rsn == NM_802_11_AP_SEC_NONE))
             return TRUE;
     }
 
@@ -382,26 +377,19 @@ nm_setting_wireless_ap_security_compatible2(NMSettingWireless *s_wireless,
 
     /* WPA[2]-PSK and WPA[2] Enterprise */
     /* and WPA3 */
-    if (!strcmp(key_mgmt, "wpa-psk")
-        || !strcmp(key_mgmt, "cckm")
-        || !strcmp(key_mgmt, "wpa-eap")
-        || !strcmp(key_mgmt, "wpa-eap-suite-b")
-        || !strcmp(key_mgmt, "wpa-eap-suite-b-192")
-        || !strcmp(key_mgmt, "owe-only")
-        || !strcmp(key_mgmt, "sae")
-        || !strcmp(key_mgmt, "owe")) {
+    if (!strcmp(key_mgmt, "wpa-psk") || !strcmp(key_mgmt, "cckm") || !strcmp(key_mgmt, "wpa-eap")
+        || !strcmp(key_mgmt, "wpa-eap-suite-b") || !strcmp(key_mgmt, "wpa-eap-suite-b-192")
+        || !strcmp(key_mgmt, "owe-only") || !strcmp(key_mgmt, "sae") || !strcmp(key_mgmt, "owe")) {
         if (!strcmp(key_mgmt, "wpa-psk")) {
             if (wpa3_only) {
                 // wpa3-sae transition mode (psk or sae)
-                if (!(ap_rsn & (NM_802_11_AP_SEC_KEY_MGMT_PSK |
-                                NM_802_11_AP_SEC_KEY_MGMT_SAE)))
+                if (!(ap_rsn & (NM_802_11_AP_SEC_KEY_MGMT_PSK | NM_802_11_AP_SEC_KEY_MGMT_SAE)))
                     return FALSE;
                 if (!(ap_rsn & NM_802_11_AP_SEC_KEY_MGMT_SAE))
                     /* wpa3-sae transition: psk only AP, allow non-PMF */
                     pmf_check = FALSE;
-            } else
-            if (!(ap_wpa & NM_802_11_AP_SEC_KEY_MGMT_PSK)
-                && !(ap_rsn & NM_802_11_AP_SEC_KEY_MGMT_PSK))
+            } else if (!(ap_wpa & NM_802_11_AP_SEC_KEY_MGMT_PSK)
+                       && !(ap_rsn & NM_802_11_AP_SEC_KEY_MGMT_PSK))
                 return FALSE;
         } else if (!strcmp(key_mgmt, "wpa-eap")) {
             if (!(ap_wpa & NM_802_11_AP_SEC_KEY_MGMT_802_1X)
@@ -412,19 +400,17 @@ nm_setting_wireless_ap_security_compatible2(NMSettingWireless *s_wireless,
                 /* wpa3-sae only mode */
                 if (!(ap_rsn & NM_802_11_AP_SEC_KEY_MGMT_SAE))
                     return FALSE;
-            } else
-            if (!(ap_wpa & NM_802_11_AP_SEC_KEY_MGMT_SAE)
-                && !(ap_rsn & NM_802_11_AP_SEC_KEY_MGMT_SAE))
+            } else if (!(ap_wpa & NM_802_11_AP_SEC_KEY_MGMT_SAE)
+                       && !(ap_rsn & NM_802_11_AP_SEC_KEY_MGMT_SAE))
                 return FALSE;
-        } else if (!strcmp(key_mgmt, "owe") ||
-                   !strcmp(key_mgmt, "owe-only")) {
+        } else if (!strcmp(key_mgmt, "owe") || !strcmp(key_mgmt, "owe-only")) {
             if (!NM_FLAGS_ANY(ap_wpa,
                               NM_802_11_AP_SEC_KEY_MGMT_OWE | NM_802_11_AP_SEC_KEY_MGMT_OWE_TM)
                 && !NM_FLAGS_ANY(ap_rsn,
                                  NM_802_11_AP_SEC_KEY_MGMT_OWE | NM_802_11_AP_SEC_KEY_MGMT_OWE_TM))
                 return FALSE;
         } else if (!strcmp(key_mgmt, "cckm")) {
-            if (   !(ap_wpa & NM_802_11_AP_SEC_KEY_MGMT_CCKM)
+            if (!(ap_wpa & NM_802_11_AP_SEC_KEY_MGMT_CCKM)
                 && !(ap_rsn & NM_802_11_AP_SEC_KEY_MGMT_CCKM))
                 return FALSE;
         } else if (!strcmp(key_mgmt, "wpa-eap-suite-b")) {
@@ -454,33 +440,30 @@ nm_setting_wireless_ap_security_compatible2(NMSettingWireless *s_wireless,
                     return FALSE;
             } else {
                 /* pairwise may have gcmp-256 or ccmp-256 */
-                if (!has_ap_flags_valid_pair(ap_rsn, NM_802_11_AP_SEC_PAIR_GCMP_256|
-                                NM_802_11_AP_SEC_PAIR_CCMP_256))
+                if (!has_ap_flags_valid_pair(ap_rsn,
+                                             NM_802_11_AP_SEC_PAIR_GCMP_256
+                                                 | NM_802_11_AP_SEC_PAIR_CCMP_256))
                     return FALSE;
-                if (!(ap_rsn & (NM_802_11_AP_SEC_GROUP_GCMP_256|
-                                NM_802_11_AP_SEC_GROUP_CCMP_256)))
+                if (!(ap_rsn & (NM_802_11_AP_SEC_GROUP_GCMP_256 | NM_802_11_AP_SEC_GROUP_CCMP_256)))
                     return FALSE;
-                if (!(ap_rsn & (NM_802_11_AP_SEC_MGMT_GROUP_GMAC_256|
-                                NM_802_11_AP_SEC_MGMT_GROUP_CMAC_256)))
+                if (!(ap_rsn
+                      & (NM_802_11_AP_SEC_MGMT_GROUP_GMAC_256
+                         | NM_802_11_AP_SEC_MGMT_GROUP_CMAC_256)))
                     return FALSE;
             }
         }
 
         if (wpa3_only) {
             // wpa3: wep and tkip are not allowed
-            if (ap_rsn & (NM_802_11_AP_SEC_PAIR_WEP40|
-                          NM_802_11_AP_SEC_PAIR_WEP104|
-                          NM_802_11_AP_SEC_PAIR_TKIP|
-                          NM_802_11_AP_SEC_GROUP_WEP40|
-                          NM_802_11_AP_SEC_GROUP_WEP104|
-                          NM_802_11_AP_SEC_GROUP_TKIP))
+            if (ap_rsn
+                & (NM_802_11_AP_SEC_PAIR_WEP40 | NM_802_11_AP_SEC_PAIR_WEP104
+                   | NM_802_11_AP_SEC_PAIR_TKIP | NM_802_11_AP_SEC_GROUP_WEP40
+                   | NM_802_11_AP_SEC_GROUP_WEP104 | NM_802_11_AP_SEC_GROUP_TKIP))
                 return FALSE;
-            if (ap_wpa & (NM_802_11_AP_SEC_PAIR_WEP40|
-                          NM_802_11_AP_SEC_PAIR_WEP104|
-                          NM_802_11_AP_SEC_PAIR_TKIP|
-                          NM_802_11_AP_SEC_GROUP_WEP40|
-                          NM_802_11_AP_SEC_GROUP_WEP104|
-                          NM_802_11_AP_SEC_GROUP_TKIP))
+            if (ap_wpa
+                & (NM_802_11_AP_SEC_PAIR_WEP40 | NM_802_11_AP_SEC_PAIR_WEP104
+                   | NM_802_11_AP_SEC_PAIR_TKIP | NM_802_11_AP_SEC_GROUP_WEP40
+                   | NM_802_11_AP_SEC_GROUP_WEP104 | NM_802_11_AP_SEC_GROUP_TKIP))
                 return FALSE;
         }
 
@@ -494,39 +477,28 @@ nm_setting_wireless_ap_security_compatible2(NMSettingWireless *s_wireless,
 
         // validation of pairwise/group ciphers using ap, settings, and dev_caps
         {
-            NM80211ApSecurityFlags cfg_flags =  0;
-            NM80211ApSecurityFlags dev_flags =  0;
-            gboolean check_wpa = FALSE;
-            gboolean check_rsn = FALSE;
+            NM80211ApSecurityFlags cfg_flags = 0;
+            NM80211ApSecurityFlags dev_flags = 0;
+            gboolean               check_wpa = FALSE;
+            gboolean               check_rsn = FALSE;
 
             if (!strcmp(key_mgmt, "wpa-eap-suite-b")) {
-                cfg_flags |= NM_802_11_AP_SEC_PAIR_GCMP_128 |
-                    NM_802_11_AP_SEC_GROUP_GCMP_128;
+                cfg_flags |= NM_802_11_AP_SEC_PAIR_GCMP_128 | NM_802_11_AP_SEC_GROUP_GCMP_128;
             } else if (wpa3_only) {
-                cfg_flags |= NM_802_11_AP_SEC_PAIR_CCMP |
-                    NM_802_11_AP_SEC_PAIR_CCMP_256 |
-                    NM_802_11_AP_SEC_PAIR_GCMP_128 |
-                    NM_802_11_AP_SEC_PAIR_GCMP_256 |
-                    NM_802_11_AP_SEC_GROUP_CCMP |
-                    NM_802_11_AP_SEC_GROUP_CCMP_256 |
-                    NM_802_11_AP_SEC_GROUP_GCMP_128 |
-                    NM_802_11_AP_SEC_GROUP_GCMP_256;
+                cfg_flags |= NM_802_11_AP_SEC_PAIR_CCMP | NM_802_11_AP_SEC_PAIR_CCMP_256
+                             | NM_802_11_AP_SEC_PAIR_GCMP_128 | NM_802_11_AP_SEC_PAIR_GCMP_256
+                             | NM_802_11_AP_SEC_GROUP_CCMP | NM_802_11_AP_SEC_GROUP_CCMP_256
+                             | NM_802_11_AP_SEC_GROUP_GCMP_128 | NM_802_11_AP_SEC_GROUP_GCMP_256;
                 if (!strcmp(key_mgmt, "wpa-eap-suite-b-192")) {
-                    cfg_flags |= NM_802_11_AP_SEC_PAIR_GCMP_256 |
-                    NM_802_11_AP_SEC_GROUP_GCMP_256;
+                    cfg_flags |= NM_802_11_AP_SEC_PAIR_GCMP_256 | NM_802_11_AP_SEC_GROUP_GCMP_256;
                 }
             } else if (!strcmp(key_mgmt, "wpa-eap-suite-b-192")) {
-                cfg_flags |= NM_802_11_AP_SEC_PAIR_CCMP_256 |
-                    NM_802_11_AP_SEC_PAIR_GCMP_256 |
-                    NM_802_11_AP_SEC_GROUP_CCMP_256 |
-                    NM_802_11_AP_SEC_GROUP_GCMP_256;
+                cfg_flags |= NM_802_11_AP_SEC_PAIR_CCMP_256 | NM_802_11_AP_SEC_PAIR_GCMP_256
+                             | NM_802_11_AP_SEC_GROUP_CCMP_256 | NM_802_11_AP_SEC_GROUP_GCMP_256;
             } else {
-                cfg_flags |= NM_802_11_AP_SEC_PAIR_TKIP |
-                    NM_802_11_AP_SEC_PAIR_CCMP |
-                    NM_802_11_AP_SEC_GROUP_WEP40 |
-                    NM_802_11_AP_SEC_GROUP_WEP104 |
-                    NM_802_11_AP_SEC_GROUP_TKIP |
-                    NM_802_11_AP_SEC_GROUP_CCMP;
+                cfg_flags |= NM_802_11_AP_SEC_PAIR_TKIP | NM_802_11_AP_SEC_PAIR_CCMP
+                             | NM_802_11_AP_SEC_GROUP_WEP40 | NM_802_11_AP_SEC_GROUP_WEP104
+                             | NM_802_11_AP_SEC_GROUP_TKIP | NM_802_11_AP_SEC_GROUP_CCMP;
             }
 
             num = nm_setting_wireless_security_get_num_pairwise(s_wireless_sec);
@@ -549,22 +521,22 @@ nm_setting_wireless_ap_security_compatible2(NMSettingWireless *s_wireless,
             num = nm_setting_wireless_security_get_num_groups(s_wireless_sec);
             if (num != 0) {
                 cfg_flags &= ~NM_802_11_AP_SEC_GROUP_MASK;
-            for (i = 0, found = FALSE; i < num; i++) {
-                cipher = nm_setting_wireless_security_get_group(s_wireless_sec, i);
-                if (!strcmp(cipher, "wep40"))
-                    cfg_flags |= NM_802_11_AP_SEC_GROUP_WEP40;
-                else if (!strcmp(cipher, "wep104"))
-                    cfg_flags |= NM_802_11_AP_SEC_GROUP_WEP104;
-                else if (!strcmp(cipher, "tkip"))
-                    cfg_flags |= NM_802_11_AP_SEC_GROUP_TKIP;
-                else if (!strcmp(cipher, "ccmp"))
-                    cfg_flags |= NM_802_11_AP_SEC_GROUP_CCMP;
-                else if (!strcmp(cipher, "ccmp-256"))
-                    cfg_flags |= NM_802_11_AP_SEC_GROUP_CCMP_256;
-                else if (!strcmp(cipher, "gcmp"))
-                    cfg_flags |= NM_802_11_AP_SEC_GROUP_GCMP_128;
-                else if (!strcmp(cipher, "gcmp-256"))
-                    cfg_flags |= NM_802_11_AP_SEC_GROUP_GCMP_256;
+                for (i = 0, found = FALSE; i < num; i++) {
+                    cipher = nm_setting_wireless_security_get_group(s_wireless_sec, i);
+                    if (!strcmp(cipher, "wep40"))
+                        cfg_flags |= NM_802_11_AP_SEC_GROUP_WEP40;
+                    else if (!strcmp(cipher, "wep104"))
+                        cfg_flags |= NM_802_11_AP_SEC_GROUP_WEP104;
+                    else if (!strcmp(cipher, "tkip"))
+                        cfg_flags |= NM_802_11_AP_SEC_GROUP_TKIP;
+                    else if (!strcmp(cipher, "ccmp"))
+                        cfg_flags |= NM_802_11_AP_SEC_GROUP_CCMP;
+                    else if (!strcmp(cipher, "ccmp-256"))
+                        cfg_flags |= NM_802_11_AP_SEC_GROUP_CCMP_256;
+                    else if (!strcmp(cipher, "gcmp"))
+                        cfg_flags |= NM_802_11_AP_SEC_GROUP_GCMP_128;
+                    else if (!strcmp(cipher, "gcmp-256"))
+                        cfg_flags |= NM_802_11_AP_SEC_GROUP_GCMP_256;
                 }
             }
             if (dev_caps) {
@@ -573,20 +545,20 @@ nm_setting_wireless_ap_security_compatible2(NMSettingWireless *s_wireless,
                 if (dev_caps & NM_WIFI_DEVICE_CAP_CIPHER_WEP104)
                     dev_flags |= NM_802_11_AP_SEC_GROUP_WEP104;
                 if (dev_caps & NM_WIFI_DEVICE_CAP_CIPHER_TKIP)
-                    dev_flags |= NM_802_11_AP_SEC_PAIR_TKIP|NM_802_11_AP_SEC_GROUP_TKIP;
+                    dev_flags |= NM_802_11_AP_SEC_PAIR_TKIP | NM_802_11_AP_SEC_GROUP_TKIP;
                 if (dev_caps & NM_WIFI_DEVICE_CAP_CIPHER_CCMP)
-                    dev_flags |= NM_802_11_AP_SEC_PAIR_CCMP|NM_802_11_AP_SEC_GROUP_CCMP;
+                    dev_flags |= NM_802_11_AP_SEC_PAIR_CCMP | NM_802_11_AP_SEC_GROUP_CCMP;
                 if (dev_caps & NM_WIFI_DEVICE_CAP_CIPHER_CCMP_256)
-                    dev_flags |= NM_802_11_AP_SEC_PAIR_CCMP_256|NM_802_11_AP_SEC_GROUP_CCMP_256;
+                    dev_flags |= NM_802_11_AP_SEC_PAIR_CCMP_256 | NM_802_11_AP_SEC_GROUP_CCMP_256;
                 if (dev_caps & NM_WIFI_DEVICE_CAP_CIPHER_GCMP_256)
-                    dev_flags |= NM_802_11_AP_SEC_PAIR_GCMP_128|NM_802_11_AP_SEC_GROUP_GCMP_128;
+                    dev_flags |= NM_802_11_AP_SEC_PAIR_GCMP_128 | NM_802_11_AP_SEC_GROUP_GCMP_128;
                 if (dev_caps & NM_WIFI_DEVICE_CAP_CIPHER_GCMP_256)
-                    dev_flags |= NM_802_11_AP_SEC_PAIR_GCMP_256|NM_802_11_AP_SEC_GROUP_GCMP_256;
+                    dev_flags |= NM_802_11_AP_SEC_PAIR_GCMP_256 | NM_802_11_AP_SEC_GROUP_GCMP_256;
             }
 
             if (wpa3_only) {
                 check_rsn = 1;
-            } else if (nm_setting_wireless_security_get_num_protos (s_wireless_sec) == 0) {
+            } else if (nm_setting_wireless_security_get_num_protos(s_wireless_sec) == 0) {
                 check_wpa = 1;
                 check_rsn = 1;
             } else {
@@ -604,16 +576,14 @@ nm_setting_wireless_ap_security_compatible2(NMSettingWireless *s_wireless,
             }
             found = 0;
             if (check_wpa) {
-                if ((ap_wpa & NM_802_11_AP_SEC_PAIR_MASK) &&
-                    (ap_wpa & NM_802_11_AP_SEC_GROUP_MASK))
-                {
+                if ((ap_wpa & NM_802_11_AP_SEC_PAIR_MASK)
+                    && (ap_wpa & NM_802_11_AP_SEC_GROUP_MASK)) {
                     found = 1;
                 }
             }
             if (check_rsn) {
-                if ((ap_rsn & NM_802_11_AP_SEC_PAIR_MASK) &&
-                    (ap_rsn & NM_802_11_AP_SEC_GROUP_MASK))
-                {
+                if ((ap_rsn & NM_802_11_AP_SEC_PAIR_MASK)
+                    && (ap_rsn & NM_802_11_AP_SEC_GROUP_MASK)) {
                     found = 1;
                 }
             }
@@ -700,13 +670,12 @@ nm_setting_wireless_get_channel(NMSettingWireless *setting)
  * Returns: the #NMSettingWireless:channel_width property of the setting
  **/
 const char *
-nm_setting_wireless_get_channel_width (NMSettingWireless *setting)
+nm_setting_wireless_get_channel_width(NMSettingWireless *setting)
 {
-    g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), NULL);
+    g_return_val_if_fail(NM_IS_SETTING_WIRELESS(setting), NULL);
 
-    return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->channel_width;
+    return NM_SETTING_WIRELESS_GET_PRIVATE(setting)->channel_width;
 }
-
 
 /**
  * nm_setting_wireless_get_bssid:
@@ -1021,11 +990,11 @@ nm_setting_wireless_get_mac_address_randomization(NMSettingWireless *setting)
  * Since: 1.8
  **/
 NMSettingWirelessCcx
-nm_setting_wireless_get_ccx (NMSettingWireless *setting)
+nm_setting_wireless_get_ccx(NMSettingWireless *setting)
 {
-    g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), 0);
+    g_return_val_if_fail(NM_IS_SETTING_WIRELESS(setting), 0);
 
-    return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->ccx;
+    return NM_SETTING_WIRELESS_GET_PRIVATE(setting)->ccx;
 }
 
 /**
@@ -1036,13 +1005,12 @@ nm_setting_wireless_get_ccx (NMSettingWireless *setting)
  * setting
  **/
 const char *
-nm_setting_wireless_get_client_name (NMSettingWireless *setting)
+nm_setting_wireless_get_client_name(NMSettingWireless *setting)
 {
-    g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), NULL);
+    g_return_val_if_fail(NM_IS_SETTING_WIRELESS(setting), NULL);
 
-    return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->client_name;
+    return NM_SETTING_WIRELESS_GET_PRIVATE(setting)->client_name;
 }
-
 
 /**
  * nm_setting_wireless_get_scan_delay:
@@ -1052,11 +1020,11 @@ nm_setting_wireless_get_client_name (NMSettingWireless *setting)
  * setting
  **/
 guint32
-nm_setting_wireless_get_scan_delay (NMSettingWireless *setting)
+nm_setting_wireless_get_scan_delay(NMSettingWireless *setting)
 {
-    g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), 0);
+    g_return_val_if_fail(NM_IS_SETTING_WIRELESS(setting), 0);
 
-    return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->scan_delay;
+    return NM_SETTING_WIRELESS_GET_PRIVATE(setting)->scan_delay;
 }
 
 /**
@@ -1067,11 +1035,11 @@ nm_setting_wireless_get_scan_delay (NMSettingWireless *setting)
  * setting
  **/
 guint32
-nm_setting_wireless_get_scan_dwell (NMSettingWireless *setting)
+nm_setting_wireless_get_scan_dwell(NMSettingWireless *setting)
 {
-    g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), 0);
+    g_return_val_if_fail(NM_IS_SETTING_WIRELESS(setting), 0);
 
-    return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->scan_dwell;
+    return NM_SETTING_WIRELESS_GET_PRIVATE(setting)->scan_dwell;
 }
 
 /**
@@ -1082,11 +1050,11 @@ nm_setting_wireless_get_scan_dwell (NMSettingWireless *setting)
  * setting
  **/
 guint32
-nm_setting_wireless_get_scan_passive_dwell (NMSettingWireless *setting)
+nm_setting_wireless_get_scan_passive_dwell(NMSettingWireless *setting)
 {
-    g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), 0);
+    g_return_val_if_fail(NM_IS_SETTING_WIRELESS(setting), 0);
 
-    return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->scan_passive_dwell;
+    return NM_SETTING_WIRELESS_GET_PRIVATE(setting)->scan_passive_dwell;
 }
 
 /**
@@ -1097,11 +1065,11 @@ nm_setting_wireless_get_scan_passive_dwell (NMSettingWireless *setting)
  * setting
  **/
 guint32
-nm_setting_wireless_get_scan_suspend_time (NMSettingWireless *setting)
+nm_setting_wireless_get_scan_suspend_time(NMSettingWireless *setting)
 {
-    g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), 0);
+    g_return_val_if_fail(NM_IS_SETTING_WIRELESS(setting), 0);
 
-    return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->scan_suspend_time;
+    return NM_SETTING_WIRELESS_GET_PRIVATE(setting)->scan_suspend_time;
 }
 
 /**
@@ -1112,11 +1080,11 @@ nm_setting_wireless_get_scan_suspend_time (NMSettingWireless *setting)
  * setting
  **/
 guint32
-nm_setting_wireless_get_scan_roam_delta (NMSettingWireless *setting)
+nm_setting_wireless_get_scan_roam_delta(NMSettingWireless *setting)
 {
-    g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), 0);
+    g_return_val_if_fail(NM_IS_SETTING_WIRELESS(setting), 0);
 
-    return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->scan_roam_delta;
+    return NM_SETTING_WIRELESS_GET_PRIVATE(setting)->scan_roam_delta;
 }
 
 /**
@@ -1127,11 +1095,11 @@ nm_setting_wireless_get_scan_roam_delta (NMSettingWireless *setting)
  * setting
  **/
 const char *
-nm_setting_wireless_get_bgscan (NMSettingWireless *setting)
+nm_setting_wireless_get_bgscan(NMSettingWireless *setting)
 {
-    g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), NULL);
+    g_return_val_if_fail(NM_IS_SETTING_WIRELESS(setting), NULL);
 
-    return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->bgscan;
+    return NM_SETTING_WIRELESS_GET_PRIVATE(setting)->bgscan;
 }
 
 /**
@@ -1142,11 +1110,11 @@ nm_setting_wireless_get_bgscan (NMSettingWireless *setting)
  * setting
  **/
 guint32
-nm_setting_wireless_get_auth_timeout (NMSettingWireless *setting)
+nm_setting_wireless_get_auth_timeout(NMSettingWireless *setting)
 {
-    g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), 0);
+    g_return_val_if_fail(NM_IS_SETTING_WIRELESS(setting), 0);
 
-    return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->auth_timeout;
+    return NM_SETTING_WIRELESS_GET_PRIVATE(setting)->auth_timeout;
 }
 
 /**
@@ -1157,11 +1125,11 @@ nm_setting_wireless_get_auth_timeout (NMSettingWireless *setting)
  * setting
  **/
 const char *
-nm_setting_wireless_get_frequency_list (NMSettingWireless *setting)
+nm_setting_wireless_get_frequency_list(NMSettingWireless *setting)
 {
-    g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), NULL);
+    g_return_val_if_fail(NM_IS_SETTING_WIRELESS(setting), NULL);
 
-    return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->frequency_list;
+    return NM_SETTING_WIRELESS_GET_PRIVATE(setting)->frequency_list;
 }
 
 /**
@@ -1172,11 +1140,11 @@ nm_setting_wireless_get_frequency_list (NMSettingWireless *setting)
  * setting
  **/
 guint32
-nm_setting_wireless_get_frequency_dfs (NMSettingWireless *setting)
+nm_setting_wireless_get_frequency_dfs(NMSettingWireless *setting)
 {
-    g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), 0);
+    g_return_val_if_fail(NM_IS_SETTING_WIRELESS(setting), 0);
 
-    return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->frequency_dfs;
+    return NM_SETTING_WIRELESS_GET_PRIVATE(setting)->frequency_dfs;
 }
 
 /**
@@ -1186,11 +1154,11 @@ nm_setting_wireless_get_frequency_dfs (NMSettingWireless *setting)
  * Returns: the #NMSettingWireless:maximum scan interval to use while disconnected
  **/
 guint32
-nm_setting_wireless_get_max_scan_interval (NMSettingWireless *setting)
+nm_setting_wireless_get_max_scan_interval(NMSettingWireless *setting)
 {
-    g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), 0);
+    g_return_val_if_fail(NM_IS_SETTING_WIRELESS(setting), 0);
 
-    return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->max_scan_interval;
+    return NM_SETTING_WIRELESS_GET_PRIVATE(setting)->max_scan_interval;
 }
 
 /**
@@ -1200,11 +1168,11 @@ nm_setting_wireless_get_max_scan_interval (NMSettingWireless *setting)
  * Returns: the #NMSettingWireless:dms property of the setting
  **/
 guint32
-nm_setting_wireless_get_dms (NMSettingWireless *setting)
+nm_setting_wireless_get_dms(NMSettingWireless *setting)
 {
-    g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), 0);
+    g_return_val_if_fail(NM_IS_SETTING_WIRELESS(setting), 0);
 
-    return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->dms;
+    return NM_SETTING_WIRELESS_GET_PRIVATE(setting)->dms;
 }
 
 /**
@@ -1215,11 +1183,11 @@ nm_setting_wireless_get_dms (NMSettingWireless *setting)
  * setting
  **/
 const char *
-nm_setting_wireless_get_ap_config_file (NMSettingWireless *setting)
+nm_setting_wireless_get_ap_config_file(NMSettingWireless *setting)
 {
-    g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), NULL);
+    g_return_val_if_fail(NM_IS_SETTING_WIRELESS(setting), NULL);
 
-    return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->ap_config_file;
+    return NM_SETTING_WIRELESS_GET_PRIVATE(setting)->ap_config_file;
 }
 
 /**
@@ -1229,11 +1197,11 @@ nm_setting_wireless_get_ap_config_file (NMSettingWireless *setting)
  * Returns: the #NMSettingWireless:acs property of the setting
  **/
 guint32
-nm_setting_wireless_get_acs (NMSettingWireless *setting)
+nm_setting_wireless_get_acs(NMSettingWireless *setting)
 {
-    g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), 0);
+    g_return_val_if_fail(NM_IS_SETTING_WIRELESS(setting), 0);
 
-    return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->acs;
+    return NM_SETTING_WIRELESS_GET_PRIVATE(setting)->acs;
 }
 
 /**
@@ -1475,12 +1443,16 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
     }
 
     if (priv->channel_width && !priv->channel) {
-        g_set_error (error,
-                     NM_CONNECTION_ERROR,
-                     NM_CONNECTION_ERROR_MISSING_PROPERTY,
-                     _("'%s' requires setting '%s' property"),
-                     NM_SETTING_WIRELESS_CHANNEL_WIDTH, NM_SETTING_WIRELESS_CHANNEL);
-        g_prefix_error (error, "%s.%s: ", NM_SETTING_WIRELESS_SETTING_NAME, NM_SETTING_WIRELESS_CHANNEL);
+        g_set_error(error,
+                    NM_CONNECTION_ERROR,
+                    NM_CONNECTION_ERROR_MISSING_PROPERTY,
+                    _("'%s' requires setting '%s' property"),
+                    NM_SETTING_WIRELESS_CHANNEL_WIDTH,
+                    NM_SETTING_WIRELESS_CHANNEL);
+        g_prefix_error(error,
+                       "%s.%s: ",
+                       NM_SETTING_WIRELESS_SETTING_NAME,
+                       NM_SETTING_WIRELESS_CHANNEL);
         return FALSE;
     }
 
@@ -1671,24 +1643,27 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
 mac_addr_rand_ok:
 
     if (priv->ccx > NM_SETTING_WIRELESS_CCX_FULL) {
-        g_set_error_literal (error,
-                             NM_CONNECTION_ERROR,
-                             NM_CONNECTION_ERROR_INVALID_PROPERTY,
-                             _("property is invalid"));
-        g_prefix_error (error, "%s.%s: ", NM_SETTING_WIRELESS_SETTING_NAME, NM_SETTING_WIRELESS_CCX);
+        g_set_error_literal(error,
+                            NM_CONNECTION_ERROR,
+                            NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                            _("property is invalid"));
+        g_prefix_error(error, "%s.%s: ", NM_SETTING_WIRELESS_SETTING_NAME, NM_SETTING_WIRELESS_CCX);
         return FALSE;
     }
 
     // TBD: add error laird scan parameter checking here
 
-    if (priv->client_name){
-        if (strlen (priv->client_name) > 16) {
-            g_set_error (error,
-                         NM_CONNECTION_ERROR,
-                         NM_CONNECTION_ERROR_INVALID_PROPERTY,
-                         _("'%s' client name length is out of range <1-16>"),
-                         priv->client_name);
-            g_prefix_error (error, "%s.%s: ", NM_SETTING_WIRELESS_SETTING_NAME, NM_SETTING_WIRELESS_MODE);
+    if (priv->client_name) {
+        if (strlen(priv->client_name) > 16) {
+            g_set_error(error,
+                        NM_CONNECTION_ERROR,
+                        NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                        _("'%s' client name length is out of range <1-16>"),
+                        priv->client_name);
+            g_prefix_error(error,
+                           "%s.%s: ",
+                           NM_SETTING_WIRELESS_SETTING_NAME,
+                           NM_SETTING_WIRELESS_MODE);
             return FALSE;
         }
     }

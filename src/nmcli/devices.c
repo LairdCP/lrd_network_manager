@@ -1368,12 +1368,11 @@ fill_output_access_point(gpointer data, gpointer user_data)
                            NM_802_11_AP_SEC_PAIR_TKIP|
                            NM_802_11_AP_SEC_GROUP_WEP40|
                            NM_802_11_AP_SEC_GROUP_WEP104|
-                           NM_802_11_AP_SEC_GROUP_TKIP)))
-    {
+                           NM_802_11_AP_SEC_GROUP_TKIP))) {
         if (rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_SAE) {
             // wpa3-sae access point
             // TBD: should check for MGMT_GROUP cipher also
-            g_string_append (security_str, "WPA3 ");
+            g_string_append(security_str, "WPA3 ");
         } else if (rsn_flags ==
                    (NM_802_11_AP_SEC_KEY_MGMT_EAP_SUITE_B_192|
                     NM_802_11_AP_SEC_PAIR_GCMP_256|
@@ -1389,10 +1388,10 @@ fill_output_access_point(gpointer data, gpointer user_data)
     }
 
     if ((wpa_flags & NM_802_11_AP_SEC_KEY_MGMT_802_1X)
-           || (rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_CCKM)
-           || (rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_SUITE_B)
-           || (rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_EAP_SUITE_B_192)
-           || (rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_802_1X)) {
+        || (rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_CCKM)
+        || (rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_SUITE_B)
+        || (rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_EAP_SUITE_B_192)
+        || (rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_802_1X)) {
         g_string_append(security_str, "802.1X ");
     }
 
@@ -1409,11 +1408,11 @@ fill_output_access_point(gpointer data, gpointer user_data)
     set_val_strc(arr, 3, bssid);
     set_val_strc(arr,
                  4,
-                 mode == NM_802_11_MODE_ADHOC   ? _("Ad-Hoc")
+                 mode == NM_802_11_MODE_ADHOC          ? _("Ad-Hoc")
                  : (flags & NM_802_11_AP_FLAGS_P2P_IE) ? _("P2P")
-                 : mode == NM_802_11_MODE_INFRA ? _("Infra")
-                 : mode == NM_802_11_MODE_MESH  ? _("Mesh")
-                                                : _("N/A"));
+                 : mode == NM_802_11_MODE_INFRA        ? _("Infra")
+                 : mode == NM_802_11_MODE_MESH         ? _("Mesh")
+                                                       : _("N/A"));
     set_val_str(arr, 5, channel_str);
     set_val_str(arr, 6, freq_str);
     set_val_str(arr, 7, bitrate_str);

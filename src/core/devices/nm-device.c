@@ -12026,7 +12026,7 @@ _dev_ipshared4_init(NMDevice *self)
     }
 
     i = 0;
-    if(-1 == access(IPTABLES_PATH, F_OK)) {
+    if (-1 == access(IPTABLES_PATH, F_OK)) {
         ++i;
         ++i;
     }

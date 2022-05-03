@@ -76,7 +76,7 @@ typedef enum {
     _NM_SUPPL_CAP_MASK_DEFINE(FT),
     _NM_SUPPL_CAP_MASK_DEFINE(SAE),
     _NM_SUPPL_CAP_MASK_DEFINE(SHA384),
-    _NM_SUPPL_CAP_MASK_DEFINE (LAIRD),
+    _NM_SUPPL_CAP_MASK_DEFINE(LAIRD),
 #undef _NM_SUPPL_CAP_MASK_DEFINE
 } NMSupplCapMask;
 
@@ -179,7 +179,7 @@ typedef struct _NMSupplicantBssInfo {
 
     NMEtherAddr bssid;
 
-    NM80211ApFlags ap_flags:6;
+    NM80211ApFlags ap_flags : 6;
 
     _NM80211Mode mode : 4;
 
