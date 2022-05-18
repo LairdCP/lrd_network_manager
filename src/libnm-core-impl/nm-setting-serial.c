@@ -43,11 +43,11 @@ typedef struct {
  */
 struct _NMSettingSerial {
     NMSetting parent;
-    /* In the past, this struct was public API. Preserve ABI! */
 };
 
 struct _NMSettingSerialClass {
     NMSettingClass parent;
+
     /* In the past, this struct was public API. Preserve ABI! */
     gpointer padding[4];
 };
@@ -311,9 +311,9 @@ nm_setting_serial_class_init(NMSettingSerialClass *klass)
     _nm_properties_override_gobj(
         properties_override,
         obj_properties[PROP_PARITY],
-        NM_SETT_INFO_PROPERT_TYPE_GPROP(G_VARIANT_TYPE_BYTE,
-                                        .gprop_from_dbus_fcn = parity_from_dbus, ),
-        .to_dbus_data.gprop_to_dbus_fcn = parity_to_dbus, );
+        NM_SETT_INFO_PROPERT_TYPE(.dbus_type           = G_VARIANT_TYPE_BYTE,
+                                  .gprop_to_dbus_fcn   = parity_to_dbus,
+                                  .gprop_from_dbus_fcn = parity_from_dbus, ));
 
     /**
      * NMSettingSerial:stopbits:

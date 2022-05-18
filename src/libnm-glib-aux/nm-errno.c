@@ -7,6 +7,8 @@
 
 #include "nm-errno.h"
 
+#include <pthread.h>
+
 /*****************************************************************************/
 
 static NM_UTILS_LOOKUP_STR_DEFINE(
@@ -160,9 +162,19 @@ nm_strerror_native(int errsv)
 
     buf = buf_static;
     if (G_UNLIKELY(!buf)) {
+        int           errno_saved = errno;
+        pthread_key_t key;
+
         buf        = g_malloc(NM_STRERROR_BUFSIZE);
         buf_static = buf;
-        nm_utils_thread_local_register_destroy(buf, g_free);
+
+        if (pthread_key_create(&key, g_free) != 0 || pthread_setspecific(key, buf) != 0) {
+            /* Failure. We will leak the buffer when the thread exits.
+             *
+             * Nothing we can do about it really. For Debug builds we fail with an assertion. */
+            nm_assert_not_reached();
+        }
+        errno = errno_saved;
     }
 
     return nm_strerror_native_r(errsv, buf, NM_STRERROR_BUFSIZE);

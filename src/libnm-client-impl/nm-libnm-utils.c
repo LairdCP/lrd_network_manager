@@ -160,17 +160,14 @@ _fixup_string(const char *       desc,
         p  = q + 1;
     }
 
-    /* replace '_', ',', ASCII control characters and everything inside parentheses, with space. */
+    /* replace '_', ',', ASCII control characters and parentheses, with space. */
     for (p = desc_full; p[0]; p++) {
         if (*p == '(')
             in_paren = TRUE;
-        else if (*p == ')')
+        if (NM_IN_SET(*p, '_', ',') || *p < ' ' || in_paren)
+            *p = ' ';
+        if (*p == ')')
             in_paren = FALSE;
-        else if (NM_IN_SET(*p, '_', ',') || nm_ascii_is_ctrl_or_del(*p) || in_paren) {
-            /* pass */
-        } else
-            continue;
-        *p = ' ';
     }
 
     /* Attempt to shorten ID by ignoring certain phrases */

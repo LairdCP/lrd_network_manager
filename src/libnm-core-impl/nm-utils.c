@@ -758,6 +758,12 @@ _nm_utils_hash_values_to_slist(GHashTable *hash)
     return list;
 }
 
+static GVariant *
+_nm_utils_strdict_to_dbus(const GValue *prop_value)
+{
+    return nm_utils_strdict_to_variant_ass(g_value_get_boxed(prop_value));
+}
+
 void
 _nm_utils_strdict_from_dbus(GVariant *dbus_value, GValue *prop_value)
 {
@@ -773,11 +779,11 @@ _nm_utils_strdict_from_dbus(GVariant *dbus_value, GValue *prop_value)
     g_value_take_boxed(prop_value, hash);
 }
 
-const NMSettInfoPropertType nm_sett_info_propert_type_strdict =
-    NM_SETT_INFO_PROPERT_TYPE_GPROP_INIT(NM_G_VARIANT_TYPE("a{ss}"),
-                                         .gprop_from_dbus_fcn = _nm_utils_strdict_from_dbus,
-                                         .typdata_to_dbus.gprop_type =
-                                             NM_SETTING_PROPERTY_TO_DBUS_FCN_GPROP_TYPE_STRDICT);
+const NMSettInfoPropertType nm_sett_info_propert_type_strdict = {
+    .dbus_type           = NM_G_VARIANT_TYPE("a{ss}"),
+    .gprop_to_dbus_fcn   = _nm_utils_strdict_to_dbus,
+    .gprop_from_dbus_fcn = _nm_utils_strdict_from_dbus,
+};
 
 GHashTable *
 _nm_utils_copy_strdict(GHashTable *strdict)
@@ -4006,8 +4012,8 @@ nm_utils_hwaddr_matches(gconstpointer hwaddr1,
 
 /*****************************************************************************/
 
-GVariant *
-nm_utils_hwaddr_to_dbus(const char *str)
+static GVariant *
+_nm_utils_hwaddr_to_dbus_impl(const char *str)
 {
     guint8 buf[NM_UTILS_HWADDR_LEN_MAX];
     gsize  len;
@@ -4033,7 +4039,7 @@ _nm_utils_hwaddr_cloned_get(const NMSettInfoSetting *               sett_info,
     nm_assert(nm_streq(sett_info->property_infos[property_idx].name, "cloned-mac-address"));
 
     g_object_get(setting, "cloned-mac-address", &addr, NULL);
-    return nm_utils_hwaddr_to_dbus(addr);
+    return _nm_utils_hwaddr_to_dbus_impl(addr);
 }
 
 static gboolean
@@ -4079,11 +4085,12 @@ _nm_utils_hwaddr_cloned_not_set(NMSetting *         setting,
     return TRUE;
 }
 
-const NMSettInfoPropertType nm_sett_info_propert_type_cloned_mac_address =
-    NM_SETT_INFO_PROPERT_TYPE_DBUS_INIT(G_VARIANT_TYPE_BYTESTRING,
-                                        .to_dbus_fcn           = _nm_utils_hwaddr_cloned_get,
-                                        .from_dbus_fcn         = _nm_utils_hwaddr_cloned_set,
-                                        .missing_from_dbus_fcn = _nm_utils_hwaddr_cloned_not_set, );
+const NMSettInfoPropertType nm_sett_info_propert_type_cloned_mac_address = {
+    .dbus_type             = G_VARIANT_TYPE_BYTESTRING,
+    .to_dbus_fcn           = _nm_utils_hwaddr_cloned_get,
+    .from_dbus_fcn         = _nm_utils_hwaddr_cloned_set,
+    .missing_from_dbus_fcn = _nm_utils_hwaddr_cloned_not_set,
+};
 
 static GVariant *
 _nm_utils_hwaddr_cloned_data_synth(const NMSettInfoSetting *               sett_info,
@@ -4103,7 +4110,7 @@ _nm_utils_hwaddr_cloned_data_synth(const NMSettInfoSetting *               sett_
     g_object_get(setting, "cloned-mac-address", &addr, NULL);
 
     /* Before introducing the extended "cloned-mac-address" (and its D-Bus
-     * field "assigned-mac-address"), libnm's nm_utils_hwaddr_to_dbus()
+     * field "assigned-mac-address"), libnm's _nm_utils_hwaddr_to_dbus()
      * would drop invalid values as it was unable to serialize them.
      *
      * Now, we would like to send invalid values as "assigned-mac-address"
@@ -4142,10 +4149,17 @@ _nm_utils_hwaddr_cloned_data_set(NMSetting *         setting,
     return TRUE;
 }
 
-const NMSettInfoPropertType nm_sett_info_propert_type_assigned_mac_address =
-    NM_SETT_INFO_PROPERT_TYPE_DBUS_INIT(G_VARIANT_TYPE_STRING,
-                                        .to_dbus_fcn   = _nm_utils_hwaddr_cloned_data_synth,
-                                        .from_dbus_fcn = _nm_utils_hwaddr_cloned_data_set, );
+const NMSettInfoPropertType nm_sett_info_propert_type_assigned_mac_address = {
+    .dbus_type     = G_VARIANT_TYPE_STRING,
+    .to_dbus_fcn   = _nm_utils_hwaddr_cloned_data_synth,
+    .from_dbus_fcn = _nm_utils_hwaddr_cloned_data_set,
+};
+
+static GVariant *
+_nm_utils_hwaddr_to_dbus(const GValue *prop_value)
+{
+    return _nm_utils_hwaddr_to_dbus_impl(g_value_get_string(prop_value));
+}
 
 static void
 _nm_utils_hwaddr_from_dbus(GVariant *dbus_value, GValue *prop_value)
@@ -4158,11 +4172,11 @@ _nm_utils_hwaddr_from_dbus(GVariant *dbus_value, GValue *prop_value)
     g_value_take_string(prop_value, str);
 }
 
-const NMSettInfoPropertType nm_sett_info_propert_type_mac_address =
-    NM_SETT_INFO_PROPERT_TYPE_GPROP_INIT(
-        G_VARIANT_TYPE_BYTESTRING,
-        .gprop_from_dbus_fcn        = _nm_utils_hwaddr_from_dbus,
-        .typdata_to_dbus.gprop_type = NM_SETTING_PROPERTY_TO_DBUS_FCN_GPROP_TYPE_MAC_ADDRESS);
+const NMSettInfoPropertType nm_sett_info_propert_type_mac_address = {
+    .dbus_type           = G_VARIANT_TYPE_BYTESTRING,
+    .gprop_to_dbus_fcn   = _nm_utils_hwaddr_to_dbus,
+    .gprop_from_dbus_fcn = _nm_utils_hwaddr_from_dbus,
+};
 
 /*****************************************************************************/
 
@@ -5562,10 +5576,11 @@ _nm_utils_bridge_vlans_from_dbus(NMSetting *         setting,
     return TRUE;
 }
 
-const NMSettInfoPropertType nm_sett_info_propert_type_bridge_vlans =
-    NM_SETT_INFO_PROPERT_TYPE_DBUS_INIT(NM_G_VARIANT_TYPE("aa{sv}"),
-                                        .to_dbus_fcn   = _nm_utils_bridge_vlans_to_dbus,
-                                        .from_dbus_fcn = _nm_utils_bridge_vlans_from_dbus, );
+const NMSettInfoPropertType nm_sett_info_propert_type_bridge_vlans = {
+    .dbus_type     = NM_G_VARIANT_TYPE("aa{sv}"),
+    .to_dbus_fcn   = _nm_utils_bridge_vlans_to_dbus,
+    .from_dbus_fcn = _nm_utils_bridge_vlans_from_dbus,
+};
 
 gboolean
 _nm_utils_bridge_vlan_verify_list(GPtrArray * vlans,

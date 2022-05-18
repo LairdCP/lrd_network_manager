@@ -2,27 +2,23 @@
 
 libnm_core_impl_inc = include_directories('.')
 
-if crypto_nss_dep.found()
-  libnm_crypto_nss = static_library(
-    'nm-crypto-nss',
-    sources: 'nm-crypto-nss.c',
-    dependencies: [
-      libnm_core_public_dep,
-      crypto_nss_dep,
-    ],
-  )
-endif
+libnm_crypto_nss = static_library(
+  'nm-crypto-nss',
+  sources: 'nm-crypto-nss.c',
+  dependencies: [
+    libnm_core_public_dep,
+    crypto_nss_dep,
+  ],
+)
 
-if crypto_gnutls_dep.found()
-  libnm_crypto_gnutls = static_library(
-    'nm-crypto-gnutls',
-    sources: 'nm-crypto-gnutls.c',
-    dependencies: [
-      libnm_core_public_dep,
-      crypto_gnutls_dep,
-    ],
-  )
-endif
+libnm_crypto_gnutls = static_library(
+  'nm-crypto-gnutls',
+  sources: 'nm-crypto-gnutls.c',
+  dependencies: [
+    libnm_core_public_dep,
+    crypto_gnutls_dep,
+  ],
+)
 
 if crypto == 'nss'
   libnm_crypto = libnm_crypto_nss

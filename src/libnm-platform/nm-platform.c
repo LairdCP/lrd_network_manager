@@ -3425,9 +3425,7 @@ nm_platform_ip6_address_get_peer(const NMPlatformIP6Address *addr)
 }
 
 gboolean
-nm_platform_ip_address_match(int                        addr_family,
-                             const NMPlatformIPAddress *address,
-                             NMPlatformMatchFlags       match_flag)
+nm_platform_ip6_address_match(const NMPlatformIP6Address *addr, NMPlatformMatchFlags match_flag)
 {
     nm_assert(!NM_FLAGS_ANY(
         match_flag,
@@ -3435,33 +3433,20 @@ nm_platform_ip_address_match(int                        addr_family,
     nm_assert(NM_FLAGS_ANY(match_flag, NM_PLATFORM_MATCH_WITH_ADDRTYPE__ANY));
     nm_assert(NM_FLAGS_ANY(match_flag, NM_PLATFORM_MATCH_WITH_ADDRSTATE__ANY));
 
-    if (addr_family == AF_INET) {
-        if (nm_utils_ip4_address_is_link_local(((NMPlatformIP4Address *) address)->address)) {
-            if (!NM_FLAGS_HAS(match_flag, NM_PLATFORM_MATCH_WITH_ADDRTYPE_LINKLOCAL))
-                return FALSE;
-        } else {
-            if (!NM_FLAGS_HAS(match_flag, NM_PLATFORM_MATCH_WITH_ADDRTYPE_NORMAL))
-                return FALSE;
-        }
+    if (IN6_IS_ADDR_LINKLOCAL(&addr->address)) {
+        if (!NM_FLAGS_HAS(match_flag, NM_PLATFORM_MATCH_WITH_ADDRTYPE_LINKLOCAL))
+            return FALSE;
     } else {
-        if (IN6_IS_ADDR_LINKLOCAL(address->address_ptr)) {
-            if (!NM_FLAGS_HAS(match_flag, NM_PLATFORM_MATCH_WITH_ADDRTYPE_LINKLOCAL))
-                return FALSE;
-        } else {
-            if (!NM_FLAGS_HAS(match_flag, NM_PLATFORM_MATCH_WITH_ADDRTYPE_NORMAL))
-                return FALSE;
-        }
+        if (!NM_FLAGS_HAS(match_flag, NM_PLATFORM_MATCH_WITH_ADDRTYPE_NORMAL))
+            return FALSE;
     }
 
-    if (NM_FLAGS_HAS(address->n_ifa_flags, IFA_F_DADFAILED)) {
+    if (NM_FLAGS_HAS(addr->n_ifa_flags, IFA_F_DADFAILED)) {
         if (!NM_FLAGS_HAS(match_flag, NM_PLATFORM_MATCH_WITH_ADDRSTATE_DADFAILED))
             return FALSE;
-    } else if (NM_FLAGS_HAS(address->n_ifa_flags, IFA_F_TENTATIVE)
-               && !NM_FLAGS_HAS(address->n_ifa_flags, IFA_F_OPTIMISTIC)) {
+    } else if (NM_FLAGS_HAS(addr->n_ifa_flags, IFA_F_TENTATIVE)
+               && !NM_FLAGS_HAS(addr->n_ifa_flags, IFA_F_OPTIMISTIC)) {
         if (!NM_FLAGS_HAS(match_flag, NM_PLATFORM_MATCH_WITH_ADDRSTATE_TENTATIVE))
-            return FALSE;
-    } else if (NM_FLAGS_HAS(address->n_ifa_flags, IFA_F_DEPRECATED)) {
-        if (!NM_FLAGS_HAS(match_flag, NM_PLATFORM_MATCH_WITH_ADDRSTATE_DEPRECATED))
             return FALSE;
     } else {
         if (!NM_FLAGS_HAS(match_flag, NM_PLATFORM_MATCH_WITH_ADDRSTATE_NORMAL))
@@ -4316,7 +4301,6 @@ nm_platform_ip_route_get_prune_list(NMPlatform *           self,
     CList *                      iter;
     NMPlatformIP4Route           rt_local4;
     NMPlatformIP6Route           rt_local6;
-    NMPlatformIP6Route           rt_mcast6;
     const NMPlatformLink *       pllink;
     const NMPlatformLnkVrf *     lnk_vrf;
     guint32                      local_table;
@@ -4341,7 +4325,6 @@ nm_platform_ip_route_get_prune_list(NMPlatform *           self,
 
     rt_local4.plen = 0;
     rt_local6.plen = 0;
-    rt_mcast6.plen = 0;
 
     routes_prune = g_ptr_array_new_full(head_entry->len, (GDestroyNotify) nm_dedup_multi_obj_unref);
 
@@ -4434,43 +4417,6 @@ nm_platform_ip_route_get_prune_list(NMPlatform *           self,
                         == 0)
                         continue;
                 }
-
-                /* Kernels < 5.11 add a route like:
-                 *
-                 * unicast ff00::/8 dev $IFACE proto boot scope global metric 256 pref medium
-                 *
-                 * to allow sending and receiving IPv6 multicast traffic. Don't remove it.
-                 * Since kernel 5.11 the route looks like:
-                 *
-                 * multicast ff00::/8 dev $IFACE proto kernel metric 256 pref medium
-                 *
-                 * As NM ignores routes with rtm_type multicast, there is no need for the code
-                 * below on newer kernels.
-                 */
-                if (nm_platform_ip_route_get_effective_table(&rt->rx) == local_table
-                    && rt->rx.plen == 8 && rt->rx.rt_source == NM_IP_CONFIG_SOURCE_RTPROT_BOOT
-                    && rt->rx.metric == 256 && rt->r6.rt_pref == NM_ICMPV6_ROUTER_PREF_MEDIUM
-                    && IN6_IS_ADDR_UNSPECIFIED(&rt->r6.gateway)) {
-                    if (rt_mcast6.plen == 0) {
-                        rt_mcast6 = (NMPlatformIP6Route){
-                            .ifindex       = ifindex,
-                            .type_coerced  = nm_platform_route_type_coerce(RTN_UNICAST),
-                            .plen          = 8,
-                            .rt_source     = NM_IP_CONFIG_SOURCE_RTPROT_BOOT,
-                            .metric        = 256,
-                            .table_coerced = nm_platform_route_table_coerce(local_table),
-                            .rt_pref       = NM_ICMPV6_ROUTER_PREF_MEDIUM,
-                            .gateway       = IN6ADDR_ANY_INIT,
-                            .network = {{{0xff, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}},
-                        };
-                    }
-
-                    if (nm_platform_ip6_route_cmp(&rt->r6,
-                                                  &rt_mcast6,
-                                                  NM_PLATFORM_IP_ROUTE_CMP_TYPE_SEMANTICALLY)
-                        == 0)
-                        continue;
-                }
             }
             break;
 
@@ -4540,20 +4486,6 @@ nm_platform_ip_route_sync(NMPlatform *self,
 
             conf_o = routes->pdata[i];
 
-            if (NMP_OBJECT_CAST_IP_ROUTE(conf_o)->is_external) {
-                /* This route is added externally. We don't have our own agenda to
-                 * add it, so skip. */
-                continue;
-            }
-
-            /* User space cannot add IPv6 routes with metric 0. However, kernel can, and we might track such
-             * routes in @route as they are present external. As we already skipped external routes above,
-             * we don't expect a user's choice to add such a route (it won't work anyway). */
-            nm_assert(
-                IS_IPv4
-                || nm_platform_ip6_route_get_effective_metric(NMP_OBJECT_CAST_IP6_ROUTE(conf_o))
-                       != 0);
-
 #define VTABLE_IS_DEVICE_ROUTE(vt, o)                          \
     (vt->is_ip4 ? (NMP_OBJECT_CAST_IP4_ROUTE(o)->gateway == 0) \
                 : IN6_IS_ADDR_UNSPECIFIED(&NMP_OBJECT_CAST_IP6_ROUTE(o)->gateway))
@@ -4570,12 +4502,20 @@ nm_platform_ip_route_sync(NMPlatform *self,
                 routes_idx = g_hash_table_new((GHashFunc) nmp_object_id_hash,
                                               (GEqualFunc) nmp_object_id_equal);
             }
-            if (!g_hash_table_add(routes_idx, (gpointer) conf_o)) {
+            if (!g_hash_table_insert(routes_idx, (gpointer) conf_o, (gpointer) conf_o)) {
                 _LOG3D("route-sync: skip adding duplicate route %s",
                        nmp_object_to_string(conf_o,
                                             NMP_OBJECT_TO_STRING_PUBLIC,
                                             sbuf1,
                                             sizeof(sbuf1)));
+                continue;
+            }
+
+            if (!IS_IPv4
+                && nm_platform_ip6_route_get_effective_metric(NMP_OBJECT_CAST_IP6_ROUTE(conf_o))
+                       == 0) {
+                /* User space cannot add routes with metric 0. However, kernel can, and we might track such
+                 * routes in @route as they are present external. Skip them silently. */
                 continue;
             }
 
@@ -4741,24 +4681,6 @@ sync_route_add:
     }
 
     if (routes_prune) {
-        if (routes) {
-            for (i = 0; i < routes->len; i++) {
-                conf_o = routes->pdata[i];
-
-                if (NMP_OBJECT_CAST_IP_ROUTE(conf_o)->is_external) {
-                    /* this is only to catch the case where an external route is
-                     * both in @routes and @routes_prune list. In that case,
-                     * @routes should win and we should not remove the address. */
-                    if (!routes_idx) {
-                        routes_idx = g_hash_table_new((GHashFunc) nmp_object_id_hash,
-                                                      (GEqualFunc) nmp_object_id_equal);
-                    }
-                    g_hash_table_add(routes_idx, (gpointer) conf_o);
-                    continue;
-                }
-            }
-        }
-
         for (i = 0; i < routes_prune->len; i++) {
             const NMPObject *prune_o;
 
@@ -4769,7 +4691,7 @@ sync_route_add:
                       || (!NM_IS_IPv4(addr_family)
                           && NMP_OBJECT_GET_TYPE(prune_o) == NMP_OBJECT_TYPE_IP6_ROUTE));
 
-            if (nm_g_hash_table_lookup(routes_idx, prune_o))
+            if (routes_idx && g_hash_table_lookup(routes_idx, prune_o))
                 continue;
 
             if (!nm_platform_lookup_entry(self, NMP_CACHE_ID_TYPE_OBJECT_TYPE, prune_o))
@@ -6599,7 +6521,6 @@ nm_platform_ip4_route_to_string(const NMPlatformIP4Route *route, char *buf, gsiz
         "%s"                                   /* initcwnd */
         "%s"                                   /* initrwnd */
         "%s"                                   /* mtu */
-        "%s"                                   /* is_external */
         "",
         nm_net_aux_rtnl_rtntype_n2a_maybe_buf(nm_platform_route_type_uncoerce(route->type_coerced),
                                               str_type),
@@ -6655,8 +6576,7 @@ nm_platform_ip4_route_to_string(const NMPlatformIP4Route *route, char *buf, gsiz
                                                        " mtu %s%" G_GUINT32_FORMAT,
                                                        route->lock_mtu ? "lock " : "",
                                                        route->mtu)
-                                      : "",
-        route->is_external ? " (E)" : "");
+                                      : "");
     return buf;
 }
 
@@ -6726,7 +6646,6 @@ nm_platform_ip6_route_to_string(const NMPlatformIP6Route *route, char *buf, gsiz
         "%s"                                   /* initrwnd */
         "%s"                                   /* mtu */
         "%s"                                   /* pref */
-        "%s"                                   /* is_external */
         "",
         nm_net_aux_rtnl_rtntype_n2a_maybe_buf(nm_platform_route_type_uncoerce(route->type_coerced),
                                               str_type),
@@ -6786,8 +6705,7 @@ nm_platform_ip6_route_to_string(const NMPlatformIP6Route *route, char *buf, gsiz
             str_pref,
             " pref %s",
             nm_icmpv6_router_pref_to_string(route->rt_pref, str_pref2, sizeof(str_pref2)))
-                       : "",
-        route->is_external ? " (E)" : "");
+                       : "");
 
     return buf;
 }
@@ -8084,8 +8002,7 @@ nm_platform_ip4_route_hash_update(const NMPlatformIP4Route *obj,
                                                   obj->lock_cwnd,
                                                   obj->lock_initcwnd,
                                                   obj->lock_initrwnd,
-                                                  obj->lock_mtu,
-                                                  obj->is_external));
+                                                  obj->lock_mtu));
         break;
     }
 }
@@ -8175,8 +8092,6 @@ nm_platform_ip4_route_cmp(const NMPlatformIP4Route *a,
         NM_CMP_FIELD(a, b, initcwnd);
         NM_CMP_FIELD(a, b, initrwnd);
         NM_CMP_FIELD(a, b, mtu);
-        if (cmp_type == NM_PLATFORM_IP_ROUTE_CMP_TYPE_FULL)
-            NM_CMP_FIELD_UNSAFE(a, b, is_external);
         break;
     }
     return 0;
@@ -8268,8 +8183,7 @@ nm_platform_ip6_route_hash_update(const NMPlatformIP6Route *obj,
                                                   obj->lock_cwnd,
                                                   obj->lock_initcwnd,
                                                   obj->lock_initrwnd,
-                                                  obj->lock_mtu,
-                                                  obj->is_external),
+                                                  obj->lock_mtu),
                             obj->window,
                             obj->cwnd,
                             obj->initcwnd,
@@ -8352,8 +8266,6 @@ nm_platform_ip6_route_cmp(const NMPlatformIP6Route *a,
             NM_CMP_DIRECT(_route_pref_normalize(a->rt_pref), _route_pref_normalize(b->rt_pref));
         else
             NM_CMP_FIELD(a, b, rt_pref);
-        if (cmp_type == NM_PLATFORM_IP_ROUTE_CMP_TYPE_FULL)
-            NM_CMP_FIELD_UNSAFE(a, b, is_external);
         break;
     }
     return 0;

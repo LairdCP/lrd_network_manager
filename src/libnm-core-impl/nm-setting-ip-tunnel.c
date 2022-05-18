@@ -54,11 +54,11 @@ typedef struct {
  */
 struct _NMSettingIPTunnel {
     NMSetting parent;
-    /* In the past, this struct was public API. Preserve ABI! */
 };
 
 struct _NMSettingIPTunnelClass {
     NMSettingClass parent;
+
     /* In the past, this struct was public API. Preserve ABI! */
     gpointer padding[4];
 };
@@ -654,9 +654,8 @@ finalize(GObject *object)
 static void
 nm_setting_ip_tunnel_class_init(NMSettingIPTunnelClass *klass)
 {
-    GObjectClass *  object_class        = G_OBJECT_CLASS(klass);
-    NMSettingClass *setting_class       = NM_SETTING_CLASS(klass);
-    GArray *        properties_override = _nm_sett_info_property_override_create_array();
+    GObjectClass *  object_class  = G_OBJECT_CLASS(klass);
+    NMSettingClass *setting_class = NM_SETTING_CLASS(klass);
 
     g_type_class_add_private(klass, sizeof(NMSettingIPTunnelPrivate));
 
@@ -675,12 +674,12 @@ nm_setting_ip_tunnel_class_init(NMSettingIPTunnelClass *klass)
      *
      * Since: 1.2
      **/
-    _nm_setting_property_define_string(properties_override,
-                                       obj_properties,
-                                       NM_SETTING_IP_TUNNEL_PARENT,
-                                       PROP_PARENT,
-                                       NM_SETTING_PARAM_INFERRABLE,
-                                       nm_setting_ip_tunnel_get_parent);
+    obj_properties[PROP_PARENT] = g_param_spec_string(
+        NM_SETTING_IP_TUNNEL_PARENT,
+        "",
+        "",
+        NULL,
+        G_PARAM_READWRITE | NM_SETTING_PARAM_INFERRABLE | G_PARAM_STATIC_STRINGS);
 
     /**
      * NMSettingIPTunnel:mode:
@@ -707,12 +706,12 @@ nm_setting_ip_tunnel_class_init(NMSettingIPTunnelClass *klass)
      *
      * Since: 1.2
      **/
-    _nm_setting_property_define_string(properties_override,
-                                       obj_properties,
-                                       NM_SETTING_IP_TUNNEL_LOCAL,
-                                       PROP_LOCAL,
-                                       NM_SETTING_PARAM_INFERRABLE,
-                                       nm_setting_ip_tunnel_get_local);
+    obj_properties[PROP_LOCAL] = g_param_spec_string(NM_SETTING_IP_TUNNEL_LOCAL,
+                                                     "",
+                                                     "",
+                                                     NULL,
+                                                     G_PARAM_READWRITE | NM_SETTING_PARAM_INFERRABLE
+                                                         | G_PARAM_STATIC_STRINGS);
 
     /**
      * NMSettingIPTunnel:remote:
@@ -722,12 +721,12 @@ nm_setting_ip_tunnel_class_init(NMSettingIPTunnelClass *klass)
      *
      * Since: 1.2
      **/
-    _nm_setting_property_define_string(properties_override,
-                                       obj_properties,
-                                       NM_SETTING_IP_TUNNEL_REMOTE,
-                                       PROP_REMOTE,
-                                       NM_SETTING_PARAM_INFERRABLE,
-                                       nm_setting_ip_tunnel_get_remote);
+    obj_properties[PROP_REMOTE] = g_param_spec_string(
+        NM_SETTING_IP_TUNNEL_REMOTE,
+        "",
+        "",
+        NULL,
+        G_PARAM_READWRITE | NM_SETTING_PARAM_INFERRABLE | G_PARAM_STATIC_STRINGS);
 
     /**
      * NMSettingIPTunnel:ttl
@@ -770,13 +769,12 @@ nm_setting_ip_tunnel_class_init(NMSettingIPTunnelClass *klass)
      *
      * Since: 1.2
      **/
-    _nm_setting_property_define_boolean(properties_override,
-                                        obj_properties,
-                                        NM_SETTING_IP_TUNNEL_PATH_MTU_DISCOVERY,
-                                        PROP_PATH_MTU_DISCOVERY,
-                                        TRUE,
-                                        NM_SETTING_PARAM_INFERRABLE,
-                                        nm_setting_ip_tunnel_get_path_mtu_discovery);
+    obj_properties[PROP_PATH_MTU_DISCOVERY] = g_param_spec_boolean(
+        NM_SETTING_IP_TUNNEL_PATH_MTU_DISCOVERY,
+        "",
+        "",
+        TRUE,
+        G_PARAM_READWRITE | NM_SETTING_PARAM_INFERRABLE | G_PARAM_STATIC_STRINGS);
 
     /**
      * NMSettingIPTunnel:input-key:
@@ -786,12 +784,12 @@ nm_setting_ip_tunnel_class_init(NMSettingIPTunnelClass *klass)
      *
      * Since: 1.2
      **/
-    _nm_setting_property_define_string(properties_override,
-                                       obj_properties,
-                                       NM_SETTING_IP_TUNNEL_INPUT_KEY,
-                                       PROP_INPUT_KEY,
-                                       NM_SETTING_PARAM_INFERRABLE,
-                                       nm_setting_ip_tunnel_get_input_key);
+    obj_properties[PROP_INPUT_KEY] = g_param_spec_string(
+        NM_SETTING_IP_TUNNEL_INPUT_KEY,
+        "",
+        "",
+        NULL,
+        G_PARAM_READWRITE | NM_SETTING_PARAM_INFERRABLE | G_PARAM_STATIC_STRINGS);
 
     /**
      * NMSettingIPTunnel:output-key:
@@ -801,12 +799,12 @@ nm_setting_ip_tunnel_class_init(NMSettingIPTunnelClass *klass)
      *
      * Since: 1.2
      **/
-    _nm_setting_property_define_string(properties_override,
-                                       obj_properties,
-                                       NM_SETTING_IP_TUNNEL_OUTPUT_KEY,
-                                       PROP_OUTPUT_KEY,
-                                       NM_SETTING_PARAM_INFERRABLE,
-                                       nm_setting_ip_tunnel_get_output_key);
+    obj_properties[PROP_OUTPUT_KEY] = g_param_spec_string(
+        NM_SETTING_IP_TUNNEL_OUTPUT_KEY,
+        "",
+        "",
+        NULL,
+        G_PARAM_READWRITE | NM_SETTING_PARAM_INFERRABLE | G_PARAM_STATIC_STRINGS);
 
     /**
      * NMSettingIPTunnel:encapsulation-limit:
@@ -881,8 +879,5 @@ nm_setting_ip_tunnel_class_init(NMSettingIPTunnelClass *klass)
 
     g_object_class_install_properties(object_class, _PROPERTY_ENUMS_LAST, obj_properties);
 
-    _nm_setting_class_commit_full(setting_class,
-                                  NM_META_SETTING_TYPE_IP_TUNNEL,
-                                  NULL,
-                                  properties_override);
+    _nm_setting_class_commit(setting_class, NM_META_SETTING_TYPE_IP_TUNNEL);
 }

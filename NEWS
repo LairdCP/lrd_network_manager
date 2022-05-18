@@ -1,91 +1,3 @@
-================================================
-NetworkManager-1.32.12
-Overview of changes since NetworkManager-1.32.10
-================================================
-
-* Fix wrong order of addresses when restarting NetworkManager.
-* Preserve the IPv6 ff00::/8 route added by kernel in the local table,
-  necessary for multicast communication.
-* Fix emitting the signal for changed metered status of devices.
-* Fix applying the ethtool autonegotiation and speed settings.
-* initrd: fix crash parsing plain '=' without key.
-* cloud-setup: use suppress_prefixlength rule to honor
-  non-default-routes in the main table.
-
-===============================================
-NetworkManager-1.32.10
-Overview of changes since NetworkManager-1.32.8
-===============================================
-
-* core: fix the order of IPv6 addresses changing on service restart.
-* initrd: add command line option to configure link autonegotiation
-  and speed.
-* ifcfg-rh: fix crash when parsing invalid DNS address.
-* ifcfg-rh: extend ifup/ifdown scripts to work with connection profile
-  names.
-* udev: also react to "move" (and "change") udev actions in our rules.
-
-===============================================
-NetworkManager-1.32.8
-Overview of changes since NetworkManager-1.32.6
-===============================================
-
-* firewalld: configure zones on "Reloaded" signal.
-* core: fix wrong MTU for bridge interfaces.
-* cloud-setup: fix gateway address for Aliyun cloud.
-
-===============================================
-NetworkManager-1.32.6
-Overview of changes since NetworkManager-1.32.4
-===============================================
-
-* core: fix adding stale local routes when address changes.
-* initrd: tag generated profiles with origin in user data.
-* core: introduce "allowed-connections" option to disallow
-  profiles on a device. This allows to filter out profiles
-  that originate from initrd.
-* core: introduce "keep-configuration" device option to forcefully
-  activate a profile on start.
-* dhcp: handle filename/bootfile_name DHCP option and write it to
-  device state file for initrd/kickstart.
-* initrd: add "ib.pkey=" command line option
-
-===============================================
-NetworkManager-1.32.4
-Overview of changes since NetworkManager-1.32.2
-===============================================
-
-* core: remove stale entries from "seen-bssids" and "timestamp"
-  files in "/var/lib/NetworkManager".
-* bond: support the peer_notif_delay option.
-* core: add ipv[46].required-timeout option to wait for IP
-  configuration while activating.
-* core: send ARP announcements when there is carrier.
-* core: start DHCPv6 when a prefix delegation is needed for shared
-  mode.
-* firewall: fix nftables backend to create "ip" table for
-  IPv4 only.
-* initrd: set required-timeout of 20 seconds for default IPv4 configuration
-  to opportunistically wait for IPv4.
-* ifcfg: log warning about invalid keys in ifcfg files.
-* ifcfg: reject non-UTF-8 from ifcfg files.
-* nmcli: show DNS SEARCH field in device information.
-* cloud-setup: add support for Aliyun cloud.
-
-=============================================
-NetworkManager-1.32.2
-Overview of changes since NetworkManager-1.32
-=============================================
-
-* hostname: prefer IPv4 addresses for reverse DNS lookup.
-* dhcp: ignore unauthenticated FORCERENEW messages with
-  internal, systemd-based DHCPv4 plugin (CVE-2020-13529).
-  This plugin is not used, unless the undocumented dhcp=systemd
-  option was set.
-* cloud-setup: preserve IP addresses, routes and rules from
-  currently active connection profile.
-* Various bugfixes and performance improvements.
-
 =============================================
 NetworkManager-1.32
 Overview of changes since NetworkManager-1.30
@@ -120,7 +32,6 @@ Overview of changes since NetworkManager-1.30
   Please note that SELinux might prevent NetworkManager from communicating with nft.
 * ethtool: add support for pause settings.
 * Support "prohibit"/"blackhole"/"unreachable" type routing rules.
-* Support uidrange attribute for policy routing rules.
 * Now NetworkManager preserves by default the existing traffic control
   configuration (qdiscs and filters) when activating a connection.
 * wifi/iwd: mirror NetworkManager connection profiles to iwd config files.

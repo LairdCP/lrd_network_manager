@@ -14,7 +14,6 @@ nm_pppd_plugin = shared_module(
   ],
   link_with: [
     libnm_core_impl,
-    libnm_log_null,
     libnm_glib_aux,
     libnm_std_aux,
     libc_siphash,

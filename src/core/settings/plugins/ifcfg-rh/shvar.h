@@ -107,7 +107,6 @@ void svCloseFile(shvarFile *s);
 
 const char *svEscape(const char *s, char **to_free);
 const char *svUnescape(const char *s, char **to_free);
-const char *svUnescape_full(const char *value, char **to_free, gboolean check_utf8);
 
 static inline void
 _nm_auto_shvar_file_close(shvarFile **p_s)
@@ -120,7 +119,5 @@ _nm_auto_shvar_file_close(shvarFile **p_s)
     }
 }
 #define nm_auto_shvar_file_close nm_auto(_nm_auto_shvar_file_close)
-
-void svWarnInvalid(shvarFile *s, const char *file_type, NMLogDomain log_domain);
 
 #endif /* _SHVAR_H */

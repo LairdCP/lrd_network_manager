@@ -247,6 +247,7 @@ _get_config_iface_cb(GObject *source, GAsyncResult *result, gpointer user_data)
     GCPIfaceData *         iface_data       = user_data;
     gs_free_error GError *         error    = NULL;
     gs_free char *                 v_hwaddr = NULL;
+    const char *                   hwaddr   = NULL;
     gs_free const char *           uri      = NULL;
     char                           sbuf[100];
     NMCSProviderGetConfigTaskData *get_config_data;
@@ -272,25 +273,26 @@ _get_config_iface_cb(GObject *source, GAsyncResult *result, gpointer user_data)
         goto out_done;
     }
 
-    iface_data->iface_get_config = g_hash_table_lookup(get_config_data->result_dict, v_hwaddr);
-
-    if (!iface_data->iface_get_config) {
+    if (!g_hash_table_lookup_extended(get_config_data->result_dict,
+                                      v_hwaddr,
+                                      (gpointer *) &hwaddr,
+                                      (gpointer *) &iface_data->iface_get_config)) {
         if (!get_config_data->any) {
             _LOGD("get-config: skip fetching meta data for %s (%" G_GSSIZE_FORMAT ")",
                   v_hwaddr,
                   iface_data->intern_iface_idx);
             goto out_done;
         }
-        iface_data->iface_get_config =
-            nmcs_provider_get_config_iface_data_create(get_config_data->result_dict,
-                                                       FALSE,
-                                                       v_hwaddr);
+        iface_data->iface_get_config = nmcs_provider_get_config_iface_data_new(FALSE);
+        g_hash_table_insert(get_config_data->result_dict,
+                            (char *) (hwaddr = g_steal_pointer(&v_hwaddr)),
+                            iface_data->iface_get_config);
         is_requested = FALSE;
     } else {
         if (iface_data->iface_get_config->iface_idx >= 0) {
             _LOGI("GCP interface[%" G_GSSIZE_FORMAT "]: duplicate MAC address %s returned",
                   iface_data->intern_iface_idx,
-                  iface_data->iface_get_config->hwaddr);
+                  hwaddr);
             error = nm_utils_error_new(NM_UTILS_ERROR_UNKNOWN,
                                        "duplicate MAC address for index %" G_GSSIZE_FORMAT,
                                        iface_data->intern_iface_idx);
@@ -304,7 +306,7 @@ _get_config_iface_cb(GObject *source, GAsyncResult *result, gpointer user_data)
     _LOGI("GCP interface[%" G_GSSIZE_FORMAT "]: found a %sdevice with hwaddr %s",
           iface_data->intern_iface_idx,
           is_requested ? "requested " : "",
-          iface_data->iface_get_config->hwaddr);
+          hwaddr);
 
     nm_sprintf_buf(sbuf, "%" G_GSSIZE_FORMAT "/forwarded-ips/", iface_data->intern_iface_idx);
 

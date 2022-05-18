@@ -652,7 +652,6 @@ device_hostname_info_compare(gconstpointer a, gconstpointer b)
 
     NM_CMP_FIELD(info1, info2, priority);
     NM_CMP_FIELD_UNSAFE(info2, info1, is_default);
-    NM_CMP_FIELD_UNSAFE(info2, info1, IS_IPv4);
 
     return 0;
 }
@@ -2528,15 +2527,14 @@ connection_added(NMSettings *settings, NMSettingsConnection *connection, gpointe
 }
 
 static void
-firewall_state_changed(NMFirewalldManager *manager, int signal_type_i, gpointer user_data)
+firewall_state_changed(NMFirewalldManager *manager, gboolean initialized_now, gpointer user_data)
 {
-    const NMFirewalldManagerStateChangedType signal_type = signal_type_i;
-    NMPolicy *                               self        = user_data;
-    NMPolicyPrivate *                        priv        = NM_POLICY_GET_PRIVATE(self);
-    const CList *                            tmp_lst;
-    NMDevice *                               device;
+    NMPolicy *       self = (NMPolicy *) user_data;
+    NMPolicyPrivate *priv = NM_POLICY_GET_PRIVATE(self);
+    const CList *    tmp_lst;
+    NMDevice *       device;
 
-    if (signal_type == NM_FIREWALLD_MANAGER_STATE_CHANGED_TYPE_INITIALIZED) {
+    if (initialized_now) {
         /* the firewall manager was initializing, but all requests
          * so fare were queued and are already sent. No need to
          * re-update the firewall zone of the devices. */

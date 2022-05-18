@@ -62,11 +62,11 @@ typedef struct {
  */
 struct _NMSettingGsm {
     NMSetting parent;
-    /* In the past, this struct was public API. Preserve ABI! */
 };
 
 struct _NMSettingGsmClass {
     NMSettingClass parent;
+
     /* In the past, this struct was public API. Preserve ABI! */
     gpointer padding[4];
 };
@@ -667,13 +667,12 @@ nm_setting_gsm_class_init(NMSettingGsmClass *klass)
      *
      * Since: 1.22
      **/
-    _nm_setting_property_define_boolean(properties_override,
-                                        obj_properties,
-                                        NM_SETTING_GSM_AUTO_CONFIG,
-                                        PROP_AUTO_CONFIG,
-                                        FALSE,
-                                        NM_SETTING_PARAM_NONE,
-                                        nm_setting_gsm_get_auto_config);
+    obj_properties[PROP_AUTO_CONFIG] =
+        g_param_spec_boolean(NM_SETTING_GSM_AUTO_CONFIG,
+                             "",
+                             "",
+                             FALSE,
+                             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     /**
      * NMSettingGsm:number:
@@ -794,13 +793,12 @@ nm_setting_gsm_class_init(NMSettingGsmClass *klass)
      * When %TRUE, only connections to the home network will be allowed.
      * Connections to roaming networks will not be made.
      **/
-    _nm_setting_property_define_boolean(properties_override,
-                                        obj_properties,
-                                        NM_SETTING_GSM_HOME_ONLY,
-                                        PROP_HOME_ONLY,
-                                        FALSE,
-                                        NM_SETTING_PARAM_NONE,
-                                        nm_setting_gsm_get_home_only);
+    obj_properties[PROP_HOME_ONLY] =
+        g_param_spec_boolean(NM_SETTING_GSM_HOME_ONLY,
+                             "",
+                             "",
+                             FALSE,
+                             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     /**
      * NMSettingGsm:device-id:

@@ -60,7 +60,6 @@
 #include "nm-setting-team-port.h"
 #include "nm-setting-team.h"
 #include "nm-setting-tun.h"
-#include "nm-setting-user.h"
 #include "nm-setting-veth.h"
 #include "nm-setting-vlan.h"
 #include "nm-setting-vpn.h"
@@ -79,10 +78,6 @@
 #include "nm-vpn-dbus-interface.h"
 #include "nm-vpn-editor-plugin.h"
 #include "libnm-core-aux-intern/nm-libnm-core-utils.h"
-
-#define NM_USER_TAG_ORIGIN "org.freedesktop.NetworkManager.origin"
-
-/*****************************************************************************/
 
 /* NM_SETTING_COMPARE_FLAG_INFERRABLE: check whether a device-generated
  * connection can be replaced by a already-defined connection. This flag only
@@ -185,8 +180,6 @@ NM_TERNARY_TO_OPTION_BOOL(NMTernary v)
 
 /*****************************************************************************/
 
-NMSetting **_nm_connection_get_settings_arr(NMConnection *connection);
-
 typedef enum { /*< skip >*/
                NM_SETTING_PARSE_FLAGS_NONE        = 0,
                NM_SETTING_PARSE_FLAGS_STRICT      = 1LL << 0,
@@ -212,12 +205,9 @@ typedef struct {
         bool    has;
     } timestamp;
 
-    const char *const *seen_bssids;
+    const char **seen_bssids;
 
 } NMConnectionSerializationOptions;
-
-gboolean nm_connection_serialization_options_equal(const NMConnectionSerializationOptions *a,
-                                                   const NMConnectionSerializationOptions *b);
 
 GVariant *nm_connection_to_dbus_full(NMConnection *                          connection,
                                      NMConnectionSerializationFlags          flags,
@@ -647,10 +637,6 @@ GVariant *       nm_ip_routing_rule_to_dbus(const NMIPRoutingRule *self);
 
 /*****************************************************************************/
 
-GVariant *nm_utils_hwaddr_to_dbus(const char *str);
-
-/*****************************************************************************/
-
 typedef struct _NMSettInfoSetting  NMSettInfoSetting;
 typedef struct _NMSettInfoProperty NMSettInfoProperty;
 
@@ -676,16 +662,6 @@ typedef void (*NMSettInfoPropGPropFromDBusFcn)(GVariant *from, GValue *to);
 
 const NMSettInfoSetting *nmtst_sett_info_settings(void);
 
-typedef enum _nm_packed {
-    NM_SETTING_PROPERTY_TO_DBUS_FCN_GPROP_TYPE_DEFAULT = 0,
-    NM_SETTING_PROPERTY_TO_DBUS_FCN_GPROP_TYPE_BYTES,
-    NM_SETTING_PROPERTY_TO_DBUS_FCN_GPROP_TYPE_ENUM,
-    NM_SETTING_PROPERTY_TO_DBUS_FCN_GPROP_TYPE_FLAGS,
-    NM_SETTING_PROPERTY_TO_DBUS_FCN_GPROP_TYPE_GARRAY_UINT,
-    NM_SETTING_PROPERTY_TO_DBUS_FCN_GPROP_TYPE_STRDICT,
-    NM_SETTING_PROPERTY_TO_DBUS_FCN_GPROP_TYPE_MAC_ADDRESS,
-} NMSettingPropertyToDBusFcnGPropType;
-
 typedef struct {
     const GVariantType *dbus_type;
 
@@ -693,16 +669,10 @@ typedef struct {
     NMSettInfoPropFromDBusFcn        from_dbus_fcn;
     NMSettInfoPropMissingFromDBusFcn missing_from_dbus_fcn;
 
-    /* Simpler variants of @from_dbus_fcn that operate solely
+    /* Simpler variants of @to_dbus_fcn/@from_dbus_fcn that operate solely
      * on the GValue value of the GObject property. */
+    NMSettInfoPropGPropToDBusFcn   gprop_to_dbus_fcn;
     NMSettInfoPropGPropFromDBusFcn gprop_from_dbus_fcn;
-
-    struct {
-        union {
-            NMSettingPropertyToDBusFcnGPropType gprop_type;
-        };
-    } typdata_to_dbus;
-
 } NMSettInfoPropertType;
 
 struct _NMSettInfoProperty {
@@ -711,21 +681,6 @@ struct _NMSettInfoProperty {
     GParamSpec *param_spec;
 
     const NMSettInfoPropertType *property_type;
-
-    struct {
-        union {
-            gpointer                     none;
-            NMSettInfoPropGPropToDBusFcn gprop_to_dbus_fcn;
-            gboolean (*get_boolean)(NMSetting *);
-            const char *(*get_string)(NMSetting *);
-        };
-
-        /* Usually, properties that are set to the default value for the GParamSpec
-         * are not serialized to GVariant (and NULL is returned by to_dbus_data().
-         * Set this flag to force always converting the property even if the value
-         * is the default. */
-        bool including_default : 1;
-    } to_dbus_data;
 };
 
 typedef struct {

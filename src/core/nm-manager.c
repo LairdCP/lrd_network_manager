@@ -1999,16 +1999,16 @@ nm_manager_remove_device(NMManager *self, const char *ifname, NMDeviceType devic
 static NMDevice *
 system_create_virtual_device(NMManager *self, NMConnection *connection)
 {
-    NMManagerPrivate *           priv = NM_MANAGER_GET_PRIVATE(self);
-    NMDeviceFactory *            factory;
-    NMSettingsConnection *const *connections;
-    guint                        i;
-    gs_free char *               iface = NULL;
-    const char *                 parent_spec;
-    NMDevice *                   device = NULL, *parent = NULL;
-    NMDevice *                   dev_candidate;
-    GError *                     error = NULL;
-    NMLogLevel                   log_level;
+    NMManagerPrivate *priv = NM_MANAGER_GET_PRIVATE(self);
+    NMDeviceFactory * factory;
+    gs_free NMSettingsConnection **connections = NULL;
+    guint                          i;
+    gs_free char *                 iface = NULL;
+    const char *                   parent_spec;
+    NMDevice *                     device = NULL, *parent = NULL;
+    NMDevice *                     dev_candidate;
+    GError *                       error = NULL;
+    NMLogLevel                     log_level;
 
     g_return_val_if_fail(NM_IS_MANAGER(self), NULL);
     g_return_val_if_fail(NM_IS_CONNECTION(connection), NULL);
@@ -2091,7 +2091,13 @@ system_create_virtual_device(NMManager *self, NMConnection *connection)
     }
 
     /* Create backing resources if the device has any autoconnect connections */
-    connections = nm_settings_get_connections_sorted_by_autoconnect_priority(priv->settings, NULL);
+    connections = nm_settings_get_connections_clone(
+        priv->settings,
+        NULL,
+        NULL,
+        NULL,
+        nm_settings_connection_cmp_autoconnect_priority_p_with_data,
+        NULL);
     for (i = 0; connections[i]; i++) {
         NMConnection *       candidate = nm_settings_connection_get_connection(connections[i]);
         NMSettingConnection *s_con;
@@ -2130,13 +2136,19 @@ system_create_virtual_device(NMManager *self, NMConnection *connection)
 static void
 retry_connections_for_parent_device(NMManager *self, NMDevice *device)
 {
-    NMManagerPrivate *           priv = NM_MANAGER_GET_PRIVATE(self);
-    NMSettingsConnection *const *connections;
-    guint                        i;
+    NMManagerPrivate *priv                     = NM_MANAGER_GET_PRIVATE(self);
+    gs_free NMSettingsConnection **connections = NULL;
+    guint                          i;
 
     g_return_if_fail(device);
 
-    connections = nm_settings_get_connections_sorted_by_autoconnect_priority(priv->settings, NULL);
+    connections = nm_settings_get_connections_clone(
+        priv->settings,
+        NULL,
+        NULL,
+        NULL,
+        nm_settings_connection_cmp_autoconnect_priority_p_with_data,
+        NULL);
     for (i = 0; connections[i]; i++) {
         NMSettingsConnection *sett_conn  = connections[i];
         NMConnection *        connection = nm_settings_connection_get_connection(sett_conn);
@@ -2595,12 +2607,6 @@ get_existing_connection(NMManager *self, NMDevice *device, gboolean *out_generat
 
     nm_device_capture_initial_config(device);
 
-    if (!nm_device_can_assume_connections(device)) {
-        nm_device_assume_state_reset(device);
-        _LOG2D(LOGD_DEVICE, device, "assume: device cannot assume connection");
-        return NULL;
-    }
-
     if (ifindex) {
         int master_ifindex = nm_platform_link_get_master(priv->platform, ifindex);
 
@@ -2632,47 +2638,39 @@ get_existing_connection(NMManager *self, NMDevice *device, gboolean *out_generat
         }
     }
 
-    if (nm_config_data_get_device_config_boolean(NM_CONFIG_GET_DATA,
-                                                 NM_CONFIG_KEYFILE_KEY_DEVICE_KEEP_CONFIGURATION,
-                                                 device,
-                                                 TRUE,
-                                                 TRUE)) {
-        /* The core of the API is nm_device_generate_connection() function, based on
-         * update_connection() virtual method and the @connection_type_supported
-         * class attribute. Devices that support assuming existing connections must
-         * have update_connection() implemented, otherwise
-         * nm_device_generate_connection() returns NULL. */
-        connection = nm_device_generate_connection(device, master, &maybe_later, &gen_error);
-        if (!connection) {
-            if (maybe_later) {
-                /* The device can potentially assume connections, but at this
-                 * time we can't generate a connection because no address is
-                 * configured. Allow the device to assume a connection indicated
-                 * in the state file by UUID. */
-                only_by_uuid = TRUE;
-            } else {
-                nm_device_assume_state_reset(device);
-                _LOG2D(LOGD_DEVICE,
-                       device,
-                       "assume: cannot generate connection: %s",
-                       gen_error->message);
-                return NULL;
-            }
+    /* The core of the API is nm_device_generate_connection() function and
+     * update_connection() virtual method and the convenient connection_type
+     * class attribute. Subclasses supporting the new API must have
+     * update_connection() implemented, otherwise nm_device_generate_connection()
+     * returns NULL.
+     */
+    connection = nm_device_generate_connection(device, master, &maybe_later, &gen_error);
+    if (!connection) {
+        if (maybe_later) {
+            /* The device can generate a connection, but it failed for now.
+             * Give it a chance to match a connection from the state file. */
+            only_by_uuid = TRUE;
+        } else {
+            nm_device_assume_state_reset(device);
+            _LOG2D(LOGD_DEVICE,
+                   device,
+                   "assume: cannot generate connection: %s",
+                   gen_error->message);
+            return NULL;
         }
-    } else {
-        connection   = NULL;
-        only_by_uuid = TRUE;
-        g_set_error(&gen_error,
-                    NM_DEVICE_ERROR,
-                    NM_DEVICE_ERROR_FAILED,
-                    "device %s has 'keep-configuration=no'",
-                    nm_device_get_iface(device));
     }
 
     nm_device_assume_state_get(device, &assume_state_guess_assume, &assume_state_connection_uuid);
 
-    /* If the device state file indicates a connection that was active before NM
-     * restarted, perform basic sanity checks on it. */
+    /* Now we need to compare the generated connection to each configured
+     * connection. The comparison function is the heart of the connection
+     * assumption implementation and it must compare the connections very
+     * carefully to sort out various corner cases. Also, the comparison is
+     * not entirely symmetric.
+     *
+     * When no configured connection matches the generated connection, we keep
+     * the generated connection instead.
+     */
     if (assume_state_connection_uuid
         && (connection_checked =
                 nm_settings_get_connection_by_uuid(priv->settings, assume_state_connection_uuid))
@@ -2706,9 +2704,8 @@ get_existing_connection(NMManager *self, NMDevice *device, gboolean *out_generat
         gs_free NMSettingsConnection **sett_conns = NULL;
         guint                          len, i, j;
 
-        /* @assume_state_guess_assume=TRUE means this is the first start of NM
-         * and the state file contains no UUID. Search persistent connections
-         * for a matching candidate. */
+        /* the state file doesn't indicate a connection UUID to assume. Search the
+         * persistent connections for a matching candidate. */
         sett_conns = nm_manager_get_activatable_connections(self, FALSE, FALSE, &len);
         if (len > 0) {
             for (i = 0, j = 0; i < len; i++) {
@@ -2781,8 +2778,6 @@ get_existing_connection(NMManager *self, NMDevice *device, gboolean *out_generat
         return matched;
     }
 
-    /* When no configured connection matches the generated connection, we keep
-     * the generated connection instead. */
     _LOG2D(LOGD_DEVICE,
            device,
            "assume: generated connection '%s' (%s)",
@@ -4430,13 +4425,13 @@ find_slaves(NMManager *           manager,
             guint *               out_n_slaves,
             gboolean              for_user_request)
 {
-    NMManagerPrivate *           priv            = NM_MANAGER_GET_PRIVATE(manager);
-    NMSettingsConnection *const *all_connections = NULL;
-    guint                        n_all_connections;
-    guint                        i;
-    SlaveConnectionInfo *        slaves   = NULL;
-    guint                        n_slaves = 0;
-    NMSettingConnection *        s_con;
+    NMManagerPrivate *priv                         = NM_MANAGER_GET_PRIVATE(manager);
+    gs_free NMSettingsConnection **all_connections = NULL;
+    guint                          n_all_connections;
+    guint                          i;
+    SlaveConnectionInfo *          slaves   = NULL;
+    guint                          n_slaves = 0;
+    NMSettingConnection *          s_con;
     gs_unref_hashtable GHashTable *devices = NULL;
 
     nm_assert(out_n_slaves);
@@ -4450,9 +4445,13 @@ find_slaves(NMManager *           manager,
      * even if a slave was already active, it might be deactivated during
      * master reactivation.
      */
-    all_connections =
-        nm_settings_get_connections_sorted_by_autoconnect_priority(priv->settings,
-                                                                   &n_all_connections);
+    all_connections = nm_settings_get_connections_clone(
+        priv->settings,
+        &n_all_connections,
+        NULL,
+        NULL,
+        nm_settings_connection_cmp_autoconnect_priority_p_with_data,
+        NULL);
     for (i = 0; i < n_all_connections; i++) {
         NMSettingsConnection *master_connection = NULL;
         NMDevice *            master_device     = NULL, *slave_device;
@@ -6820,9 +6819,8 @@ nm_manager_write_device_state(NMManager *self, NMDevice *device, int *out_ifinde
     guint32                        route_metric_default_effective;
     NMTernary                      nm_owned;
     NMDhcpConfig *                 dhcp_config;
-    const char *                   next_server   = NULL;
-    const char *                   root_path     = NULL;
-    const char *                   dhcp_bootfile = NULL;
+    const char *                   next_server = NULL;
+    const char *                   root_path   = NULL;
 
     NM_SET_OUT(out_ifindex, 0);
 
@@ -6866,11 +6864,8 @@ nm_manager_write_device_state(NMManager *self, NMDevice *device, int *out_ifinde
 
     dhcp_config = nm_device_get_dhcp_config(device, AF_INET);
     if (dhcp_config) {
-        root_path     = nm_dhcp_config_get_option(dhcp_config, "root_path");
-        next_server   = nm_dhcp_config_get_option(dhcp_config, "next_server");
-        dhcp_bootfile = nm_dhcp_config_get_option(dhcp_config, "filename");
-        if (!dhcp_bootfile)
-            dhcp_bootfile = nm_dhcp_config_get_option(dhcp_config, "bootfile_name");
+        root_path   = nm_dhcp_config_get_option(dhcp_config, "root_path");
+        next_server = nm_dhcp_config_get_option(dhcp_config, "next_server");
     }
 
     if (!nm_config_device_state_write(ifindex,
@@ -6881,8 +6876,7 @@ nm_manager_write_device_state(NMManager *self, NMDevice *device, int *out_ifinde
                                       route_metric_default_aspired,
                                       route_metric_default_effective,
                                       next_server,
-                                      root_path,
-                                      dhcp_bootfile))
+                                      root_path))
         return FALSE;
 
     NM_SET_OUT(out_ifindex, ifindex);
@@ -6924,9 +6918,9 @@ devices_inited_cb(gpointer user_data)
 gboolean
 nm_manager_start(NMManager *self, GError **error)
 {
-    NMManagerPrivate *           priv = NM_MANAGER_GET_PRIVATE(self);
-    NMSettingsConnection *const *connections;
-    guint                        i;
+    NMManagerPrivate *priv                     = NM_MANAGER_GET_PRIVATE(self);
+    gs_free NMSettingsConnection **connections = NULL;
+    guint                          i;
 
     nm_device_factory_manager_load_factories(_register_device_factory, self);
 
@@ -6984,7 +6978,13 @@ nm_manager_start(NMManager *self, GError **error)
                      NM_SETTINGS_SIGNAL_CONNECTION_UPDATED,
                      G_CALLBACK(connection_updated_cb),
                      self);
-    connections = nm_settings_get_connections_sorted_by_autoconnect_priority(priv->settings, NULL);
+    connections = nm_settings_get_connections_clone(
+        priv->settings,
+        NULL,
+        NULL,
+        NULL,
+        nm_settings_connection_cmp_autoconnect_priority_p_with_data,
+        NULL);
     for (i = 0; connections[i]; i++)
         connection_changed(self, connections[i]);
 

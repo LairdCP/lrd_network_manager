@@ -1148,7 +1148,7 @@ write_wired_setting_impl(NMSettingWired *s_wired, shvarFile *ifcfg, gboolean is_
     svSetValueStr(ifcfg, "CTCPROT", nm_setting_wired_get_s390_option_by_key(s_wired, "ctcprot"));
 
     num_opts = nm_setting_wired_get_num_s390_options(s_wired);
-    if (num_opts > 0) {
+    if (s390_subchannels && num_opts) {
         nm_auto_free_gstring GString *tmp = NULL;
 
         for (i = 0; i < num_opts; i++) {
@@ -1391,13 +1391,6 @@ write_ethtool_setting(NMConnection *connection, shvarFile *ifcfg, GError **error
             g_string_append_c(str, ' ');
             g_string_append(str, nms_ifcfg_rh_utils_get_ethtool_name(ethtool_id));
             g_string_append(str, b ? " on" : " off");
-        }
-
-        if (!str) {
-            /* Write an empty dummy "-A" option without arguments. This is to
-             * ensure that the reader will create an (all default) NMSettingEthtool.
-             * Also, it seems that `ethtool -A "$IFACE"` is silently accepted. */
-            _ethtool_gstring_prepare(&str, &is_first, 'A', iface);
         }
     }
 
@@ -2856,9 +2849,6 @@ write_ip4_setting(NMConnection *connection,
     timeout = nm_setting_ip_config_get_dhcp_timeout(s_ip4);
     svSetValueInt64_cond(ifcfg, "IPV4_DHCP_TIMEOUT", timeout != 0, timeout);
 
-    timeout = nm_setting_ip_config_get_required_timeout(s_ip4);
-    svSetValueInt64_cond(ifcfg, "IPV4_REQUIRED_TIMEOUT", timeout != -1, timeout);
-
     svSetValueBoolean(ifcfg, "IPV4_FAILURE_FATAL", !nm_setting_ip_config_get_may_fail(s_ip4));
 
     route_metric = nm_setting_ip_config_get_route_metric(s_ip4);
@@ -3055,9 +3045,6 @@ write_ip6_setting(NMConnection *connection,
 
     timeout = nm_setting_ip_config_get_dhcp_timeout(s_ip6);
     svSetValueInt64_cond(ifcfg, "IPV6_DHCP_TIMEOUT", timeout != 0, timeout);
-
-    timeout = nm_setting_ip_config_get_required_timeout(s_ip6);
-    svSetValueInt64_cond(ifcfg, "IPV6_REQUIRED_TIMEOUT", timeout != -1, timeout);
 
     flags = nm_setting_ip_config_get_dhcp_hostname_flags(s_ip6);
     svSetValueInt64_cond(ifcfg,

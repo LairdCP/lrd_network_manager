@@ -109,61 +109,6 @@ _connection_new_from_dbus_strict(GVariant *dict, gboolean normalize)
 
 /*****************************************************************************/
 
-static void
-test_nm_meta_setting_types_by_priority(void)
-{
-    gs_unref_ptrarray GPtrArray *arr = NULL;
-    int                          i;
-    int                          j;
-
-    G_STATIC_ASSERT_EXPR(_NM_META_SETTING_TYPE_NUM
-                         == G_N_ELEMENTS(nm_meta_setting_types_by_priority));
-
-    G_STATIC_ASSERT_EXPR(_NM_META_SETTING_TYPE_NUM == 51);
-
-    arr = g_ptr_array_new_with_free_func(g_object_unref);
-
-    for (i = 0; i < _NM_META_SETTING_TYPE_NUM; i++) {
-        const NMMetaSettingType  meta_type = nm_meta_setting_types_by_priority[i];
-        const NMMetaSettingInfo *setting_info;
-        NMSetting *              setting;
-
-        g_assert(_NM_INT_NOT_NEGATIVE(meta_type));
-        g_assert(meta_type < _NM_META_SETTING_TYPE_NUM);
-
-        setting_info = &nm_meta_setting_infos[meta_type];
-        g_assert(setting_info);
-        _nm_assert_setting_info(setting_info, 0);
-
-        for (j = 0; j < i; j++)
-            g_assert_cmpint(nm_meta_setting_types_by_priority[j], !=, meta_type);
-
-        setting = g_object_new(setting_info->get_setting_gtype(), NULL);
-        g_assert(NM_IS_SETTING(setting));
-
-        g_ptr_array_add(arr, setting);
-    }
-
-    for (i = 1; i < _NM_META_SETTING_TYPE_NUM; i++) {
-        NMSetting *setting = arr->pdata[i];
-
-        for (j = 0; j < i; j++) {
-            NMSetting *other = arr->pdata[j];
-
-            if (_nmtst_nm_setting_sort(other, setting) >= 0) {
-                g_error("sort order for nm_meta_setting_types_by_priority[%d vs %d] is wrong: %s "
-                        "should be before %s",
-                        j,
-                        i,
-                        nm_setting_get_name(setting),
-                        nm_setting_get_name(other));
-            }
-        }
-    }
-}
-
-/*****************************************************************************/
-
 static char *
 _create_random_ipaddr(int addr_family, gboolean as_service)
 {
@@ -4048,7 +3993,6 @@ test_routing_rule(gconstpointer test_data)
     nm_auto_unref_ip_routing_rule NMIPRoutingRule *rr1 = NULL;
     gboolean                                       success;
     char                                           ifname_buf[16];
-    gs_free_error GError *error = NULL;
 
     _rr_from_str("priority 5 from 0.0.0.0 table 1", "  from 0.0.0.0  priority  5 lookup 1 ");
     _rr_from_str("priority 5 from 0.0.0.0/0 table 4");
@@ -4078,7 +4022,6 @@ test_routing_rule(gconstpointer test_data)
                  "priority 5 to 0.0.0.0 not dport 10-133 not table 6",
                  "priority 5 to 0.0.0.0 not dport 10-\\ 133 not table 6");
     _rr_from_str("priority 5 to 0.0.0.0 ipproto 10 sport 10 table 6");
-    _rr_from_str("priority 5 to 0.0.0.0 type blackhole", "priority 5 to 0.0.0.0 blackhole");
 
     rr1 = _rr_from_str_get("priority 5 from :: iif aab table 25");
     g_assert_cmpstr(nm_ip_routing_rule_get_iifname(rr1), ==, "aab");
@@ -4127,22 +4070,6 @@ test_routing_rule(gconstpointer test_data)
     g_assert_cmpstr(ifname_buf, ==, "a\303\261,x;b");
     g_assert(success);
     nm_clear_pointer(&rr1, nm_ip_routing_rule_unref);
-
-    rr1 = nm_ip_routing_rule_from_string("priority   6 blackhole",
-                                         NM_IP_ROUTING_RULE_AS_STRING_FLAGS_AF_INET,
-                                         NULL,
-                                         &error);
-    nmtst_assert_success(rr1, error);
-    nm_clear_pointer(&rr1, nm_ip_routing_rule_unref);
-    nm_clear_error(&error);
-
-    rr1 = nm_ip_routing_rule_from_string("priority   6 bogus",
-                                         NM_IP_ROUTING_RULE_AS_STRING_FLAGS_AF_INET,
-                                         NULL,
-                                         &error);
-    nmtst_assert_no_success(rr1, error);
-    nm_clear_pointer(&rr1, nm_ip_routing_rule_unref);
-    nm_clear_error(&error);
 }
 
 /*****************************************************************************/
@@ -4376,7 +4303,6 @@ test_setting_metadata(void)
             const NMSettInfoProperty *sip = &sis->property_infos[prop_idx];
             GArray *                  property_types_data;
             guint                     prop_idx_val;
-            gboolean                  can_set_including_default = FALSE;
 
             g_assert(sip->name);
 
@@ -4387,57 +4313,7 @@ test_setting_metadata(void)
             g_assert(sip->property_type->dbus_type);
             g_assert(g_variant_type_string_is_valid((const char *) sip->property_type->dbus_type));
 
-            if (!sip->property_type->to_dbus_fcn) {
-                /* it's allowed to have no to_dbus_fcn(), to ignore a property. But such
-                 * properties must not have a param_spec and no gprop_to_dbus_fcn. */
-                g_assert(!sip->param_spec);
-                g_assert(!sip->to_dbus_data.none);
-            } else if (sip->property_type->to_dbus_fcn == _nm_setting_property_to_dbus_fcn_gprop) {
-                g_assert(sip->param_spec);
-                switch (sip->property_type->typdata_to_dbus.gprop_type) {
-                case NM_SETTING_PROPERTY_TO_DBUS_FCN_GPROP_TYPE_BYTES:
-                    g_assert(sip->param_spec->value_type == G_TYPE_BYTES);
-                    goto check_done;
-                case NM_SETTING_PROPERTY_TO_DBUS_FCN_GPROP_TYPE_ENUM:
-                    g_assert(g_type_is_a(sip->param_spec->value_type, G_TYPE_ENUM));
-                    goto check_done;
-                case NM_SETTING_PROPERTY_TO_DBUS_FCN_GPROP_TYPE_FLAGS:
-                    g_assert(g_type_is_a(sip->param_spec->value_type, G_TYPE_FLAGS));
-                    goto check_done;
-                case NM_SETTING_PROPERTY_TO_DBUS_FCN_GPROP_TYPE_GARRAY_UINT:
-                    g_assert(sip->param_spec->value_type == G_TYPE_ARRAY);
-                    goto check_done;
-                case NM_SETTING_PROPERTY_TO_DBUS_FCN_GPROP_TYPE_STRDICT:
-                    g_assert(sip->param_spec->value_type == G_TYPE_HASH_TABLE);
-                    goto check_done;
-                case NM_SETTING_PROPERTY_TO_DBUS_FCN_GPROP_TYPE_MAC_ADDRESS:
-                    g_assert(sip->param_spec->value_type == G_TYPE_STRING);
-                    goto check_done;
-                case NM_SETTING_PROPERTY_TO_DBUS_FCN_GPROP_TYPE_DEFAULT:
-                    goto check_done;
-                }
-                g_assert_not_reached();
-check_done:;
-                if (sip->property_type->typdata_to_dbus.gprop_type
-                    != NM_SETTING_PROPERTY_TO_DBUS_FCN_GPROP_TYPE_DEFAULT)
-                    g_assert(!sip->to_dbus_data.gprop_to_dbus_fcn);
-                can_set_including_default = TRUE;
-            } else if (sip->property_type->to_dbus_fcn
-                       == _nm_setting_property_to_dbus_fcn_get_boolean) {
-                g_assert(sip->param_spec);
-                g_assert(sip->param_spec->value_type == G_TYPE_BOOLEAN);
-                g_assert(sip->to_dbus_data.get_boolean);
-                can_set_including_default = TRUE;
-            } else if (sip->property_type->to_dbus_fcn
-                       == _nm_setting_property_to_dbus_fcn_get_string) {
-                g_assert(sip->param_spec);
-                g_assert(sip->param_spec->value_type == G_TYPE_STRING);
-                g_assert(sip->to_dbus_data.get_string);
-            }
-
-            if (!can_set_including_default)
-                g_assert(!sip->to_dbus_data.including_default);
-
+            g_assert(!sip->property_type->to_dbus_fcn || !sip->property_type->gprop_to_dbus_fcn);
             g_assert(!sip->property_type->from_dbus_fcn
                      || !sip->property_type->gprop_from_dbus_fcn);
 
@@ -4555,11 +4431,8 @@ check_done:;
                     || pt->to_dbus_fcn != pt_2->to_dbus_fcn
                     || pt->from_dbus_fcn != pt_2->from_dbus_fcn
                     || pt->missing_from_dbus_fcn != pt_2->missing_from_dbus_fcn
-                    || pt->gprop_from_dbus_fcn != pt_2->gprop_from_dbus_fcn
-                    || memcmp(&pt->typdata_to_dbus,
-                              &pt_2->typdata_to_dbus,
-                              sizeof(pt->typdata_to_dbus))
-                           != 0)
+                    || pt->gprop_to_dbus_fcn != pt_2->gprop_to_dbus_fcn
+                    || pt->gprop_from_dbus_fcn != pt_2->gprop_from_dbus_fcn)
                     continue;
 
                 if ((pt == &nm_sett_info_propert_type_plain_i
@@ -4581,9 +4454,7 @@ check_done:;
 
                 /* the property-types with same content should all be shared. Here we have two that
                  * are the same content, but different instances. Bug. */
-                g_error("The identical property type for D-Bus type \"%s\" is used by: %s and %s. "
-                        "If a NMSettInfoPropertType is identical, it should be shared by creating "
-                        "a common instance of the property type",
+                g_error("The identical property type for D-Bus type \"%s\" is used by: %s and %s",
                         (const char *) pt->dbus_type,
                         _PROP_IDX_OWNER(h_property_types, pt),
                         _PROP_IDX_OWNER(h_property_types, pt_2));
@@ -4721,9 +4592,6 @@ main(int argc, char **argv)
     nmtst_init(&argc, &argv, TRUE);
 
     g_test_add_func("/libnm/test_connection_uuid", test_connection_uuid);
-
-    g_test_add_func("/libnm/settings/test_nm_meta_setting_types_by_priority",
-                    test_nm_meta_setting_types_by_priority);
 
     g_test_add_data_func("/libnm/setting-8021x/key-and-cert",
                          "test_key_and_cert.pem, test",

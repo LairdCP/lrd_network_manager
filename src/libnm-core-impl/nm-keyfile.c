@@ -2781,9 +2781,6 @@ static const ParseInfoSetting *const parse_infos[_NM_META_SETTING_TYPE_NUM] = {
                                 .parser = mac_address_parser_ETHER_cloned, ),
             PARSE_INFO_PROPERTY(NM_SETTING_WIRELESS_MAC_ADDRESS,
                                 .parser = mac_address_parser_ETHER, ),
-            PARSE_INFO_PROPERTY(NM_SETTING_WIRELESS_SEEN_BSSIDS,
-                                .parser_skip = TRUE,
-                                .writer_skip = TRUE, ),
             PARSE_INFO_PROPERTY(NM_SETTING_WIRELESS_SSID,
                                 .parser = ssid_parser,
                                 .writer = ssid_writer, ), ), ),
@@ -4086,9 +4083,10 @@ nm_keyfile_write(NMConnection *        connection,
     nm_auto_unref_keyfile GKeyFile *keyfile = NULL;
     GError *                        local   = NULL;
     KeyfileWriterInfo               info;
-    NMSetting **                    settings;
-    int                             i;
-    guint                           j;
+    gs_free NMSetting **settings   = NULL;
+    guint               n_settings = 0;
+    guint               i;
+    guint               j;
 
     g_return_val_if_fail(NM_IS_CONNECTION(connection), NULL);
     g_return_val_if_fail(!error || !*error, NULL);
@@ -4126,15 +4124,12 @@ nm_keyfile_write(NMConnection *        connection,
         .user_data     = user_data,
     };
 
-    settings = _nm_connection_get_settings_arr(connection);
-    for (i = 0; i < (int) _NM_META_SETTING_TYPE_NUM; i++) {
-        NMSetting *              setting = settings[nm_meta_setting_types_by_priority[i]];
+    settings = nm_connection_get_settings(connection, &n_settings);
+    for (i = 0; i < n_settings; i++) {
         const NMSettInfoSetting *sett_info;
+        NMSetting *              setting = settings[i];
         const char *             setting_name;
         const char *             setting_alias;
-
-        if (!setting)
-            continue;
 
         sett_info = _nm_setting_class_get_sett_info(NM_SETTING_GET_CLASS(setting));
 

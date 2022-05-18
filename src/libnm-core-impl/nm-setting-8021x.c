@@ -191,11 +191,11 @@ typedef struct {
  */
 struct _NMSetting8021x {
     NMSetting parent;
-    /* In the past, this struct was public API. Preserve ABI! */
 };
 
 struct _NMSetting8021xClass {
     NMSettingClass parent;
+
     /* In the past, this struct was public API. Preserve ABI! */
     gpointer padding[4];
 };
@@ -3819,9 +3819,8 @@ finalize(GObject *object)
 static void
 nm_setting_802_1x_class_init(NMSetting8021xClass *klass)
 {
-    GObjectClass *  object_class        = G_OBJECT_CLASS(klass);
-    NMSettingClass *setting_class       = NM_SETTING_CLASS(klass);
-    GArray *        properties_override = _nm_sett_info_property_override_create_array();
+    GObjectClass *  object_class  = G_OBJECT_CLASS(klass);
+    NMSettingClass *setting_class = NM_SETTING_CLASS(klass);
 
     g_type_class_add_private(klass, sizeof(NMSetting8021xPrivate));
 
@@ -4890,13 +4889,12 @@ nm_setting_802_1x_class_init(NMSetting8021xClass *klass)
      * description: a boolean value.
      * ---end---
      */
-    _nm_setting_property_define_boolean(properties_override,
-                                        obj_properties,
-                                        NM_SETTING_802_1X_SYSTEM_CA_CERTS,
-                                        PROP_SYSTEM_CA_CERTS,
-                                        FALSE,
-                                        NM_SETTING_PARAM_NONE,
-                                        nm_setting_802_1x_get_system_ca_certs);
+    obj_properties[PROP_SYSTEM_CA_CERTS] =
+        g_param_spec_boolean(NM_SETTING_802_1X_SYSTEM_CA_CERTS,
+                             "",
+                             "",
+                             FALSE,
+                             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     /**
      * NMSetting8021x:auth-timeout:
@@ -4940,13 +4938,12 @@ nm_setting_802_1x_class_init(NMSetting8021xClass *klass)
      * description: whether the 802.1X authentication is optional
      * ---end---
      */
-    _nm_setting_property_define_boolean(properties_override,
-                                        obj_properties,
-                                        NM_SETTING_802_1X_OPTIONAL,
-                                        PROP_OPTIONAL,
-                                        FALSE,
-                                        NM_SETTING_PARAM_NONE,
-                                        nm_setting_802_1x_get_optional);
+    obj_properties[PROP_OPTIONAL] =
+        g_param_spec_boolean(NM_SETTING_802_1X_OPTIONAL,
+                             "",
+                             "",
+                             FALSE,
+                             G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     /**
      * NMSetting8021x:tls-disable-time-checks:
@@ -4988,8 +4985,5 @@ nm_setting_802_1x_class_init(NMSetting8021xClass *klass)
 
     g_object_class_install_properties(object_class, _PROPERTY_ENUMS_LAST, obj_properties);
 
-    _nm_setting_class_commit_full(setting_class,
-                                  NM_META_SETTING_TYPE_802_1X,
-                                  NULL,
-                                  properties_override);
+    _nm_setting_class_commit(setting_class, NM_META_SETTING_TYPE_802_1X);
 }

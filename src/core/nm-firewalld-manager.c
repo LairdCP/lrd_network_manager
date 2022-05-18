@@ -15,7 +15,6 @@
 
 #define FIREWALL_DBUS_SERVICE        "org.fedoraproject.FirewallD1"
 #define FIREWALL_DBUS_PATH           "/org/fedoraproject/FirewallD1"
-#define FIREWALL_DBUS_INTERFACE      "org.fedoraproject.FirewallD1"
 #define FIREWALL_DBUS_INTERFACE_ZONE "org.fedoraproject.FirewallD1.zone"
 
 /*****************************************************************************/
@@ -31,12 +30,10 @@ typedef struct {
 
     CList pending_calls;
 
-    char *name_owner;
-
-    guint reloaded_id;
     guint name_owner_changed_id;
 
     bool dbus_inited : 1;
+    bool running : 1;
 } NMFirewalldManagerPrivate;
 
 struct _NMFirewalldManager {
@@ -108,7 +105,7 @@ _ops_type_to_string(OpsType ops_type)
 }
 
 #define _NMLOG_DOMAIN      LOGD_FIREWALL
-#define _NMLOG_PREFIX_NAME "firewalld"
+#define _NMLOG_PREFIX_NAME "firewall"
 #define _NMLOG(level, call_id, ...)                                                 \
     G_STMT_START                                                                    \
     {                                                                               \
@@ -149,14 +146,6 @@ _ops_type_to_string(OpsType ops_type)
 
 /*****************************************************************************/
 
-static void
-_signal_emit_state_changed(NMFirewalldManager *self, NMFirewalldManagerStateChangedType signal_type)
-{
-    g_signal_emit(self, signals[STATE_CHANGED], 0, (int) signal_type);
-}
-
-/*****************************************************************************/
-
 static gboolean
 _get_running(NMFirewalldManagerPrivate *priv)
 {
@@ -165,7 +154,7 @@ _get_running(NMFirewalldManagerPrivate *priv)
      * service is indeed running. That is the time when we queue the
      * requests, and they will be started once the get-name-owner call
      * returns. */
-    return priv->name_owner || (priv->dbus_connection && !priv->dbus_inited);
+    return priv->running || (priv->dbus_connection && !priv->dbus_inited);
 }
 
 gboolean
@@ -326,7 +315,7 @@ _handle_dbus_start(NMFirewalldManager *self, NMFirewalldManagerCallId *call_id)
     GVariant *                 arg;
 
     nm_assert(call_id);
-    nm_assert(priv->name_owner);
+    nm_assert(priv->running);
     nm_assert(!call_id->is_idle);
     nm_assert(c_list_contains(&priv->pending_calls, &call_id->lst));
 
@@ -352,7 +341,7 @@ _handle_dbus_start(NMFirewalldManager *self, NMFirewalldManagerCallId *call_id)
     call_id->dbus.cancellable = g_cancellable_new();
 
     g_dbus_connection_call(priv->dbus_connection,
-                           priv->name_owner,
+                           FIREWALL_DBUS_SERVICE,
                            FIREWALL_DBUS_PATH,
                            FIREWALL_DBUS_INTERFACE_ZONE,
                            dbus_method,
@@ -389,10 +378,10 @@ _start_request(NMFirewalldManager *                self,
           iface,
           NM_PRINT_FMT_QUOTED(zone, "\"", zone, "\"", "default"),
           call_id->is_idle ? " (not running, simulate success)"
-                           : (!priv->name_owner ? " (waiting to initialize)" : ""));
+                           : (!priv->running ? " (waiting to initialize)" : ""));
 
     if (!call_id->is_idle) {
-        if (priv->name_owner)
+        if (priv->running)
             _handle_dbus_start(self, call_id);
         if (!call_id->callback) {
             /* if the user did not provide a callback, the call_id is useless.
@@ -474,7 +463,6 @@ name_owner_changed(NMFirewalldManager *self, const char *owner)
     gboolean                                       was_running;
     gboolean                                       now_running;
     gboolean                                       just_initied;
-    gboolean                                       name_owner_changed;
 
     owner = nm_str_not_empty(owner);
 
@@ -486,8 +474,8 @@ name_owner_changed(NMFirewalldManager *self, const char *owner)
     was_running  = _get_running(priv);
     just_initied = !priv->dbus_inited;
 
-    priv->dbus_inited  = TRUE;
-    name_owner_changed = nm_utils_strdup_reset(&priv->name_owner, owner);
+    priv->dbus_inited = TRUE;
+    priv->running     = !!owner;
 
     now_running = _get_running(priv);
 
@@ -507,7 +495,7 @@ name_owner_changed(NMFirewalldManager *self, const char *owner)
             nm_assert(!call_id->is_idle);
             nm_assert(call_id->dbus.arg);
 
-            if (priv->name_owner) {
+            if (priv->running) {
                 _LOGD(call_id, "initalizing: make D-Bus call");
                 _handle_dbus_start(self, call_id);
             } else {
@@ -523,30 +511,8 @@ name_owner_changed(NMFirewalldManager *self, const char *owner)
         }
     }
 
-    if (just_initied)
-        _signal_emit_state_changed(self, NM_FIREWALLD_MANAGER_STATE_CHANGED_TYPE_INITIALIZED);
-    else if (was_running != now_running || name_owner_changed)
-        _signal_emit_state_changed(self,
-                                   NM_FIREWALLD_MANAGER_STATE_CHANGED_TYPE_NAME_OWNER_CHANGED);
-}
-
-static void
-reloaded_cb(GDBusConnection *connection,
-            const char *     sender_name,
-            const char *     object_path,
-            const char *     interface_name,
-            const char *     signal_name,
-            GVariant *       parameters,
-            gpointer         user_data)
-{
-    NMFirewalldManager *       self = user_data;
-    NMFirewalldManagerPrivate *priv = NM_FIREWALLD_MANAGER_GET_PRIVATE(self);
-
-    if (!nm_streq0(sender_name, priv->name_owner))
-        return;
-
-    _LOGT(NULL, "reloaded signal received");
-    _signal_emit_state_changed(self, NM_FIREWALLD_MANAGER_STATE_CHANGED_TYPE_RELOADED);
+    if (was_running != now_running)
+        g_signal_emit(self, signals[STATE_CHANGED], 0, FALSE);
 }
 
 static void
@@ -575,7 +541,7 @@ get_name_owner_cb(const char *name_owner, GError *error, gpointer user_data)
     NMFirewalldManager *       self;
     NMFirewalldManagerPrivate *priv;
 
-    if (nm_utils_error_is_cancelled(error))
+    if (!name_owner && g_error_matches(error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
         return;
 
     self = user_data;
@@ -601,17 +567,6 @@ nm_firewalld_manager_init(NMFirewalldManager *self)
         _LOGD(NULL, "no D-Bus connection");
         return;
     }
-
-    priv->reloaded_id = g_dbus_connection_signal_subscribe(priv->dbus_connection,
-                                                           FIREWALL_DBUS_SERVICE,
-                                                           FIREWALL_DBUS_INTERFACE,
-                                                           "Reloaded",
-                                                           FIREWALL_DBUS_PATH,
-                                                           NULL,
-                                                           G_DBUS_SIGNAL_FLAGS_NONE,
-                                                           reloaded_cb,
-                                                           self,
-                                                           NULL);
 
     priv->name_owner_changed_id =
         nm_dbus_connection_signal_subscribe_name_owner_changed(priv->dbus_connection,
@@ -639,7 +594,6 @@ dispose(GObject *object)
      * we don't expect pending operations at this point. */
     nm_assert(c_list_is_empty(&priv->pending_calls));
 
-    nm_clear_g_dbus_connection_signal(priv->dbus_connection, &priv->reloaded_id);
     nm_clear_g_dbus_connection_signal(priv->dbus_connection, &priv->name_owner_changed_id);
 
     nm_clear_g_cancellable(&priv->get_name_owner_cancellable);
@@ -662,8 +616,8 @@ nm_firewalld_manager_class_init(NMFirewalldManagerClass *klass)
                                           0,
                                           NULL,
                                           NULL,
-                                          g_cclosure_marshal_VOID__INT,
+                                          g_cclosure_marshal_VOID__BOOLEAN,
                                           G_TYPE_NONE,
                                           1,
-                                          G_TYPE_INT /* signal-type */);
+                                          G_TYPE_BOOLEAN /* initialized_now */);
 }

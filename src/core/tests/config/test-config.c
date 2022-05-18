@@ -151,7 +151,6 @@ test_config_simple(void)
     gs_unref_object NMConfig *config  = NULL;
     gs_strfreev char **       plugins = NULL;
     char *                    value;
-    const char *              cvalue;
     gs_unref_object NMDevice *dev50 = nm_test_device_new("00:00:00:00:00:50");
     gs_unref_object NMDevice *dev51 = nm_test_device_new("00:00:00:00:00:51");
     gs_unref_object NMDevice *dev52 = nm_test_device_new("00:00:00:00:00:52");
@@ -207,50 +206,59 @@ test_config_simple(void)
     g_assert_cmpstr(value, ==, "51");
     g_free(value);
 
-    cvalue = nm_config_data_get_connection_default(nm_config_get_data_orig(config),
-                                                   "ipv6.route-metric",
-                                                   NULL);
-    g_assert_cmpstr(cvalue, ==, NULL);
+    value = nm_config_data_get_connection_default(nm_config_get_data_orig(config),
+                                                  "ipv6.route-metric",
+                                                  NULL);
+    g_assert_cmpstr(value, ==, NULL);
+    g_free(value);
 
-    cvalue = nm_config_data_get_connection_default(nm_config_get_data_orig(config),
-                                                   "ipv4.route-metric",
-                                                   NULL);
-    g_assert_cmpstr(cvalue, ==, "50");
+    value = nm_config_data_get_connection_default(nm_config_get_data_orig(config),
+                                                  "ipv4.route-metric",
+                                                  NULL);
+    g_assert_cmpstr(value, ==, "50");
+    g_free(value);
 
-    cvalue = nm_config_data_get_connection_default(nm_config_get_data_orig(config),
-                                                   "ipv4.route-metric",
-                                                   dev50);
-    g_assert_cmpstr(cvalue, ==, "50");
+    value = nm_config_data_get_connection_default(nm_config_get_data_orig(config),
+                                                  "ipv4.route-metric",
+                                                  dev50);
+    g_assert_cmpstr(value, ==, "50");
+    g_free(value);
 
-    cvalue = nm_config_data_get_connection_default(nm_config_get_data_orig(config),
-                                                   "ipv4.route-metric",
-                                                   dev51);
-    g_assert_cmpstr(cvalue, ==, "51");
+    value = nm_config_data_get_connection_default(nm_config_get_data_orig(config),
+                                                  "ipv4.route-metric",
+                                                  dev51);
+    g_assert_cmpstr(value, ==, "51");
+    g_free(value);
 
-    cvalue = nm_config_data_get_connection_default(nm_config_get_data_orig(config),
-                                                   "ipv4.route-metric",
-                                                   dev52);
-    g_assert_cmpstr(cvalue, ==, "52");
+    value = nm_config_data_get_connection_default(nm_config_get_data_orig(config),
+                                                  "ipv4.route-metric",
+                                                  dev52);
+    g_assert_cmpstr(value, ==, "52");
+    g_free(value);
 
-    cvalue = nm_config_data_get_connection_default(nm_config_get_data_orig(config),
-                                                   "ethernet.mtu",
-                                                   dev51);
-    g_assert_cmpstr(cvalue, ==, "9000");
+    value = nm_config_data_get_connection_default(nm_config_get_data_orig(config),
+                                                  "ethernet.mtu",
+                                                  dev51);
+    g_assert_cmpstr(value, ==, "9000");
+    g_free(value);
 
-    cvalue = nm_config_data_get_connection_default(nm_config_get_data_orig(config),
-                                                   "ethernet.mtu",
-                                                   dev50);
-    g_assert_cmpstr(cvalue, ==, "1400");
+    value = nm_config_data_get_connection_default(nm_config_get_data_orig(config),
+                                                  "ethernet.mtu",
+                                                  dev50);
+    g_assert_cmpstr(value, ==, "1400");
+    g_free(value);
 
-    cvalue = nm_config_data_get_connection_default(nm_config_get_data_orig(config),
-                                                   "ipv4.dns-priority",
-                                                   dev51);
-    g_assert_cmpstr(cvalue, ==, NULL);
+    value = nm_config_data_get_connection_default(nm_config_get_data_orig(config),
+                                                  "ipv4.dns-priority",
+                                                  dev51);
+    g_assert_cmpstr(value, ==, NULL);
+    g_free(value);
 
-    cvalue = nm_config_data_get_connection_default(nm_config_get_data_orig(config),
-                                                   "ipv4.dns-priority",
-                                                   dev50);
-    g_assert_cmpstr(cvalue, ==, "60");
+    value = nm_config_data_get_connection_default(nm_config_get_data_orig(config),
+                                                  "ipv4.dns-priority",
+                                                  dev50);
+    g_assert_cmpstr(value, ==, "60");
+    g_free(value);
 }
 
 static void
@@ -608,7 +616,7 @@ test_config_confdir(void)
 #define ASSERT_GET_CONN_DEFAULT(xconfig, xname, xvalue)                             \
     G_STMT_START                                                                    \
     {                                                                               \
-        const char *_value =                                                        \
+        gs_free char *_value =                                                      \
             nm_config_data_get_connection_default(nm_config_get_data_orig(xconfig), \
                                                   (xname),                          \
                                                   NULL);                            \
