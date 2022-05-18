@@ -764,7 +764,7 @@ _nm_client_set_property_sync_legacy(NMClient   *self,
                 NMClientPrivate *_priv = NM_CLIENT_GET_PRIVATE(self);         \
                                                                               \
                 nm_assert(g_source_get_context(_source) == _priv->x_context); \
-                nm_assert(g_main_context_is_owner(_priv->x_context));         \
+                nm_assert(nm_g_main_context_can_acquire(_priv->x_context));   \
             }                                                                 \
         }                                                                     \
     }                                                                         \
@@ -778,7 +778,7 @@ _nm_client_set_property_sync_legacy(NMClient   *self,
                                                                                         \
             nm_assert((g_main_context_get_thread_default() ?: g_main_context_default()) \
                       == _priv->x_context);                                             \
-            nm_assert(g_main_context_is_owner(_priv->x_context));                       \
+            nm_assert(nm_g_main_context_can_acquire(_priv->x_context));                 \
         }                                                                               \
     }                                                                                   \
     G_STMT_END
@@ -6261,7 +6261,6 @@ nm_client_get_capabilities(NMClient *client, gsize *length)
     NMClientPrivate *priv;
 
     g_return_val_if_fail(NM_IS_CLIENT(client), NULL);
-    g_return_val_if_fail(length, NULL);
 
     priv = NM_CLIENT_GET_PRIVATE(client);
 
@@ -7306,9 +7305,9 @@ _init_start_check_complete(NMClient *self)
 static void
 _init_start_cancelled_cb(GCancellable *cancellable, gpointer user_data)
 {
-    NMClient        *self = user_data;
-    NMClientPrivate *priv = NM_CLIENT_GET_PRIVATE(self);
-    GError          *error;
+    NMClient        *self  = user_data;
+    NMClientPrivate *priv  = NM_CLIENT_GET_PRIVATE(self);
+    GError          *error = NULL;
 
     nm_assert(NM_IS_CLIENT(self));
     nm_assert(priv->init_data);
@@ -7328,8 +7327,8 @@ _init_start_cancelled_cb(GCancellable *cancellable, gpointer user_data)
 static gboolean
 _init_start_cancel_on_idle_cb(gpointer user_data)
 {
-    NMClient *self = user_data;
-    GError   *error;
+    NMClient *self  = user_data;
+    GError   *error = NULL;
 
     nm_utils_error_set_cancelled(&error, FALSE, NULL);
     _init_start_complete(self, error);

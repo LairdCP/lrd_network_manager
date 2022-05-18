@@ -15,6 +15,7 @@
 #include <linux/rtnetlink.h>
 
 #include "c-list/src/c-list.h"
+#include "libnm-glib-aux/nm-str-buf.h"
 #include "libnm-platform/nmp-object.h"
 #include "libnm-core-intern/nm-core-internal.h"
 #include "nm-config.h"
@@ -89,7 +90,7 @@ struct _NMConnectivityCheckHandle {
 
     int addr_family;
 
-    guint timeout_id;
+    GSource *timeout_source;
 
     NMConnectivityState completed_state;
     const char         *completed_reason;
@@ -245,7 +246,7 @@ cb_data_complete(NMConnectivityCheckHandle *cb_data,
     nm_clear_g_cancellable(&cb_data->concheck.resolve_cancellable);
 #endif
 
-    nm_clear_g_source(&cb_data->timeout_id);
+    nm_clear_g_source_inst(&cb_data->timeout_source);
 
     _LOG2D("check completed: %s; %s", nm_connectivity_state_to_string(state), log_message);
 
@@ -633,9 +634,9 @@ _idle_cb(gpointer user_data)
                               &cb_data->handles_lst));
     nm_assert(cb_data->completed_reason);
 
-    cb_data->timeout_id = 0;
+    nm_clear_g_source_inst(&cb_data->timeout_source);
     cb_data_complete(cb_data, cb_data->completed_state, cb_data->completed_reason);
-    return G_SOURCE_REMOVE;
+    return G_SOURCE_CONTINUE;
 }
 
 #if WITH_CONCHECK
@@ -662,7 +663,7 @@ do_curl_request(NMConnectivityCheckHandle *cb_data)
     cb_data->concheck.curl_mhandle    = mhandle;
     cb_data->concheck.curl_ehandle    = ehandle;
     cb_data->concheck.request_headers = curl_slist_append(NULL, "Connection: close");
-    cb_data->timeout_id               = g_timeout_add_seconds(20, _timeout_cb, cb_data);
+    cb_data->timeout_source           = nm_g_timeout_add_seconds_source(20, _timeout_cb, cb_data);
 
     curl_multi_setopt(mhandle, CURLMOPT_SOCKETFUNCTION, multi_socket_cb);
     curl_multi_setopt(mhandle, CURLMOPT_SOCKETDATA, cb_data);
@@ -694,6 +695,7 @@ do_curl_request(NMConnectivityCheckHandle *cb_data)
     curl_easy_setopt(ehandle, CURLOPT_INTERFACE, cb_data->ifspec);
     curl_easy_setopt(ehandle, CURLOPT_RESOLVE, cb_data->concheck.hosts);
     curl_easy_setopt(ehandle, CURLOPT_IPRESOLVE, resolve);
+    curl_easy_setopt(ehandle, CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
 
     curl_multi_add_handle(mhandle, ehandle);
 }
@@ -709,7 +711,8 @@ resolve_cb(GObject *object, GAsyncResult *res, gpointer user_data)
     int                        addr_family;
     gsize                      len = 0;
     gsize                      i;
-    gs_free_error GError      *error = NULL;
+    gs_free_error GError      *error        = NULL;
+    nm_auto_str_buf NMStrBuf   strbuf_hosts = NM_STR_BUF_INIT(0, FALSE);
 
     result = g_dbus_connection_call_finish(G_DBUS_CONNECTION(object), res, &error);
     if (g_error_matches(error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
@@ -732,25 +735,35 @@ resolve_cb(GObject *object, GAsyncResult *res, gpointer user_data)
     for (i = 0; i < no_addresses; i++) {
         gs_unref_variant GVariant *address = NULL;
         char                       str_addr[NM_UTILS_INET_ADDRSTRLEN];
-        gs_free char              *host_entry = NULL;
         const guchar              *address_buf;
 
         g_variant_get_child(addresses, i, "(ii@ay)", &ifindex, &addr_family, &address);
+
+        if (!NM_IN_SET(addr_family, AF_INET, AF_INET6))
+            continue;
 
         if (cb_data->addr_family != AF_UNSPEC && cb_data->addr_family != addr_family)
             continue;
 
         address_buf = g_variant_get_fixed_array(address, &len, 1);
-        if ((addr_family == AF_INET && len != sizeof(struct in_addr))
-            || (addr_family == AF_INET6 && len != sizeof(struct in6_addr)))
+        if (len != nm_utils_addr_family_to_size(addr_family))
             continue;
 
-        host_entry              = g_strdup_printf("%s:%s:%s",
+        if (strbuf_hosts.len == 0) {
+            nm_str_buf_append_printf(&strbuf_hosts,
+                                     "%s:%s:",
                                      cb_data->concheck.con_config->host,
-                                     cb_data->concheck.con_config->port ?: "80",
-                                     nm_utils_inet_ntop(addr_family, address_buf, str_addr));
-        cb_data->concheck.hosts = curl_slist_append(cb_data->concheck.hosts, host_entry);
-        _LOG2T("adding '%s' to curl resolve list", host_entry);
+                                     cb_data->concheck.con_config->port ?: "80");
+        } else
+            nm_str_buf_append_c(&strbuf_hosts, ',');
+
+        nm_str_buf_append(&strbuf_hosts, nm_utils_inet_ntop(addr_family, address_buf, str_addr));
+    }
+    if (strbuf_hosts.len > 0) {
+        const char *s = nm_str_buf_get_str(&strbuf_hosts);
+
+        cb_data->concheck.hosts = curl_slist_append(NULL, s);
+        _LOG2T("set curl resolve list to '%s'", s);
     }
 
     do_curl_request(cb_data);
@@ -874,7 +887,7 @@ nm_connectivity_check_start(NMConnectivity             *self,
                 _LOG2D("skip connectivity check due to %s", reason);
                 cb_data->completed_state  = state;
                 cb_data->completed_reason = reason;
-                cb_data->timeout_id       = g_idle_add(_idle_cb, cb_data);
+                cb_data->timeout_source   = nm_g_idle_add_source(_idle_cb, cb_data);
                 return cb_data;
             }
         }
@@ -910,7 +923,7 @@ nm_connectivity_check_start(NMConnectivity             *self,
                 _LOG2D("start fake request (fail due to no D-Bus connection)");
                 cb_data->completed_state  = NM_CONNECTIVITY_ERROR;
                 cb_data->completed_reason = "no D-Bus connection";
-                cb_data->timeout_id       = g_idle_add(_idle_cb, cb_data);
+                cb_data->timeout_source   = nm_g_idle_add_source(_idle_cb, cb_data);
                 return cb_data;
             }
 
@@ -953,7 +966,7 @@ nm_connectivity_check_start(NMConnectivity             *self,
         cb_data->completed_reason = "fake result";
     }
     _LOG2D("start fake request (%s)", cb_data->completed_reason);
-    cb_data->timeout_id = g_idle_add(_idle_cb, cb_data);
+    cb_data->timeout_source = nm_g_idle_add_source(_idle_cb, cb_data);
 
     return cb_data;
 }
