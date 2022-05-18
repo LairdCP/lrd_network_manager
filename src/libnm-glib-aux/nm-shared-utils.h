@@ -18,6 +18,7 @@ typedef enum _nm_packed {
     NM_OPTION_BOOL_TRUE    = 1,
 } NMOptionBool;
 
+#define nm_assert_is_bool(value)    nm_assert(NM_IN_SET((value), 0, 1))
 #define nm_assert_is_ternary(value) nm_assert(NM_IN_SET((value), -1, 0, 1))
 
 /*****************************************************************************/
@@ -35,19 +36,14 @@ pid_t nm_utils_gettid(void);
 gboolean _nm_assert_on_main_thread(void);
 
 #if NM_MORE_ASSERTS > 5
-    #define NM_ASSERT_ON_MAIN_THREAD()              \
-        G_STMT_START                                \
-        {                                           \
-            nm_assert(_nm_assert_on_main_thread()); \
-        }                                           \
-        G_STMT_END
+#define NM_ASSERT_ON_MAIN_THREAD() nm_assert(_nm_assert_on_main_thread())
 #else
-    #define NM_ASSERT_ON_MAIN_THREAD() \
-        G_STMT_START                   \
-        {                              \
-            ;                          \
-        }                              \
-        G_STMT_END
+#define NM_ASSERT_ON_MAIN_THREAD() \
+    G_STMT_START                   \
+    {                              \
+        ;                          \
+    }                              \
+    G_STMT_END
 #endif
 
 /*****************************************************************************/
@@ -79,20 +75,20 @@ _NM_INT_NOT_NEGATIVE(gssize val)
  * Together with the G_STATIC_ASSERT(), we make sure that this is always satisfied. */
 G_STATIC_ASSERT(sizeof(int) == sizeof(gint32));
 #if _NM_CC_SUPPORT_GENERIC
-    #define _NM_INT_LE_MAXINT32(value)                 \
-        ({                                             \
-            _nm_unused typeof(value) _value = (value); \
-                                                       \
-            _Generic((value), int : TRUE);             \
-        })
+#define _NM_INT_LE_MAXINT32(value)                 \
+    ({                                             \
+        _nm_unused typeof(value) _value = (value); \
+                                                   \
+        _Generic((value), int : TRUE);             \
+    })
 #else
-    #define _NM_INT_LE_MAXINT32(value)                   \
-        ({                                               \
-            _nm_unused typeof(value) _value   = (value); \
-            _nm_unused const int *   _p_value = &_value; \
-                                                         \
-            TRUE;                                        \
-        })
+#define _NM_INT_LE_MAXINT32(value)                   \
+    ({                                               \
+        _nm_unused typeof(value) _value   = (value); \
+        _nm_unused const int    *_p_value = &_value; \
+                                                     \
+        TRUE;                                        \
+    })
 #endif
 
 /*****************************************************************************/
@@ -247,11 +243,9 @@ extern const NMIPAddr nm_ip_addr_zero;
 static inline int
 nm_ip_addr_cmp(int addr_family, gconstpointer a, gconstpointer b)
 {
-    nm_assert_addr_family(addr_family);
-    nm_assert(a);
-    nm_assert(b);
-
-    return memcmp(a, b, nm_utils_addr_family_to_size(addr_family));
+    NM_CMP_SELF(a, b);
+    NM_CMP_DIRECT_MEMCMP(a, b, nm_utils_addr_family_to_size(addr_family));
+    return 0;
 }
 
 static inline gboolean
@@ -264,20 +258,27 @@ static inline gboolean
 nm_ip_addr_is_null(int addr_family, gconstpointer addr)
 {
     nm_assert(addr);
-    if (addr_family == AF_INET6)
-        return IN6_IS_ADDR_UNSPECIFIED((const struct in6_addr *) addr);
-    nm_assert(addr_family == AF_INET);
-    return ((const struct in_addr *) addr)->s_addr == 0;
+
+    if (NM_IS_IPv4(addr_family)) {
+        in_addr_t t;
+
+        /* also for in_addr_t type (AF_INET), we accept that the pointer might
+         * be unaligned. */
+        memcpy(&t, addr, sizeof(t));
+        return t == 0;
+    }
+
+    return IN6_IS_ADDR_UNSPECIFIED((const struct in6_addr *) addr);
 }
 
 static inline void
 nm_ip_addr_set(int addr_family, gpointer dst, gconstpointer src)
 {
-    nm_assert_addr_family(addr_family);
     nm_assert(dst);
     nm_assert(src);
 
-    memcpy(dst, src, NM_IS_IPv4(addr_family) ? sizeof(in_addr_t) : sizeof(struct in6_addr));
+    /* this MUST use memcpy() (or similar means) to support unaligned src/dst pointers. */
+    memcpy(dst, src, nm_utils_addr_family_to_size(addr_family));
 }
 
 static inline NMIPAddr
@@ -306,7 +307,10 @@ gboolean nm_ip_addr_set_from_untrusted(int           addr_family,
                                        gpointer      dst,
                                        gconstpointer src,
                                        gsize         src_len,
-                                       int *         out_addr_family);
+                                       int          *out_addr_family);
+
+gboolean
+nm_ip_addr_set_from_variant(int addr_family, gpointer dst, GVariant *variant, int *out_addr_family);
 
 static inline gboolean
 nm_ip4_addr_is_localhost(in_addr_t addr4)
@@ -365,20 +369,20 @@ typedef struct _NMUtilsIPv6IfaceId {
         }                           \
     }
 
-void nm_utils_ipv6_addr_set_interface_identifier(struct in6_addr *        addr,
-                                                 const NMUtilsIPv6IfaceId iid);
+void nm_utils_ipv6_addr_set_interface_identifier(struct in6_addr          *addr,
+                                                 const NMUtilsIPv6IfaceId *iid);
 
-void nm_utils_ipv6_interface_identifier_get_from_addr(NMUtilsIPv6IfaceId *   iid,
+void nm_utils_ipv6_interface_identifier_get_from_addr(NMUtilsIPv6IfaceId    *iid,
                                                       const struct in6_addr *addr);
 
 gboolean nm_utils_ipv6_interface_identifier_get_from_token(NMUtilsIPv6IfaceId *iid,
-                                                           const char *        token);
+                                                           const char         *token);
 
-const char *nm_utils_inet6_interface_identifier_to_token(NMUtilsIPv6IfaceId iid,
+const char *nm_utils_inet6_interface_identifier_to_token(const NMUtilsIPv6IfaceId *iid,
                                                          char buf[static INET6_ADDRSTRLEN]);
 
 gboolean nm_utils_get_ipv6_interface_identifier(NMLinkType          link_type,
-                                                const guint8 *      hwaddr,
+                                                const guint8       *hwaddr,
                                                 guint               len,
                                                 guint               dev_id,
                                                 NMUtilsIPv6IfaceId *out_iid);
@@ -388,7 +392,7 @@ gboolean nm_utils_get_ipv6_interface_identifier(NMLinkType          link_type,
 gconstpointer
 nm_utils_ipx_address_clear_host_address(int family, gpointer dst, gconstpointer src, guint8 plen);
 in_addr_t              nm_utils_ip4_address_clear_host_address(in_addr_t addr, guint8 plen);
-const struct in6_addr *nm_utils_ip6_address_clear_host_address(struct in6_addr *      dst,
+const struct in6_addr *nm_utils_ip6_address_clear_host_address(struct in6_addr       *dst,
                                                                const struct in6_addr *src,
                                                                guint8                 plen);
 
@@ -556,27 +560,28 @@ extern const void *const _NM_PTRARRAY_EMPTY[1];
 
 #define NM_PTRARRAY_EMPTY(type) ((type const *) _NM_PTRARRAY_EMPTY)
 #define NM_STRV_EMPTY()         ((char **) _NM_PTRARRAY_EMPTY)
+#define NM_STRV_EMPTY_CC()      NM_PTRARRAY_EMPTY(const char *)
 
 static inline void
-_nm_utils_strbuf_init(char *buf, gsize len, char **p_buf_ptr, gsize *p_buf_len)
+nm_strbuf_init(char *buf, gsize len, char **p_buf_ptr, gsize *p_buf_len)
 {
     NM_SET_OUT(p_buf_len, len);
     NM_SET_OUT(p_buf_ptr, buf);
     buf[0] = '\0';
 }
 
-#define nm_utils_strbuf_init(buf, p_buf_ptr, p_buf_len)                                    \
+#define nm_strbuf_init_arr(buf, p_buf_ptr, p_buf_len)                                      \
     G_STMT_START                                                                           \
     {                                                                                      \
         G_STATIC_ASSERT(G_N_ELEMENTS(buf) == sizeof(buf) && sizeof(buf) > sizeof(char *)); \
-        _nm_utils_strbuf_init((buf), sizeof(buf), (p_buf_ptr), (p_buf_len));               \
+        nm_strbuf_init((buf), sizeof(buf), (p_buf_ptr), (p_buf_len));                      \
     }                                                                                      \
     G_STMT_END
-void nm_utils_strbuf_append(char **buf, gsize *len, const char *format, ...) _nm_printf(3, 4);
-void nm_utils_strbuf_append_c(char **buf, gsize *len, char c);
-void nm_utils_strbuf_append_str(char **buf, gsize *len, const char *str);
-void nm_utils_strbuf_append_bin(char **buf, gsize *len, gconstpointer str, gsize str_len);
-void nm_utils_strbuf_seek_end(char **buf, gsize *len);
+void nm_strbuf_append(char **buf, gsize *len, const char *format, ...) _nm_printf(3, 4);
+void nm_strbuf_append_c(char **buf, gsize *len, char c);
+void nm_strbuf_append_str(char **buf, gsize *len, const char *str);
+void nm_strbuf_append_bin(char **buf, gsize *len, gconstpointer str, gsize str_len);
+void nm_strbuf_seek_end(char **buf, gsize *len);
 
 const char *nm_strquote(char *buf, gsize buf_len, const char *str);
 
@@ -588,32 +593,33 @@ nm_utils_is_separator(const char c)
 
 /*****************************************************************************/
 
-GBytes *nm_gbytes_get_empty(void);
+GBytes *nm_g_bytes_get_empty(void);
 
 GBytes *nm_g_bytes_new_from_str(const char *str);
+GBytes *nm_g_bytes_new_from_variant_ay(GVariant *var);
 
 static inline gboolean
-nm_gbytes_equal0(GBytes *a, GBytes *b)
+nm_g_bytes_equal0(const GBytes *a, const GBytes *b)
 {
     return a == b || (a && b && g_bytes_equal(a, b));
 }
 
-gboolean nm_utils_gbytes_equal_mem(GBytes *bytes, gconstpointer mem_data, gsize mem_len);
+gboolean nm_g_bytes_equal_mem(GBytes *bytes, gconstpointer mem_data, gsize mem_len);
 
-GVariant *nm_utils_gbytes_to_variant_ay(GBytes *bytes);
+GVariant *nm_g_bytes_to_variant_ay(const GBytes *bytes);
 
-GHashTable *nm_utils_strdict_clone(GHashTable *src);
+GHashTable *nm_strdict_clone(GHashTable *src);
 
-GVariant *nm_utils_strdict_to_variant_ass(GHashTable *strdict);
-GVariant *nm_utils_strdict_to_variant_asv(GHashTable *strdict);
+GVariant *nm_strdict_to_variant_ass(GHashTable *strdict);
+GVariant *nm_strdict_to_variant_asv(GHashTable *strdict);
 
 /*****************************************************************************/
 
 GVariant *nm_utils_gvariant_vardict_filter(GVariant *src,
                                            gboolean (*filter_fcn)(const char *key,
-                                                                  GVariant *  val,
-                                                                  char **     out_key,
-                                                                  GVariant ** out_val,
+                                                                  GVariant   *val,
+                                                                  char      **out_key,
+                                                                  GVariant  **out_val,
                                                                   gpointer    user_data),
                                            gpointer user_data);
 
@@ -649,95 +655,105 @@ int nm_utils_dbus_path_cmp(const char *dbus_path_a, const char *dbus_path_b);
 /*****************************************************************************/
 
 typedef enum {
-    NM_UTILS_STRSPLIT_SET_FLAGS_NONE = 0,
+    NM_STRSPLIT_SET_FLAGS_NONE = 0,
 
     /* by default, strsplit will coalesce consecutive delimiters and remove
      * them from the result. If this flag is present, empty values are preserved
      * and returned.
      *
-     * When combined with %NM_UTILS_STRSPLIT_SET_FLAGS_STRSTRIP, if a value gets
+     * When combined with %NM_STRSPLIT_SET_FLAGS_STRSTRIP, if a value gets
      * empty after strstrip(), it also gets removed. */
-    NM_UTILS_STRSPLIT_SET_FLAGS_PRESERVE_EMPTY = (1u << 0),
+    NM_STRSPLIT_SET_FLAGS_PRESERVE_EMPTY = (1u << 0),
 
-    /* %NM_UTILS_STRSPLIT_SET_FLAGS_ALLOW_ESCAPING means that delimiters prefixed
+    /* %NM_STRSPLIT_SET_FLAGS_ALLOW_ESCAPING means that delimiters prefixed
      * by a backslash are not treated as a separator. Such delimiters and their escape
      * character are copied to the current word without unescaping them. In general,
-     * nm_utils_strsplit_set_full() does not remove any backslash escape characters
+     * nm_strsplit_set_full() does not remove any backslash escape characters
      * and does no unescaping. It only considers them for skipping to split at
      * an escaped delimiter.
      *
-     * If this is combined with (or implied by %NM_UTILS_STRSPLIT_SET_FLAGS_ESCAPED), then
+     * If this is combined with (or implied by %NM_STRSPLIT_SET_FLAGS_ESCAPED), then
      * the backslash escapes are removed from the result.
      */
-    NM_UTILS_STRSPLIT_SET_FLAGS_ALLOW_ESCAPING = (1u << 1),
+    NM_STRSPLIT_SET_FLAGS_ALLOW_ESCAPING = (1u << 1),
 
     /* If flag is set, does the same as g_strstrip() on the returned tokens.
      * This will remove leading and trailing ascii whitespaces (g_ascii_isspace()
      * and NM_ASCII_SPACES).
      *
-     * - when combined with !%NM_UTILS_STRSPLIT_SET_FLAGS_PRESERVE_EMPTY,
+     * - when combined with !%NM_STRSPLIT_SET_FLAGS_PRESERVE_EMPTY,
      *   empty tokens will be removed (and %NULL will be returned if that
      *   results in an empty string array).
-     * - when combined with %NM_UTILS_STRSPLIT_SET_FLAGS_ALLOW_ESCAPING,
+     * - when combined with %NM_STRSPLIT_SET_FLAGS_ALLOW_ESCAPING,
      *   trailing whitespace escaped by backslash are not stripped. */
-    NM_UTILS_STRSPLIT_SET_FLAGS_STRSTRIP = (1u << 2),
+    NM_STRSPLIT_SET_FLAGS_STRSTRIP = (1u << 2),
 
-    /* This implies %NM_UTILS_STRSPLIT_SET_FLAGS_ALLOW_ESCAPING.
+    /* This implies %NM_STRSPLIT_SET_FLAGS_ALLOW_ESCAPING.
      *
      * This will do a final run over all tokens and remove all backslash
      * escape characters that
      *   - precede a delimiter.
      *   - precede a backslash.
-     *   - precede a whitespace (only with %NM_UTILS_STRSPLIT_SET_FLAGS_STRSTRIP).
+     *   - precede a whitespace (only with %NM_STRSPLIT_SET_FLAGS_STRSTRIP).
      *
-     *  Note that with %NM_UTILS_STRSPLIT_SET_FLAGS_STRSTRIP, it is only
+     *  Note that with %NM_STRSPLIT_SET_FLAGS_STRSTRIP, it is only
      *  necessary to escape the very last whitespace (if the delimiters
      *  are not whitespace themself). So, technically, it would be sufficient
      *  to only unescape a backslash before the last whitespace and the user
      *  still could express everything. However, such a rule would be complicated
-     *  to understand, so when using backslash escaping with nm_utils_strsplit_set_full(),
+     *  to understand, so when using backslash escaping with nm_strsplit_set_full(),
      *  then all characters (including backslash) are treated verbatim, except:
      *
      *    - "\\$DELIMITER" (escaped delimiter)
      *    - "\\\\" (escaped backslash)
-     *    - "\\$SPACE" (escaped space) (only with %NM_UTILS_STRSPLIT_SET_FLAGS_STRSTRIP).
+     *    - "\\$SPACE" (escaped space) (only with %NM_STRSPLIT_SET_FLAGS_STRSTRIP).
      *
      * Note that all other escapes like "\\n" or "\\001" are left alone.
      * That makes the escaping/unescaping rules simple. Also, for the most part
      * a text is just taken as-is, with little additional rules. Only backslashes
      * need extra care, and then only if they proceed one of the relevant characters.
      */
-    NM_UTILS_STRSPLIT_SET_FLAGS_ESCAPED = (1u << 3),
+    NM_STRSPLIT_SET_FLAGS_ESCAPED = (1u << 3),
 
 } NMUtilsStrsplitSetFlags;
 
 const char **
-nm_utils_strsplit_set_full(const char *str, const char *delimiter, NMUtilsStrsplitSetFlags flags);
+nm_strsplit_set_full(const char *str, const char *delimiter, NMUtilsStrsplitSetFlags flags);
 
 static inline const char **
-nm_utils_strsplit_set_with_empty(const char *str, const char *delimiters)
+nm_strsplit_set_with_empty(const char *str, const char *delimiters)
 {
     /* this returns the same result as g_strsplit_set(str, delimiters, -1), except
      * it does not deep-clone the strv array.
      * Also, for @str == "", this returns %NULL while g_strsplit_set() would return
      * an empty strv array. */
-    return nm_utils_strsplit_set_full(str, delimiters, NM_UTILS_STRSPLIT_SET_FLAGS_PRESERVE_EMPTY);
+    return nm_strsplit_set_full(str, delimiters, NM_STRSPLIT_SET_FLAGS_PRESERVE_EMPTY);
 }
 
 static inline const char **
-nm_utils_strsplit_set(const char *str, const char *delimiters)
+nm_strsplit_set(const char *str, const char *delimiters)
 {
-    return nm_utils_strsplit_set_full(str, delimiters, NM_UTILS_STRSPLIT_SET_FLAGS_NONE);
+    return nm_strsplit_set_full(str, delimiters, NM_STRSPLIT_SET_FLAGS_NONE);
 }
 
-gssize nm_utils_strv_find_first(char **list, gssize len, const char *needle);
+gssize _nm_strv_find_first(const char *const *list, gssize len, const char *needle);
+
+#define nm_strv_find_first(list, len, needle) \
+    _nm_strv_find_first(NM_CAST_STRV_CC(list), (len), (needle))
 
 gboolean nm_strv_has_duplicate(const char *const *list, gssize len, gboolean is_sorted);
 
-char **_nm_utils_strv_cleanup(char **  strv,
-                              gboolean strip_whitespace,
-                              gboolean skip_empty,
-                              gboolean skip_repeated);
+const char **nm_strv_cleanup_const(const char **strv, gboolean skip_empty, gboolean skip_repeated);
+
+char **nm_strv_cleanup(char   **strv,
+                       gboolean strip_whitespace,
+                       gboolean skip_empty,
+                       gboolean skip_repeated);
+
+gboolean nm_strv_is_same_unordered(const char *const *strv1,
+                                   gssize             len1,
+                                   const char *const *strv2,
+                                   gssize             len2);
 
 /*****************************************************************************/
 
@@ -752,10 +768,9 @@ nm_copy_func_g_strdup(gconstpointer arg, gpointer user_data)
 static inline const char **
 nm_utils_escaped_tokens_split(const char *str, const char *delimiters)
 {
-    return nm_utils_strsplit_set_full(str,
-                                      delimiters,
-                                      NM_UTILS_STRSPLIT_SET_FLAGS_ESCAPED
-                                          | NM_UTILS_STRSPLIT_SET_FLAGS_STRSTRIP);
+    return nm_strsplit_set_full(str,
+                                delimiters,
+                                NM_STRSPLIT_SET_FLAGS_ESCAPED | NM_STRSPLIT_SET_FLAGS_STRSTRIP);
 }
 
 typedef enum {
@@ -803,7 +818,7 @@ const char *nm_utils_escaped_tokens_escape_full(const char *str,
                                                 const char *delimiters,
                                                 const char *delimiters_as_needed,
                                                 NMUtilsEscapedTokensEscapeFlags flags,
-                                                char **                         out_to_free);
+                                                char                          **out_to_free);
 
 static inline const char *
 nm_utils_escaped_tokens_escape(const char *str, const char *delimiters, char **out_to_free)
@@ -838,7 +853,7 @@ nm_utils_escaped_tokens_escape_unnecessary(const char *str, const char *delimite
 
     {
         gs_free char *str_to_free = NULL;
-        const char *  str0;
+        const char   *str0;
 
         str0 = nm_utils_escaped_tokens_escape(str, delimiters, &str_to_free);
         nm_assert(str0 == str);
@@ -852,7 +867,7 @@ nm_utils_escaped_tokens_escape_unnecessary(const char *str, const char *delimite
 static inline void
 nm_utils_escaped_tokens_escape_gstr_assert(const char *str,
                                            const char *delimiters,
-                                           GString *   gstring)
+                                           GString    *gstring)
 {
     g_string_append(gstring, nm_utils_escaped_tokens_escape_unnecessary(str, delimiters));
 }
@@ -878,10 +893,10 @@ char **nm_utils_strsplit_quoted(const char *str);
 static inline const char **
 nm_utils_escaped_tokens_options_split_list(const char *str)
 {
-    return nm_utils_strsplit_set_full(str,
-                                      ",",
-                                      NM_UTILS_STRSPLIT_SET_FLAGS_STRSTRIP
-                                          | NM_UTILS_STRSPLIT_SET_FLAGS_ALLOW_ESCAPING);
+    return nm_strsplit_set_full(str,
+                                ",",
+                                NM_STRSPLIT_SET_FLAGS_STRSTRIP
+                                    | NM_STRSPLIT_SET_FLAGS_ALLOW_ESCAPING);
 }
 
 void nm_utils_escaped_tokens_options_split(char *str, const char **out_key, const char **out_val);
@@ -966,7 +981,7 @@ guint32 _nm_utils_ip4_get_default_prefix(in_addr_t ip);
 gconstpointer
 nm_utils_ipx_address_clear_host_address(int family, gpointer dst, gconstpointer src, guint8 plen);
 in_addr_t              nm_utils_ip4_address_clear_host_address(in_addr_t addr, guint8 plen);
-const struct in6_addr *nm_utils_ip6_address_clear_host_address(struct in6_addr *      dst,
+const struct in6_addr *nm_utils_ip6_address_clear_host_address(struct in6_addr       *dst,
                                                                const struct in6_addr *src,
                                                                guint8                 plen);
 int                    nm_utils_ip6_address_same_prefix_cmp(const struct in6_addr *addr_a,
@@ -980,12 +995,12 @@ gboolean nm_utils_ip_is_site_local(int addr_family, const void *address);
 gboolean nm_utils_parse_inaddr_bin_full(int         addr_family,
                                         gboolean    accept_legacy,
                                         const char *text,
-                                        int *       out_addr_family,
+                                        int        *out_addr_family,
                                         gpointer    out_addr);
 static inline gboolean
 nm_utils_parse_inaddr_bin(int         addr_family,
                           const char *text,
-                          int *       out_addr_family,
+                          int        *out_addr_family,
                           gpointer    out_addr)
 {
     return nm_utils_parse_inaddr_bin_full(addr_family, FALSE, text, out_addr_family, out_addr);
@@ -995,17 +1010,17 @@ gboolean nm_utils_parse_inaddr(int addr_family, const char *text, char **out_add
 
 gboolean nm_utils_parse_inaddr_prefix_bin(int         addr_family,
                                           const char *text,
-                                          int *       out_addr_family,
+                                          int        *out_addr_family,
                                           gpointer    out_addr,
-                                          int *       out_prefix);
+                                          int        *out_prefix);
 
 gboolean
 nm_utils_parse_inaddr_prefix(int addr_family, const char *text, char **out_addr, int *out_prefix);
 
 gboolean nm_utils_parse_next_line(const char **inout_ptr,
-                                  gsize *      inout_len,
+                                  gsize       *inout_len,
                                   const char **out_line,
-                                  gsize *      out_line_len);
+                                  gsize       *out_line_len);
 
 gint64 nm_g_ascii_strtoll(const char *nptr, char **endptr, guint base);
 
@@ -1032,7 +1047,7 @@ int _nm_utils_ascii_str_to_bool(const char *str, int default_value);
 
 /*****************************************************************************/
 
-extern char _nm_utils_to_string_buffer[2096];
+extern _nm_thread_local char _nm_utils_to_string_buffer[2096];
 
 void     nm_utils_to_string_buffer_init(char **buf, gsize *len);
 gboolean nm_utils_to_string_buffer_init_null(gconstpointer obj, char **buf, gsize *len);
@@ -1062,22 +1077,18 @@ typedef struct {
 const char *nm_utils_flags2str(const NMUtilsFlags2StrDesc *descs,
                                gsize                       n_descs,
                                unsigned                    flags,
-                               char *                      buf,
+                               char                       *buf,
                                gsize                       len);
 
 /*****************************************************************************/
 
 #define NM_UTILS_ENUM2STR(v, n) \
-    (void) 0;                   \
-case v:                         \
-    s = "" n "";                \
-    break;                      \
-    (void) 0
+    case v:                     \
+        s = "" n "";            \
+        break;
 #define NM_UTILS_ENUM2STR_IGNORE(v) \
-    (void) 0;                       \
-case v:                             \
-    break;                          \
-    (void) 0
+    case v:                         \
+        break;
 
 #define NM_UTILS_ENUM2STR_DEFINE_FULL(fcn_name, lookup_type, int_fmt, ...) \
     const char *fcn_name(lookup_type val, char *buf, gsize len)            \
@@ -1086,7 +1097,7 @@ case v:                             \
         if (len) {                                                         \
             const char *s = NULL;                                          \
             switch (val) {                                                 \
-                (void) 0, __VA_ARGS__(void) 0;                             \
+                NM_VA_ARGS_JOIN(, __VA_ARGS__)                             \
             };                                                             \
             if (s)                                                         \
                 g_strlcpy(buf, s, len);                                    \
@@ -1106,14 +1117,26 @@ case v:                             \
     static inline void _nm_g_slice_free_fcn_##mem_size(gpointer mem_block) \
     {                                                                      \
         g_slice_free1(mem_size, mem_block);                                \
-    }
+    }                                                                      \
+    _NM_DUMMY_STRUCT_FOR_TRAILING_SEMICOLON
 
-_nm_g_slice_free_fcn_define(1) _nm_g_slice_free_fcn_define(2) _nm_g_slice_free_fcn_define(4)
-    _nm_g_slice_free_fcn_define(8) _nm_g_slice_free_fcn_define(10) _nm_g_slice_free_fcn_define(12)
-        _nm_g_slice_free_fcn_define(16) _nm_g_slice_free_fcn_define(32)
+_nm_g_slice_free_fcn_define(1);
+_nm_g_slice_free_fcn_define(2);
+_nm_g_slice_free_fcn_define(4);
+_nm_g_slice_free_fcn_define(8);
+_nm_g_slice_free_fcn_define(10);
+_nm_g_slice_free_fcn_define(12);
+_nm_g_slice_free_fcn_define(16);
+_nm_g_slice_free_fcn_define(32);
+
+_nm_warn_unused_result static inline GDestroyNotify
+_nm_get_warn_unused_result_gdestroynotify(GDestroyNotify f)
+{
+    return f;
+}
 
 #define nm_g_slice_free_fcn1(mem_size)                                                        \
-    ({                                                                                        \
+    _nm_get_warn_unused_result_gdestroynotify(({                                              \
         void (*_fcn)(gpointer);                                                               \
                                                                                               \
         /* If mem_size is a compile time constant, the compiler
@@ -1152,8 +1175,9 @@ _nm_g_slice_free_fcn_define(1) _nm_g_slice_free_fcn_define(2) _nm_g_slice_free_f
             _fcn = NULL;                                                                      \
             break;                                                                            \
         }                                                                                     \
+                                                                                              \
         _fcn;                                                                                 \
-    })
+    }))
 
 /**
  * nm_g_slice_free_fcn:
@@ -1184,7 +1208,8 @@ _nm_g_slice_free_fcn_define(1) _nm_g_slice_free_fcn_define(2) _nm_g_slice_free_f
         _error && _error->domain == (err_domain) && NM_IN_SET(_error->code, __VA_ARGS__); \
     })
 
-            static inline void nm_g_set_error_take(GError **error, GError *error_take)
+static inline void
+nm_g_set_error_take(GError **error, GError *error_take)
 {
     if (!error_take)
         g_return_if_reached();
@@ -1257,6 +1282,7 @@ typedef enum {
     NM_UTILS_ERROR_CONNECTION_AVAILABLE_INCOMPATIBLE,
     NM_UTILS_ERROR_CONNECTION_AVAILABLE_UNMANAGED_DEVICE,
     NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+    NM_UTILS_ERROR_CONNECTION_AVAILABLE_DISALLOWED,
 
     NM_UTILS_ERROR_SETTING_MISSING,
 
@@ -1341,70 +1367,70 @@ nm_utils_error_set_literal(GError **error, int error_code, const char *literal)
 
 /*****************************************************************************/
 
-gboolean nm_g_object_set_property(GObject *     object,
-                                  const char *  property_name,
+gboolean nm_g_object_set_property(GObject      *object,
+                                  const char   *property_name,
                                   const GValue *value,
-                                  GError **     error);
+                                  GError      **error);
 
-gboolean nm_g_object_set_property_string(GObject *   object,
+gboolean nm_g_object_set_property_string(GObject    *object,
                                          const char *property_name,
                                          const char *value,
-                                         GError **   error);
+                                         GError    **error);
 
-gboolean nm_g_object_set_property_string_static(GObject *   object,
+gboolean nm_g_object_set_property_string_static(GObject    *object,
                                                 const char *property_name,
                                                 const char *value,
-                                                GError **   error);
+                                                GError    **error);
 
-gboolean nm_g_object_set_property_string_take(GObject *   object,
+gboolean nm_g_object_set_property_string_take(GObject    *object,
                                               const char *property_name,
-                                              char *      value,
-                                              GError **   error);
+                                              char       *value,
+                                              GError    **error);
 
-gboolean nm_g_object_set_property_boolean(GObject *   object,
+gboolean nm_g_object_set_property_boolean(GObject    *object,
                                           const char *property_name,
                                           gboolean    value,
-                                          GError **   error);
+                                          GError    **error);
 
-gboolean nm_g_object_set_property_char(GObject *   object,
+gboolean nm_g_object_set_property_char(GObject    *object,
                                        const char *property_name,
                                        gint8       value,
-                                       GError **   error);
+                                       GError    **error);
 
-gboolean nm_g_object_set_property_uchar(GObject *   object,
+gboolean nm_g_object_set_property_uchar(GObject    *object,
                                         const char *property_name,
                                         guint8      value,
-                                        GError **   error);
+                                        GError    **error);
 
 gboolean
 nm_g_object_set_property_int(GObject *object, const char *property_name, int value, GError **error);
 
-gboolean nm_g_object_set_property_int64(GObject *   object,
+gboolean nm_g_object_set_property_int64(GObject    *object,
                                         const char *property_name,
                                         gint64      value,
-                                        GError **   error);
+                                        GError    **error);
 
-gboolean nm_g_object_set_property_uint(GObject *   object,
+gboolean nm_g_object_set_property_uint(GObject    *object,
                                        const char *property_name,
                                        guint       value,
-                                       GError **   error);
+                                       GError    **error);
 
-gboolean nm_g_object_set_property_uint64(GObject *   object,
+gboolean nm_g_object_set_property_uint64(GObject    *object,
                                          const char *property_name,
                                          guint64     value,
-                                         GError **   error);
+                                         GError    **error);
 
-gboolean nm_g_object_set_property_flags(GObject *   object,
+gboolean nm_g_object_set_property_flags(GObject    *object,
                                         const char *property_name,
                                         GType       gtype,
                                         guint       value,
-                                        GError **   error);
+                                        GError    **error);
 
-gboolean nm_g_object_set_property_enum(GObject *   object,
+gboolean nm_g_object_set_property_enum(GObject    *object,
                                        const char *property_name,
                                        GType       gtype,
                                        int         value,
-                                       GError **   error);
+                                       GError    **error);
 
 GParamSpec *nm_g_object_class_find_property_from_gtype(GType gtype, const char *property_name);
 
@@ -1418,19 +1444,47 @@ GParamSpec *nm_g_object_class_find_property_from_gtype(GType gtype, const char *
         ((const _c_type *) _param_spec);                                     \
     })
 
+#define _NM_G_PARAM_SPEC_CAST_IS_A(param_spec, _value_type, _c_type)                  \
+    ({                                                                                \
+        const GParamSpec *const _param_spec = (param_spec);                           \
+                                                                                      \
+        nm_assert(!_param_spec || g_type_is_a(_param_spec->value_type, _value_type)); \
+        ((const _c_type *) _param_spec);                                              \
+    })
+
 #define NM_G_PARAM_SPEC_CAST_BOOLEAN(param_spec) \
     _NM_G_PARAM_SPEC_CAST(param_spec, G_TYPE_BOOLEAN, GParamSpecBoolean)
+#define NM_G_PARAM_SPEC_CAST_INT(param_spec) \
+    _NM_G_PARAM_SPEC_CAST(param_spec, G_TYPE_INT, GParamSpecInt)
 #define NM_G_PARAM_SPEC_CAST_UINT(param_spec) \
     _NM_G_PARAM_SPEC_CAST(param_spec, G_TYPE_UINT, GParamSpecUInt)
+#define NM_G_PARAM_SPEC_CAST_INT64(param_spec) \
+    _NM_G_PARAM_SPEC_CAST(param_spec, G_TYPE_INT64, GParamSpecInt64)
 #define NM_G_PARAM_SPEC_CAST_UINT64(param_spec) \
     _NM_G_PARAM_SPEC_CAST(param_spec, G_TYPE_UINT64, GParamSpecUInt64)
+#define NM_G_PARAM_SPEC_CAST_ENUM(param_spec) \
+    _NM_G_PARAM_SPEC_CAST_IS_A(param_spec, G_TYPE_ENUM, GParamSpecEnum)
+#define NM_G_PARAM_SPEC_CAST_FLAGS(param_spec) \
+    _NM_G_PARAM_SPEC_CAST_IS_A(param_spec, G_TYPE_FLAGS, GParamSpecFlags)
+#define NM_G_PARAM_SPEC_CAST_STRING(param_spec) \
+    _NM_G_PARAM_SPEC_CAST(param_spec, G_TYPE_STRING, GParamSpecString)
 
 #define NM_G_PARAM_SPEC_GET_DEFAULT_BOOLEAN(param_spec) \
     (NM_G_PARAM_SPEC_CAST_BOOLEAN(NM_ENSURE_NOT_NULL(param_spec))->default_value)
+#define NM_G_PARAM_SPEC_GET_DEFAULT_INT(param_spec) \
+    (NM_G_PARAM_SPEC_CAST_INT(NM_ENSURE_NOT_NULL(param_spec))->default_value)
 #define NM_G_PARAM_SPEC_GET_DEFAULT_UINT(param_spec) \
     (NM_G_PARAM_SPEC_CAST_UINT(NM_ENSURE_NOT_NULL(param_spec))->default_value)
+#define NM_G_PARAM_SPEC_GET_DEFAULT_INT64(param_spec) \
+    (NM_G_PARAM_SPEC_CAST_INT64(NM_ENSURE_NOT_NULL(param_spec))->default_value)
 #define NM_G_PARAM_SPEC_GET_DEFAULT_UINT64(param_spec) \
     (NM_G_PARAM_SPEC_CAST_UINT64(NM_ENSURE_NOT_NULL(param_spec))->default_value)
+#define NM_G_PARAM_SPEC_GET_DEFAULT_ENUM(param_spec) \
+    (NM_G_PARAM_SPEC_CAST_ENUM(NM_ENSURE_NOT_NULL(param_spec))->default_value)
+#define NM_G_PARAM_SPEC_GET_DEFAULT_FLAGS(param_spec) \
+    (NM_G_PARAM_SPEC_CAST_FLAGS(NM_ENSURE_NOT_NULL(param_spec))->default_value)
+#define NM_G_PARAM_SPEC_GET_DEFAULT_STRING(param_spec) \
+    (NM_G_PARAM_SPEC_CAST_STRING(NM_ENSURE_NOT_NULL(param_spec))->default_value)
 
 /*****************************************************************************/
 
@@ -1441,10 +1495,14 @@ GType nm_g_type_find_implementing_class_for_property(GType gtype, const char *pn
 typedef enum {
     NM_UTILS_STR_UTF8_SAFE_FLAG_NONE = 0,
 
-    /* This flag only has an effect during escaping. */
+    /* This flag only has an effect during escaping.
+     *
+     * It will backslash escape ascii characters according to nm_ascii_is_ctrl_or_del(). */
     NM_UTILS_STR_UTF8_SAFE_FLAG_ESCAPE_CTRL = 0x0001,
 
-    /* This flag only has an effect during escaping. */
+    /* This flag only has an effect during escaping.
+     *
+     * It will backslash escape ascii characters according to nm_ascii_is_non_ascii(). */
     NM_UTILS_STR_UTF8_SAFE_FLAG_ESCAPE_NON_ASCII = 0x0002,
 
     /* This flag only has an effect during escaping to ensure we
@@ -1466,15 +1524,15 @@ typedef enum {
 const char *nm_utils_buf_utf8safe_escape(gconstpointer           buf,
                                          gssize                  buflen,
                                          NMUtilsStrUtf8SafeFlags flags,
-                                         char **                 to_free);
+                                         char                  **to_free);
 char *
 nm_utils_buf_utf8safe_escape_cp(gconstpointer buf, gssize buflen, NMUtilsStrUtf8SafeFlags flags);
 const char *
 nm_utils_buf_utf8safe_escape_bytes(GBytes *bytes, NMUtilsStrUtf8SafeFlags flags, char **to_free);
-gconstpointer nm_utils_buf_utf8safe_unescape(const char *            str,
+gconstpointer nm_utils_buf_utf8safe_unescape(const char             *str,
                                              NMUtilsStrUtf8SafeFlags flags,
-                                             gsize *                 out_len,
-                                             gpointer *              to_free);
+                                             gsize                  *out_len,
+                                             gpointer               *to_free);
 
 const char *
 nm_utils_str_utf8safe_escape(const char *str, NMUtilsStrUtf8SafeFlags flags, char **to_free);
@@ -1486,10 +1544,19 @@ char *nm_utils_str_utf8safe_unescape_cp(const char *str, NMUtilsStrUtf8SafeFlags
 
 char *nm_utils_str_utf8safe_escape_take(char *str, NMUtilsStrUtf8SafeFlags flags);
 
+GVariant *nm_g_variant_singleton_b(gboolean value);
 GVariant *nm_g_variant_singleton_u_0(void);
+GVariant *nm_g_variant_singleton_i_0(void);
+GVariant *nm_g_variant_singleton_s_empty(void);
+GVariant *nm_g_variant_singleton_au(void);
+GVariant *nm_g_variant_singleton_aay(void);
+GVariant *nm_g_variant_singleton_as(void);
 GVariant *nm_g_variant_singleton_aLsvI(void);
 GVariant *nm_g_variant_singleton_aLsaLsvII(void);
 GVariant *nm_g_variant_singleton_aaLsvI(void);
+GVariant *nm_g_variant_singleton_ao(void);
+
+GVariant *nm_g_variant_maybe_singleton_i(gint32 v);
 
 static inline void
 nm_g_variant_unref_floating(GVariant *var)
@@ -1565,8 +1632,8 @@ nm_g_variant_builder_add_sv(GVariantBuilder *builder, const char *key, GVariant 
 
 static inline void
 nm_g_variant_builder_add_sv_bytearray(GVariantBuilder *builder,
-                                      const char *     key,
-                                      const guint8 *   arr,
+                                      const char      *key,
+                                      const guint8    *arr,
                                       gsize            len)
 {
     g_variant_builder_add(builder, "{sv}", key, nm_g_variant_new_ay(arr, len));
@@ -1587,6 +1654,20 @@ nm_g_variant_builder_add_sv_str(GVariantBuilder *builder, const char *key, const
 static inline void
 nm_g_source_destroy_and_unref(GSource *source)
 {
+    /* Note that calling g_source_destroy() on a currently attached source,
+     * will destroy the user-data of the callback right away (and not only
+     * during the last g_source_unref()).
+     *
+     * This means for example, if the user data itself has the reference to the
+     * source, then the following would lead to a crash:
+     *
+     *     g_source_destroy(user_data->my_source);
+     *     // ups, user_data was destroyed (if source was attached).
+     *     g_source_unref(user_data->my_source);
+     *
+     *  nm_g_source_destroy_and_unref(user_data->my_source) and nm_clear_g_source_inst(&user_data->my_source)
+     *  does not have this problem (of course, afterwards, user_data would be a dangling
+     *  pointer). */
     g_source_destroy(source);
     g_source_unref(source);
 }
@@ -1661,18 +1742,24 @@ GSource *nm_g_timeout_source_new_seconds(guint          timeout_sec,
                                          gpointer       user_data,
                                          GDestroyNotify destroy_notify);
 
-GSource *
-         nm_g_unix_fd_source_new(int          fd,
-                                 GIOCondition io_condition,
-                                 int          priority,
-                                 gboolean (*source_func)(int fd, GIOCondition condition, gpointer user_data),
-                                 gpointer       user_data,
-                                 GDestroyNotify destroy_notify);
+GSource *nm_g_unix_fd_source_new(int               fd,
+                                 GIOCondition      io_condition,
+                                 int               priority,
+                                 GUnixFDSourceFunc source_func,
+                                 gpointer          user_data,
+                                 GDestroyNotify    destroy_notify);
+
 GSource *nm_g_unix_signal_source_new(int            signum,
                                      int            priority,
                                      GSourceFunc    handler,
                                      gpointer       user_data,
                                      GDestroyNotify notify);
+
+GSource *nm_g_child_watch_source_new(GPid            pid,
+                                     int             priority,
+                                     GChildWatchFunc handler,
+                                     gpointer        user_data,
+                                     GDestroyNotify  notify);
 
 static inline GSource *
 nm_g_source_attach(GSource *source, GMainContext *context)
@@ -1681,10 +1768,25 @@ nm_g_source_attach(GSource *source, GMainContext *context)
     return source;
 }
 
+static inline void
+nm_g_idle_add(GSourceFunc func, gpointer user_data)
+{
+    /* g_idle_add() is discouraged because it relies on the guint source IDs.
+     *
+     * Usually, you would want to use nm_g_idle_add_source() which returns a GSource*
+     * instance.
+     *
+     * However, if you don't care to ever call g_source_remove() on the source ID, then
+     * g_idle_add() is fine. But our checkpatch script would complain about it. In
+     * that case use nm_g_idle_add(), which makes it clear that you really want to
+     * use g_idle_add() and ignore the source ID. */
+    g_idle_add(func, user_data);
+}
+
 static inline GSource *
 nm_g_idle_add_source(GSourceFunc func, gpointer user_data)
 {
-    /* G convenience function to attach a new timeout source to the default GMainContext.
+    /* A convenience function to attach a new timeout source to the default GMainContext.
      * In that sense it's very similar to g_idle_add() except that it returns a
      * reference to the new source.  */
     return nm_g_source_attach(nm_g_idle_source_new(G_PRIORITY_DEFAULT, func, user_data, NULL),
@@ -1694,7 +1796,7 @@ nm_g_idle_add_source(GSourceFunc func, gpointer user_data)
 static inline GSource *
 nm_g_timeout_add_source(guint timeout_msec, GSourceFunc func, gpointer user_data)
 {
-    /* G convenience function to attach a new timeout source to the default GMainContext.
+    /* A convenience function to attach a new timeout source to the default GMainContext.
      * In that sense it's very similar to g_timeout_add() except that it returns a
      * reference to the new source.  */
     return nm_g_source_attach(
@@ -1703,9 +1805,9 @@ nm_g_timeout_add_source(guint timeout_msec, GSourceFunc func, gpointer user_data
 }
 
 static inline GSource *
-nm_g_timeout_add_source_seconds(guint timeout_sec, GSourceFunc func, gpointer user_data)
+nm_g_timeout_add_seconds_source(guint timeout_sec, GSourceFunc func, gpointer user_data)
 {
-    /* G convenience function to attach a new timeout source to the default GMainContext.
+    /* A convenience function to attach a new timeout source to the default GMainContext.
      * In that sense it's very similar to g_timeout_add_seconds() except that it returns a
      * reference to the new source.  */
     return nm_g_source_attach(
@@ -1732,6 +1834,36 @@ nm_g_timeout_add_source_approx(guint       timeout_msec,
     else
         source = nm_g_timeout_source_new(timeout_msec, G_PRIORITY_DEFAULT, func, user_data, NULL);
     return nm_g_source_attach(source, NULL);
+}
+
+static inline GSource *
+nm_g_unix_fd_add_source(int               fd,
+                        GIOCondition      condition,
+                        GUnixFDSourceFunc function,
+                        gpointer          user_data)
+{
+    /* A convenience function to attach a new unix-fd source to the default GMainContext.
+     * In that sense it's very similar to g_unix_fd_add() except that it returns a
+     * reference to the new source.  */
+    return nm_g_source_attach(
+        nm_g_unix_fd_source_new(fd, condition, G_PRIORITY_DEFAULT, function, user_data, NULL),
+        NULL);
+}
+
+static inline GSource *
+nm_g_unix_signal_add_source(int signum, GSourceFunc handler, gpointer user_data)
+{
+    return nm_g_source_attach(
+        nm_g_unix_signal_source_new(signum, G_PRIORITY_DEFAULT, handler, user_data, NULL),
+        NULL);
+}
+
+static inline GSource *
+nm_g_child_watch_add_source(GPid pid, GChildWatchFunc handler, gpointer user_data)
+{
+    return nm_g_source_attach(
+        nm_g_child_watch_source_new(pid, G_PRIORITY_DEFAULT, handler, user_data, NULL),
+        NULL);
 }
 
 NM_AUTO_DEFINE_FCN0(GMainContext *, _nm_auto_unref_gmaincontext, g_main_context_unref);
@@ -1789,6 +1921,16 @@ nm_g_main_context_push_thread_default_if_necessary(GMainContext *context)
     return context;
 }
 
+static inline void
+nm_g_main_context_iterate_ready(GMainContext *context)
+{
+    while (g_main_context_iteration(context, FALSE)) {
+        ;
+    }
+}
+
+void nm_g_main_context_iterate_for_msec(GMainContext *context, guint timeout_msec);
+
 /*****************************************************************************/
 
 static inline int
@@ -1817,12 +1959,12 @@ typedef struct {
 typedef struct {
     union {
         NMUtilsNamedEntry named_entry;
-        const char *      name;
-        char *            name_mutable;
+        const char       *name;
+        char             *name_mutable;
     };
     union {
         const char *value_str;
-        char *      value_str_mutable;
+        char       *value_str_mutable;
         gpointer    value_ptr;
     };
 } NMUtilsNamedValue;
@@ -1833,11 +1975,11 @@ typedef struct {
     }
 
 NMUtilsNamedValue *
-nm_utils_named_values_from_strdict_full(GHashTable *        hash,
-                                        guint *             out_len,
+nm_utils_named_values_from_strdict_full(GHashTable         *hash,
+                                        guint              *out_len,
                                         GCompareDataFunc    compare_func,
                                         gpointer            user_data,
-                                        NMUtilsNamedValue * provided_buffer,
+                                        NMUtilsNamedValue  *provided_buffer,
                                         guint               provided_buffer_len,
                                         NMUtilsNamedValue **out_allocated_buffer);
 
@@ -1852,7 +1994,7 @@ nm_utils_named_values_from_strdict_full(GHashTable *        hash,
 
 gssize nm_utils_named_value_list_find(const NMUtilsNamedValue *arr,
                                       gsize                    len,
-                                      const char *             name,
+                                      const char              *name,
                                       gboolean                 sorted);
 
 gboolean nm_utils_named_value_list_is_sorted(const NMUtilsNamedValue *arr,
@@ -1870,18 +2012,18 @@ void nm_utils_named_value_clear_with_g_free(NMUtilsNamedValue *val);
 
 /*****************************************************************************/
 
-gpointer *nm_utils_hash_keys_to_array(GHashTable *     hash,
+gpointer *nm_utils_hash_keys_to_array(GHashTable      *hash,
                                       GCompareDataFunc compare_func,
                                       gpointer         user_data,
-                                      guint *          out_len);
+                                      guint           *out_len);
 
-gpointer *nm_utils_hash_values_to_array(GHashTable *     hash,
+gpointer *nm_utils_hash_values_to_array(GHashTable      *hash,
                                         GCompareDataFunc compare_func,
                                         gpointer         user_data,
-                                        guint *          out_len);
+                                        guint           *out_len);
 
 static inline const char **
-nm_utils_strdict_get_keys(const GHashTable *hash, gboolean sorted, guint *out_length)
+nm_strdict_get_keys(const GHashTable *hash, gboolean sorted, guint *out_length)
 {
     return (const char **) nm_utils_hash_keys_to_array((GHashTable *) hash,
                                                        sorted ? nm_strcmp_p_with_data : NULL,
@@ -1912,30 +2054,30 @@ int nm_utils_hashtable_cmp(const GHashTable *a,
                            GCompareDataFunc  cmp_values,
                            gpointer          user_data);
 
-char **nm_utils_strv_make_deep_copied(const char **strv);
+char **nm_strv_make_deep_copied(const char **strv);
 
-char **nm_utils_strv_make_deep_copied_n(const char **strv, gsize len);
+char **nm_strv_make_deep_copied_n(const char **strv, gsize len);
 
 static inline char **
-nm_utils_strv_make_deep_copied_nonnull(const char **strv)
+nm_strv_make_deep_copied_nonnull(const char **strv)
 {
-    return nm_utils_strv_make_deep_copied(strv) ?: g_new0(char *, 1);
+    return nm_strv_make_deep_copied(strv) ?: g_new0(char *, 1);
 }
 
-char **_nm_utils_strv_dup(const char *const *strv, gssize len, gboolean deep_copied);
+char **_nm_strv_dup(const char *const *strv, gssize len, gboolean deep_copied);
 
-#define nm_utils_strv_dup(strv, len, deep_copied) \
-    _nm_utils_strv_dup(NM_CAST_STRV_CC(strv), (len), (deep_copied))
+#define nm_strv_dup(strv, len, deep_copied) \
+    _nm_strv_dup(NM_CAST_STRV_CC(strv), (len), (deep_copied))
 
-const char **_nm_utils_strv_dup_packed(const char *const *strv, gssize len);
+const char **_nm_strv_dup_packed(const char *const *strv, gssize len);
 
-#define nm_utils_strv_dup_packed(strv, len) _nm_utils_strv_dup_packed(NM_CAST_STRV_CC(strv), (len))
+#define nm_strv_dup_packed(strv, len) _nm_strv_dup_packed(NM_CAST_STRV_CC(strv), (len))
 
-#define nm_utils_strv_dup_shallow_maybe_a(alloca_maxlen, strv, len, to_free)       \
+#define nm_strv_dup_shallow_maybe_a(alloca_maxlen, strv, len, to_free)             \
     ({                                                                             \
         const char *const *const _strv    = NM_CAST_STRV_CC(strv);                 \
         const gssize             _len     = (len);                                 \
-        const char **            _result  = NULL;                                  \
+        const char             **_result  = NULL;                                  \
         const char ***const      _to_free = (to_free);                             \
                                                                                    \
         G_STATIC_ASSERT_EXPR((alloca_maxlen) <= 500u / sizeof(const char *));      \
@@ -1982,6 +2124,28 @@ nm_g_array_unref(GArray *arr)
         g_array_unref(arr);
 }
 
+#define nm_g_array_first(arr, type)   \
+    ({                                \
+        GArray *const _arr = (arr);   \
+        guint         _len;           \
+                                      \
+        nm_assert(_arr);              \
+        _len = _arr->len;             \
+        nm_assert(_len > 0);          \
+        &g_array_index(arr, type, 0); \
+    })
+
+#define nm_g_array_last(arr, type)            \
+    ({                                        \
+        GArray *const _arr = (arr);           \
+        guint         _len;                   \
+                                              \
+        nm_assert(_arr);                      \
+        _len = _arr->len;                     \
+        nm_assert(_len > 0);                  \
+        &g_array_index(arr, type, _len - 1u); \
+    })
+
 #define nm_g_array_append_new(arr, type)   \
     ({                                     \
         GArray *const _arr = (arr);        \
@@ -2012,7 +2176,7 @@ nm_g_ptr_array_unref(GPtrArray *arr)
 #define nm_g_ptr_array_set(pdst, val)                              \
     ({                                                             \
         GPtrArray **_pdst    = (pdst);                             \
-        GPtrArray * _val     = (val);                              \
+        GPtrArray  *_val     = (val);                              \
         gboolean    _changed = FALSE;                              \
                                                                    \
         nm_assert(_pdst);                                          \
@@ -2029,7 +2193,7 @@ nm_g_ptr_array_unref(GPtrArray *arr)
 #define nm_g_ptr_array_set_take(pdst, val)                         \
     ({                                                             \
         GPtrArray **_pdst    = (pdst);                             \
-        GPtrArray * _val     = (val);                              \
+        GPtrArray  *_val     = (val);                              \
         gboolean    _changed = FALSE;                              \
                                                                    \
         nm_assert(_pdst);                                          \
@@ -2057,7 +2221,7 @@ nm_g_ptr_array_pdata(const GPtrArray *arr)
     return arr ? arr->pdata : NULL;
 }
 
-GPtrArray *_nm_g_ptr_array_copy(GPtrArray *    array,
+GPtrArray *_nm_g_ptr_array_copy(GPtrArray     *array,
                                 GCopyFunc      func,
                                 gpointer       user_data,
                                 GDestroyNotify element_free_func);
@@ -2079,17 +2243,17 @@ GPtrArray *_nm_g_ptr_array_copy(GPtrArray *    array,
  * Note that the @element_free_func MUST correspond to free function set in @array.
  */
 #if GLIB_CHECK_VERSION(2, 62, 0)
-    #define nm_g_ptr_array_copy(array, func, user_data, element_free_func)            \
-        ({                                                                            \
-            _nm_unused GDestroyNotify const _element_free_func = (element_free_func); \
-                                                                                      \
-            G_GNUC_BEGIN_IGNORE_DEPRECATIONS;                                         \
-            g_ptr_array_copy((array), (func), (user_data));                           \
-            G_GNUC_END_IGNORE_DEPRECATIONS;                                           \
-        })
+#define nm_g_ptr_array_copy(array, func, user_data, element_free_func)            \
+    ({                                                                            \
+        _nm_unused GDestroyNotify const _element_free_func = (element_free_func); \
+                                                                                  \
+        G_GNUC_BEGIN_IGNORE_DEPRECATIONS;                                         \
+        g_ptr_array_copy((array), (func), (user_data));                           \
+        G_GNUC_END_IGNORE_DEPRECATIONS;                                           \
+    })
 #else
-    #define nm_g_ptr_array_copy(array, func, user_data, element_free_func) \
-        _nm_g_ptr_array_copy((array), (func), (user_data), (element_free_func))
+#define nm_g_ptr_array_copy(array, func, user_data, element_free_func) \
+    _nm_g_ptr_array_copy((array), (func), (user_data), (element_free_func))
 #endif
 
 /*****************************************************************************/
@@ -2133,21 +2297,27 @@ nm_g_hash_table_remove(GHashTable *hash, gconstpointer key)
 
 /*****************************************************************************/
 
-gssize nm_utils_ptrarray_find_binary_search(gconstpointer *  list,
+gboolean nm_utils_ptrarray_is_sorted(gconstpointer   *list,
+                                     gsize            len,
+                                     gboolean         require_strict,
+                                     GCompareDataFunc cmpfcn,
+                                     gpointer         user_data);
+
+gssize nm_utils_ptrarray_find_binary_search(gconstpointer   *list,
                                             gsize            len,
                                             gconstpointer    needle,
                                             GCompareDataFunc cmpfcn,
                                             gpointer         user_data);
 
-gssize nm_utils_ptrarray_find_binary_search_range(gconstpointer *  list,
+gssize nm_utils_ptrarray_find_binary_search_range(gconstpointer   *list,
                                                   gsize            len,
                                                   gconstpointer    needle,
                                                   GCompareDataFunc cmpfcn,
                                                   gpointer         user_data,
-                                                  gssize *         out_idx_first,
-                                                  gssize *         out_idx_last);
+                                                  gssize          *out_idx_first,
+                                                  gssize          *out_idx_last);
 
-#define nm_utils_strv_find_binary_search(strv, len, needle)           \
+#define nm_strv_find_binary_search(strv, len, needle)                 \
     ({                                                                \
         const char *const *const _strv   = NM_CAST_STRV_CC(strv);     \
         const gsize              _len    = (len);                     \
@@ -2174,16 +2344,89 @@ gssize nm_utils_ptrarray_find_first(gconstpointer *list, gssize len, gconstpoint
 
 /*****************************************************************************/
 
-void _nm_utils_strv_sort(const char **strv, gssize len);
-#define nm_utils_strv_sort(strv, len) _nm_utils_strv_sort(NM_CAST_STRV_MC(strv), len)
+void _nm_strv_sort(const char **strv, gssize len);
+#define nm_strv_sort(strv, len) _nm_strv_sort(NM_CAST_STRV_MC(strv), len)
 
-int
-_nm_utils_strv_cmp_n(const char *const *strv1, gssize len1, const char *const *strv2, gssize len2);
+int _nm_strv_cmp_n(const char *const *strv1, gssize len1, const char *const *strv2, gssize len2);
 
-#define nm_utils_strv_cmp_n(strv1, len1, strv2, len2) \
-    _nm_utils_strv_cmp_n(NM_CAST_STRV_CC(strv1), (len1), NM_CAST_STRV_CC(strv2), (len2))
+#define nm_strv_cmp_n(strv1, len1, strv2, len2) \
+    _nm_strv_cmp_n(NM_CAST_STRV_CC(strv1), (len1), NM_CAST_STRV_CC(strv2), (len2))
 
-#define nm_utils_strv_equal(strv1, strv2) (nm_utils_strv_cmp_n((strv1), -1, (strv2), -1) == 0)
+/* This is like nm_strv_cmp_n(). The difference is that a NULL strv array (strv=NULL,len=-1)
+ * is treated the same as an empty one (with len=0). */
+#define nm_strv_cmp_n_null(strv1, len1, strv2, len2)              \
+    ({                                                            \
+        const char *const *const _strv1 = NM_CAST_STRV_CC(strv1); \
+        const char *const *const _strv2 = NM_CAST_STRV_CC(strv2); \
+        const gssize             _len1  = (len1);                 \
+        const gssize             _len2  = (len2);                 \
+                                                                  \
+        _nm_strv_cmp_n(_strv1,                                    \
+                       (_len1 >= 0 ? _len1 : (_strv1 ? -1 : 0)),  \
+                       _strv2,                                    \
+                       (_len2 >= 0 ? _len2 : (_strv2 ? -1 : 0))); \
+    })
+
+#define nm_strv_equal_n(strv1, len1, strv2, len2) \
+    (nm_strv_cmp_n((strv1), (len1), (strv2), (len2)) == 0)
+
+#define nm_strv_equal(strv1, strv2) nm_strv_equal_n((strv1), -1, (strv2), -1)
+
+#define nm_strv_equal_n_null(strv1, len1, strv2, len2) \
+    (nm_strv_cmp_n_null((strv1), (len1), (strv2), (len2)) == 0)
+
+/*****************************************************************************/
+
+/* nm_arr_insert_at() does @arr[@idx] = @value, but first memmove's
+ * the elements @arr[@idx..@len-1] one element up. That means, @arr currently
+ * has @len valid elements, but it must have space for one more element,
+ * which will be overwritten.
+ *
+ * The use case is to have a sorted array (nm_strv_find_binary_search()) and
+ * to insert the element at he desired index. The caller must make sure that
+ * @len is large enough to contain one more element. */
+#define nm_arr_insert_at(arr, len, idx, value)                                           \
+    G_STMT_START                                                                         \
+    {                                                                                    \
+        typeof(*(arr)) *const _arr  = (arr);                                             \
+        typeof(len)           _len  = (len);                                             \
+        typeof(idx)           _idx  = (idx);                                             \
+        const gsize           _len2 = (_len);                                            \
+        const gsize           _idx2 = (_idx);                                            \
+                                                                                         \
+        nm_assert(_arr);                                                                 \
+        nm_assert(_NM_INT_NOT_NEGATIVE(_len));                                           \
+        nm_assert(_NM_INT_NOT_NEGATIVE(_idx));                                           \
+        nm_assert(_idx <= _len);                                                         \
+                                                                                         \
+        if (_idx2 != _len2)                                                              \
+            memmove(&_arr[_idx2 + 1u], &_arr[_idx2], sizeof(_arr[0]) * (_len2 - _idx2)); \
+                                                                                         \
+        _arr[_idx2] = (value);                                                           \
+    }                                                                                    \
+    G_STMT_END
+
+/* nm_arr_remove_at() removes the element at arr[idx], by memmove'ing
+ * the elements from arr[idx+1..len-1] down. All it does is one memmove(),
+ * if there is anything to move. */
+#define nm_arr_remove_at(arr, len, idx)                                                         \
+    G_STMT_START                                                                                \
+    {                                                                                           \
+        typeof(*(arr)) *const _arr  = (arr);                                                    \
+        typeof(len)           _len  = (len);                                                    \
+        typeof(idx)           _idx  = (idx);                                                    \
+        const gsize           _len2 = (_len);                                                   \
+        const gsize           _idx2 = (_idx);                                                   \
+                                                                                                \
+        nm_assert(_arr);                                                                        \
+        nm_assert(_len > 0);                                                                    \
+        nm_assert(_NM_INT_NOT_NEGATIVE(_idx));                                                  \
+        nm_assert(_idx < _len);                                                                 \
+                                                                                                \
+        if (_idx2 != _len2 - 1u)                                                                \
+            memmove(&_arr[_idx2], &_arr[_idx2 + 1u], sizeof(_arr[0]) * ((_len2 - 1u) - _idx2)); \
+    }                                                                                           \
+    G_STMT_END
 
 /*****************************************************************************/
 
@@ -2302,12 +2545,12 @@ void _nm_utils_user_data_unpack(NMUtilsUserData *user_data, int nargs, ...);
 
 typedef void (*NMUtilsInvokeOnIdleCallback)(gpointer user_data, GCancellable *cancellable);
 
-void nm_utils_invoke_on_idle(GCancellable *              cancellable,
+void nm_utils_invoke_on_idle(GCancellable               *cancellable,
                              NMUtilsInvokeOnIdleCallback callback,
                              gpointer                    callback_user_data);
 
 void nm_utils_invoke_on_timeout(guint                       timeout_msec,
-                                GCancellable *              cancellable,
+                                GCancellable               *cancellable,
                                 NMUtilsInvokeOnIdleCallback callback,
                                 gpointer                    callback_user_data);
 
@@ -2388,7 +2631,7 @@ nm_strv_ptrarray_find_first(const GPtrArray *strv, const char *str)
 {
     if (!strv)
         return -1;
-    return nm_utils_strv_find_first((char **) strv->pdata, strv->len, str);
+    return nm_strv_find_first((const char *const *) strv->pdata, strv->len, str);
 }
 
 static inline gboolean
@@ -2400,14 +2643,14 @@ nm_strv_ptrarray_contains(const GPtrArray *strv, const char *str)
 static inline int
 nm_strv_ptrarray_cmp(const GPtrArray *a, const GPtrArray *b)
 {
-    /* nm_utils_strv_cmp_n() will treat NULL and empty arrays the same.
+    /* nm_strv_cmp_n() will treat NULL and empty arrays the same.
      * That means, an empty strv array can both be represented by NULL
      * and an array of length zero.
      * If you need to distinguish between these case, do that yourself. */
-    return nm_utils_strv_cmp_n((const char *const *) nm_g_ptr_array_pdata(a),
-                               nm_g_ptr_array_len(a),
-                               (const char *const *) nm_g_ptr_array_pdata(b),
-                               nm_g_ptr_array_len(b));
+    return nm_strv_cmp_n((const char *const *) nm_g_ptr_array_pdata(a),
+                         nm_g_ptr_array_len(a),
+                         (const char *const *) nm_g_ptr_array_pdata(b),
+                         nm_g_ptr_array_len(b));
 }
 
 /*****************************************************************************/
@@ -2425,19 +2668,53 @@ nm_hexchar(int x, gboolean upper_case)
     return upper_case ? _nm_hexchar_table_upper[x & 15] : _nm_hexchar_table_lower[x & 15];
 }
 
+static inline gboolean
+nm_ascii_is_ctrl(char ch)
+{
+    /* 0 to ' '-1 is the C0 range.
+     *
+     * Other ranges may also be considered control characters, but NOT
+     * CONSIDERED by this function. For example:
+     *   - DEL (127) is also a control character.
+     *   - SP (' ', 0x20) is also considered a control character.
+     *   - DEL+1 (0x80) to 0x9F is C1 range.
+     *   - NBSP (0xA0) and SHY (0xAD) are ISO 8859 special characters
+     */
+    return ((guchar) ch) < ' ';
+}
+
+static inline gboolean
+nm_ascii_is_ctrl_or_del(char ch)
+{
+    return ((guchar) ch) < ' ' || ch == 127;
+}
+
+static inline gboolean
+nm_ascii_is_non_ascii(char ch)
+{
+    return ((guchar) ch) > 127;
+}
+
+static inline gboolean
+nm_ascii_is_regular(char ch)
+{
+    /* same as(!nm_ascii_is_ctrl_or_del(ch) && !nm_ascii_is_non_ascii(ch)) */
+    return ch >= ' ' && ch < 127;
+}
+
 char *nm_utils_bin2hexstr_full(gconstpointer addr,
                                gsize         length,
                                char          delimiter,
                                gboolean      upper_case,
-                               char *        out);
+                               char         *out);
 
 #define nm_utils_bin2hexstr_a(addr, length, delimiter, upper_case, str_to_free)               \
     ({                                                                                        \
         gconstpointer _addr        = (addr);                                                  \
         gsize         _length      = (length);                                                \
         char          _delimiter   = (delimiter);                                             \
-        char **       _str_to_free = (str_to_free);                                           \
-        char *        _s;                                                                     \
+        char        **_str_to_free = (str_to_free);                                           \
+        char         *_s;                                                                     \
         gsize         _s_len;                                                                 \
                                                                                               \
         nm_assert(_str_to_free);                                                              \
@@ -2470,9 +2747,9 @@ guint8 *nm_utils_hexstr2bin_full(const char *hexstr,
                                  gboolean    hexdigit_pairs_required,
                                  const char *delimiter_candidates,
                                  gsize       required_len,
-                                 guint8 *    buffer,
+                                 guint8     *buffer,
                                  gsize       buffer_len,
-                                 gsize *     out_len);
+                                 gsize      *out_len);
 
 #define nm_utils_hexstr2bin_buf(hexstr,               \
                                 allow_0x_prefix,      \
@@ -2494,7 +2771,7 @@ guint8 *nm_utils_hexstr2bin_alloc(const char *hexstr,
                                   gboolean    delimiter_required,
                                   const char *delimiter_candidates,
                                   gsize       required_len,
-                                  gsize *     out_len);
+                                  gsize      *out_len);
 
 /**
  * _nm_utils_hwaddr_aton:
@@ -2556,7 +2833,7 @@ static inline const char *
 _nm_utils_hwaddr_ntoa(gconstpointer addr,
                       gsize         addr_len,
                       gboolean      upper_case,
-                      char *        buf,
+                      char         *buf,
                       gsize         buf_len)
 {
     g_return_val_if_fail(addr, NULL);
@@ -2674,7 +2951,7 @@ _nm_utils_hwaddr_ntoa(gconstpointer addr,
 
 static inline GTask *
 nm_g_task_new(gpointer            source_object,
-              GCancellable *      cancellable,
+              GCancellable       *cancellable,
               gpointer            source_tag,
               GAsyncReadyCallback callback,
               gpointer            callback_data)
@@ -2698,7 +2975,7 @@ guint nm_utils_parse_debug_string(const char *string, const GDebugKey *keys, gui
 /*****************************************************************************/
 
 static inline gboolean
-nm_utils_strdup_reset(char **dst, const char *src)
+nm_strdup_reset(char **dst, const char *src)
 {
     char *old;
 
@@ -2713,12 +2990,12 @@ nm_utils_strdup_reset(char **dst, const char *src)
 }
 
 static inline gboolean
-nm_utils_strdup_reset_take(char **dst, char *src)
+nm_strdup_reset_take(char **dst, char *src)
 {
     char *old;
 
     nm_assert(dst);
-    nm_assert(src != *dst);
+    nm_assert(!src || src != *dst);
 
     if (nm_streq0(*dst, src)) {
         if (src)
@@ -2802,7 +3079,7 @@ nm_strvarray_get_strv_non_empty_dup(GArray *arr, guint *length)
 
     NM_SET_OUT(length, arr->len);
     strv = &g_array_index(arr, const char *, 0);
-    return nm_utils_strv_dup(strv, arr->len, TRUE);
+    return nm_strv_dup(strv, arr->len, TRUE);
 }
 
 static inline const char *const *
@@ -2865,25 +3142,31 @@ nm_strvarray_remove_first(GArray *strv, const char *needle)
 /*****************************************************************************/
 
 struct _NMVariantAttributeSpec {
-    char *              name;
+    char               *name;
     const GVariantType *type;
     bool                v4 : 1;
     bool                v6 : 1;
     bool                no_value : 1;
     bool                consumes_rest : 1;
-    char                str_type;
+
+    /* This indicates a non-standard parsing behavior. What this is,
+     * depends on the actual validation and how to handle it.
+     *
+     * Note that the entire NMVariantAttributeSpec is internal API,
+     * so we can change behavior and adjust it as it fits. */
+    char type_detail;
 };
 
 typedef struct _NMVariantAttributeSpec NMVariantAttributeSpec;
 
-void _nm_utils_format_variant_attributes_full(GString *                            str,
-                                              const NMUtilsNamedValue *            values,
+void _nm_utils_format_variant_attributes_full(GString                             *str,
+                                              const NMUtilsNamedValue             *values,
                                               guint                                num_values,
                                               const NMVariantAttributeSpec *const *spec,
                                               char                                 attr_separator,
                                               char key_value_separator);
 
-char *_nm_utils_format_variant_attributes(GHashTable *                         attributes,
+char *_nm_utils_format_variant_attributes(GHashTable                          *attributes,
                                           const NMVariantAttributeSpec *const *spec,
                                           char                                 attr_separator,
                                           char                                 key_value_separator);
@@ -2894,7 +3177,7 @@ gboolean nm_utils_is_localhost(const char *name);
 
 gboolean nm_utils_is_specific_hostname(const char *name);
 
-char *   nm_utils_uid_to_name(uid_t uid);
+char    *nm_utils_uid_to_name(uid_t uid);
 gboolean nm_utils_name_to_uid(const char *name, uid_t *out_uid);
 
 /*****************************************************************************/
@@ -2905,8 +3188,8 @@ double nm_utils_exp10(gint16 e);
 
 gboolean _nm_utils_is_empty_ssid_arr(const guint8 *ssid, gsize len);
 gboolean _nm_utils_is_empty_ssid_gbytes(GBytes *ssid);
-char *   _nm_utils_ssid_to_string_arr(const guint8 *ssid, gsize len);
-char *   _nm_utils_ssid_to_string_gbytes(GBytes *ssid);
+char    *_nm_utils_ssid_to_string_arr(const guint8 *ssid, gsize len);
+char    *_nm_utils_ssid_to_string_gbytes(GBytes *ssid);
 
 /*****************************************************************************/
 
@@ -2929,11 +3212,17 @@ void nm_crypto_md5_hash(const guint8 *salt,
                         gsize         salt_len,
                         const guint8 *password,
                         gsize         password_len,
-                        guint8 *      buffer,
+                        guint8       *buffer,
                         gsize         buflen);
 
 /*****************************************************************************/
 
 char *nm_utils_get_process_exit_status_desc(int status);
+
+gboolean nm_utils_validate_hostname(const char *hostname);
+
+/*****************************************************************************/
+
+void nm_utils_thread_local_register_destroy(gpointer tls_data, GDestroyNotify destroy_notify);
 
 #endif /* __NM_SHARED_UTILS_H__ */

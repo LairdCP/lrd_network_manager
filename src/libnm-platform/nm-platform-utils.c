@@ -7,9 +7,10 @@
 
 #include "nm-platform-utils.h"
 
+#include "libnm-std-aux/nm-linux-compat.h"
+
 #include <unistd.h>
 #include <sys/ioctl.h>
-#include <linux/ethtool.h>
 #include <linux/sockios.h>
 #include <linux/mii.h>
 #include <linux/if.h>
@@ -30,27 +31,26 @@
  * necessary missing values.
  */
 #ifndef ETHTOOL_GLINKSETTINGS
-    #define ETHTOOL_GLINKSETTINGS   0x0000004c /* Get ethtool_link_settings */
-    #define ETHTOOL_SLINKSETTINGS   0x0000004d /* Set ethtool_link_settings */
+#define ETHTOOL_GLINKSETTINGS 0x0000004c /* Get ethtool_link_settings */
+#define ETHTOOL_SLINKSETTINGS 0x0000004d /* Set ethtool_link_settings */
 
-    struct ethtool_link_settings {
-        __u32   cmd;
-        __u32   speed;
-        __u8    duplex;
-        __u8    port;
-        __u8    phy_address;
-        __u8    autoneg;
-        __u8    mdio_support;
-        __u8    eth_tp_mdix;
-        __u8    eth_tp_mdix_ctrl;
-        __s8    link_mode_masks_nwords;
-        __u8    transceiver;
-        __u8    reserved1[3];
-        __u32   reserved[7];
-        __u32   link_mode_masks[0];
-    };
+struct ethtool_link_settings {
+    __u32 cmd;
+    __u32 speed;
+    __u8  duplex;
+    __u8  port;
+    __u8  phy_address;
+    __u8  autoneg;
+    __u8  mdio_support;
+    __u8  eth_tp_mdix;
+    __u8  eth_tp_mdix_ctrl;
+    __s8  link_mode_masks_nwords;
+    __u8  transceiver;
+    __u8  reserved1[3];
+    __u32 reserved[7];
+    __u32 link_mode_masks[0];
+};
 #endif
-
 
 /******************************************************************************
  * utils
@@ -116,16 +116,16 @@ typedef enum {
 } IoctlCallDataType;
 
 static int
-_ioctl_call(const char *      log_ioctl_type,
-            const char *      log_subtype,
+_ioctl_call(const char       *log_ioctl_type,
+            const char       *log_subtype,
             unsigned long int ioctl_request,
             int               ifindex,
-            int *             inout_fd,
-            char *            inout_ifname,
+            int              *inout_fd,
+            char             *inout_ifname,
             IoctlCallDataType edata_type,
             gpointer          edata,
             gsize             edata_size,
-            struct ifreq *    out_ifreq)
+            struct ifreq     *out_ifreq)
 {
     nm_auto_close int fd_close = -1;
     int               fd;
@@ -134,7 +134,7 @@ _ioctl_call(const char *      log_ioctl_type,
     gs_free gpointer  edata_backup_free = NULL;
     guint             try_count;
     char              known_ifnames[2][IFNAMSIZ];
-    const char *      failure_reason = NULL;
+    const char       *failure_reason = NULL;
     struct ifreq      ifr;
 
     nm_assert(ifindex > 0);
@@ -333,14 +333,14 @@ _ethtool_edata_to_string(gpointer edata, gsize edata_size, char *sbuf, gsize sbu
 /*****************************************************************************/
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 27)
-    #define ethtool_cmd_speed(pedata) ((pedata)->speed)
+#define ethtool_cmd_speed(pedata) ((pedata)->speed)
 
-    #define ethtool_cmd_speed_set(pedata, speed) \
-        G_STMT_START                             \
-        {                                        \
-            (pedata)->speed = (guint16) (speed); \
-        }                                        \
-        G_STMT_END
+#define ethtool_cmd_speed_set(pedata, speed) \
+    G_STMT_START                             \
+    {                                        \
+        (pedata)->speed = (guint16) (speed); \
+    }                                        \
+    G_STMT_END
 #endif
 
 static int
@@ -390,7 +390,7 @@ ethtool_get_stringset(SocketHandle *shandle, int stringset_id)
         .info.reserved  = 0,
         .info.sset_mask = (1ULL << stringset_id),
     };
-    const guint32 *                  pdata;
+    const guint32                   *pdata;
     gs_free struct ethtool_gstrings *gstrings = NULL;
     gsize                            gstrings_len;
     guint32                          i, len;
@@ -579,7 +579,7 @@ _ASSERT_ethtool_feature_infos(void)
         for (k = 0; k < inf->n_kernel_names; k++) {
             const char *name = inf->kernel_names[k];
 
-            g_assert(nm_utils_strv_find_first((char **) inf->kernel_names, k, name) < 0);
+            g_assert(nm_strv_find_first(inf->kernel_names, k, name) < 0);
 
             /* these offload features are only informational and cannot be set from user-space
              * (NETIF_F_NEVER_CHANGE). We should not track them in _ethtool_feature_infos. */
@@ -599,7 +599,7 @@ _ASSERT_ethtool_feature_infos(void)
 static NMEthtoolFeatureStates *
 ethtool_get_features(SocketHandle *shandle)
 {
-    gs_free NMEthtoolFeatureStates * states      = NULL;
+    gs_free NMEthtoolFeatureStates  *states      = NULL;
     gs_free struct ethtool_gstrings *ss_features = NULL;
 
     _ASSERT_ethtool_feature_infos();
@@ -609,11 +609,11 @@ ethtool_get_features(SocketHandle *shandle)
         return NULL;
 
     if (ss_features->len > 0) {
-        gs_free struct ethtool_gfeatures *  gfeatures_free = NULL;
-        struct ethtool_gfeatures *          gfeatures;
+        gs_free struct ethtool_gfeatures   *gfeatures_free = NULL;
+        struct ethtool_gfeatures           *gfeatures;
         gsize                               gfeatures_len;
         guint                               idx;
-        const NMEthtoolFeatureState *       states_list0   = NULL;
+        const NMEthtoolFeatureState        *states_list0   = NULL;
         const NMEthtoolFeatureState *const *states_plist0  = NULL;
         guint                               states_plist_n = 0;
 
@@ -631,7 +631,7 @@ ethtool_get_features(SocketHandle *shandle)
 
             for (idx_kernel_name = 0; idx_kernel_name < info->n_kernel_names; idx_kernel_name++) {
                 NMEthtoolFeatureState *kstate;
-                const char *           kernel_name = info->kernel_names[idx_kernel_name];
+                const char            *kernel_name = info->kernel_names[idx_kernel_name];
                 int                    i_feature;
                 guint                  i_block;
                 guint32                i_flag;
@@ -692,7 +692,7 @@ NMEthtoolFeatureStates *
 nmp_utils_ethtool_get_features(int ifindex)
 {
     nm_auto_socket_handle SocketHandle shandle = SOCKET_HANDLE_INIT(ifindex);
-    NMEthtoolFeatureStates *           features;
+    NMEthtoolFeatureStates            *features;
 
     g_return_val_if_fail(ifindex > 0, 0);
 
@@ -714,10 +714,10 @@ nmp_utils_ethtool_get_features(int ifindex)
 }
 
 static const char *
-_ethtool_feature_state_to_string(char *                       buf,
+_ethtool_feature_state_to_string(char                        *buf,
                                  gsize                        buf_size,
                                  const NMEthtoolFeatureState *s,
-                                 const char *                 prefix)
+                                 const char                  *prefix)
 {
     int l;
 
@@ -743,8 +743,8 @@ nmp_utils_ethtool_set_features(
     gboolean            do_set /* or reset */)
 {
     nm_auto_socket_handle SocketHandle shandle        = SOCKET_HANDLE_INIT(ifindex);
-    gs_free struct ethtool_sfeatures * sfeatures_free = NULL;
-    struct ethtool_sfeatures *         sfeatures;
+    gs_free struct ethtool_sfeatures  *sfeatures_free = NULL;
+    struct ethtool_sfeatures          *sfeatures;
     gsize                              sfeatures_len;
     int                                r;
     guint                              i, j;
@@ -1240,8 +1240,8 @@ gboolean
 nmp_utils_ethtool_supports_vlans(int ifindex)
 {
     nm_auto_socket_handle SocketHandle shandle       = SOCKET_HANDLE_INIT(ifindex);
-    gs_free struct ethtool_gfeatures * features_free = NULL;
-    struct ethtool_gfeatures *         features;
+    gs_free struct ethtool_gfeatures  *features_free = NULL;
+    struct ethtool_gfeatures          *features;
     gsize                              features_len;
     int                                idx, block, bit, size;
 
@@ -1275,8 +1275,8 @@ nmp_utils_ethtool_get_peer_ifindex(int ifindex)
 {
     nm_auto_socket_handle SocketHandle shandle = SOCKET_HANDLE_INIT(ifindex);
     gsize                              stats_len;
-    gs_free struct ethtool_stats *     stats_free = NULL;
-    struct ethtool_stats *             stats;
+    gs_free struct ethtool_stats      *stats_free = NULL;
+    struct ethtool_stats              *stats;
     int                                peer_ifindex_stat;
 
     g_return_val_if_fail(ifindex > 0, 0);
@@ -1314,8 +1314,8 @@ nmp_utils_ethtool_get_wake_on_lan(int ifindex)
 
 gboolean
 nmp_utils_ethtool_get_link_settings(int                       ifindex,
-                                    gboolean *                out_autoneg,
-                                    guint32 *                 out_speed,
+                                    gboolean                 *out_autoneg,
+                                    guint32                  *out_speed,
                                     NMPlatformLinkDuplexType *out_duplex)
 {
     struct ethtool_cmd edata = {
@@ -1357,10 +1357,6 @@ nmp_utils_ethtool_get_link_settings(int                       ifindex,
 }
 
 #define ADVERTISED_INVALID 0
-#define BASET_ALL_MODES                                                                 \
-    (ADVERTISED_10baseT_Half | ADVERTISED_10baseT_Full | ADVERTISED_100baseT_Half       \
-     | ADVERTISED_100baseT_Full | ADVERTISED_1000baseT_Half | ADVERTISED_1000baseT_Full \
-     | ADVERTISED_10000baseT_Full)
 
 static guint32
 get_baset_mode(guint32 speed, NMPlatformLinkDuplexType duplex)
@@ -1412,8 +1408,98 @@ platform_link_duplex_type_to_native(NMPlatformLinkDuplexType duplex_type, guint8
     }
 }
 
+const guint8 _nmp_link_mode_all_advertised_modes_bits[] = {
+    ETHTOOL_LINK_MODE_10baseT_Half_BIT,
+    ETHTOOL_LINK_MODE_10baseT_Full_BIT,
+    ETHTOOL_LINK_MODE_100baseT_Half_BIT,
+    ETHTOOL_LINK_MODE_100baseT_Full_BIT,
+    ETHTOOL_LINK_MODE_1000baseT_Half_BIT,
+    ETHTOOL_LINK_MODE_1000baseT_Full_BIT,
+    ETHTOOL_LINK_MODE_10000baseT_Full_BIT,
+    ETHTOOL_LINK_MODE_2500baseX_Full_BIT,
+    ETHTOOL_LINK_MODE_1000baseKX_Full_BIT,
+    ETHTOOL_LINK_MODE_10000baseKX4_Full_BIT,
+    ETHTOOL_LINK_MODE_10000baseKR_Full_BIT,
+    ETHTOOL_LINK_MODE_10000baseR_FEC_BIT,
+    ETHTOOL_LINK_MODE_20000baseMLD2_Full_BIT,
+    ETHTOOL_LINK_MODE_20000baseKR2_Full_BIT,
+    ETHTOOL_LINK_MODE_40000baseKR4_Full_BIT,
+    ETHTOOL_LINK_MODE_40000baseCR4_Full_BIT,
+    ETHTOOL_LINK_MODE_40000baseSR4_Full_BIT,
+    ETHTOOL_LINK_MODE_40000baseLR4_Full_BIT,
+    ETHTOOL_LINK_MODE_56000baseKR4_Full_BIT,
+    ETHTOOL_LINK_MODE_56000baseCR4_Full_BIT,
+    ETHTOOL_LINK_MODE_56000baseSR4_Full_BIT,
+    ETHTOOL_LINK_MODE_56000baseLR4_Full_BIT,
+    ETHTOOL_LINK_MODE_25000baseCR_Full_BIT,
+    /* 32 bit flags start here. */
+    ETHTOOL_LINK_MODE_25000baseKR_Full_BIT,
+    ETHTOOL_LINK_MODE_25000baseSR_Full_BIT,
+    ETHTOOL_LINK_MODE_50000baseCR2_Full_BIT,
+    ETHTOOL_LINK_MODE_50000baseKR2_Full_BIT,
+    ETHTOOL_LINK_MODE_100000baseKR4_Full_BIT,
+    ETHTOOL_LINK_MODE_100000baseSR4_Full_BIT,
+    ETHTOOL_LINK_MODE_100000baseCR4_Full_BIT,
+    ETHTOOL_LINK_MODE_100000baseLR4_ER4_Full_BIT,
+    ETHTOOL_LINK_MODE_50000baseSR2_Full_BIT,
+    ETHTOOL_LINK_MODE_1000baseX_Full_BIT,
+    ETHTOOL_LINK_MODE_10000baseCR_Full_BIT,
+    ETHTOOL_LINK_MODE_10000baseSR_Full_BIT,
+    ETHTOOL_LINK_MODE_10000baseLR_Full_BIT,
+    ETHTOOL_LINK_MODE_10000baseLRM_Full_BIT,
+    ETHTOOL_LINK_MODE_10000baseER_Full_BIT,
+    ETHTOOL_LINK_MODE_2500baseT_Full_BIT,
+    ETHTOOL_LINK_MODE_5000baseT_Full_BIT,
+    ETHTOOL_LINK_MODE_50000baseKR_Full_BIT,
+    ETHTOOL_LINK_MODE_50000baseSR_Full_BIT,
+    ETHTOOL_LINK_MODE_50000baseCR_Full_BIT,
+    ETHTOOL_LINK_MODE_50000baseLR_ER_FR_Full_BIT,
+    ETHTOOL_LINK_MODE_50000baseDR_Full_BIT,
+    ETHTOOL_LINK_MODE_100000baseKR2_Full_BIT,
+    ETHTOOL_LINK_MODE_100000baseSR2_Full_BIT,
+    ETHTOOL_LINK_MODE_100000baseCR2_Full_BIT,
+    ETHTOOL_LINK_MODE_100000baseLR2_ER2_FR2_Full_BIT,
+    ETHTOOL_LINK_MODE_100000baseDR2_Full_BIT,
+    ETHTOOL_LINK_MODE_200000baseKR4_Full_BIT,
+    ETHTOOL_LINK_MODE_200000baseSR4_Full_BIT,
+    ETHTOOL_LINK_MODE_200000baseLR4_ER4_FR4_Full_BIT,
+    ETHTOOL_LINK_MODE_200000baseDR4_Full_BIT,
+    ETHTOOL_LINK_MODE_200000baseCR4_Full_BIT,
+    ETHTOOL_LINK_MODE_100baseT1_Full_BIT,
+    ETHTOOL_LINK_MODE_1000baseT1_Full_BIT,
+    ETHTOOL_LINK_MODE_400000baseKR8_Full_BIT,
+    ETHTOOL_LINK_MODE_400000baseSR8_Full_BIT,
+    ETHTOOL_LINK_MODE_400000baseLR8_ER8_FR8_Full_BIT,
+    ETHTOOL_LINK_MODE_400000baseDR8_Full_BIT,
+    ETHTOOL_LINK_MODE_400000baseCR8_Full_BIT,
+    ETHTOOL_LINK_MODE_100000baseKR_Full_BIT,
+    ETHTOOL_LINK_MODE_100000baseSR_Full_BIT,
+    ETHTOOL_LINK_MODE_100000baseLR_ER_FR_Full_BIT,
+    ETHTOOL_LINK_MODE_100000baseCR_Full_BIT,
+    ETHTOOL_LINK_MODE_100000baseDR_Full_BIT,
+    ETHTOOL_LINK_MODE_200000baseKR2_Full_BIT,
+    ETHTOOL_LINK_MODE_200000baseSR2_Full_BIT,
+    ETHTOOL_LINK_MODE_200000baseLR2_ER2_FR2_Full_BIT,
+    ETHTOOL_LINK_MODE_200000baseDR2_Full_BIT,
+    ETHTOOL_LINK_MODE_200000baseCR2_Full_BIT,
+    ETHTOOL_LINK_MODE_400000baseKR4_Full_BIT,
+    ETHTOOL_LINK_MODE_400000baseSR4_Full_BIT,
+    ETHTOOL_LINK_MODE_400000baseLR4_ER4_FR4_Full_BIT,
+    ETHTOOL_LINK_MODE_400000baseDR4_Full_BIT,
+    ETHTOOL_LINK_MODE_400000baseCR4_Full_BIT,
+    ETHTOOL_LINK_MODE_100baseFX_Half_BIT,
+    ETHTOOL_LINK_MODE_100baseFX_Full_BIT,
+};
+
+/* these are the bits from _nmp_link_mode_all_advertised_modes_bits set. */
+const guint32 _nmp_link_mode_all_advertised_modes[] = {
+    0xfffe903fu,
+    0xfff1ffffu,
+    0x0ffffbffu,
+};
+
 static NMOptionBool
-set_link_settings_new(SocketHandle *           shandle,
+set_link_settings_new(SocketHandle            *shandle,
                       gboolean                 autoneg,
                       guint32                  speed,
                       NMPlatformLinkDuplexType duplex)
@@ -1422,6 +1508,7 @@ set_link_settings_new(SocketHandle *           shandle,
     gs_free struct ethtool_link_settings *edata = NULL;
     gsize                                 edata_size;
     guint                                 nwords;
+    guint                                 i;
 
     edata0 = (struct ethtool_link_settings){
         .cmd                    = ETHTOOL_GLINKSETTINGS,
@@ -1447,16 +1534,14 @@ set_link_settings_new(SocketHandle *           shandle,
 
     /* then change the needed ones */
     edata->cmd = ETHTOOL_SLINKSETTINGS;
-    if (autoneg) {
-        edata->autoneg = AUTONEG_ENABLE;
 
-        /* copy @map_supported to @map_advertising and @map_lp_advertising */
-        memcpy(&edata->link_mode_masks[nwords],
-               &edata->link_mode_masks[0],
-               sizeof(guint32) * nwords);
-        memcpy(&edata->link_mode_masks[nwords * 2],
-               &edata->link_mode_masks[0],
-               sizeof(guint32) * nwords);
+    {
+        const guint32 *v_map_supported      = &edata->link_mode_masks[0];
+        guint32       *v_map_advertising    = &edata->link_mode_masks[nwords];
+        guint32       *v_map_lp_advertising = &edata->link_mode_masks[2 * nwords];
+
+        memcpy(v_map_advertising, v_map_supported, sizeof(guint32) * nwords);
+        (void) v_map_lp_advertising;
 
         if (speed != 0) {
             guint32 mode;
@@ -1464,6 +1549,8 @@ set_link_settings_new(SocketHandle *           shandle,
             mode = get_baset_mode(speed, duplex);
 
             if (mode == ADVERTISED_INVALID) {
+                if (!autoneg)
+                    goto set_autoneg;
                 nm_log_trace(LOGD_PLATFORM,
                              "ethtool[%d]: %uBASE-T %s duplex mode cannot be advertised",
                              shandle->ifindex,
@@ -1472,8 +1559,9 @@ set_link_settings_new(SocketHandle *           shandle,
                 return FALSE;
             }
 
-            /* We only support BASE-T modes in the first word */
-            if (!(edata->link_mode_masks[0] & mode)) {
+            if (!(v_map_supported[0] & mode)) {
+                if (!autoneg)
+                    goto set_autoneg;
                 nm_log_trace(LOGD_PLATFORM,
                              "ethtool[%d]: device does not support %uBASE-T %s duplex mode",
                              shandle->ifindex,
@@ -1482,11 +1570,16 @@ set_link_settings_new(SocketHandle *           shandle,
                 return FALSE;
             }
 
-            edata->link_mode_masks[nwords] =
-                (edata->link_mode_masks[nwords] & ~BASET_ALL_MODES) | mode;
-            edata->link_mode_masks[nwords * 2] = edata->link_mode_masks[nwords];
+            for (i = 0; i < (guint) G_N_ELEMENTS(_nmp_link_mode_all_advertised_modes); i++)
+                v_map_advertising[i] &= ~_nmp_link_mode_all_advertised_modes[i];
+            v_map_advertising[0] |= mode;
         }
-    } else {
+    }
+
+set_autoneg:
+    if (autoneg)
+        edata->autoneg = AUTONEG_ENABLE;
+    else {
         edata->autoneg = AUTONEG_DISABLE;
 
         if (speed)
@@ -1506,7 +1599,7 @@ nmp_utils_ethtool_set_link_settings(int                      ifindex,
 {
     nm_auto_socket_handle SocketHandle shandle = SOCKET_HANDLE_INIT(ifindex);
     struct ethtool_cmd                 edata   = {
-        .cmd = ETHTOOL_GSET,
+                          .cmd = ETHTOOL_GSET,
     };
     NMOptionBool ret;
 
@@ -1514,6 +1607,13 @@ nmp_utils_ethtool_set_link_settings(int                      ifindex,
     g_return_val_if_fail((speed && duplex != NM_PLATFORM_LINK_DUPLEX_UNKNOWN)
                              || (!speed && duplex == NM_PLATFORM_LINK_DUPLEX_UNKNOWN),
                          FALSE);
+
+    nm_log_trace(LOGD_PLATFORM,
+                 "ethtool[%d]: set link: autoneg=%d, speed=%d, duplex=%s",
+                 ifindex,
+                 autoneg,
+                 speed,
+                 nm_platform_link_duplex_type_to_string(duplex));
 
     ret = set_link_settings_new(&shandle, autoneg, speed, duplex);
     if (ret != NM_OPTION_BOOL_DEFAULT)
@@ -1527,34 +1627,41 @@ nmp_utils_ethtool_set_link_settings(int                      ifindex,
 
     /* then change the needed ones */
     edata.cmd = ETHTOOL_SSET;
-    if (autoneg) {
-        edata.autoneg = AUTONEG_ENABLE;
-        if (speed == 0)
-            edata.advertising = edata.supported;
-        else {
-            guint32 mode;
 
-            mode = get_baset_mode(speed, duplex);
+    edata.advertising = edata.supported;
+    if (speed != 0) {
+        guint32 mode;
 
-            if (mode == ADVERTISED_INVALID) {
-                nm_log_trace(LOGD_PLATFORM,
-                             "ethtool[%d]: %uBASE-T %s duplex mode cannot be advertised",
-                             ifindex,
-                             speed,
-                             nm_platform_link_duplex_type_to_string(duplex));
-                return FALSE;
-            }
-            if (!(edata.supported & mode)) {
-                nm_log_trace(LOGD_PLATFORM,
-                             "ethtool[%d]: device does not support %uBASE-T %s duplex mode",
-                             ifindex,
-                             speed,
-                             nm_platform_link_duplex_type_to_string(duplex));
-                return FALSE;
-            }
-            edata.advertising = (edata.supported & ~BASET_ALL_MODES) | mode;
+        mode = get_baset_mode(speed, duplex);
+
+        if (mode == ADVERTISED_INVALID) {
+            if (!autoneg)
+                goto set_autoneg;
+            nm_log_trace(LOGD_PLATFORM,
+                         "ethtool[%d]: %uBASE-T %s duplex mode cannot be advertised",
+                         ifindex,
+                         speed,
+                         nm_platform_link_duplex_type_to_string(duplex));
+            return FALSE;
         }
-    } else {
+        if (!(edata.supported & mode)) {
+            if (!autoneg)
+                goto set_autoneg;
+            nm_log_trace(LOGD_PLATFORM,
+                         "ethtool[%d]: device does not support %uBASE-T %s duplex mode",
+                         ifindex,
+                         speed,
+                         nm_platform_link_duplex_type_to_string(duplex));
+            return FALSE;
+        }
+        edata.advertising &= ~_nmp_link_mode_all_advertised_modes[0];
+        edata.advertising |= mode;
+    }
+
+set_autoneg:
+    if (autoneg)
+        edata.autoneg = AUTONEG_ENABLE;
+    else {
         edata.autoneg = AUTONEG_DISABLE;
 
         if (speed)
@@ -1569,7 +1676,7 @@ nmp_utils_ethtool_set_link_settings(int                      ifindex,
 gboolean
 nmp_utils_ethtool_set_wake_on_lan(int                      ifindex,
                                   _NMSettingWiredWakeOnLan wol,
-                                  const char *             wol_password)
+                                  const char              *wol_password)
 {
     struct ethtool_wolinfo wol_info = {
         .cmd     = ETHTOOL_SWOL,
@@ -1624,7 +1731,7 @@ nmp_utils_mii_supports_carrier_detect(int ifindex)
     nm_auto_socket_handle SocketHandle shandle = SOCKET_HANDLE_INIT(ifindex);
     int                                r;
     struct ifreq                       ifr;
-    struct mii_ioctl_data *            mii;
+    struct mii_ioctl_data             *mii;
 
     g_return_val_if_fail(ifindex > 0, FALSE);
 
@@ -1675,7 +1782,7 @@ const char *
 nmp_utils_udev_get_driver(struct udev_device *udevice)
 {
     struct udev_device *parent = NULL, *grandparent = NULL;
-    const char *        driver, *subsys;
+    const char         *driver, *subsys;
 
     driver = udev_device_get_driver(udevice);
     if (driver)
@@ -2112,10 +2219,10 @@ nmp_utils_modprobe(GError **error, gboolean suppress_error_logging, const char *
 {
     gs_unref_ptrarray GPtrArray *argv = NULL;
     int                          exit_status;
-    gs_free char *               _log_str = NULL;
+    gs_free char                *_log_str = NULL;
 #define ARGV_TO_STR(argv) \
     (_log_str ? _log_str : (_log_str = g_strjoinv(" ", (char **) argv->pdata)))
-    GError *      local = NULL;
+    GError       *local = NULL;
     va_list       ap;
     NMLogLevel    llevel  = suppress_error_logging ? LOGL_DEBUG : LOGL_ERR;
     gs_free char *std_out = NULL, *std_err = NULL;

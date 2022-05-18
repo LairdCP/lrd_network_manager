@@ -43,10 +43,10 @@ const char *svFindFirstNumberedKey(shvarFile *s, const char *key_prefix);
  * be freed by the caller.
  */
 const char *svGetValue(shvarFile *s, const char *key, char **to_free);
-char *      svGetValue_cp(shvarFile *s, const char *key);
+char       *svGetValue_cp(shvarFile *s, const char *key);
 
 const char *svGetValueStr(shvarFile *s, const char *key, char **to_free);
-char *      svGetValueStr_cp(shvarFile *s, const char *key);
+char       *svGetValueStr_cp(shvarFile *s, const char *key);
 
 int svParseBoolean(const char *value, int def);
 
@@ -107,6 +107,7 @@ void svCloseFile(shvarFile *s);
 
 const char *svEscape(const char *s, char **to_free);
 const char *svUnescape(const char *s, char **to_free);
+const char *svUnescape_full(const char *value, char **to_free, gboolean check_utf8);
 
 static inline void
 _nm_auto_shvar_file_close(shvarFile **p_s)
@@ -119,5 +120,7 @@ _nm_auto_shvar_file_close(shvarFile **p_s)
     }
 }
 #define nm_auto_shvar_file_close nm_auto(_nm_auto_shvar_file_close)
+
+void svWarnInvalid(shvarFile *s, const char *file_type, NMLogDomain log_domain);
 
 #endif /* _SHVAR_H */

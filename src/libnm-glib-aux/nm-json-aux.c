@@ -16,7 +16,7 @@
  * program). But that needs to be fixed by the json libraries, and it is by adding
  * symbol versioning in recent versions. */
 #ifndef RTLD_DEEPBIND
-    #define RTLD_DEEPBIND 0
+#define RTLD_DEEPBIND 0
 #endif
 
 /*****************************************************************************/
@@ -155,15 +155,15 @@ nm_json_gstr_append_obj_name(GString *gstr, const char *key, char start_containe
 
 typedef struct {
     NMJsonVt vt;
-    void *   dl_handle;
+    void    *dl_handle;
 } NMJsonVtInternal;
 
 static NMJsonVtInternal *
 _nm_json_vt_internal_load(void)
 {
     NMJsonVtInternal *v;
-    const char *      soname;
-    void *            handle;
+    const char       *soname;
+    void             *handle;
 
     v = g_new0(NMJsonVtInternal, 1);
 
@@ -174,7 +174,7 @@ _nm_json_vt_internal_load(void)
 #elif !WITH_JANSSON && !defined(JANSSON_SONAME)
     soname = NULL;
 #else
-    #error "WITH_JANSON and JANSSON_SONAME are defined inconsistently."
+#error "WITH_JANSON and JANSSON_SONAME are defined inconsistently."
 #endif
 
     if (!soname)

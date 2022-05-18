@@ -11,6 +11,8 @@
 #include "libnm-client-aux-extern/nm-default-client.h"
 
 #include "nmt-page-dsl.h"
+
+#include "libnm-core-aux-intern/nm-libnm-core-utils.h"
 #include "nmt-page-ethernet.h"
 #include "nmt-page-ppp.h"
 #include "nmt-password-fields.h"
@@ -39,8 +41,8 @@ static NmtEditorSection *
 build_dsl_section(NmtPageDsl *dsl, NMSettingPppoe *s_pppoe)
 {
     NmtEditorSection *section;
-    NmtEditorGrid *   grid;
-    NmtNewtWidget *   widget;
+    NmtEditorGrid    *grid;
+    NmtNewtWidget    *widget;
 
     section = nmt_editor_section_new(_("DSL"), NULL, TRUE);
     grid    = nmt_editor_section_get_body(section);
@@ -75,19 +77,15 @@ build_dsl_section(NmtPageDsl *dsl, NMSettingPppoe *s_pppoe)
 static void
 nmt_page_dsl_constructed(GObject *object)
 {
-    NmtPageDsl *       dsl  = NMT_PAGE_DSL(object);
+    NmtPageDsl        *dsl  = NMT_PAGE_DSL(object);
     NmtPageDslPrivate *priv = NMT_PAGE_DSL_GET_PRIVATE(dsl);
-    NMConnection *     conn;
-    NMSettingPppoe *   s_pppoe;
-    NmtEditorSection * section;
-    const GSList *     sections, *iter;
+    NMConnection      *conn;
+    NMSettingPppoe    *s_pppoe;
+    NmtEditorSection  *section;
+    const GSList      *sections, *iter;
 
     conn    = nmt_editor_page_get_connection(NMT_EDITOR_PAGE(dsl));
-    s_pppoe = nm_connection_get_setting_pppoe(conn);
-    if (!s_pppoe) {
-        nm_connection_add_setting(conn, nm_setting_pppoe_new());
-        s_pppoe = nm_connection_get_setting_pppoe(conn);
-    }
+    s_pppoe = _nm_connection_ensure_setting(conn, NM_TYPE_SETTING_PPPOE);
 
     section = build_dsl_section(dsl, s_pppoe);
     nmt_editor_page_add_section(NMT_EDITOR_PAGE(dsl), section);
@@ -110,7 +108,7 @@ nmt_page_dsl_constructed(GObject *object)
 static void
 nmt_page_dsl_finalize(GObject *object)
 {
-    NmtPageDsl *       dsl  = NMT_PAGE_DSL(object);
+    NmtPageDsl        *dsl  = NMT_PAGE_DSL(object);
     NmtPageDslPrivate *priv = NMT_PAGE_DSL_GET_PRIVATE(dsl);
 
     g_clear_object(&priv->ethernet_page);

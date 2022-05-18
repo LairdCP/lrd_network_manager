@@ -73,18 +73,18 @@ typedef struct {
     const char *(*uri_func)(NMSetting8021x *setting);
     const char *(*passwd_func)(NMSetting8021x *setting);
     NMSettingSecretFlags (*pwflag_func)(NMSetting8021x *setting);
-    gboolean (*set_cert_func)(NMSetting8021x *        setting,
-                              const char *            value,
+    gboolean (*set_cert_func)(NMSetting8021x         *setting,
+                              const char             *value,
                               NMSetting8021xCKScheme  scheme,
                               NMSetting8021xCKFormat *out_format,
-                              GError **               error);
-    gboolean (*set_private_key_func)(NMSetting8021x *        setting,
-                                     const char *            value,
-                                     const char *            password,
+                              GError                **error);
+    gboolean (*set_private_key_func)(NMSetting8021x         *setting,
+                                     const char             *value,
+                                     const char             *password,
                                      NMSetting8021xCKScheme  scheme,
                                      NMSetting8021xCKFormat *out_format,
-                                     GError **               error);
-    const char *             file_suffix;
+                                     GError                **error);
+    const char              *file_suffix;
     NMSetting8021xSchemeType scheme_type;
     bool                     is_secret : 1;
 } NMSetting8021xSchemeVtable;
@@ -94,7 +94,7 @@ extern const NMSetting8021xSchemeVtable
 
 /*****************************************************************************/
 
-typedef enum {
+typedef enum _nm_packed {
     /* the enum (and their numeric values) are internal API. Do not assign
      * any meaning the numeric values, because they already have one:
      *
@@ -110,6 +110,7 @@ typedef enum {
     NM_META_SETTING_TYPE_ADSL,
     NM_META_SETTING_TYPE_BLUETOOTH,
     NM_META_SETTING_TYPE_BOND,
+    NM_META_SETTING_TYPE_BOND_PORT,
     NM_META_SETTING_TYPE_BRIDGE,
     NM_META_SETTING_TYPE_BRIDGE_PORT,
     NM_META_SETTING_TYPE_CDMA,
@@ -159,9 +160,9 @@ typedef enum {
 } NMMetaSettingType;
 
 #if _NM_META_SETTING_BASE_IMPL_LIBNM
-    #define _NMMetaSettingInfo_Alias _NMMetaSettingInfo
+#define _NMMetaSettingInfo_Alias _NMMetaSettingInfo
 #else
-    #define _NMMetaSettingInfo_Alias _NMMetaSettingInfoCli
+#define _NMMetaSettingInfo_Alias _NMMetaSettingInfoCli
 #endif
 
 struct _NMMetaSettingInfo_Alias {
@@ -174,6 +175,8 @@ struct _NMMetaSettingInfo_Alias {
 typedef struct _NMMetaSettingInfo_Alias NMMetaSettingInfo;
 
 extern const NMMetaSettingInfo nm_meta_setting_infos[_NM_META_SETTING_TYPE_NUM + 1];
+
+extern const NMMetaSettingType nm_meta_setting_types_by_priority[_NM_META_SETTING_TYPE_NUM];
 
 const NMMetaSettingInfo *nm_meta_setting_infos_by_name(const char *name);
 const NMMetaSettingInfo *nm_meta_setting_infos_by_gtype(GType gtype);

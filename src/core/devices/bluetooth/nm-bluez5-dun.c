@@ -23,7 +23,7 @@
 /*****************************************************************************/
 
 typedef struct {
-    GCancellable *       cancellable;
+    GCancellable        *cancellable;
     NMBluez5DunConnectCb callback;
     gpointer             callback_user_data;
 
@@ -182,25 +182,18 @@ _connect_open_tty(NMBluez5DunContext *context)
                   nm_strerror_native(errsv),
                   errsv);
             context->cdat->connect_open_tty_started_at = nm_utils_get_monotonic_timestamp_nsec();
-            context->cdat->source                      = nm_g_timeout_source_new(100,
-                                                            G_PRIORITY_DEFAULT,
-                                                            _connect_open_tty_retry_cb,
-                                                            context,
-                                                            NULL);
-            g_source_attach(context->cdat->source, NULL);
+            context->cdat->source =
+                nm_g_timeout_add_source(100, _connect_open_tty_retry_cb, context);
         }
         return -errsv;
     }
 
     context->rfcomm_tty_fd = fd;
 
-    context->rfcomm_tty_poll_source = nm_g_unix_fd_source_new(context->rfcomm_tty_fd,
+    context->rfcomm_tty_poll_source = nm_g_unix_fd_add_source(context->rfcomm_tty_fd,
                                                               G_IO_ERR | G_IO_HUP,
-                                                              G_PRIORITY_DEFAULT,
                                                               _rfcomm_tty_poll_cb,
-                                                              context,
-                                                              NULL);
-    g_source_attach(context->rfcomm_tty_poll_source, NULL);
+                                                              context);
 
     _context_invoke_callback_success(context);
     return 0;
@@ -272,10 +265,10 @@ _connect_create_rfcomm(NMBluez5DunContext *context)
 static gboolean
 _connect_socket_connect_cb(int fd, GIOCondition condition, gpointer user_data)
 {
-    NMBluez5DunContext *context = user_data;
-    gs_free_error GError *error = NULL;
-    int                   errsv = 0;
-    socklen_t             slen  = sizeof(errsv);
+    NMBluez5DunContext   *context = user_data;
+    gs_free_error GError *error   = NULL;
+    int                   errsv   = 0;
+    socklen_t             slen    = sizeof(errsv);
     int                   r;
 
     nm_clear_g_source_inst(&context->cdat->source);
@@ -369,13 +362,10 @@ _connect_socket_connect(NMBluez5DunContext *context)
               context->dst_str,
               context->rfcomm_channel);
 
-        context->cdat->source = nm_g_unix_fd_source_new(context->rfcomm_sock_fd,
+        context->cdat->source = nm_g_unix_fd_add_source(context->rfcomm_sock_fd,
                                                         G_IO_OUT,
-                                                        G_PRIORITY_DEFAULT,
                                                         _connect_socket_connect_cb,
-                                                        context,
-                                                        NULL);
-        g_source_attach(context->cdat->source, NULL);
+                                                        context);
         return;
     }
 
@@ -425,7 +415,7 @@ _connect_sdp_search_cb(uint8_t type, uint16_t status, uint8_t *rsp, size_t size,
     do {
         sdp_record_t *rec;
         int           recsize = 0;
-        sdp_list_t *  protos;
+        sdp_list_t   *protos;
 
         rec = sdp_extract_pdu(rsp, bytesleft, &recsize);
         if (!rec)
@@ -464,8 +454,8 @@ _connect_sdp_search_cb(uint8_t type, uint16_t status, uint8_t *rsp, size_t size,
 static gboolean
 _connect_sdp_search_io_cb(int fd, GIOCondition condition, gpointer user_data)
 {
-    NMBluez5DunContext *context = user_data;
-    gs_free_error GError *error = NULL;
+    NMBluez5DunContext   *context = user_data;
+    gs_free_error GError *error   = NULL;
     int                   errsv;
 
     if (condition & (G_IO_ERR | G_IO_HUP | G_IO_NVAL)) {
@@ -515,8 +505,8 @@ _connect_sdp_search_io_cb(int fd, GIOCondition condition, gpointer user_data)
 static gboolean
 _connect_sdp_session_start_on_idle_cb(gpointer user_data)
 {
-    NMBluez5DunContext *context = user_data;
-    gs_free_error GError *error = NULL;
+    NMBluez5DunContext   *context = user_data;
+    gs_free_error GError *error   = NULL;
 
     nm_clear_g_source_inst(&context->cdat->source);
 
@@ -531,15 +521,15 @@ _connect_sdp_session_start_on_idle_cb(gpointer user_data)
 static gboolean
 _connect_sdp_io_cb(int fd, GIOCondition condition, gpointer user_data)
 {
-    NMBluez5DunContext *context = user_data;
-    sdp_list_t *        search;
-    sdp_list_t *        attrs;
-    uuid_t              svclass;
-    uint16_t            attr;
-    int                 errsv;
-    int                 fd_err = 0;
-    int                 r;
-    socklen_t           len     = sizeof(fd_err);
+    NMBluez5DunContext   *context = user_data;
+    sdp_list_t           *search;
+    sdp_list_t           *attrs;
+    uuid_t                svclass;
+    uint16_t              attr;
+    int                   errsv;
+    int                   fd_err = 0;
+    int                   r;
+    socklen_t             len   = sizeof(fd_err);
     gs_free_error GError *error = NULL;
 
     nm_clear_g_source_inst(&context->cdat->source);
@@ -567,12 +557,8 @@ _connect_sdp_io_cb(int fd, GIOCondition condition, gpointer user_data)
                   nm_strerror_native(errsv),
                   errsv);
             nm_clear_g_source_inst(&context->cdat->source);
-            context->cdat->source = nm_g_timeout_source_new(1000,
-                                                            G_PRIORITY_DEFAULT,
-                                                            _connect_sdp_session_start_on_idle_cb,
-                                                            context,
-                                                            NULL);
-            g_source_attach(context->cdat->source, NULL);
+            context->cdat->source =
+                nm_g_timeout_add_source(1000, _connect_sdp_session_start_on_idle_cb, context);
             return G_SOURCE_REMOVE;
         }
 
@@ -616,13 +602,10 @@ _connect_sdp_io_cb(int fd, GIOCondition condition, gpointer user_data)
     }
 
     /* Set callback responsible for update the internal SDP transaction */
-    context->cdat->source = nm_g_unix_fd_source_new(fd,
+    context->cdat->source = nm_g_unix_fd_add_source(fd,
                                                     G_IO_IN | G_IO_HUP | G_IO_ERR | G_IO_NVAL,
-                                                    G_PRIORITY_DEFAULT,
                                                     _connect_sdp_search_io_cb,
-                                                    context,
-                                                    NULL);
-    g_source_attach(context->cdat->source, NULL);
+                                                    context);
 
 done:
     if (error)
@@ -664,30 +647,27 @@ _connect_sdp_session_start(NMBluez5DunContext *context, GError **error)
         return FALSE;
     }
 
-    context->cdat->source = nm_g_unix_fd_source_new(sdp_get_socket(context->cdat->sdp_session),
+    context->cdat->source = nm_g_unix_fd_add_source(sdp_get_socket(context->cdat->sdp_session),
                                                     G_IO_OUT | G_IO_HUP | G_IO_ERR | G_IO_NVAL,
-                                                    G_PRIORITY_DEFAULT,
                                                     _connect_sdp_io_cb,
-                                                    context,
-                                                    NULL);
-    g_source_attach(context->cdat->source, NULL);
+                                                    context);
     return TRUE;
 }
 
 /*****************************************************************************/
 
 gboolean
-nm_bluez5_dun_connect(const char *                 adapter,
-                      const char *                 remote,
-                      GCancellable *               cancellable,
+nm_bluez5_dun_connect(const char                  *adapter,
+                      const char                  *remote,
+                      GCancellable                *cancellable,
                       NMBluez5DunConnectCb         callback,
                       gpointer                     callback_user_data,
                       NMBluez5DunNotifyTtyHangupCb notify_tty_hangup_cb,
                       gpointer                     notify_tty_hangup_user_data,
-                      GError **                    error)
+                      GError                     **error)
 {
     nm_auto_free_context NMBluez5DunContext *context = NULL;
-    ConnectData *                            cdat;
+    ConnectData                             *cdat;
     gsize                                    src_l;
     gsize                                    dst_l;
 

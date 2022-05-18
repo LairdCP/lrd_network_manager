@@ -33,7 +33,7 @@ NM_GOBJECT_PROPERTIES_DEFINE_BASE(PROP_PERM_HW_ADDRESS,
 typedef struct {
     NMLDBusPropertyAO access_points;
     NMLDBusPropertyO  active_access_point;
-    char *            perm_hw_address;
+    char             *perm_hw_address;
     gint64            last_scan;
     guint32           mode;
     guint32           bitrate;
@@ -212,7 +212,7 @@ nm_device_wifi_get_access_point_by_path(NMDeviceWifi *device, const char *path)
 {
     const GPtrArray *aps;
     int              i;
-    NMAccessPoint *  ap = NULL;
+    NMAccessPoint   *ap = NULL;
 
     g_return_val_if_fail(NM_IS_DEVICE_WIFI(device), NULL);
     g_return_val_if_fail(path != NULL, NULL);
@@ -242,7 +242,7 @@ nm_device_wifi_get_access_point_by_path(NMDeviceWifi *device, const char *path)
  * Use nm_utils_get_timestamp_msec() to obtain current time value suitable for
  * comparing to this value.
  *
- * Returns: the last scan time in seconds
+ * Returns: the last scan time in milliseconds (in clock_gettime(CLOCK_BOOTTIME) scale).
  *
  * Since: 1.12
  **/
@@ -299,9 +299,9 @@ nm_device_wifi_request_scan(NMDeviceWifi *device, GCancellable *cancellable, GEr
  **/
 gboolean
 nm_device_wifi_request_scan_options(NMDeviceWifi *device,
-                                    GVariant *    options,
+                                    GVariant     *options,
                                     GCancellable *cancellable,
-                                    GError **     error)
+                                    GError      **error)
 {
     g_return_val_if_fail(NM_IS_DEVICE_WIFI(device), FALSE);
     g_return_val_if_fail(!options || g_variant_is_of_type(options, G_VARIANT_TYPE_VARDICT), FALSE);
@@ -342,8 +342,8 @@ NM_BACKPORT_SYMBOL(
  * that for the scan to complete.
  **/
 void
-nm_device_wifi_request_scan_async(NMDeviceWifi *      device,
-                                  GCancellable *      cancellable,
+nm_device_wifi_request_scan_async(NMDeviceWifi       *device,
+                                  GCancellable       *cancellable,
                                   GAsyncReadyCallback callback,
                                   gpointer            user_data)
 {
@@ -371,9 +371,9 @@ nm_device_wifi_request_scan_async(NMDeviceWifi *      device,
  * Since: 1.2
  **/
 void
-nm_device_wifi_request_scan_options_async(NMDeviceWifi *      device,
-                                          GVariant *          options,
-                                          GCancellable *      cancellable,
+nm_device_wifi_request_scan_options_async(NMDeviceWifi       *device,
+                                          GVariant           *options,
+                                          GCancellable       *cancellable,
                                           GAsyncReadyCallback callback,
                                           gpointer            user_data)
 {
@@ -404,8 +404,8 @@ NM_BACKPORT_SYMBOL(libnm_1_0_6,
                    void,
                    nm_device_wifi_request_scan_options_async,
                    (NMDeviceWifi * device,
-                    GVariant *          options,
-                    GCancellable *      cancellable,
+                    GVariant           *options,
+                    GCancellable       *cancellable,
                     GAsyncReadyCallback callback,
                     gpointer            user_data),
                    (device, options, cancellable, callback, user_data));
@@ -438,10 +438,9 @@ nm_device_wifi_request_scan_finish(NMDeviceWifi *device, GAsyncResult *result, G
 
 #define RSN_CAPS (NM_WIFI_DEVICE_CAP_CIPHER_CCMP | NM_WIFI_DEVICE_CAP_RSN)
 
-#define RSN_CAPS_PMF (NM_WIFI_DEVICE_CAP_CIPHER_CMAC_128 |  \
-                      NM_WIFI_DEVICE_CAP_CIPHER_CMAC_256 |  \
-                      NM_WIFI_DEVICE_CAP_CIPHER_GMAC_128 |  \
-                      NM_WIFI_DEVICE_CAP_CIPHER_GMAC_256)
+#define RSN_CAPS_PMF                                                         \
+    (NM_WIFI_DEVICE_CAP_CIPHER_CMAC_128 | NM_WIFI_DEVICE_CAP_CIPHER_CMAC_256 \
+     | NM_WIFI_DEVICE_CAP_CIPHER_GMAC_128 | NM_WIFI_DEVICE_CAP_CIPHER_GMAC_256)
 
 static gboolean
 has_proto(NMSettingWirelessSecurity *s_wsec, const char *proto)
@@ -458,11 +457,11 @@ has_proto(NMSettingWirelessSecurity *s_wsec, const char *proto)
 static gboolean
 connection_compatible(NMDevice *device, NMConnection *connection, GError **error)
 {
-    NMSettingWireless *        s_wifi;
+    NMSettingWireless         *s_wifi;
     NMSettingWirelessSecurity *s_wsec;
-    const char *               hwaddr, *setting_hwaddr;
+    const char                *hwaddr, *setting_hwaddr;
     NMDeviceWifiCapabilities   wifi_caps;
-    const char *               key_mgmt;
+    const char                *key_mgmt;
 
     if (!NM_DEVICE_CLASS(nm_device_wifi_parent_class)
              ->connection_compatible(device, connection, error))
@@ -504,10 +503,8 @@ connection_compatible(NMDevice *device, NMConnection *connection, GError **error
         /* Connection has security, verify it against the device's capabilities */
         key_mgmt = nm_setting_wireless_security_get_key_mgmt(s_wsec);
         if (nm_streq(key_mgmt, "wpa-psk") || nm_streq(key_mgmt, "wpa-eap")
-            || nm_streq(key_mgmt, "sae")
-            || nm_streq(key_mgmt, "wpa-eap-suite-b")
-            || nm_streq(key_mgmt, "wpa-eap-suite-b-192")
-            || nm_streq(key_mgmt, "owe")
+            || nm_streq(key_mgmt, "sae") || nm_streq(key_mgmt, "wpa-eap-suite-b")
+            || nm_streq(key_mgmt, "wpa-eap-suite-b-192") || nm_streq(key_mgmt, "owe")
             || nm_streq(key_mgmt, "owe-only")) {
             wifi_caps = nm_device_wifi_get_capabilities(NM_DEVICE_WIFI(device));
 
@@ -522,8 +519,8 @@ connection_compatible(NMDevice *device, NMConnection *connection, GError **error
             }
 
             /* Make sure WPA2/RSN-only connections don't get chosen for WPA-only cards */
-            if ((has_proto(s_wsec, "rsn") || has_proto(s_wsec, "wpa3"))
-                && !has_proto (s_wsec, "wpa") && !(wifi_caps & RSN_CAPS)) {
+            if ((has_proto(s_wsec, "rsn") || has_proto(s_wsec, "wpa3")) && !has_proto(s_wsec, "wpa")
+                && !(wifi_caps & RSN_CAPS)) {
                 g_set_error_literal(
                     error,
                     NM_DEVICE_ERROR,
@@ -532,38 +529,51 @@ connection_compatible(NMDevice *device, NMConnection *connection, GError **error
                 return FALSE;
             }
 
-            if (has_proto (s_wsec, "wpa3")) {
+            if (has_proto(s_wsec, "wpa3")) {
                 if (!(wifi_caps & RSN_CAPS_PMF)) {
-                    g_set_error_literal (error, NM_DEVICE_ERROR, NM_DEVICE_ERROR_INCOMPATIBLE_CONNECTION,
-                                         _("The device is lacking PMF capabilities required by the connection."));
+                    g_set_error_literal(
+                        error,
+                        NM_DEVICE_ERROR,
+                        NM_DEVICE_ERROR_INCOMPATIBLE_CONNECTION,
+                        _("The device is lacking PMF capabilities required by the connection."));
                     return FALSE;
                 }
-                if (!g_strcmp0 (key_mgmt, "wpa-eap-suite-b-192") &&
-                    !(wifi_caps & NM_WIFI_DEVICE_CAP_CIPHER_GCMP_256) &&
-                    !(wifi_caps & NM_WIFI_DEVICE_CAP_CIPHER_GMAC_256))
-                {
-                    g_set_error_literal (error, NM_DEVICE_ERROR, NM_DEVICE_ERROR_INCOMPATIBLE_CONNECTION,
-                                         _("The device is lacking wpa3 suite-b-192 gcmp-256/gmac-256 capabilities required by the connection."));
+                if (!g_strcmp0(key_mgmt, "wpa-eap-suite-b-192")
+                    && !(wifi_caps & NM_WIFI_DEVICE_CAP_CIPHER_GCMP_256)
+                    && !(wifi_caps & NM_WIFI_DEVICE_CAP_CIPHER_GMAC_256)) {
+                    g_set_error_literal(
+                        error,
+                        NM_DEVICE_ERROR,
+                        NM_DEVICE_ERROR_INCOMPATIBLE_CONNECTION,
+                        _("The device is lacking wpa3 suite-b-192 gcmp-256/gmac-256 capabilities "
+                          "required by the connection."));
                     return FALSE;
                 }
             } else {
-                if (!g_strcmp0 (key_mgmt, "wpa-eap-suite-b-192") &&
-                    !(wifi_caps & (NM_WIFI_DEVICE_CAP_CIPHER_CCMP_256|
-                                   NM_WIFI_DEVICE_CAP_CIPHER_GCMP_256)) &&
-                    !(wifi_caps & (NM_WIFI_DEVICE_CAP_CIPHER_CMAC_256|
-                                   NM_WIFI_DEVICE_CAP_CIPHER_GMAC_256)))
-                {
-                    g_set_error_literal (error, NM_DEVICE_ERROR, NM_DEVICE_ERROR_INCOMPATIBLE_CONNECTION,
-                                         _("The device is lacking suite-b-192 ccmp-256/gcmp-256, or cmac-256/gmac-256 capabilities required by the connection."));
+                if (!g_strcmp0(key_mgmt, "wpa-eap-suite-b-192")
+                    && !(
+                        wifi_caps
+                        & (NM_WIFI_DEVICE_CAP_CIPHER_CCMP_256 | NM_WIFI_DEVICE_CAP_CIPHER_GCMP_256))
+                    && !(wifi_caps
+                         & (NM_WIFI_DEVICE_CAP_CIPHER_CMAC_256
+                            | NM_WIFI_DEVICE_CAP_CIPHER_GMAC_256))) {
+                    g_set_error_literal(
+                        error,
+                        NM_DEVICE_ERROR,
+                        NM_DEVICE_ERROR_INCOMPATIBLE_CONNECTION,
+                        _("The device is lacking suite-b-192 ccmp-256/gcmp-256, or "
+                          "cmac-256/gmac-256 capabilities required by the connection."));
                     return FALSE;
                 }
             }
-            if (!g_strcmp0 (key_mgmt, "wpa-eap-suite-b") &&
-                !(wifi_caps & NM_WIFI_DEVICE_CAP_CIPHER_GCMP_128) &&
-                !(wifi_caps & NM_WIFI_DEVICE_CAP_CIPHER_GMAC_128))
-            {
-                g_set_error_literal (error, NM_DEVICE_ERROR, NM_DEVICE_ERROR_INCOMPATIBLE_CONNECTION,
-                                     _("The device is lacking suite-b gcmp/gmac capabilities required by the connection."));
+            if (!g_strcmp0(key_mgmt, "wpa-eap-suite-b")
+                && !(wifi_caps & NM_WIFI_DEVICE_CAP_CIPHER_GCMP_128)
+                && !(wifi_caps & NM_WIFI_DEVICE_CAP_CIPHER_GMAC_128)) {
+                g_set_error_literal(error,
+                                    NM_DEVICE_ERROR,
+                                    NM_DEVICE_ERROR_INCOMPATIBLE_CONNECTION,
+                                    _("The device is lacking suite-b gcmp/gmac capabilities "
+                                      "required by the connection."));
                 return FALSE;
             }
         }
@@ -582,8 +592,8 @@ get_setting_type(NMDevice *device)
 
 static void
 _property_ao_notify_changed_access_points_cb(NMLDBusPropertyAO *pr_ao,
-                                             NMClient *         client,
-                                             NMObject *         nmobj,
+                                             NMClient          *client,
+                                             NMObject          *nmobj,
                                              gboolean           is_added /* or else removed */)
 {
     _nm_client_notify_event_queue_emit_obj_signal(client,
@@ -685,7 +695,7 @@ const NMLDBusMetaIface _nml_dbus_meta_iface_nm_device_wireless = NML_DBUS_META_I
 static void
 nm_device_wifi_class_init(NMDeviceWifiClass *klass)
 {
-    GObjectClass * object_class    = G_OBJECT_CLASS(klass);
+    GObjectClass  *object_class    = G_OBJECT_CLASS(klass);
     NMObjectClass *nm_object_class = NM_OBJECT_CLASS(klass);
     NMDeviceClass *device_class    = NM_DEVICE_CLASS(klass);
 

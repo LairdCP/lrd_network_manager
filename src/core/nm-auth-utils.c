@@ -18,7 +18,7 @@
 /*****************************************************************************/
 
 typedef struct {
-    const char *   tag;
+    const char    *tag;
     gpointer       data;
     GDestroyNotify destroy;
 } ChainData;
@@ -33,7 +33,7 @@ struct _NMAuthChain {
     CList auth_call_lst_head;
 
     GDBusMethodInvocation *context;
-    NMAuthSubject *        subject;
+    NMAuthSubject         *subject;
 
     GCancellable *cancellable;
 
@@ -56,9 +56,9 @@ G_STATIC_ASSERT(G_STRUCT_OFFSET(NMAuthChain, parent_lst) == 0);
 
 typedef struct {
     CList                auth_call_lst;
-    NMAuthChain *        chain;
+    NMAuthChain         *chain;
     NMAuthManagerCallId *call_id;
-    const char *         permission;
+    const char          *permission;
     NMAuthCallResult     result;
 } AuthCall;
 
@@ -105,7 +105,7 @@ static gboolean
 _cancellable_idle_cb(gpointer user_data)
 {
     NMAuthChain *self = user_data;
-    AuthCall *   call;
+    AuthCall    *call;
 
     nm_assert(g_cancellable_is_cancelled(self->cancellable));
     nm_assert(self->cancellable_idle_source);
@@ -124,12 +124,8 @@ _cancellable_idle_cb(gpointer user_data)
 static void
 _cancellable_on_idle(NMAuthChain *self)
 {
-    if (self->cancellable_idle_source)
-        return;
-
-    self->cancellable_idle_source =
-        nm_g_idle_source_new(G_PRIORITY_DEFAULT, _cancellable_idle_cb, self, NULL);
-    g_source_attach(self->cancellable_idle_source, NULL);
+    if (!self->cancellable_idle_source)
+        self->cancellable_idle_source = nm_g_idle_add_source(_cancellable_idle_cb, self);
 }
 
 GCancellable *
@@ -264,8 +260,8 @@ nm_auth_chain_steal_data(NMAuthChain *self, const char *tag)
  * It is a bug to add the same tag more than once.
  */
 void
-nm_auth_chain_set_data_unsafe(NMAuthChain *  self,
-                              const char *   tag,
+nm_auth_chain_set_data_unsafe(NMAuthChain   *self,
+                              const char    *tag,
                               gpointer       data,
                               GDestroyNotify data_destroy)
 {
@@ -355,15 +351,15 @@ nm_auth_chain_get_context(NMAuthChain *self)
 /*****************************************************************************/
 
 static void
-pk_call_cb(NMAuthManager *      auth_manager,
+pk_call_cb(NMAuthManager       *auth_manager,
            NMAuthManagerCallId *call_id,
            gboolean             is_authorized,
            gboolean             is_challenge,
-           GError *             error,
+           GError              *error,
            gpointer             user_data)
 {
     NMAuthChain *self;
-    AuthCall *   call;
+    AuthCall    *call;
 
     nm_assert(call_id);
 
@@ -494,7 +490,7 @@ nm_auth_chain_new_context(GDBusMethodInvocation *context,
                           gpointer               user_data)
 {
     NMAuthSubject *subject;
-    NMAuthChain *  chain;
+    NMAuthChain   *chain;
 
     g_return_val_if_fail(context, NULL);
     nm_assert(done_func);
@@ -509,7 +505,7 @@ nm_auth_chain_new_context(GDBusMethodInvocation *context,
 }
 
 NMAuthChain *
-nm_auth_chain_new_subject(NMAuthSubject *        subject,
+nm_auth_chain_new_subject(NMAuthSubject         *subject,
                           GDBusMethodInvocation *context,
                           NMAuthChainResultFunc  done_func,
                           gpointer               user_data)
@@ -607,7 +603,7 @@ gboolean
 nm_auth_is_subject_in_acl(NMConnection *connection, NMAuthSubject *subject, char **out_error_desc)
 {
     NMSettingConnection *s_con;
-    gs_free char *       user = NULL;
+    gs_free char        *user = NULL;
     gulong               uid;
 
     g_return_val_if_fail(connection, FALSE);
@@ -651,11 +647,11 @@ nm_auth_is_subject_in_acl(NMConnection *connection, NMAuthSubject *subject, char
 }
 
 gboolean
-nm_auth_is_subject_in_acl_set_error(NMConnection * connection,
+nm_auth_is_subject_in_acl_set_error(NMConnection  *connection,
                                     NMAuthSubject *subject,
                                     GQuark         err_domain,
                                     int            err_code,
-                                    GError **      error)
+                                    GError       **error)
 {
     char *error_desc = NULL;
 
@@ -670,12 +666,12 @@ nm_auth_is_subject_in_acl_set_error(NMConnection * connection,
 }
 
 gboolean
-nm_auth_is_invocation_in_acl_set_error(NMConnection *         connection,
+nm_auth_is_invocation_in_acl_set_error(NMConnection          *connection,
                                        GDBusMethodInvocation *invocation,
                                        GQuark                 err_domain,
                                        int                    err_code,
-                                       NMAuthSubject **       out_subject,
-                                       GError **              error)
+                                       NMAuthSubject        **out_subject,
+                                       GError               **error)
 {
     gs_unref_object NMAuthSubject *subject = NULL;
     gboolean                       success;

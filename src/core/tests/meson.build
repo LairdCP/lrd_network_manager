@@ -6,8 +6,6 @@ test_units = [
   'test-core',
   'test-core-with-expect',
   'test-dcb',
-  'test-ip4-config',
-  'test-ip6-config',
   'test-l3cfg',
   'test-utils',
   'test-wired-defname',
@@ -44,7 +42,9 @@ exe = executable(
   link_with: [
     libnm_systemd_shared,
     libnm_systemd_core,
+    libnm_glib_aux,
     libnm_log_null,
+    libnm_std_aux,
     libc_siphash,
   ],
 )

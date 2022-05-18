@@ -41,8 +41,8 @@ NM_GOBJECT_PROPERTIES_DEFINE(NMWifiAP,
 
 struct _NMWifiAPPrivate {
     /* Scanned or cached values */
-    GBytes *     ssid;
-    char *       address;
+    GBytes      *ssid;
+    char        *address;
     _NM80211Mode mode;
     guint8       strength;
     guint32      freq;        /* Frequency in MHz; ie 2412 (== 2.412 GHz) */
@@ -418,9 +418,9 @@ has_proto(NMSettingWirelessSecurity *sec, const char *proto)
     guint32 i;
 
     if (num_protos == 0) {
-        if (!strcmp(proto,"wpa3"))
+        if (!strcmp(proto, "wpa3"))
             return FALSE; /* wpa3 is not enabled by default */
-        return TRUE; /* interpret no protos as "all" */
+        return TRUE;      /* interpret no protos as "all" */
     }
 
     for (i = 0; i < num_protos; i++) {
@@ -433,7 +433,7 @@ has_proto(NMSettingWirelessSecurity *sec, const char *proto)
 static void
 add_pair_ciphers(NMWifiAP *ap, NMSettingWirelessSecurity *sec)
 {
-    NMWifiAPPrivate *      priv  = NM_WIFI_AP_GET_PRIVATE(ap);
+    NMWifiAPPrivate       *priv  = NM_WIFI_AP_GET_PRIVATE(ap);
     guint32                num   = nm_setting_wireless_security_get_num_pairwise(sec);
     NM80211ApSecurityFlags flags = NM_802_11_AP_SEC_NONE;
     guint32                i;
@@ -441,8 +441,8 @@ add_pair_ciphers(NMWifiAP *ap, NMSettingWirelessSecurity *sec)
     /* If no ciphers are specified, that means "all" WPA ciphers */
     if (num == 0) {
         if (has_proto(sec, "wpa3"))
-            flags |= NM_802_11_AP_SEC_PAIR_CCMP | NM_802_11_AP_SEC_PAIR_CCMP_256 |
-                NM_802_11_AP_SEC_PAIR_GCMP_128 | NM_802_11_AP_SEC_PAIR_GCMP_256;
+            flags |= NM_802_11_AP_SEC_PAIR_CCMP | NM_802_11_AP_SEC_PAIR_CCMP_256
+                     | NM_802_11_AP_SEC_PAIR_GCMP_128 | NM_802_11_AP_SEC_PAIR_GCMP_256;
         else
             flags |= NM_802_11_AP_SEC_PAIR_TKIP | NM_802_11_AP_SEC_PAIR_CCMP;
     } else {
@@ -453,26 +453,25 @@ add_pair_ciphers(NMWifiAP *ap, NMSettingWirelessSecurity *sec)
                 flags |= NM_802_11_AP_SEC_PAIR_TKIP;
             else if (!strcmp(cipher, "ccmp"))
                 flags |= NM_802_11_AP_SEC_PAIR_CCMP;
-            else if (!strcmp (cipher, "ccmp-256"))
+            else if (!strcmp(cipher, "ccmp-256"))
                 flags |= NM_802_11_AP_SEC_PAIR_CCMP_256;
-            else if (!strcmp (cipher, "gcmp"))
+            else if (!strcmp(cipher, "gcmp"))
                 flags |= NM_802_11_AP_SEC_PAIR_GCMP_128;
-            else if (!strcmp (cipher, "gcmp-256"))
+            else if (!strcmp(cipher, "gcmp-256"))
                 flags |= NM_802_11_AP_SEC_PAIR_GCMP_256;
         }
     }
 
     if (has_proto(sec, PROTO_WPA))
         nm_wifi_ap_set_wpa_flags(ap, priv->wpa_flags | flags);
-    if (has_proto(sec, PROTO_RSN) ||
-        has_proto(sec, "wpa3"))
+    if (has_proto(sec, PROTO_RSN) || has_proto(sec, "wpa3"))
         nm_wifi_ap_set_rsn_flags(ap, priv->rsn_flags | flags);
 }
 
 static void
 add_group_ciphers(NMWifiAP *ap, NMSettingWirelessSecurity *sec)
 {
-    NMWifiAPPrivate *      priv  = NM_WIFI_AP_GET_PRIVATE(ap);
+    NMWifiAPPrivate       *priv  = NM_WIFI_AP_GET_PRIVATE(ap);
     guint32                num   = nm_setting_wireless_security_get_num_groups(sec);
     NM80211ApSecurityFlags flags = NM_802_11_AP_SEC_NONE;
     guint32                i;
@@ -480,8 +479,8 @@ add_group_ciphers(NMWifiAP *ap, NMSettingWirelessSecurity *sec)
     /* If no ciphers are specified, that means "all" WPA ciphers */
     if (num == 0) {
         if (has_proto(sec, "wpa3"))
-            flags |= NM_802_11_AP_SEC_GROUP_CCMP | NM_802_11_AP_SEC_GROUP_CCMP_256 |
-                NM_802_11_AP_SEC_GROUP_GCMP_128 | NM_802_11_AP_SEC_GROUP_GCMP_256;
+            flags |= NM_802_11_AP_SEC_GROUP_CCMP | NM_802_11_AP_SEC_GROUP_CCMP_256
+                     | NM_802_11_AP_SEC_GROUP_GCMP_128 | NM_802_11_AP_SEC_GROUP_GCMP_256;
         else
             flags |= NM_802_11_AP_SEC_GROUP_TKIP | NM_802_11_AP_SEC_GROUP_CCMP;
     } else {
@@ -496,19 +495,18 @@ add_group_ciphers(NMWifiAP *ap, NMSettingWirelessSecurity *sec)
                 flags |= NM_802_11_AP_SEC_GROUP_TKIP;
             else if (!strcmp(cipher, "ccmp"))
                 flags |= NM_802_11_AP_SEC_GROUP_CCMP;
-            else if (!strcmp (cipher, "ccmp-256"))
+            else if (!strcmp(cipher, "ccmp-256"))
                 flags |= NM_802_11_AP_SEC_GROUP_CCMP_256;
-            else if (!strcmp (cipher, "gcmp"))
+            else if (!strcmp(cipher, "gcmp"))
                 flags |= NM_802_11_AP_SEC_GROUP_GCMP_128;
-            else if (!strcmp (cipher, "gcmp-256"))
+            else if (!strcmp(cipher, "gcmp-256"))
                 flags |= NM_802_11_AP_SEC_GROUP_GCMP_256;
         }
     }
 
     if (has_proto(sec, PROTO_WPA))
         nm_wifi_ap_set_wpa_flags(ap, priv->wpa_flags | flags);
-    if (has_proto(sec, PROTO_RSN) ||
-        has_proto(sec, "wpa3"))
+    if (has_proto(sec, PROTO_RSN) || has_proto(sec, "wpa3"))
         nm_wifi_ap_set_rsn_flags(ap, priv->rsn_flags | flags);
 }
 
@@ -516,10 +514,10 @@ const char *
 nm_wifi_ap_to_string(const NMWifiAP *self, char *str_buf, gulong buf_len, gint64 now_msec)
 {
     const NMWifiAPPrivate *priv;
-    const char *           supplicant_id = "-";
-    const char *           export_path;
+    const char            *supplicant_id = "-";
+    const char            *export_path;
     guint32                chan;
-    gs_free char *         ssid_to_free = NULL;
+    gs_free char          *ssid_to_free = NULL;
     char                   str_buf_ts[100];
 
     g_return_val_if_fail(NM_IS_WIFI_AP(self), NULL);
@@ -557,8 +555,8 @@ nm_wifi_ap_to_string(const NMWifiAP *self, char *str_buf, gulong buf_len, gint64
         priv->flags & NM_802_11_AP_FLAGS_WPS_PIN
             ? 'p'
             : (priv->flags & NM_802_11_AP_FLAGS_WPS_PBC ? '#' : '_'),
-                priv->wpa_flags & 0xFFFFFFF,
-                priv->rsn_flags & 0xFFFFFFF,
+        priv->wpa_flags & 0xFFFFFFF,
+        priv->rsn_flags & 0xFFFFFFF,
         priv->last_seen_msec != G_MININT64
             ? nm_sprintf_buf(str_buf_ts,
                              "%3u.%03us",
@@ -581,16 +579,17 @@ freq_to_band(guint32 freq)
 }
 
 gboolean
-nm_wifi_ap_check_compatible(NMWifiAP *self, NMConnection *connection,
+nm_wifi_ap_check_compatible(NMWifiAP                *self,
+                            NMConnection            *connection,
                             NMDeviceWifiCapabilities dev_caps)
 {
-    NMWifiAPPrivate *          priv;
-    NMSettingWireless *        s_wireless;
+    NMWifiAPPrivate           *priv;
+    NMSettingWireless         *s_wireless;
     NMSettingWirelessSecurity *s_wireless_sec;
-    GBytes *                   ssid;
-    const char *               mode;
-    const char *               band;
-    const char *               bssid;
+    GBytes                    *ssid;
+    const char                *mode;
+    const char                *band;
+    const char                *bssid;
     guint32                    channel;
 
     g_return_val_if_fail(NM_IS_WIFI_AP(self), FALSE);
@@ -647,27 +646,26 @@ nm_wifi_ap_check_compatible(NMWifiAP *self, NMConnection *connection,
     s_wireless_sec = nm_connection_get_setting_wireless_security(connection);
 
     return nm_setting_wireless_ap_security_compatible2(s_wireless,
-                                                      s_wireless_sec,
-                                                      priv->flags,
-                                                      priv->wpa_flags,
-                                                      priv->rsn_flags,
-                                                      NM_802_11_MODE_CAST(priv->mode),
-                                                      dev_caps);
+                                                       s_wireless_sec,
+                                                       priv->flags,
+                                                       priv->wpa_flags,
+                                                       priv->rsn_flags,
+                                                       NM_802_11_MODE_CAST(priv->mode),
+                                                       dev_caps);
 }
 
-#define RSN_CAPS_PMF (NM_WIFI_DEVICE_CAP_CIPHER_CMAC_128 |  \
-                      NM_WIFI_DEVICE_CAP_CIPHER_CMAC_256 |  \
-                      NM_WIFI_DEVICE_CAP_CIPHER_GMAC_128 |  \
-                      NM_WIFI_DEVICE_CAP_CIPHER_GMAC_256)
+#define RSN_CAPS_PMF                                                         \
+    (NM_WIFI_DEVICE_CAP_CIPHER_CMAC_128 | NM_WIFI_DEVICE_CAP_CIPHER_CMAC_256 \
+     | NM_WIFI_DEVICE_CAP_CIPHER_GMAC_128 | NM_WIFI_DEVICE_CAP_CIPHER_GMAC_256)
 
 gboolean
-nm_wifi_ap_complete_connection(NMWifiAP *    self,
-                               NMConnection *connection,
-                               gboolean      lock_bssid,
+nm_wifi_ap_complete_connection(NMWifiAP                *self,
+                               NMConnection            *connection,
+                               gboolean                 lock_bssid,
                                NMDeviceWifiCapabilities dev_cap,
-                               GError **     error)
+                               GError                 **error)
 {
-    guint32 rsn_flags;
+    guint32          rsn_flags;
     NMWifiAPPrivate *priv = NM_WIFI_AP_GET_PRIVATE(self);
 
     g_return_val_if_fail(connection != NULL, FALSE);
@@ -696,7 +694,7 @@ nm_wifi_ap_complete_connection(NMWifiAP *    self,
 static void
 get_property(GObject *object, guint prop_id, GValue *value, GParamSpec *pspec)
 {
-    NMWifiAP *       self = NM_WIFI_AP(object);
+    NMWifiAP        *self = NM_WIFI_AP(object);
     NMWifiAPPrivate *priv = NM_WIFI_AP_GET_PRIVATE(self);
 
     switch (prop_id) {
@@ -710,7 +708,7 @@ get_property(GObject *object, guint prop_id, GValue *value, GParamSpec *pspec)
         g_value_set_uint(value, priv->rsn_flags);
         break;
     case PROP_SSID:
-        g_value_take_variant(value, nm_utils_gbytes_to_variant_ay(priv->ssid));
+        g_value_take_variant(value, nm_g_bytes_to_variant_ay(priv->ssid));
         break;
     case PROP_FREQUENCY:
         g_value_set_uint(value, priv->freq);
@@ -775,11 +773,11 @@ nm_wifi_ap_new_from_properties(const NMSupplicantBssInfo *bss_info)
 NMWifiAP *
 nm_wifi_ap_new_fake_from_connection(NMConnection *connection)
 {
-    NMWifiAP *                 ap;
-    NMWifiAPPrivate *          priv;
-    NMSettingWireless *        s_wireless;
+    NMWifiAP                  *ap;
+    NMWifiAPPrivate           *priv;
+    NMSettingWireless         *s_wireless;
     NMSettingWirelessSecurity *s_wireless_sec;
-    const char *               mode, *band, *key_mgmt;
+    const char                *mode, *band, *key_mgmt;
     guint32                    channel;
     NM80211ApSecurityFlags     flags;
     gboolean                   adhoc = FALSE, cckm = FALSE;
@@ -859,9 +857,8 @@ nm_wifi_ap_new_fake_from_connection(NMConnection *connection)
         if (has_proto(s_wireless_sec, PROTO_WPA)) {
             nm_wifi_ap_set_wpa_flags(ap, priv->wpa_flags | flags);
         }
-        if (has_proto(s_wireless_sec, PROTO_RSN) ||
-            has_proto(s_wireless_sec, "wpa3")) {
-            nm_wifi_ap_set_rsn_flags (ap, priv->rsn_flags | flags);
+        if (has_proto(s_wireless_sec, PROTO_RSN) || has_proto(s_wireless_sec, "wpa3")) {
+            nm_wifi_ap_set_rsn_flags(ap, priv->rsn_flags | flags);
         }
 
         add_pair_ciphers(ap, s_wireless_sec);
@@ -873,8 +870,7 @@ nm_wifi_ap_new_fake_from_connection(NMConnection *connection)
         flags = priv->wpa_flags | NM_802_11_AP_SEC_KEY_MGMT_PSK;
 
         /* Clear ciphers; only CCMP is supported */
-        flags &= ~(  NM_802_11_AP_SEC_PAIR_MASK
-                   | NM_802_11_AP_SEC_GROUP_MASK);
+        flags &= ~(NM_802_11_AP_SEC_PAIR_MASK | NM_802_11_AP_SEC_GROUP_MASK);
         flags |= NM_802_11_AP_SEC_PAIR_CCMP;
         flags |= NM_802_11_AP_SEC_GROUP_CCMP;
         nm_wifi_ap_set_rsn_flags(ap, flags);
@@ -893,7 +889,7 @@ error:
 static void
 finalize(GObject *object)
 {
-    NMWifiAP *       self = NM_WIFI_AP(object);
+    NMWifiAP        *self = NM_WIFI_AP(object);
     NMWifiAPPrivate *priv = NM_WIFI_AP_GET_PRIVATE(self);
 
     nm_assert(!self->wifi_device);
@@ -938,7 +934,7 @@ nm_wifi_ap_class_init(NMWifiAPClass *ap_class)
      | NM_802_11_AP_SEC_KEY_MGMT_SAE | NM_802_11_AP_SEC_KEY_MGMT_OWE                             \
      | NM_802_11_AP_SEC_KEY_MGMT_OWE_TM | NM_802_11_AP_SEC_KEY_MGMT_EAP_SUITE_B_192)
 
-    GObjectClass *     object_class      = G_OBJECT_CLASS(ap_class);
+    GObjectClass      *object_class      = G_OBJECT_CLASS(ap_class);
     NMDBusObjectClass *dbus_object_class = NM_DBUS_OBJECT_CLASS(ap_class);
 
     g_type_class_add_private(object_class, sizeof(NMWifiAPPrivate));
@@ -1035,10 +1031,10 @@ nm_wifi_ap_class_init(NMWifiAPClass *ap_class)
 const char **
 nm_wifi_aps_get_paths(const CList *aps_lst_head, gboolean include_without_ssid)
 {
-    NMWifiAP *   ap;
+    NMWifiAP    *ap;
     gsize        i, n;
     const char **list;
-    const char * path;
+    const char  *path;
 
     n    = c_list_length(aps_lst_head);
     list = g_new(const char *, n + 1);
@@ -1063,8 +1059,9 @@ nm_wifi_aps_get_paths(const CList *aps_lst_head, gboolean include_without_ssid)
 }
 
 NMWifiAP *
-nm_wifi_aps_find_first_compatible(const CList *aps_lst_head, NMConnection *connection,
-                                    NMDeviceWifiCapabilities dev_caps)
+nm_wifi_aps_find_first_compatible(const CList             *aps_lst_head,
+                                  NMConnection            *connection,
+                                  NMDeviceWifiCapabilities dev_caps)
 {
     NMWifiAP *ap;
 

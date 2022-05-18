@@ -62,7 +62,7 @@ struct _shvarLine {
 typedef struct _shvarLine shvarLine;
 
 struct _shvarFile {
-    char *      fileName;
+    char       *fileName;
     CList       lst_head;
     GHashTable *lst_idx;
     int         fd;
@@ -151,8 +151,8 @@ static char *
 _escape_ansic(const char *source)
 {
     const char *p;
-    char *      dest;
-    char *      q;
+    char       *dest;
+    char       *q;
     gsize       n_alloc;
 
     nm_assert(source);
@@ -172,7 +172,7 @@ _escape_ansic(const char *source)
             n_alloc += 2;
             break;
         default:
-            if ((*p < ' ') || (*p >= 0177))
+            if (!nm_ascii_is_regular(*p))
                 n_alloc += 4;
             else
                 n_alloc += 1;
@@ -221,7 +221,7 @@ _escape_ansic(const char *source)
             *q++ = *p;
             break;
         default:
-            if ((*p < ' ') || (*p >= 0177)) {
+            if (!nm_ascii_is_regular(*p)) {
                 *q++ = '\\';
                 *q++ = '0' + (((*p) >> 6) & 07);
                 *q++ = '0' + (((*p) >> 3) & 07);
@@ -255,20 +255,37 @@ svEscape(const char *s, char **to_free)
     gsize    slen;
     gsize    i;
     gsize    j;
+    gboolean all_ascii = TRUE;
 
     for (slen = 0; s[slen]; slen++) {
         if (_char_req_escape(s[slen]))
             mangle++;
         else if (_char_req_quotes(s[slen]))
             requires_quotes = TRUE;
-        else if (s[slen] < ' ') {
-            /* if the string contains newline we can only express it using ANSI C quotation
-             * (as we don't support line continuation).
-             * Additionally, ANSI control characters look odd with regular quotation, so handle
-             * them too. */
-            return (*to_free = _escape_ansic(s));
+        else if (!nm_ascii_is_regular(s[slen])) {
+            if (nm_ascii_is_ctrl_or_del(s[slen])) {
+                /* if the string contains newline we can only express it using ANSI C quotation
+                 * (as we don't support line continuation).
+                 * Additionally, ANSI control characters look odd with regular quotation, so handle
+                 * them too. */
+                return (*to_free = _escape_ansic(s));
+            }
+            all_ascii       = FALSE;
+            requires_quotes = TRUE;
         }
     }
+
+    if (!all_ascii && !g_utf8_validate(s, -1, NULL)) {
+        /* The string is not valid ASCII/UTF-8. We can escape that via
+         * _escape_ansic(), however the reader might have a problem to
+         * do something sensible with the blob later.
+         *
+         * This is really a bug of the caller, which should not present us with
+         * non-text in the first place. But at this place, we cannot handle the
+         * error better, so just escape it. */
+        return (*to_free = _escape_ansic(s));
+    }
+
     if (!mangle && !requires_quotes) {
         *to_free = NULL;
         return s;
@@ -371,6 +388,12 @@ _strbuf_init(NMStrBuf *str, const char *value, gsize i)
 
 const char *
 svUnescape(const char *value, char **to_free)
+{
+    return svUnescape_full(value, to_free, TRUE);
+}
+
+const char *
+svUnescape_full(const char *value, char **to_free, gboolean check_utf8)
 {
     NMStrBuf str                      = NM_STR_BUF_INIT(0, FALSE);
     int      looks_like_old_svescaped = -1;
@@ -646,6 +669,8 @@ out_value:
     }
 
     if (str.allocated > 0) {
+        if (check_utf8 && !nm_str_buf_utf8_validate(&str))
+            goto out_error;
         if (str.len == 0 || nm_str_buf_get_str_unsafe(&str)[0] == '\0') {
             nm_str_buf_destroy(&str);
             *to_free = NULL;
@@ -654,6 +679,11 @@ out_value:
             *to_free = nm_str_buf_finalize(&str, NULL);
             return *to_free;
         }
+    }
+
+    if (check_utf8 && !g_utf8_validate(value, i, NULL)) {
+        *to_free = NULL;
+        return NULL;
     }
 
     if (value[i] != '\0') {
@@ -675,7 +705,7 @@ out_error:
 shvarFile *
 svFile_new(const char *name, int fd, const char *content)
 {
-    shvarFile * s;
+    shvarFile  *s;
     const char *p;
     const char *q;
 
@@ -790,9 +820,9 @@ line_new_parse(const char *value, gsize len)
 static shvarLine *
 line_new_build(const char *key, const char *value)
 {
-    char *     value_escaped = NULL;
+    char      *value_escaped = NULL;
     shvarLine *line;
-    char *     new_key;
+    char      *new_key;
 
     value = svEscape(value, &value_escaped);
 
@@ -811,7 +841,7 @@ line_new_build(const char *key, const char *value)
 static gboolean
 line_set(shvarLine *line, const char *value)
 {
-    char *   value_escaped = NULL;
+    char    *value_escaped = NULL;
     gboolean changed       = FALSE;
 
     ASSERT_shvarLine(line);
@@ -896,11 +926,11 @@ do_link:
 static shvarFile *
 svOpenFileInternal(const char *name, gboolean create, GError **error)
 {
-    gboolean      closefd       = FALSE;
-    int           errsv         = 0;
-    gs_free char *content       = NULL;
-    gs_free_error GError *local = NULL;
-    nm_auto_close int     fd    = -1;
+    gboolean              closefd = FALSE;
+    int                   errsv   = 0;
+    gs_free char         *content = NULL;
+    gs_free_error GError *local   = NULL;
+    nm_auto_close int     fd      = -1;
 
     if (create)
         fd = open(name, O_RDWR | O_CLOEXEC); /* NOT O_CREAT */
@@ -1033,8 +1063,8 @@ svNumberedParseKey(const char *key)
 GHashTable *
 svGetKeys(shvarFile *s, SvKeyType match_key_type)
 {
-    GHashTable *     keys = NULL;
-    CList *          current;
+    GHashTable      *keys = NULL;
+    CList           *current;
     const shvarLine *line;
 
     nm_assert(s);
@@ -1107,7 +1137,7 @@ static const char *
 _svGetValue(shvarFile *s, const char *key, char **to_free)
 {
     const shvarLine *line;
-    const char *     v;
+    const char      *v;
 
     nm_assert(s);
     nm_assert(_shell_is_name(key, -1));
@@ -1120,9 +1150,8 @@ _svGetValue(shvarFile *s, const char *key, char **to_free)
     if (line && line->line) {
         v = svUnescape(line->line, to_free);
         if (!v) {
-            /* a wrongly quoted value is treated like the empty string.
-             * See also svWriteFile(), which handles unparsable values
-             * that way. */
+            /* a wrongly quoted value or non-UTF-8 is treated like the empty string.
+             * See also svWriteFile(), which handles unparsable values that way. */
             nm_assert(!*to_free);
             return "";
         }
@@ -1180,7 +1209,7 @@ svGetValueStr(shvarFile *s, const char *key, char **to_free)
 char *
 svGetValue_cp(shvarFile *s, const char *key)
 {
-    char *      to_free;
+    char       *to_free;
     const char *value;
 
     g_return_val_if_fail(s, NULL);
@@ -1204,7 +1233,7 @@ svGetValue_cp(shvarFile *s, const char *key)
 char *
 svGetValueStr_cp(shvarFile *s, const char *key)
 {
-    char *      to_free;
+    char       *to_free;
     const char *value;
 
     g_return_val_if_fail(s, NULL);
@@ -1231,7 +1260,7 @@ int
 svGetValueBoolean(shvarFile *s, const char *key, int fallback)
 {
     gs_free char *to_free = NULL;
-    const char *  value;
+    const char   *value;
 
     value = _svGetValue(s, key, &to_free);
     return svParseBoolean(value, fallback);
@@ -1264,7 +1293,7 @@ svGetValueTernary(shvarFile *s, const char *key)
 gint64
 svGetValueInt64(shvarFile *s, const char *key, guint base, gint64 min, gint64 max, gint64 fallback)
 {
-    char *      to_free;
+    char       *to_free;
     const char *value;
     gint64      result;
     int         errsv;
@@ -1291,7 +1320,7 @@ gboolean
 svGetValueEnum(shvarFile *s, const char *key, GType gtype, int *out_value, GError **error)
 {
     gs_free char *to_free = NULL;
-    const char *  svalue;
+    const char   *svalue;
     gs_free char *err_token = NULL;
     int           value;
 
@@ -1495,6 +1524,91 @@ svUnsetValue(shvarFile *s, const char *key)
 
 /*****************************************************************************/
 
+void
+svWarnInvalid(shvarFile *s, const char *file_type, NMLogDomain log_domain)
+{
+    shvarLine *line;
+    gsize      n;
+
+    if (!nm_logging_enabled(LOGL_WARN, log_domain))
+        return;
+
+    n = 0;
+    c_list_for_each_entry (line, &s->lst_head, lst) {
+        gs_free char *s_tmp = NULL;
+
+        n++;
+
+        if (!line->key) {
+            const char *str;
+
+            nm_assert(line->line);
+            str = nm_str_skip_leading_spaces(line->line);
+            if (!NM_IN_SET(str[0], '\0', '#')) {
+                nm_log_warn(log_domain,
+                            "ifcfg-rh: %s,%s:%zu: invalid line ignored",
+                            file_type,
+                            s->fileName,
+                            n);
+            }
+            continue;
+        }
+
+        if (g_hash_table_lookup(s->lst_idx, line) != line) {
+            nm_log_warn(
+                log_domain,
+                "ifcfg-rh: %s,%s:%zu: key %s is duplicated and the early occurrence ignored",
+                file_type,
+                s->fileName,
+                n,
+                line->key);
+            continue;
+        }
+
+        if (!line->line) {
+            /* the line is deleted via svUnsetValue(). Ignore. */
+            continue;
+        }
+
+        if (!svUnescape(line->line, &s_tmp)) {
+            if (!svUnescape_full(line->line, &s_tmp, FALSE)) {
+                nm_log_warn(log_domain,
+                            "ifcfg-rh: %s,%s:%zu: key %s is badly quoted and is treated as \"\"",
+                            file_type,
+                            s->fileName,
+                            n,
+                            line->key);
+            } else {
+                nm_log_warn(log_domain,
+                            "ifcfg-rh: %s,%s:%zu: key %s does not contain valid UTF-8 and is "
+                            "treated as \"\"",
+                            file_type,
+                            s->fileName,
+                            n,
+                            line->key);
+            }
+            continue;
+        }
+
+        /* TODO: we read different shell scripts, and whether a key is recognized
+         * depends on the type. For example, alias files only accept a subset of
+         * known keys.
+         *
+         * Basically, depending on the @file_type, different keys are valid. */
+        if (!nms_ifcfg_rh_utils_is_well_known_key(line->key)) {
+            nm_log_dbg(log_domain,
+                       "ifcfg-rh: %s,%s:%zu: key %s is unknown and ignored",
+                       file_type,
+                       s->fileName,
+                       n,
+                       line->key);
+            continue;
+        }
+    }
+}
+
+/*****************************************************************************/
+
 /* Write the current contents iff modified.  Returns FALSE on error
  * and TRUE on success.  Do not write if no values have been modified.
  * The mode argument is only used if creating the file, not if
@@ -1504,7 +1618,7 @@ svUnsetValue(shvarFile *s, const char *key)
 gboolean
 svWriteFile(shvarFile *s, int mode, GError **error)
 {
-    FILE * f;
+    FILE  *f;
     int    tmpfd;
     CList *current;
     int    errsv;
@@ -1558,8 +1672,8 @@ svWriteFile(shvarFile *s, int mode, GError **error)
         fseek(f, 0, SEEK_SET);
         c_list_for_each (current, &s->lst_head) {
             const shvarLine *line = c_list_entry(current, shvarLine, lst);
-            const char *     str;
-            char *           s_tmp;
+            const char      *str;
+            char            *s_tmp;
             gboolean         valid_value;
 
             ASSERT_shvarLine(line);

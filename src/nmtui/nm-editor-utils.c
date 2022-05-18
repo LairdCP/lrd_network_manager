@@ -16,7 +16,7 @@
 
 #include "nm-editor-utils.h"
 #if 0
-    #include "libnmc-base/nm-vpn-helpers.h"
+#include "libnmc-base/nm-vpn-helpers.h"
 
 static GSList *vpn_plugins;
 
@@ -49,9 +49,9 @@ wifi_connection_setup_func(NMConnection *connection, NMSettingConnection *s_con,
 static void
 bond_connection_setup_func(NMConnection *connection, NMSettingConnection *s_con, NMSetting *s_hw)
 {
-    NMSettingBond *          s_bond = NM_SETTING_BOND(s_hw);
+    NMSettingBond           *s_bond = NM_SETTING_BOND(s_hw);
     guint                    i;
-    const char *             value;
+    const char              *value;
     static const char *const options[] = {
         NM_SETTING_BOND_OPTION_MODE,
         NM_SETTING_BOND_OPTION_MIIMON,
@@ -66,14 +66,30 @@ bond_connection_setup_func(NMConnection *connection, NMSettingConnection *s_con,
     }
 }
 
-typedef void (*NMEditorNewConnectionSetupFunc)(NMConnection *       connection,
+static void
+wireguard_connection_setup_func(NMConnection        *connection,
+                                NMSettingConnection *s_con,
+                                NMSetting           *s_hw)
+{
+    NMSettingIPConfig *s_ip;
+
+    s_ip = (NMSettingIPConfig *) nm_setting_ip4_config_new();
+    g_object_set(s_ip, NM_SETTING_IP_CONFIG_METHOD, NM_SETTING_IP4_CONFIG_METHOD_DISABLED, NULL);
+    nm_connection_add_setting(connection, (NMSetting *) s_ip);
+
+    s_ip = (NMSettingIPConfig *) nm_setting_ip6_config_new();
+    g_object_set(s_ip, NM_SETTING_IP_CONFIG_METHOD, NM_SETTING_IP6_CONFIG_METHOD_DISABLED, NULL);
+    nm_connection_add_setting(connection, (NMSetting *) s_ip);
+}
+
+typedef void (*NMEditorNewConnectionSetupFunc)(NMConnection        *connection,
                                                NMSettingConnection *s_con,
-                                               NMSetting *          s_hw);
+                                               NMSetting           *s_hw);
 
 typedef struct {
     NMEditorConnectionTypeData data;
 
-    const char *                   id_format;
+    const char                    *id_format;
     NMEditorNewConnectionSetupFunc connection_setup_func;
     gboolean                       no_autoconnect;
 } NMEditorConnectionTypeDataReal;
@@ -111,8 +127,8 @@ sort_types(gconstpointer a, gconstpointer b)
 NMEditorConnectionTypeData **
 nm_editor_utils_get_connection_type_list(void)
 {
-    GPtrArray *                         array;
-    NMEditorConnectionTypeDataReal *    item;
+    GPtrArray                          *array;
+    NMEditorConnectionTypeDataReal     *item;
     static NMEditorConnectionTypeData **list;
 #if 0
     GHashTable *vpn_plugins_hash;
@@ -243,6 +259,15 @@ nm_editor_utils_get_connection_type_list(void)
     }
 #endif
 
+    item                        = g_new0(NMEditorConnectionTypeDataReal, 1);
+    item->data.name             = _("WireGuard");
+    item->data.setting_type     = NM_TYPE_SETTING_WIREGUARD;
+    item->data.device_type      = NM_TYPE_DEVICE_WIREGUARD;
+    item->data.virtual          = TRUE;
+    item->id_format             = _("WireGuard connection %d");
+    item->connection_setup_func = wireguard_connection_setup_func;
+    g_ptr_array_add(array, item);
+
     g_ptr_array_sort(array, sort_types);
     g_ptr_array_add(array, NULL);
 
@@ -266,8 +291,8 @@ static char *
 get_available_connection_name(const char *format, NMClient *client)
 {
     const GPtrArray *conns;
-    GSList *         names = NULL, *iter;
-    char *           cname = NULL;
+    GSList          *names = NULL, *iter;
+    char            *cname = NULL;
     int              i     = 0;
 
     nm_assert(_assert_format_int(format));
@@ -283,7 +308,7 @@ get_available_connection_name(const char *format, NMClient *client)
 
     /* Find the next available unique connection name */
     for (i = 1; !cname && i < 10000; i++) {
-        char *   temp;
+        char    *temp;
         gboolean found = FALSE;
 
         NM_PRAGMA_WARNING_DISABLE("-Wformat-nonliteral")
@@ -309,11 +334,11 @@ static char *
 get_available_iface_name(const char *try_name, NMClient *client)
 {
     const GPtrArray *connections;
-    NMConnection *   connection;
-    char *           new_name;
+    NMConnection    *connection;
+    char            *new_name;
     unsigned         num    = 1;
     int              i      = 0;
-    const char *     ifname = NULL;
+    const char      *ifname = NULL;
 
     connections = nm_client_get_connections(client);
 
@@ -349,14 +374,14 @@ get_available_iface_name(const char *try_name, NMClient *client)
 NMConnection *
 nm_editor_utils_create_connection(GType type, NMConnection *master, NMClient *client)
 {
-    NMEditorConnectionTypeData **   types;
+    NMEditorConnectionTypeData    **types;
     NMEditorConnectionTypeDataReal *type_data           = NULL;
-    const char *                    master_setting_type = NULL, *master_uuid = NULL;
+    const char                     *master_setting_type = NULL, *master_uuid = NULL;
     GType                master_type = G_TYPE_INVALID, slave_setting_type = G_TYPE_INVALID;
-    NMConnection *       connection;
+    NMConnection        *connection;
     NMSettingConnection *s_con;
-    NMSetting *          s_hw, *s_slave;
-    char *               uuid, *id, *ifname;
+    NMSetting           *s_hw, *s_slave;
+    char                *uuid, *id, *ifname;
     int                  i;
 
     if (master) {
@@ -444,8 +469,8 @@ nm_editor_utils_create_connection(GType type, NMConnection *master, NMClient *cl
 NMEditorConnectionTypeData *
 nm_editor_utils_get_connection_type_data(NMConnection *conn)
 {
-    NMSettingConnection *        s_con;
-    const char *                 conn_type;
+    NMSettingConnection         *s_con;
+    const char                  *conn_type;
     GType                        conn_gtype;
     NMEditorConnectionTypeData **types;
     int                          i;

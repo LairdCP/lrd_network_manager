@@ -55,16 +55,16 @@ nm_editor_bindings_init(void)
 }
 
 static gboolean
-ip_addresses_with_prefix_to_strv(GBinding *    binding,
+ip_addresses_with_prefix_to_strv(GBinding     *binding,
                                  const GValue *source_value,
-                                 GValue *      target_value,
+                                 GValue       *target_value,
                                  gpointer      user_data)
 {
-    GPtrArray *  addrs;
+    GPtrArray   *addrs;
     NMIPAddress *addr;
-    const char * addrstr;
+    const char  *addrstr;
     guint32      prefix;
-    char **      strings;
+    char       **strings;
     int          i;
 
     addrs   = g_value_get_boxed(source_value);
@@ -86,16 +86,16 @@ ip_addresses_with_prefix_to_strv(GBinding *    binding,
 }
 
 static gboolean
-ip_addresses_with_prefix_from_strv(GBinding *    binding,
+ip_addresses_with_prefix_from_strv(GBinding     *binding,
                                    const GValue *source_value,
-                                   GValue *      target_value,
+                                   GValue       *target_value,
                                    gpointer      user_data)
 {
     int          addr_family = GPOINTER_TO_INT(user_data);
-    char **      strings;
-    GPtrArray *  addrs;
+    char       **strings;
+    GPtrArray   *addrs;
     NMIPAddress *addr;
-    char *       addrstr;
+    char        *addrstr;
     int          prefix;
     int          i;
 
@@ -165,9 +165,9 @@ ip_addresses_with_prefix_from_strv(GBinding *    binding,
 void
 nm_editor_bind_ip_addresses_with_prefix_to_strv(int           addr_family,
                                                 gpointer      source,
-                                                const char *  source_property,
+                                                const char   *source_property,
                                                 gpointer      target,
-                                                const char *  target_property,
+                                                const char   *target_property,
                                                 GBindingFlags flags)
 {
     g_object_bind_property_full(source,
@@ -182,9 +182,9 @@ nm_editor_bind_ip_addresses_with_prefix_to_strv(int           addr_family,
 }
 
 static gboolean
-ip_addresses_check_and_copy(GBinding *    binding,
+ip_addresses_check_and_copy(GBinding     *binding,
                             const GValue *source_value,
-                            GValue *      target_value,
+                            GValue       *target_value,
                             gpointer      user_data)
 {
     int    addr_family = GPOINTER_TO_INT(user_data);
@@ -220,9 +220,9 @@ ip_addresses_check_and_copy(GBinding *    binding,
 void
 nm_editor_bind_ip_addresses_to_strv(int           addr_family,
                                     gpointer      source,
-                                    const char *  source_property,
+                                    const char   *source_property,
                                     gpointer      target,
-                                    const char *  target_property,
+                                    const char   *target_property,
                                     GBindingFlags flags)
 {
     g_object_bind_property_full(source,
@@ -237,9 +237,9 @@ nm_editor_bind_ip_addresses_to_strv(int           addr_family,
 }
 
 static gboolean
-ip_gateway_to_string(GBinding *    binding,
+ip_gateway_to_string(GBinding     *binding,
                      const GValue *source_value,
-                     GValue *      target_value,
+                     GValue       *target_value,
                      gpointer      user_data)
 {
     g_value_set_string(target_value, g_value_get_string(source_value));
@@ -247,9 +247,9 @@ ip_gateway_to_string(GBinding *    binding,
 }
 
 static gboolean
-ip_gateway_from_string(GBinding *    binding,
+ip_gateway_from_string(GBinding     *binding,
                        const GValue *source_value,
-                       GValue *      target_value,
+                       GValue       *target_value,
                        gpointer      user_data)
 {
     int         addr_family = GPOINTER_TO_INT(user_data);
@@ -264,9 +264,9 @@ ip_gateway_from_string(GBinding *    binding,
 }
 
 static gboolean
-ip_addresses_to_gateway(GBinding *    binding,
+ip_addresses_to_gateway(GBinding     *binding,
                         const GValue *source_value,
-                        GValue *      target_value,
+                        GValue       *target_value,
                         gpointer      user_data)
 {
     GPtrArray *addrs;
@@ -280,9 +280,9 @@ ip_addresses_to_gateway(GBinding *    binding,
 }
 
 static gboolean
-ip_addresses_to_sensitivity(GBinding *    binding,
+ip_addresses_to_sensitivity(GBinding     *binding,
                             const GValue *source_value,
-                            GValue *      target_value,
+                            GValue       *target_value,
                             gpointer      user_data)
 {
     GPtrArray *addrs;
@@ -319,8 +319,8 @@ void
 nm_editor_bind_ip_gateway_to_string(int                addr_family,
                                     NMSettingIPConfig *source,
                                     gpointer           target,
-                                    const char *       target_property,
-                                    const char *       target_sensitive_property,
+                                    const char        *target_property,
+                                    const char        *target_sensitive_property,
                                     GBindingFlags      flags)
 {
     g_object_bind_property_full(source,
@@ -353,14 +353,14 @@ nm_editor_bind_ip_gateway_to_string(int                addr_family,
 }
 
 static gboolean
-ip_route_transform_to_dest_string(GBinding *    binding,
+ip_route_transform_to_dest_string(GBinding     *binding,
                                   const GValue *source_value,
-                                  GValue *      target_value,
+                                  GValue       *target_value,
                                   gpointer      user_data)
 {
-    NMIPRoute * route;
+    NMIPRoute  *route;
     const char *addrstr;
-    char *      string;
+    char       *string;
 
     route = g_value_get_boxed(source_value);
     if (route)
@@ -377,12 +377,12 @@ ip_route_transform_to_dest_string(GBinding *    binding,
 }
 
 static gboolean
-ip_route_transform_to_next_hop_string(GBinding *    binding,
+ip_route_transform_to_next_hop_string(GBinding     *binding,
                                       const GValue *source_value,
-                                      GValue *      target_value,
+                                      GValue       *target_value,
                                       gpointer      user_data)
 {
-    NMIPRoute * route;
+    NMIPRoute  *route;
     const char *addrstr;
 
     route = g_value_get_boxed(source_value);
@@ -398,13 +398,13 @@ ip_route_transform_to_next_hop_string(GBinding *    binding,
 }
 
 static gboolean
-ip_route_transform_to_metric_string(GBinding *    binding,
+ip_route_transform_to_metric_string(GBinding     *binding,
                                     const GValue *source_value,
-                                    GValue *      target_value,
+                                    GValue       *target_value,
                                     gpointer      user_data)
 {
     NMIPRoute *route;
-    char *     string;
+    char      *string;
 
     route = g_value_get_boxed(source_value);
     if (route && nm_ip_route_get_dest(route) && nm_ip_route_get_metric(route) != -1) {
@@ -416,15 +416,15 @@ ip_route_transform_to_metric_string(GBinding *    binding,
 }
 
 static gboolean
-ip_route_transform_from_dest_string(GBinding *    binding,
+ip_route_transform_from_dest_string(GBinding     *binding,
                                     const GValue *source_value,
-                                    GValue *      target_value,
+                                    GValue       *target_value,
                                     gpointer      user_data)
 {
     int         addr_family = GPOINTER_TO_INT(user_data);
-    NMIPRoute * route;
+    NMIPRoute  *route;
     const char *text;
-    char *      addrstr;
+    char       *addrstr;
     int         prefix;
 
     text = g_value_get_string(source_value);
@@ -461,13 +461,13 @@ ip_route_transform_from_dest_string(GBinding *    binding,
 }
 
 static gboolean
-ip_route_transform_from_next_hop_string(GBinding *    binding,
+ip_route_transform_from_next_hop_string(GBinding     *binding,
                                         const GValue *source_value,
-                                        GValue *      target_value,
+                                        GValue       *target_value,
                                         gpointer      user_data)
 {
     int         addr_family = GPOINTER_TO_INT(user_data);
-    NMIPRoute * route;
+    NMIPRoute  *route;
     const char *text;
 
     text = g_value_get_string(source_value);
@@ -490,12 +490,12 @@ ip_route_transform_from_next_hop_string(GBinding *    binding,
 }
 
 static gboolean
-ip_route_transform_from_metric_string(GBinding *    binding,
+ip_route_transform_from_metric_string(GBinding     *binding,
                                       const GValue *source_value,
-                                      GValue *      target_value,
+                                      GValue       *target_value,
                                       gpointer      user_data)
 {
-    NMIPRoute * route;
+    NMIPRoute  *route;
     const char *text;
     gint64      metric;
 
@@ -538,13 +538,13 @@ ip_route_transform_from_metric_string(GBinding *    binding,
 void
 nm_editor_bind_ip_route_to_strings(int           addr_family,
                                    gpointer      source,
-                                   const char *  source_property,
+                                   const char   *source_property,
                                    gpointer      dest_target,
-                                   const char *  dest_target_property,
+                                   const char   *dest_target_property,
                                    gpointer      next_hop_target,
-                                   const char *  next_hop_target_property,
+                                   const char   *next_hop_target_property,
                                    gpointer      metric_target,
-                                   const char *  metric_target_property,
+                                   const char   *metric_target_property,
                                    GBindingFlags flags)
 {
     g_object_bind_property_full(source,
@@ -576,14 +576,237 @@ nm_editor_bind_ip_route_to_strings(int           addr_family,
                                 NULL);
 }
 
+gboolean
+peer_transform_to_public_key_string(GBinding     *binding,
+                                    const GValue *source_value,
+                                    GValue       *target_value,
+                                    gpointer      user_data)
+{
+    NMWireGuardPeer *peer;
+    char            *string;
+
+    peer = g_value_get_boxed(source_value);
+    if (peer && nm_wireguard_peer_get_public_key(peer)) {
+        string = g_strdup(nm_wireguard_peer_get_public_key(peer));
+        g_value_take_string(target_value, string);
+    } else
+        g_value_set_string(target_value, "");
+    return TRUE;
+}
+
+gboolean
+peer_transform_to_allowed_ips_string(GBinding     *binding,
+                                     const GValue *source_value,
+                                     GValue       *target_value,
+                                     gpointer      user_data)
+{
+    NMWireGuardPeer *peer;
+    GString         *string = NULL;
+    guint            i, len;
+
+    peer = g_value_get_boxed(source_value);
+    if (!peer)
+        return TRUE;
+
+    len = nm_wireguard_peer_get_allowed_ips_len(peer);
+    for (i = 0; i < len; i++) {
+        if (!string)
+            string = g_string_new("");
+        else
+            g_string_append_c(string, ',');
+        g_string_append(string, nm_wireguard_peer_get_allowed_ip(peer, i, NULL));
+    }
+    if (string)
+        g_value_take_string(target_value, g_string_free(string, FALSE));
+
+    return TRUE;
+}
+
+gboolean
+peer_transform_to_endpoint_string(GBinding     *binding,
+                                  const GValue *source_value,
+                                  GValue       *target_value,
+                                  gpointer      user_data)
+{
+    NMWireGuardPeer *peer;
+    char            *string;
+
+    peer = g_value_get_boxed(source_value);
+    if (peer && nm_wireguard_peer_get_endpoint(peer)) {
+        string = g_strdup_printf("%s", nm_wireguard_peer_get_endpoint(peer));
+        g_value_take_string(target_value, string);
+    } else
+        g_value_set_string(target_value, "");
+    return TRUE;
+}
+
+gboolean
+peer_transform_to_preshared_key_string(GBinding     *binding,
+                                       const GValue *source_value,
+                                       GValue       *target_value,
+                                       gpointer      user_data)
+{
+    NMWireGuardPeer *peer;
+    char            *string;
+
+    peer = g_value_get_boxed(source_value);
+    if (peer && nm_wireguard_peer_get_preshared_key(peer)) {
+        string = g_strdup_printf("%s", nm_wireguard_peer_get_preshared_key(peer));
+        g_value_take_string(target_value, string);
+    } else
+        g_value_set_string(target_value, "");
+    return TRUE;
+}
+
+gboolean
+peer_transform_to_persistent_keepalive_string(GBinding     *binding,
+                                              const GValue *source_value,
+                                              GValue       *target_value,
+                                              gpointer      user_data)
+{
+    NMWireGuardPeer *peer;
+    char            *string;
+
+    peer = g_value_get_boxed(source_value);
+    if (peer && nm_wireguard_peer_get_persistent_keepalive(peer)) {
+        string = g_strdup_printf("%d", nm_wireguard_peer_get_persistent_keepalive(peer));
+        g_value_take_string(target_value, string);
+    } else
+        g_value_set_string(target_value, "");
+    return TRUE;
+}
+
+gboolean
+peer_transform_from_public_key_string(GBinding     *binding,
+                                      const GValue *source_value,
+                                      GValue       *target_value,
+                                      gpointer      user_data)
+{
+    NMWireGuardPeer *peer;
+    const char      *text;
+
+    text = g_value_get_string(source_value);
+
+    /* Fetch the original property value */
+    g_object_get(g_binding_get_source(binding),
+                 g_binding_get_source_property(binding),
+                 &peer,
+                 NULL);
+
+    nm_wireguard_peer_set_public_key(peer, text, TRUE);
+
+    g_value_take_boxed(target_value, peer);
+    return TRUE;
+}
+
+gboolean
+peer_transform_from_allowed_ips_string(GBinding     *binding,
+                                       const GValue *source_value,
+                                       GValue       *target_value,
+                                       gpointer      user_data)
+{
+    NMWireGuardPeer *peer;
+    const char      *text;
+    char           **strv;
+    guint            i;
+
+    text = g_value_get_string(source_value);
+
+    /* Fetch the original property value */
+    g_object_get(g_binding_get_source(binding),
+                 g_binding_get_source_property(binding),
+                 &peer,
+                 NULL);
+
+    nm_wireguard_peer_clear_allowed_ips(peer);
+
+    strv = g_strsplit(text, ",", -1);
+    for (i = 0; strv && strv[i]; i++)
+        nm_wireguard_peer_append_allowed_ip(peer, g_strstrip(strv[i]), TRUE);
+    g_strfreev(strv);
+
+    g_value_take_boxed(target_value, peer);
+    return TRUE;
+}
+
+gboolean
+peer_transform_from_endpoint_string(GBinding     *binding,
+                                    const GValue *source_value,
+                                    GValue       *target_value,
+                                    gpointer      user_data)
+{
+    NMWireGuardPeer *peer;
+    const char      *text;
+
+    text = g_value_get_string(source_value);
+
+    /* Fetch the original property value */
+    g_object_get(g_binding_get_source(binding),
+                 g_binding_get_source_property(binding),
+                 &peer,
+                 NULL);
+
+    nm_wireguard_peer_set_endpoint(peer, text, TRUE);
+
+    g_value_take_boxed(target_value, peer);
+    return TRUE;
+}
+
+gboolean
+peer_transform_from_preshared_key_string(GBinding     *binding,
+                                         const GValue *source_value,
+                                         GValue       *target_value,
+                                         gpointer      user_data)
+{
+    NMWireGuardPeer *peer;
+    const char      *text;
+
+    text = g_value_get_string(source_value);
+
+    /* Fetch the original property value */
+    g_object_get(g_binding_get_source(binding),
+                 g_binding_get_source_property(binding),
+                 &peer,
+                 NULL);
+
+    nm_wireguard_peer_set_preshared_key(peer, text && text[0] ? text : NULL, TRUE);
+    nm_wireguard_peer_set_preshared_key_flags(peer, NM_SETTING_SECRET_FLAG_NONE);
+
+    g_value_take_boxed(target_value, peer);
+    return TRUE;
+}
+
+gboolean
+peer_transform_from_persistent_keepalive_string(GBinding     *binding,
+                                                const GValue *source_value,
+                                                GValue       *target_value,
+                                                gpointer      user_data)
+{
+    NMWireGuardPeer *peer;
+    const char      *text;
+
+    text = g_value_get_string(source_value);
+
+    /* Fetch the original property value */
+    g_object_get(g_binding_get_source(binding),
+                 g_binding_get_source_property(binding),
+                 &peer,
+                 NULL);
+
+    nm_wireguard_peer_set_persistent_keepalive(peer, atoi(text));
+
+    g_value_take_boxed(target_value, peer);
+    return TRUE;
+}
+
 /* Wireless security method binding */
 typedef struct {
-    NMConnection *             connection;
+    NMConnection              *connection;
     NMSettingWirelessSecurity *s_wsec;
     gboolean                   s_wsec_in_use;
 
     GObject *target;
-    char *   target_property;
+    char    *target_property;
 
     gboolean updating;
 } NMEditorWirelessSecurityMethodBinding;
@@ -650,7 +873,7 @@ static void
 wireless_connection_changed(NMConnection *connection, gpointer user_data)
 {
     NMEditorWirelessSecurityMethodBinding *binding = user_data;
-    NMSettingWirelessSecurity *            s_wsec;
+    NMSettingWirelessSecurity             *s_wsec;
 
     if (binding->updating)
         return;
@@ -667,7 +890,7 @@ static void
 wireless_security_target_changed(GObject *object, GParamSpec *pspec, gpointer user_data)
 {
     NMEditorWirelessSecurityMethodBinding *binding = user_data;
-    char *                                 method;
+    char                                  *method;
 
     if (binding->updating)
         return;
@@ -806,14 +1029,14 @@ wireless_security_target_destroyed(gpointer user_data, GObject *ex_target)
  * changes.
  */
 void
-nm_editor_bind_wireless_security_method(NMConnection *             connection,
+nm_editor_bind_wireless_security_method(NMConnection              *connection,
                                         NMSettingWirelessSecurity *s_wsec,
                                         gpointer                   target,
-                                        const char *               target_property,
+                                        const char                *target_property,
                                         GBindingFlags              flags)
 {
     NMEditorWirelessSecurityMethodBinding *binding;
-    char *                                 notify;
+    char                                  *notify;
 
     binding = g_slice_new0(NMEditorWirelessSecurityMethodBinding);
 
@@ -855,8 +1078,8 @@ nm_editor_bind_wireless_security_method(NMConnection *             connection,
 
 typedef struct {
     NMSettingWirelessSecurity *s_wsec;
-    GObject *                  entry, *key_selector;
-    char *                     entry_property, *key_selector_property;
+    GObject                   *entry, *key_selector;
+    char                      *entry_property, *key_selector_property;
 
     gboolean updating;
 } NMEditorWepKeyBinding;
@@ -865,7 +1088,7 @@ static void
 wep_key_setting_changed(GObject *object, GParamSpec *pspec, gpointer user_data)
 {
     NMEditorWepKeyBinding *binding = user_data;
-    const char *           key;
+    const char            *key;
     int                    index;
 
     if (binding->updating)
@@ -884,7 +1107,7 @@ static void
 wep_key_ui_changed(GObject *object, GParamSpec *pspec, gpointer user_data)
 {
     NMEditorWepKeyBinding *binding = user_data;
-    char *                 key;
+    char                  *key;
     int                    index;
 
     if (binding->updating)
@@ -957,13 +1180,13 @@ wep_key_target_destroyed(gpointer user_data, GObject *ex_target)
 void
 nm_editor_bind_wireless_security_wep_key(NMSettingWirelessSecurity *s_wsec,
                                          gpointer                   entry,
-                                         const char *               entry_property,
+                                         const char                *entry_property,
                                          gpointer                   key_selector,
-                                         const char *               key_selector_property,
+                                         const char                *key_selector_property,
                                          GBindingFlags              flags)
 {
     NMEditorWepKeyBinding *binding;
-    char *                 notify;
+    char                  *notify;
 
     binding                        = g_slice_new0(NMEditorWepKeyBinding);
     binding->s_wsec                = g_object_ref(s_wsec);
@@ -1014,7 +1237,7 @@ nm_editor_bind_wireless_security_wep_key(NMSettingWirelessSecurity *s_wsec,
 /* VLAN binding */
 
 typedef struct {
-    NMSettingVlan *      s_vlan;
+    NMSettingVlan       *s_vlan;
     NMSettingConnection *s_con;
 
     char *last_ifname_parent;
@@ -1027,7 +1250,7 @@ static gboolean
 parse_interface_name(const char *ifname, char **parent_ifname, int *id)
 {
     const char *ifname_end;
-    char *      end;
+    char       *end;
 
     if (!ifname || !*ifname)
         return FALSE;
@@ -1057,8 +1280,8 @@ static void
 vlan_settings_changed(GObject *object, GParamSpec *pspec, gpointer user_data)
 {
     NMEditorVlanWidgetBinding *binding = user_data;
-    const char *               ifname, *parent;
-    char *                     ifname_parent;
+    const char                *ifname, *parent;
+    char                      *ifname_parent;
     int                        ifname_id, id;
 
     if (binding->updating)
@@ -1118,7 +1341,7 @@ void
 nm_editor_bind_vlan_name(NMSettingVlan *s_vlan, NMSettingConnection *s_con)
 {
     NMEditorVlanWidgetBinding *binding;
-    const char *               ifname;
+    const char                *ifname;
 
     binding         = g_slice_new0(NMEditorVlanWidgetBinding);
     binding->s_vlan = s_vlan;

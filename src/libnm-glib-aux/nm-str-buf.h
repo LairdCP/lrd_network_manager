@@ -348,7 +348,7 @@ nm_utils_escaped_tokens_escape_strbuf(const char *str, const char *delimiters, N
 static inline void
 nm_utils_escaped_tokens_escape_strbuf_assert(const char *str,
                                              const char *delimiters,
-                                             NMStrBuf *  strbuf)
+                                             NMStrBuf   *strbuf)
 {
     nm_str_buf_append(strbuf, nm_utils_escaped_tokens_escape_unnecessary(str, delimiters));
 }
@@ -503,5 +503,12 @@ nm_str_buf_destroy(NMStrBuf *strbuf)
 }
 
 #define nm_auto_str_buf nm_auto(nm_str_buf_destroy)
+
+static inline gboolean
+nm_str_buf_utf8_validate(NMStrBuf *strbuf)
+{
+    _nm_str_buf_assert(strbuf);
+    return strbuf->_priv_len == 0 || g_utf8_validate(strbuf->_priv_str, strbuf->_priv_len, NULL);
+}
 
 #endif /* __NM_STR_BUF_H__ */

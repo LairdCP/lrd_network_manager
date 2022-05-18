@@ -1174,7 +1174,7 @@ msgstr "La connessione non era valida: %s"
 
 #: ../src/libnm-client-impl/nm-device.c:2773
 #, c-format
-msgid "The interface names of the device and the connection didn't match."
+msgid "The interface names of the device and the connection didn't match"
 msgstr ""
 "Il nome dell'interfaccia del dispositivo e la connessione non corrispondono."
 
@@ -11319,7 +11319,7 @@ msgid "Error: 'connection show': %s"
 msgstr "Errore: «connection show»: %s"
 
 #: ../src/nmcli/connections.c:1497
-msgid "Activate connection details"
+msgid "Active connection details"
 msgstr "Attiva dettagli connessione"
 
 #: ../src/nmcli/connections.c:1626 ../src/nmcli/devices.c:1610

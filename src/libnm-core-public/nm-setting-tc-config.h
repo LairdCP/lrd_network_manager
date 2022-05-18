@@ -7,7 +7,7 @@
 #define NM_SETTING_TC_CONFIG_H
 
 #if !defined(__NETWORKMANAGER_H_INSIDE__) && !defined(NETWORKMANAGER_COMPILATION)
-    #error "Only <NetworkManager.h> can be included directly."
+#error "Only <NetworkManager.h> can be included directly."
 #endif
 
 #include "nm-setting.h"
@@ -153,7 +153,7 @@ NM_AVAILABLE_IN_1_12
 void nm_setting_tc_config_remove_tfilter(NMSettingTCConfig *setting, guint idx);
 NM_AVAILABLE_IN_1_12
 gboolean nm_setting_tc_config_remove_tfilter_by_value(NMSettingTCConfig *setting,
-                                                      NMTCTfilter *      tfilter);
+                                                      NMTCTfilter       *tfilter);
 NM_AVAILABLE_IN_1_12
 void nm_setting_tc_config_clear_tfilters(NMSettingTCConfig *setting);
 

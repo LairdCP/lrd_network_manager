@@ -14,6 +14,7 @@
 #include "nm-device-private.h"
 #include "libnm-platform/nm-platform.h"
 #include "nm-device-factory.h"
+#include "libnm-core-aux-intern/nm-libnm-core-utils.h"
 #include "libnm-core-intern/nm-core-internal.h"
 
 #define _NMLOG_DEVICE_TYPE NMDeviceBridge
@@ -47,13 +48,13 @@ get_generic_capabilities(NMDevice *dev)
 }
 
 static gboolean
-check_connection_available(NMDevice *                     device,
-                           NMConnection *                 connection,
+check_connection_available(NMDevice                      *device,
+                           NMConnection                  *connection,
                            NMDeviceCheckConAvailableFlags flags,
-                           const char *                   specific_object,
-                           GError **                      error)
+                           const char                    *specific_object,
+                           GError                       **error)
 {
-    NMDeviceBridge *    self = NM_DEVICE_BRIDGE(device);
+    NMDeviceBridge     *self = NM_DEVICE_BRIDGE(device);
     NMSettingBluetooth *s_bt;
 
     if (!NM_DEVICE_CLASS(nm_device_bridge_parent_class)
@@ -96,7 +97,7 @@ static gboolean
 check_connection_compatible(NMDevice *device, NMConnection *connection, GError **error)
 {
     NMSettingBridge *s_bridge;
-    const char *     mac_address;
+    const char      *mac_address;
 
     if (!NM_DEVICE_CLASS(nm_device_bridge_parent_class)
              ->check_connection_compatible(device, connection, error))
@@ -139,14 +140,12 @@ check_connection_compatible(NMDevice *device, NMConnection *connection, GError *
 }
 
 static gboolean
-complete_connection(NMDevice *           device,
-                    NMConnection *       connection,
-                    const char *         specific_object,
+complete_connection(NMDevice            *device,
+                    NMConnection        *connection,
+                    const char          *specific_object,
                     NMConnection *const *existing_connections,
-                    GError **            error)
+                    GError             **error)
 {
-    NMSettingBridge *s_bridge;
-
     nm_utils_complete_generic(nm_device_get_platform(device),
                               connection,
                               NM_SETTING_BRIDGE_SETTING_NAME,
@@ -157,11 +156,7 @@ complete_connection(NMDevice *           device,
                               NULL,
                               TRUE);
 
-    s_bridge = nm_connection_get_setting_bridge(connection);
-    if (!s_bridge) {
-        s_bridge = (NMSettingBridge *) nm_setting_bridge_new();
-        nm_connection_add_setting(connection, NM_SETTING(s_bridge));
-    }
+    _nm_connection_ensure_setting(connection, NM_TYPE_SETTING_BRIDGE);
 
     return TRUE;
 }
@@ -295,8 +290,8 @@ typedef struct {
 
 #define OPTION(_name, _sysname, ...) \
     {                                \
-        .name = ""_name              \
-                "",                  \
+        .name    = ""_name           \
+                   "",               \
         .sysname = ""_sysname        \
                    "",               \
         __VA_ARGS__                  \
@@ -344,7 +339,6 @@ static const Option master_options[] = {
            OPTION_TYPE_INT(NM_BRIDGE_AGEING_TIME_MIN,
                            NM_BRIDGE_AGEING_TIME_MAX,
                            NM_BRIDGE_AGEING_TIME_DEF),
-           .default_if_zero    = TRUE,
            .user_hz_compensate = TRUE, ),
     OPTION(NM_SETTING_BRIDGE_GROUP_FORWARD_MASK, "group_fwd_mask", OPTION_TYPE_INT(0, 0xFFFF, 0), ),
     OPTION(NM_SETTING_BRIDGE_MULTICAST_HASH_MAX,
@@ -438,8 +432,8 @@ commit_option(NMDevice *device, NMSetting *setting, const Option *option, gboole
 {
     int                         ifindex = nm_device_get_ifindex(device);
     nm_auto_unset_gvalue GValue val     = G_VALUE_INIT;
-    GParamSpec *                pspec;
-    const char *                value;
+    GParamSpec                 *pspec;
+    const char                 *value;
     char                        value_buf[100];
 
     if (slave)
@@ -527,7 +521,7 @@ static const NMPlatformBridgeVlan **
 setting_vlans_to_platform(GPtrArray *array)
 {
     NMPlatformBridgeVlan **arr;
-    NMPlatformBridgeVlan * p_data;
+    NMPlatformBridgeVlan  *p_data;
     guint                  i;
 
     if (!array || !array->len)
@@ -559,8 +553,8 @@ setting_vlans_to_platform(GPtrArray *array)
 static void
 commit_slave_options(NMDevice *device, NMSettingBridgePort *setting)
 {
-    const Option *  option;
-    NMSetting *     s;
+    const Option              *option;
+    NMSetting                 *s;
     gs_unref_object NMSetting *s_clear = NULL;
 
     if (setting)
@@ -575,17 +569,12 @@ commit_slave_options(NMDevice *device, NMSettingBridgePort *setting)
 static void
 update_connection(NMDevice *device, NMConnection *connection)
 {
-    NMDeviceBridge * self     = NM_DEVICE_BRIDGE(device);
-    NMSettingBridge *s_bridge = nm_connection_get_setting_bridge(connection);
+    NMDeviceBridge  *self     = NM_DEVICE_BRIDGE(device);
+    NMSettingBridge *s_bridge = _nm_connection_ensure_setting(connection, NM_TYPE_SETTING_BRIDGE);
     int              ifindex  = nm_device_get_ifindex(device);
-    const Option *   option;
-    gs_free char *   stp = NULL;
+    const Option    *option;
+    gs_free char    *stp = NULL;
     int              stp_value;
-
-    if (!s_bridge) {
-        s_bridge = (NMSettingBridge *) nm_setting_bridge_new();
-        nm_connection_add_setting(connection, (NMSetting *) s_bridge);
-    }
 
     option = master_options;
     nm_assert(nm_streq(option->sysname, "stp_state"));
@@ -600,8 +589,8 @@ update_connection(NMDevice *device, NMConnection *connection)
 
     for (; option->name; option++) {
         nm_auto_unset_gvalue GValue value = G_VALUE_INIT;
-        gs_free char *              str   = NULL;
-        GParamSpec *                pspec;
+        gs_free char               *str   = NULL;
+        GParamSpec                 *pspec;
 
         str   = nm_platform_sysctl_master_get_option(nm_device_get_platform(device),
                                                    ifindex,
@@ -675,26 +664,22 @@ out:
 }
 
 static gboolean
-master_update_slave_connection(NMDevice *    device,
-                               NMDevice *    slave,
+master_update_slave_connection(NMDevice     *device,
+                               NMDevice     *slave,
                                NMConnection *connection,
-                               GError **     error)
+                               GError      **error)
 {
-    NMDeviceBridge *     self = NM_DEVICE_BRIDGE(device);
+    NMDeviceBridge      *self = NM_DEVICE_BRIDGE(device);
     NMSettingConnection *s_con;
     NMSettingBridgePort *s_port;
     int                  ifindex_slave = nm_device_get_ifindex(slave);
-    const char *         iface         = nm_device_get_iface(device);
-    const Option *       option;
+    const char          *iface         = nm_device_get_iface(device);
+    const Option        *option;
 
     g_return_val_if_fail(ifindex_slave > 0, FALSE);
 
     s_con  = nm_connection_get_setting_connection(connection);
-    s_port = nm_connection_get_setting_bridge_port(connection);
-    if (!s_port) {
-        s_port = (NMSettingBridgePort *) nm_setting_bridge_port_new();
-        nm_connection_add_setting(connection, NM_SETTING(s_port));
-    }
+    s_port = _nm_connection_ensure_setting(connection, NM_TYPE_SETTING_BRIDGE_PORT);
 
     for (option = slave_options; option->name; option++) {
         gs_free char *str = nm_platform_sysctl_slave_get_option(nm_device_get_platform(device),
@@ -735,14 +720,14 @@ master_update_slave_connection(NMDevice *    device,
 static gboolean
 bridge_set_vlan_options(NMDevice *device, NMSettingBridge *s_bridge)
 {
-    NMDeviceBridge *  self = NM_DEVICE_BRIDGE(device);
-    gconstpointer     hwaddr;
-    size_t            length;
-    gboolean          enabled;
-    guint16           pvid;
-    NMPlatform *      plat;
-    int               ifindex;
-    gs_unref_ptrarray GPtrArray *vlans              = NULL;
+    NMDeviceBridge                      *self = NM_DEVICE_BRIDGE(device);
+    gconstpointer                        hwaddr;
+    size_t                               length;
+    gboolean                             enabled;
+    guint16                              pvid;
+    NMPlatform                          *plat;
+    int                                  ifindex;
+    gs_unref_ptrarray GPtrArray         *vlans      = NULL;
     gs_free const NMPlatformBridgeVlan **plat_vlans = NULL;
 
     if (self->vlan_configured)
@@ -810,7 +795,7 @@ static NMActStageReturn
 act_stage1_prepare(NMDevice *device, NMDeviceStateReason *out_failure_reason)
 {
     NMConnection *connection;
-    NMSetting *   s_bridge;
+    NMSetting    *s_bridge;
     const Option *option;
 
     connection = nm_device_get_applied_connection(device);
@@ -874,9 +859,9 @@ _nm_device_bridge_notify_unregister_bt_nap(NMDevice *device, const char *reason)
 static NMActStageReturn
 act_stage2_config(NMDevice *device, NMDeviceStateReason *out_failure_reason)
 {
-    NMDeviceBridge *    self = NM_DEVICE_BRIDGE(device);
-    NMConnection *      connection;
-    NMSettingBluetooth *s_bt;
+    NMDeviceBridge       *self = NM_DEVICE_BRIDGE(device);
+    NMConnection         *connection;
+    NMSettingBluetooth   *s_bt;
     gs_free_error GError *error = NULL;
 
     connection = nm_device_get_applied_connection(device);
@@ -936,9 +921,9 @@ deactivate(NMDevice *device)
 static gboolean
 enslave_slave(NMDevice *device, NMDevice *slave, NMConnection *connection, gboolean configure)
 {
-    NMDeviceBridge *     self = NM_DEVICE_BRIDGE(device);
-    NMConnection *       master_connection;
-    NMSettingBridge *    s_bridge;
+    NMDeviceBridge      *self = NM_DEVICE_BRIDGE(device);
+    NMConnection        *master_connection;
+    NMSettingBridge     *s_bridge;
     NMSettingBridgePort *s_port;
 
     if (configure) {
@@ -957,7 +942,7 @@ enslave_slave(NMDevice *device, NMDevice *slave, NMConnection *connection, gbool
 
         if (nm_setting_bridge_get_vlan_filtering(s_bridge)) {
             gs_free const NMPlatformBridgeVlan **plat_vlans = NULL;
-            gs_unref_ptrarray GPtrArray *vlans              = NULL;
+            gs_unref_ptrarray GPtrArray         *vlans      = NULL;
 
             if (s_port)
                 g_object_get(s_port, NM_SETTING_BRIDGE_PORT_VLANS, &vlans, NULL);
@@ -1022,17 +1007,17 @@ release_slave(NMDevice *device, NMDevice *slave, gboolean configure)
 }
 
 static gboolean
-create_and_realize(NMDevice *             device,
-                   NMConnection *         connection,
-                   NMDevice *             parent,
+create_and_realize(NMDevice              *device,
+                   NMConnection          *connection,
+                   NMDevice              *parent,
                    const NMPlatformLink **out_plink,
-                   GError **              error)
+                   GError               **error)
 {
-    NMSettingWired *    s_wired;
-    NMSettingBridge *   s_bridge;
-    const char *        iface = nm_device_get_iface(device);
-    const char *        hwaddr;
-    gs_free char *      hwaddr_cloned = NULL;
+    NMSettingWired     *s_wired;
+    NMSettingBridge    *s_bridge;
+    const char         *iface = nm_device_get_iface(device);
+    const char         *hwaddr;
+    gs_free char       *hwaddr_cloned = NULL;
     guint8              mac_address[_NM_UTILS_HWADDR_LEN_MAX];
     NMPlatformLnkBridge props;
     int                 r;
@@ -1076,8 +1061,7 @@ create_and_realize(NMDevice *             device,
                                        NM_BRIDGE_HELLO_TIME_DEF_SYS),
         .max_age       = _DEFAULT_IF_ZERO(nm_setting_bridge_get_max_age(s_bridge) * 100u,
                                     NM_BRIDGE_MAX_AGE_DEF_SYS),
-        .ageing_time   = _DEFAULT_IF_ZERO(nm_setting_bridge_get_ageing_time(s_bridge) * 100u,
-                                        NM_BRIDGE_AGEING_TIME_DEF_SYS),
+        .ageing_time   = nm_setting_bridge_get_ageing_time(s_bridge) * 100u,
         .stp_state     = nm_setting_bridge_get_stp(s_bridge),
         .priority      = nm_setting_bridge_get_priority(s_bridge),
         .vlan_protocol = to_sysfs_vlan_protocol_sys(nm_setting_bridge_get_vlan_protocol(s_bridge)),
@@ -1152,7 +1136,7 @@ static void
 nm_device_bridge_class_init(NMDeviceBridgeClass *klass)
 {
     NMDBusObjectClass *dbus_object_class = NM_DBUS_OBJECT_CLASS(klass);
-    NMDeviceClass *    device_class      = NM_DEVICE_CLASS(klass);
+    NMDeviceClass     *device_class      = NM_DEVICE_CLASS(klass);
 
     dbus_object_class->interface_infos = NM_DBUS_INTERFACE_INFOS(&interface_info_device_bridge);
 
@@ -1186,11 +1170,11 @@ nm_device_bridge_class_init(NMDeviceBridgeClass *klass)
     (G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_BRIDGE_DEVICE_FACTORY, NMBridgeDeviceFactory))
 
 static NMDevice *
-create_device(NMDeviceFactory *     factory,
-              const char *          iface,
+create_device(NMDeviceFactory      *factory,
+              const char           *iface,
               const NMPlatformLink *plink,
-              NMConnection *        connection,
-              gboolean *            out_ignore)
+              NMConnection         *connection,
+              gboolean             *out_ignore)
 {
     return g_object_new(NM_TYPE_DEVICE_BRIDGE,
                         NM_DEVICE_IFACE,

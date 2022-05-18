@@ -8,7 +8,7 @@
 #define __NM_SETTING_WIRELESS_H__
 
 #if !defined(__NETWORKMANAGER_H_INSIDE__) && !defined(NETWORKMANAGER_COMPILATION)
-    #error "Only <NetworkManager.h> can be included directly."
+#error "Only <NetworkManager.h> can be included directly."
 #endif
 
 #include "nm-setting.h"
@@ -79,7 +79,7 @@ typedef enum {                                                            /*< fl
 #define NM_SETTING_WIRELESS_MODE                      "mode"
 #define NM_SETTING_WIRELESS_BAND                      "band"
 #define NM_SETTING_WIRELESS_CHANNEL                   "channel"
-#define NM_SETTING_WIRELESS_CHANNEL_WIDTH     "channel-width"
+#define NM_SETTING_WIRELESS_CHANNEL_WIDTH             "channel-width"
 #define NM_SETTING_WIRELESS_BSSID                     "bssid"
 #define NM_SETTING_WIRELESS_RATE                      "rate"
 #define NM_SETTING_WIRELESS_TX_POWER                  "tx-power"
@@ -92,26 +92,24 @@ typedef enum {                                                            /*< fl
 #define NM_SETTING_WIRELESS_HIDDEN                    "hidden"
 #define NM_SETTING_WIRELESS_POWERSAVE                 "powersave"
 #define NM_SETTING_WIRELESS_MAC_ADDRESS_RANDOMIZATION "mac-address-randomization"
-#define NM_SETTING_WIRELESS_CCX         "ccx"
-#define NM_SETTING_WIRELESS_CLIENT_NAME "client-name"
-
-#define NM_SETTING_WIRELESS_SCAN_DELAY  "scan-delay"
-#define NM_SETTING_WIRELESS_SCAN_DWELL  "scan-dwell"
-#define NM_SETTING_WIRELESS_SCAN_PASSIVE_DWELL  "scan-passive-dwell"
-#define NM_SETTING_WIRELESS_SCAN_SUSPEND_TIME  "scan-suspend-time"
-#define NM_SETTING_WIRELESS_SCAN_ROAM_DELTA  "scan-roam-delta"
-
-#define NM_SETTING_WIRELESS_BGSCAN      "bgscan"
-#define NM_SETTING_WIRELESS_AUTH_TIMEOUT "auth-timeout"
-#define NM_SETTING_WIRELESS_FREQUENCY_LIST "frequency-list"
-#define NM_SETTING_WIRELESS_FREQUENCY_DFS "frequency-dfs"
-#define NM_SETTING_WIRELESS_FREQUENCY_DFS_DEFAULT 1
-#define NM_SETTING_WIRELESS_MAX_SCAN_INTERVAL "max-scan-interval"
 #define NM_SETTING_WIRELESS_WAKE_ON_WLAN              "wake-on-wlan"
 #define NM_SETTING_WIRELESS_AP_ISOLATION              "ap-isolation"
 
-#define NM_SETTING_WIRELESS_DMS         "dms"
-#define NM_SETTING_WIRELESS_ACS         "acs"
+#define NM_SETTING_WIRELESS_CCX                   "ccx"
+#define NM_SETTING_WIRELESS_CLIENT_NAME           "client-name"
+#define NM_SETTING_WIRELESS_SCAN_DELAY            "scan-delay"
+#define NM_SETTING_WIRELESS_SCAN_DWELL            "scan-dwell"
+#define NM_SETTING_WIRELESS_SCAN_PASSIVE_DWELL    "scan-passive-dwell"
+#define NM_SETTING_WIRELESS_SCAN_SUSPEND_TIME     "scan-suspend-time"
+#define NM_SETTING_WIRELESS_SCAN_ROAM_DELTA       "scan-roam-delta"
+#define NM_SETTING_WIRELESS_BGSCAN                "bgscan"
+#define NM_SETTING_WIRELESS_AUTH_TIMEOUT          "auth-timeout"
+#define NM_SETTING_WIRELESS_FREQUENCY_LIST        "frequency-list"
+#define NM_SETTING_WIRELESS_FREQUENCY_DFS         "frequency-dfs"
+#define NM_SETTING_WIRELESS_FREQUENCY_DFS_DEFAULT 1
+#define NM_SETTING_WIRELESS_MAX_SCAN_INTERVAL     "max-scan-interval"
+#define NM_SETTING_WIRELESS_DMS                   "dms"
+#define NM_SETTING_WIRELESS_ACS                   "acs"
 
 #define NM_SETTING_WIRELESS_AP_CONFIG_FILE "ap-config-file"
 
@@ -176,19 +174,18 @@ typedef struct _NMSettingWirelessClass NMSettingWirelessClass;
  *
  **/
 typedef enum {
-    NM_SETTING_WIRELESS_CCX_DISABLE             = 0,
-    NM_SETTING_WIRELESS_CCX_OPTIMIZED           = 1,
-    NM_SETTING_WIRELESS_CCX_FULL                = 2,
-    _NM_SETTING_WIRELESS_CCX_NUM, /*< skip >*/
-    NM_SETTING_WIRELESS_CCX_LAST                =  _NM_SETTING_WIRELESS_CCX_NUM - 1, /*< skip >*/
+    NM_SETTING_WIRELESS_CCX_DISABLE   = 0,
+    NM_SETTING_WIRELESS_CCX_OPTIMIZED = 1,
+    NM_SETTING_WIRELESS_CCX_FULL      = 2,
+    _NM_SETTING_WIRELESS_CCX_NUM,                                    /*< skip >*/
+    NM_SETTING_WIRELESS_CCX_LAST = _NM_SETTING_WIRELESS_CCX_NUM - 1, /*< skip >*/
 } NMSettingWirelessCcx;
-
 
 GType nm_setting_wireless_get_type(void);
 
 NMSetting *nm_setting_wireless_new(void);
 
-GBytes *    nm_setting_wireless_get_ssid(NMSettingWireless *setting);
+GBytes     *nm_setting_wireless_get_ssid(NMSettingWireless *setting);
 const char *nm_setting_wireless_get_mode(NMSettingWireless *setting);
 const char *nm_setting_wireless_get_band(NMSettingWireless *setting);
 guint32     nm_setting_wireless_get_channel(NMSettingWireless *setting);
@@ -208,7 +205,7 @@ const char *nm_setting_wireless_get_mac_blacklist_item(NMSettingWireless *settin
 gboolean    nm_setting_wireless_add_mac_blacklist_item(NMSettingWireless *setting, const char *mac);
 void        nm_setting_wireless_remove_mac_blacklist_item(NMSettingWireless *setting, guint32 idx);
 gboolean    nm_setting_wireless_remove_mac_blacklist_item_by_value(NMSettingWireless *setting,
-                                                                   const char *       mac);
+                                                                   const char        *mac);
 void        nm_setting_wireless_clear_mac_blacklist_items(NMSettingWireless *setting);
 
 guint32  nm_setting_wireless_get_mtu(NMSettingWireless *setting);
@@ -220,42 +217,42 @@ NM_AVAILABLE_IN_1_2
 NMSettingMacRandomization
 nm_setting_wireless_get_mac_address_randomization(NMSettingWireless *setting);
 
-NMSettingWirelessCcx nm_setting_wireless_get_ccx             (NMSettingWireless *setting);
-const char       *nm_setting_wireless_get_client_name        (NMSettingWireless *setting);
+NMSettingWirelessCcx nm_setting_wireless_get_ccx(NMSettingWireless *setting);
+const char          *nm_setting_wireless_get_client_name(NMSettingWireless *setting);
 
-guint32           nm_setting_wireless_get_scan_delay         (NMSettingWireless *setting);
-guint32           nm_setting_wireless_get_scan_dwell         (NMSettingWireless *setting);
-guint32           nm_setting_wireless_get_scan_passive_dwell (NMSettingWireless *setting);
-guint32           nm_setting_wireless_get_scan_suspend_time  (NMSettingWireless *setting);
-guint32           nm_setting_wireless_get_scan_roam_delta    (NMSettingWireless *setting);
+guint32 nm_setting_wireless_get_scan_delay(NMSettingWireless *setting);
+guint32 nm_setting_wireless_get_scan_dwell(NMSettingWireless *setting);
+guint32 nm_setting_wireless_get_scan_passive_dwell(NMSettingWireless *setting);
+guint32 nm_setting_wireless_get_scan_suspend_time(NMSettingWireless *setting);
+guint32 nm_setting_wireless_get_scan_roam_delta(NMSettingWireless *setting);
 
-const char       *nm_setting_wireless_get_bgscan             (NMSettingWireless *setting);
-guint32           nm_setting_wireless_get_auth_timeout       (NMSettingWireless *setting);
-const char       *nm_setting_wireless_get_frequency_list     (NMSettingWireless *setting);
-guint32           nm_setting_wireless_get_frequency_dfs      (NMSettingWireless *setting);
-guint32           nm_setting_wireless_get_max_scan_interval     (NMSettingWireless *setting);
-guint32           nm_setting_wireless_get_dms                (NMSettingWireless *setting);
-guint32           nm_setting_wireless_get_acs                (NMSettingWireless *setting);
-const char       *nm_setting_wireless_get_ap_config_file (NMSettingWireless *setting);
+const char *nm_setting_wireless_get_bgscan(NMSettingWireless *setting);
+guint32     nm_setting_wireless_get_auth_timeout(NMSettingWireless *setting);
+const char *nm_setting_wireless_get_frequency_list(NMSettingWireless *setting);
+guint32     nm_setting_wireless_get_frequency_dfs(NMSettingWireless *setting);
+guint32     nm_setting_wireless_get_max_scan_interval(NMSettingWireless *setting);
+guint32     nm_setting_wireless_get_dms(NMSettingWireless *setting);
+guint32     nm_setting_wireless_get_acs(NMSettingWireless *setting);
+const char *nm_setting_wireless_get_ap_config_file(NMSettingWireless *setting);
 
 gboolean nm_setting_wireless_add_seen_bssid(NMSettingWireless *setting, const char *bssid);
 
 guint32     nm_setting_wireless_get_num_seen_bssids(NMSettingWireless *setting);
 const char *nm_setting_wireless_get_seen_bssid(NMSettingWireless *setting, guint32 i);
 
-gboolean nm_setting_wireless_ap_security_compatible(NMSettingWireless *        s_wireless,
+gboolean nm_setting_wireless_ap_security_compatible(NMSettingWireless         *s_wireless,
                                                     NMSettingWirelessSecurity *s_wireless_sec,
                                                     NM80211ApFlags             ap_flags,
                                                     NM80211ApSecurityFlags     ap_wpa,
                                                     NM80211ApSecurityFlags     ap_rsn,
                                                     NM80211Mode                ap_mode);
-gboolean          nm_setting_wireless_ap_security_compatible2(NMSettingWireless *s_wireless,
-                                                              NMSettingWirelessSecurity *s_wireless_sec,
-                                                              NM80211ApFlags ap_flags,
-                                                              NM80211ApSecurityFlags ap_wpa,
-                                                              NM80211ApSecurityFlags ap_rsn,
-                                                              NM80211Mode ap_mode,
-                                                              NMDeviceWifiCapabilities dev_caps);
+gboolean nm_setting_wireless_ap_security_compatible2(NMSettingWireless         *s_wireless,
+                                                     NMSettingWirelessSecurity *s_wireless_sec,
+                                                     NM80211ApFlags             ap_flags,
+                                                     NM80211ApSecurityFlags     ap_wpa,
+                                                     NM80211ApSecurityFlags     ap_rsn,
+                                                     NM80211Mode                ap_mode,
+                                                     NMDeviceWifiCapabilities   dev_caps);
 
 NM_AVAILABLE_IN_1_12
 NMSettingWirelessWakeOnWLan nm_setting_wireless_get_wake_on_wlan(NMSettingWireless *setting);

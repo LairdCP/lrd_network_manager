@@ -51,8 +51,8 @@ guint32 nm_wifi_utils_find_freq(NMWifiUtils *data, const guint32 *freqs);
  */
 gboolean nm_wifi_utils_get_station(NMWifiUtils *data,
                                    NMEtherAddr *out_bssid,
-                                   int *        out_quality,
-                                   guint32 *    out_rate);
+                                   int         *out_quality,
+                                   guint32     *out_rate);
 
 /* Tells the driver DHCP or SLAAC is running */
 gboolean nm_wifi_utils_indicate_addressing_running(NMWifiUtils *data, gboolean running);
@@ -63,7 +63,7 @@ _NMSettingWirelessWakeOnWLan nm_wifi_utils_get_wake_on_wlan(NMWifiUtils *data);
 
 gboolean nm_wifi_utils_set_wake_on_wlan(NMWifiUtils *data, _NMSettingWirelessWakeOnWLan wowl);
 
-gboolean nm_wifi_utils_get_can_apscan (NMWifiUtils *data);
+gboolean nm_wifi_utils_get_can_apscan(NMWifiUtils *data);
 
 /* OLPC Mesh-only functions */
 guint32 nm_wifi_utils_get_mesh_channel(NMWifiUtils *data);

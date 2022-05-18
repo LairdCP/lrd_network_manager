@@ -27,10 +27,23 @@ typedef enum LogTarget{
         _LOG_TARGET_INVALID = -EINVAL,
 } LogTarget;
 
-/* Note to readers: << and >> have lower precedence than & and | */
+/* This log level disables logging completely. It can only be passed to log_set_max_level() and cannot be
+ * used a regular log level. */
+#define LOG_NULL (LOG_EMERG - 1)
+
+/* Note to readers: << and >> have lower precedence (are evaluated earlier) than & and | */
 #define SYNTHETIC_ERRNO(num)                (1 << 30 | (num))
 #define IS_SYNTHETIC_ERRNO(val)             ((val) >> 30 & 1)
-#define ERRNO_VALUE(val)                    (abs(val) & 255)
+#define ERRNO_VALUE(val)                    (abs(val) & ~(1 << 30))
+
+/* The callback function to be invoked when syntax warnings are seen
+ * in the unit files. */
+typedef void (*log_syntax_callback_t)(const char *unit, int level, void *userdata);
+void set_log_syntax_callback(log_syntax_callback_t cb, void *userdata);
+
+static inline void clear_log_syntax_callback(dummy_t *dummy) {
+          set_log_syntax_callback(/* cb= */ NULL, /* userdata= */ NULL);
+}
 
 const char *log_target_to_string(LogTarget target) _const_;
 LogTarget log_target_from_string(const char *s) _pure_;
@@ -81,6 +94,7 @@ int log_open(void);
 void log_close(void);
 void log_forget_fds(void);
 
+void log_parse_environment_variables(void);
 void log_parse_environment(void);
 
 #if 0 /* NM_IGNORED */
@@ -273,26 +287,24 @@ _noreturn_ void log_assert_failed(
 
 #if 0 /* NM_IGNORED */
 _noreturn_ void log_assert_failed_unreachable(
-                const char *text,
                 const char *file,
                 int line,
                 const char *func);
 #else /* NM_IGNORED */
-#define log_assert_failed_unreachable(text, file, line, func)                              \
-    G_STMT_START                                                                           \
-    {                                                                                      \
-        log_internal(LOG_CRIT,                                                             \
-                     0,                                                                    \
-                     file,                                                                 \
-                     line,                                                                 \
-                     func,                                                                 \
-                     "Code should not be reached '%s' at %s:%u, function %s(). Aborting.", \
-                     text,                                                                 \
-                     file,                                                                 \
-                     line,                                                                 \
-                     func);                                                                \
-        g_assert_not_reached();                                                            \
-    }                                                                                      \
+#define log_assert_failed_unreachable(file, line, func)                               \
+    G_STMT_START                                                                      \
+    {                                                                                 \
+        log_internal(LOG_CRIT,                                                        \
+                     0,                                                               \
+                     file,                                                            \
+                     line,                                                            \
+                     func,                                                            \
+                     "Code should not be reached at %s:%u, function %s(). Aborting.", \
+                     file,                                                            \
+                     line,                                                            \
+                     func);                                                           \
+        g_assert_not_reached();                                                       \
+    }                                                                                 \
     G_STMT_END
 #endif /* NM_IGNORED */
 

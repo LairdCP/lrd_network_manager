@@ -7,7 +7,7 @@
 #define __NM_SETTING_BOND_H__
 
 #if !defined(__NETWORKMANAGER_H_INSIDE__) && !defined(NETWORKMANAGER_COMPILATION)
-    #error "Only <NetworkManager.h> can be included directly."
+#error "Only <NetworkManager.h> can be included directly."
 #endif
 
 #include "nm-setting.h"
@@ -56,17 +56,18 @@ G_BEGIN_DECLS
 #define NM_SETTING_BOND_OPTION_PACKETS_PER_SLAVE "packets_per_slave"
 #define NM_SETTING_BOND_OPTION_TLB_DYNAMIC_LB    "tlb_dynamic_lb"
 #define NM_SETTING_BOND_OPTION_LP_INTERVAL       "lp_interval"
+#define NM_SETTING_BOND_OPTION_PEER_NOTIF_DELAY  "peer_notif_delay"
 
 typedef struct _NMSettingBondClass NMSettingBondClass;
 
 GType nm_setting_bond_get_type(void);
 
-NMSetting * nm_setting_bond_new(void);
+NMSetting  *nm_setting_bond_new(void);
 guint32     nm_setting_bond_get_num_options(NMSettingBond *setting);
 gboolean    nm_setting_bond_get_option(NMSettingBond *setting,
                                        guint32        idx,
-                                       const char **  out_name,
-                                       const char **  out_value);
+                                       const char   **out_name,
+                                       const char   **out_value);
 const char *nm_setting_bond_get_option_by_name(NMSettingBond *setting, const char *name);
 gboolean    nm_setting_bond_add_option(NMSettingBond *setting, const char *name, const char *value);
 gboolean    nm_setting_bond_remove_option(NMSettingBond *setting, const char *name);

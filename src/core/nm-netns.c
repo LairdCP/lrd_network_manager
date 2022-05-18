@@ -15,21 +15,21 @@
 #include "nm-l3cfg.h"
 #include "libnm-platform/nm-platform.h"
 #include "libnm-platform/nmp-netns.h"
-#include "libnm-platform/nmp-rules-manager.h"
+#include "libnm-platform/nmp-route-manager.h"
 
 /*****************************************************************************/
 
 NM_GOBJECT_PROPERTIES_DEFINE_BASE(PROP_PLATFORM, );
 
 typedef struct {
-    NMNetns *        _self_signal_user_data;
-    NMPlatform *     platform;
-    NMPNetns *       platform_netns;
-    NMPRulesManager *rules_manager;
-    GHashTable *     l3cfgs;
-    GHashTable *     shared_ips;
+    NMNetns         *_self_signal_user_data;
+    NMPlatform      *platform;
+    NMPNetns        *platform_netns;
+    NMPRouteManager *route_manager;
+    GHashTable      *l3cfgs;
+    GHashTable      *shared_ips;
     CList            l3cfg_signal_pending_lst_head;
-    guint            signal_pending_idle_id;
+    GSource         *signal_pending_idle_source;
 } NMNetnsPrivate;
 
 struct _NMNetns {
@@ -79,10 +79,10 @@ nm_netns_get_platform(NMNetns *self)
     return NM_NETNS_GET_PRIVATE(self)->platform;
 }
 
-NMPRulesManager *
-nm_netns_get_rules_manager(NMNetns *self)
+NMPRouteManager *
+nm_netns_get_route_manager(NMNetns *self)
 {
-    return NM_NETNS_GET_PRIVATE(self)->rules_manager;
+    return NM_NETNS_GET_PRIVATE(self)->route_manager;
 }
 
 NMDedupMultiIndex *
@@ -113,9 +113,9 @@ _l3cfg_data_free(gpointer ptr)
 static void
 _l3cfg_weak_notify(gpointer data, GObject *where_the_object_was)
 {
-    NMNetns *       self    = NM_NETNS(data);
+    NMNetns        *self    = NM_NETNS(data);
     NMNetnsPrivate *priv    = NM_NETNS_GET_PRIVATE(data);
-    NML3Cfg *       l3cfg   = NM_L3CFG(where_the_object_was);
+    NML3Cfg        *l3cfg   = NM_L3CFG(where_the_object_was);
     int             ifindex = nm_l3cfg_get_ifindex(l3cfg);
 
     if (!g_hash_table_remove(priv->l3cfgs, &ifindex))
@@ -126,7 +126,7 @@ _l3cfg_weak_notify(gpointer data, GObject *where_the_object_was)
 }
 
 NML3Cfg *
-nm_netns_get_l3cfg(NMNetns *self, int ifindex)
+nm_netns_l3cfg_get(NMNetns *self, int ifindex)
 {
     NMNetnsPrivate *priv;
 
@@ -139,10 +139,10 @@ nm_netns_get_l3cfg(NMNetns *self, int ifindex)
 }
 
 NML3Cfg *
-nm_netns_access_l3cfg(NMNetns *self, int ifindex)
+nm_netns_l3cfg_acquire(NMNetns *self, int ifindex)
 {
     NMNetnsPrivate *priv;
-    L3CfgData *     l3cfg_data;
+    L3CfgData      *l3cfg_data;
 
     g_return_val_if_fail(NM_IS_NETNS(self), NULL);
     g_return_val_if_fail(ifindex > 0, NULL);
@@ -185,11 +185,11 @@ static gboolean
 _platform_signal_on_idle_cb(gpointer user_data)
 {
     gs_unref_object NMNetns *self = g_object_ref(NM_NETNS(user_data));
-    NMNetnsPrivate *         priv = NM_NETNS_GET_PRIVATE(self);
-    L3CfgData *              l3cfg_data;
+    NMNetnsPrivate          *priv = NM_NETNS_GET_PRIVATE(self);
+    L3CfgData               *l3cfg_data;
     CList                    work_list;
 
-    priv->signal_pending_idle_id = 0;
+    nm_clear_g_source_inst(&priv->signal_pending_idle_source);
 
     /* we emit all queued signals together. However, we don't want to hook the
      * main loop for longer than the currently queued elements.
@@ -210,22 +210,22 @@ _platform_signal_on_idle_cb(gpointer user_data)
             nm_steal_int(&l3cfg_data->signal_pending_obj_type_flags));
     }
 
-    return G_SOURCE_REMOVE;
+    return G_SOURCE_CONTINUE;
 }
 
 static void
-_platform_signal_cb(NMPlatform *  platform,
+_platform_signal_cb(NMPlatform   *platform,
                     int           obj_type_i,
                     int           ifindex,
                     gconstpointer platform_object,
                     int           change_type_i,
-                    NMNetns **    p_self)
+                    NMNetns     **p_self)
 {
-    NMNetns *                        self        = NM_NETNS(*p_self);
-    NMNetnsPrivate *                 priv        = NM_NETNS_GET_PRIVATE(self);
+    NMNetns                         *self        = NM_NETNS(*p_self);
+    NMNetnsPrivate                  *priv        = NM_NETNS_GET_PRIVATE(self);
     const NMPObjectType              obj_type    = obj_type_i;
     const NMPlatformSignalChangeType change_type = change_type_i;
-    L3CfgData *                      l3cfg_data;
+    L3CfgData                       *l3cfg_data;
 
     l3cfg_data = g_hash_table_lookup(priv->l3cfgs, &ifindex);
     if (!l3cfg_data)
@@ -235,8 +235,9 @@ _platform_signal_cb(NMPlatform *  platform,
 
     if (c_list_is_empty(&l3cfg_data->signal_pending_lst)) {
         c_list_link_tail(&priv->l3cfg_signal_pending_lst_head, &l3cfg_data->signal_pending_lst);
-        if (priv->signal_pending_idle_id == 0)
-            priv->signal_pending_idle_id = g_idle_add(_platform_signal_on_idle_cb, self);
+        if (!priv->signal_pending_idle_source)
+            priv->signal_pending_idle_source =
+                nm_g_idle_add_source(_platform_signal_on_idle_cb, self);
     }
 
     _nm_l3cfg_notify_platform_change(l3cfg_data->l3cfg,
@@ -249,7 +250,7 @@ _platform_signal_cb(NMPlatform *  platform,
 NMNetnsSharedIPHandle *
 nm_netns_shared_ip_reserve(NMNetns *self)
 {
-    NMNetnsPrivate *       priv;
+    NMNetnsPrivate        *priv;
     NMNetnsSharedIPHandle *handle;
     const in_addr_t        addr_start = ntohl(0x0a2a0001u); /* 10.42.0.1 */
     in_addr_t              addr;
@@ -311,7 +312,7 @@ nm_netns_shared_ip_reserve(NMNetns *self)
 void
 nm_netns_shared_ip_release(NMNetnsSharedIPHandle *handle)
 {
-    NMNetns *       self;
+    NMNetns        *self;
     NMNetnsPrivate *priv;
     char            sbuf_addr[NM_UTILS_INET_ADDRSTRLEN];
 
@@ -355,7 +356,7 @@ nm_netns_shared_ip_release(NMNetnsSharedIPHandle *handle)
 static void
 set_property(GObject *object, guint prop_id, const GValue *value, GParamSpec *pspec)
 {
-    NMNetns *       self = NM_NETNS(object);
+    NMNetns        *self = NM_NETNS(object);
     NMNetnsPrivate *priv = NM_NETNS_GET_PRIVATE(self);
 
     switch (prop_id) {
@@ -386,7 +387,7 @@ nm_netns_init(NMNetns *self)
 static void
 constructed(GObject *object)
 {
-    NMNetns *       self = NM_NETNS(object);
+    NMNetns        *self = NM_NETNS(object);
     NMNetnsPrivate *priv = NM_NETNS_GET_PRIVATE(self);
 
     if (!priv->platform)
@@ -396,14 +397,14 @@ constructed(GObject *object)
 
     priv->platform_netns = nm_platform_netns_get(priv->platform);
 
-    priv->rules_manager = nmp_rules_manager_new(priv->platform);
+    priv->route_manager = nmp_route_manager_new(priv->platform);
 
     /* Weakly track the default rules with a dummy user-tag. These
      * rules are always weekly tracked... */
-    nmp_rules_manager_track_default(priv->rules_manager,
-                                    AF_UNSPEC,
-                                    0,
-                                    nm_netns_parent_class /* static dummy user-tag */);
+    nmp_route_manager_track_rule_default(priv->route_manager,
+                                         AF_UNSPEC,
+                                         0,
+                                         nm_netns_parent_class /* static dummy user-tag */);
 
     /* Also weakly track all existing rules. These were added before NetworkManager
      * starts, so they are probably none of NetworkManager's business.
@@ -413,12 +414,12 @@ constructed(GObject *object)
      * of NetworkManager, we just don't know.
      *
      * For that reason, whenever we will touch such rules later one, we make them
-     * fully owned and no longer weekly tracked. See %NMP_RULES_MANAGER_EXTERN_WEAKLY_TRACKED_USER_TAG. */
-    nmp_rules_manager_track_from_platform(priv->rules_manager,
-                                          NULL,
-                                          AF_UNSPEC,
-                                          0,
-                                          NMP_RULES_MANAGER_EXTERN_WEAKLY_TRACKED_USER_TAG);
+     * fully owned and no longer weekly tracked. See %NMP_ROUTE_MANAGER_EXTERN_WEAKLY_TRACKED_USER_TAG. */
+    nmp_route_manager_track_rule_from_platform(priv->route_manager,
+                                               NULL,
+                                               AF_UNSPEC,
+                                               0,
+                                               NMP_ROUTE_MANAGER_EXTERN_WEAKLY_TRACKED_USER_TAG);
 
     G_OBJECT_CLASS(nm_netns_parent_class)->constructed(object);
 
@@ -453,14 +454,14 @@ nm_netns_new(NMPlatform *platform)
 static void
 dispose(GObject *object)
 {
-    NMNetns *       self = NM_NETNS(object);
+    NMNetns        *self = NM_NETNS(object);
     NMNetnsPrivate *priv = NM_NETNS_GET_PRIVATE(self);
 
     nm_assert(nm_g_hash_table_size(priv->l3cfgs) == 0);
     nm_assert(c_list_is_empty(&priv->l3cfg_signal_pending_lst_head));
     nm_assert(!priv->shared_ips);
 
-    nm_clear_g_source(&priv->signal_pending_idle_id);
+    nm_clear_g_source_inst(&priv->signal_pending_idle_source);
 
     if (priv->platform)
         g_signal_handlers_disconnect_by_data(priv->platform, &priv->_self_signal_user_data);
@@ -468,7 +469,7 @@ dispose(GObject *object)
     g_clear_object(&priv->platform);
     nm_clear_pointer(&priv->l3cfgs, g_hash_table_unref);
 
-    nm_clear_pointer(&priv->rules_manager, nmp_rules_manager_unref);
+    nm_clear_pointer(&priv->route_manager, nmp_route_manager_unref);
 
     G_OBJECT_CLASS(nm_netns_parent_class)->dispose(object);
 }

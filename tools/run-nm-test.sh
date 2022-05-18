@@ -37,6 +37,7 @@ usage() {
     echo "  --no-libtool: when running with valgrind, the script tries automatically to"
     echo "        use libtool as necessary. This disables libtool usage" 
     echo "  --make-first|-m: before running the test, make it (only works with autotools build)"
+    echo "  --no-make-first|-M: disable --make-first option"
     echo "  --valgrind|-v: run under valgrind"
     echo "  --no-valgrind|-V: disable running under valgrind (overrides NMTST_USE_VALGRIND=1)"
     echo "  -d: set NMTST_DEBUG=d"
@@ -163,6 +164,10 @@ else
             ;;
         --make-first|-m)
             NMTST_MAKE_FIRST=1
+            shift
+            ;;
+        --no-make-first|-M)
+            NMTST_MAKE_FIRST=0
             shift
             ;;
         "--valgrind"|-v)
@@ -295,9 +300,10 @@ fi
 
 if ! _is_true "$NMTST_USE_VALGRIND" 0; then
     export NM_TEST_UNDER_VALGRIND=0
-    exec "${NMTST_DBUS_RUN_SESSION[@]}" \
-    "$TEST" "${TEST_ARGV[@]}"
-    die "exec \"$TEST\" failed"
+    "${NMTST_DBUS_RUN_SESSION[@]}" "$TEST" "${TEST_ARGV[@]}"
+    r=$?
+    [ $r == 0 -o $r == 77 ] || die "exec \"$TEST\" failed with exit code $r"
+    exit $r
 fi
 
 if [[ -z "${NMTST_VALGRIND}" ]]; then
@@ -331,11 +337,11 @@ export NM_TEST_UNDER_VALGRIND=1
     "${TEST_ARGV[@]}"
 RESULT=$?
 
-test -s "$LOGFILE"
-HAS_ERRORS=$?
+LOGFILE_HAS_WARNINGS=0
+test -s "$LOGFILE" && LOGFILE_HAS_WARNINGS=1
 
 if [ $RESULT -ne 0 -a $RESULT -ne 77 ]; then
-    if [ $HAS_ERRORS -ne 0 ]; then
+    if [ "$LOGFILE_HAS_WARNINGS" != 1 ]; then
         rm -f "$LOGFILE"
     elif [ $RESULT -ne $VALGRIND_ERROR ]; then
         # the test (probably) didn't fail due to valgrind.
@@ -358,32 +364,15 @@ if [ $RESULT -ne 0 -a $RESULT -ne 77 ]; then
     exit $RESULT
 fi
 
-if [ $HAS_ERRORS -eq 0 ]; then
-    # valgrind doesn't support setns syscall and spams the logfile.
-    # hack around it...
-    case "$TEST_NAME" in
-        'test-acd' | \
-        'test-address-linux' | \
-        'test-cleanup-linux' | \
-        'test-config' | \
-        'test-l3cfg' | \
-        'test-link-linux' | \
-        'test-lldp' | \
-        'test-nm-client' | \
-        'test-platform-general' | \
-        'test-remote-settings-client' | \
-        'test-route-linux' | \
-        'test-secret-agent' | \
-        'test-service-providers' | \
-        'test-tc-linux' )
-            if [ -z "$(sed -e '/^--[0-9]\+-- WARNING: unhandled .* syscall: /,/^--[0-9]\+-- it at http.*\.$/d' "$LOGFILE")" ]; then
-                HAS_ERRORS=1
-            fi
-            ;;
-    esac
+if [ "$LOGFILE_HAS_WARNINGS" = 1 ]; then
+    # valgrind may not support certain syscalls and spam the logfile with warnings.
+    # Hack around this. If the logfile only contains such warnings, ignore them.
+   if [ -z "$(sed -e '/^--[0-9]\+-- WARNING: unhandled .* syscall: /,/^--[0-9]\+-- it at http.*\.$/d' "$LOGFILE")" ]; then
+       LOGFILE_HAS_WARNINGS=0
+   fi
 fi
 
-if [ $HAS_ERRORS -eq 0 ]; then
+if [ "$LOGFILE_HAS_WARNINGS" = 1 ]; then
     # shouldn't actually happen...
     echo "valgrind succeeded, but log is not empty: '`realpath "$LOGFILE"`'" >&2
     exit 1

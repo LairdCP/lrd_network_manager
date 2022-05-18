@@ -8,8 +8,7 @@
 
 #include "src/systemd/sd-dhcp-client.h"
 #include "src/systemd/sd-dhcp6-client.h"
-#include "src/systemd/sd-lldp.h"
-#include "src/systemd/sd-ipv4ll.h"
+#include "src/systemd/sd-lldp-rx.h"
 
 /*****************************************************************************/
 

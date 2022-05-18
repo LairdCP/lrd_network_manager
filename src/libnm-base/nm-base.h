@@ -13,6 +13,11 @@
 
 #define _NM_MAX_CLIENT_ID_LEN (sizeof(guint32) + 128)
 
+enum {
+    NM_DNS_PRIORITY_DEFAULT_NORMAL = 100,
+    NM_DNS_PRIORITY_DEFAULT_VPN    = 50,
+};
+
 /*****************************************************************************/
 
 typedef enum {
@@ -223,6 +228,7 @@ typedef enum {
     _NM_WIFI_DEVICE_CAP_FREQ_5GHZ     = 0x00000400,
     _NM_WIFI_DEVICE_CAP_MESH          = 0x00001000,
     _NM_WIFI_DEVICE_CAP_IBSS_RSN      = 0x00002000,
+    /* Laird: this separator prevents clang-reformat of upstream */
     _NM_WIFI_DEVICE_CAP_CIPHER_CCMP_256 = 0x00010000,
     _NM_WIFI_DEVICE_CAP_CIPHER_GCMP_128 = 0x00020000,
     _NM_WIFI_DEVICE_CAP_CIPHER_GCMP_256 = 0x00040000,
@@ -393,5 +399,7 @@ typedef struct {
 #define NM_IW_ESSID_MAX_SIZE 32
 
 /****************************************************************************/
+
+#define NM_BOND_PORT_QUEUE_ID_DEF 0
 
 #endif /* __NM_LIBNM_BASE_H__ */

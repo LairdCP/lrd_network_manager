@@ -6,7 +6,7 @@
 #include "libnm-client-impl/nm-default-libnm.h"
 
 #if defined(HAVE_DECL_MEMFD_CREATE) && HAVE_DECL_MEMFD_CREATE
-    #include <linux/memfd.h>
+#include <linux/memfd.h>
 #endif
 
 #include <sys/mman.h>
@@ -219,7 +219,7 @@ test_fixup_vendor_string(void)
         T_DATA("Memorex", "Memorex"),
         T_DATA("Micrel-Kendin", "Micrel-Kendin"),
         T_DATA("Microchip Technology, Inc.", "Microchip"),
-        T_DATA("Microcomputer Systems (M) Son", "Microcomputer"),
+        T_DATA("Microcomputer Systems (M) Son", "Microcomputer Son"),
         T_DATA("Microsoft Corp.", "Microsoft"),
         T_DATA("Microsoft Corporation", "Microsoft"),
         T_DATA("Micro-Star International Co., Ltd. [MSI]", "MSI"),
@@ -594,11 +594,11 @@ test_fixup_product_string(void)
         T_DATA("82599 Ethernet Controller Virtual Function", "82599 Virtual Function"),
         T_DATA("82599 Virtual Function", "82599 Virtual Function"),
         T_DATA("82801BA/BAM/CA/CAM Ethernet Controller", "82801BA/BAM/CA/CAM"),
-        T_DATA("82801CAM (ICH3) PRO/100 VE Ethernet Controller", "82801CAM"),
-        T_DATA("82801CAM (ICH3) PRO/100 VE (LOM) Ethernet Controller", "82801CAM"),
-        T_DATA("82801CAM (ICH3) PRO/100 VM Ethernet Controller", "82801CAM"),
-        T_DATA("82801CAM (ICH3) PRO/100 VM (KM) Ethernet Controller", "82801CAM"),
-        T_DATA("82801CAM (ICH3) PRO/100 VM (LOM) Ethernet Controller", "82801CAM"),
+        T_DATA("82801CAM (ICH3) PRO/100 VE Ethernet Controller", "82801CAM PRO/100 VE"),
+        T_DATA("82801CAM (ICH3) PRO/100 VE (LOM) Ethernet Controller", "82801CAM PRO/100 VE"),
+        T_DATA("82801CAM (ICH3) PRO/100 VM Ethernet Controller", "82801CAM PRO/100 VM"),
+        T_DATA("82801CAM (ICH3) PRO/100 VM (KM) Ethernet Controller", "82801CAM PRO/100 VM"),
+        T_DATA("82801CAM (ICH3) PRO/100 VM (LOM) Ethernet Controller", "82801CAM PRO/100 VM"),
         T_DATA("82801DB PRO/100 VE (CNR) Ethernet Controller", "82801DB PRO/100 VE"),
         T_DATA("82801DB PRO/100 VE (LOM) Ethernet Controller", "82801DB PRO/100 VE"),
         T_DATA("82801DB PRO/100 VE (MOB) Ethernet Controller", "82801DB PRO/100 VE"),
@@ -1009,25 +1009,25 @@ test_fixup_product_string(void)
         T_DATA("Ethernet Adapter", NULL),
         T_DATA("Ethernet adapter [U2L 100P-Y1]", "U2L 100P-Y1"),
         T_DATA("Ethernet Adaptive Virtual Function", "Adaptive Virtual Function"),
-        T_DATA("Ethernet Connection (2) I218-LM", NULL),
-        T_DATA("Ethernet Connection (2) I218-V", NULL),
-        T_DATA("Ethernet Connection (2) I219-LM", NULL),
-        T_DATA("Ethernet Connection (2) I219-V", NULL),
-        T_DATA("Ethernet Connection (3) I218-LM", NULL),
-        T_DATA("Ethernet Connection (3) I218-V", NULL),
-        T_DATA("Ethernet Connection (3) I219-LM", NULL),
-        T_DATA("Ethernet Connection (4) I219-LM", NULL),
-        T_DATA("Ethernet Connection (4) I219-V", NULL),
-        T_DATA("Ethernet Connection (5) I219-LM", NULL),
-        T_DATA("Ethernet Connection (5) I219-V", NULL),
-        T_DATA("Ethernet Connection (6) I219-LM", NULL),
-        T_DATA("Ethernet Connection (6) I219-V", NULL),
-        T_DATA("Ethernet Connection (7) I219-LM", NULL),
-        T_DATA("Ethernet Connection (7) I219-V", NULL),
-        T_DATA("Ethernet Connection (8) I219-LM", NULL),
-        T_DATA("Ethernet Connection (8) I219-V", NULL),
-        T_DATA("Ethernet Connection (9) I219-LM", NULL),
-        T_DATA("Ethernet Connection (9) I219-V", NULL),
+        T_DATA("Ethernet Connection (2) I218-LM", "I218-LM"),
+        T_DATA("Ethernet Connection (2 I218-V", NULL),
+        T_DATA("Ethernet Connection (2 I219-LM", NULL),
+        T_DATA("Ethernet Connection (2 I219-V", NULL),
+        T_DATA("Ethernet Connection (3) I218-LM", "I218-LM"),
+        T_DATA("Ethernet Connection (3) I218-V", "I218-V"),
+        T_DATA("Ethernet Connection (3 I219-LM", NULL),
+        T_DATA("Ethernet Connection (4 I219-LM", NULL),
+        T_DATA("Ethernet Connection (4 I219-V", NULL),
+        T_DATA("Ethernet Connection (5 I219-LM", NULL),
+        T_DATA("Ethernet Connection (5 I219-V", NULL),
+        T_DATA("Ethernet Connection (6 I219-LM", NULL),
+        T_DATA("Ethernet Connection (6 I219-V", NULL),
+        T_DATA("Ethernet Connection (7 I219-LM", NULL),
+        T_DATA("Ethernet Connection (7 I219-V", NULL),
+        T_DATA("Ethernet Connection (8 I219-LM", NULL),
+        T_DATA("Ethernet Connection (8 I219-V", NULL),
+        T_DATA("Ethernet Connection (9 I219-LM", NULL),
+        T_DATA("Ethernet Connection (9 I219-V", NULL),
         T_DATA("Ethernet Connection I217-LM", "I217-LM"),
         T_DATA("Ethernet Connection I217-V", "I217-V"),
         T_DATA("Ethernet Connection I218-LM", "I218-LM"),
@@ -2160,12 +2160,12 @@ test_fixup_product_string(void)
                "WLM-20U2/GN-1080"),
         T_DATA("WLP-UC-AG300 Wireless LAN Adapter", "WLP-UC-AG300"),
         T_DATA("WM168g 802.11bg Wireless Adapter [Intersil ISL3886]", "WM168g"),
-        T_DATA("WN111(v2) RangeMax Next Wireless [Atheros AR9170+AR9101]", "WN111"),
+        T_DATA("WN111(v2) RangeMax Next Wireless [Atheros AR9170+AR9101]", "WN111 RangeMax Next"),
         T_DATA("WNA1000M 802.11bgn [Realtek RTL8188CUS]", "WNA1000M"),
         T_DATA("WNA1000Mv2 802.11bgn [Realtek RTL8188CUS?]", "WNA1000Mv2"),
         T_DATA("WNA1000 Wireless-N 150 [Atheros AR9170+AR9101]", "WNA1000 150"),
         T_DATA("WNA1100 Wireless-N 150 [Atheros AR9271]", "WNA1100 150"),
-        T_DATA("WNA3100M(v1) Wireless-N 300 [Realtek RTL8192CU]", "WNA3100M"),
+        T_DATA("WNA3100M(v1) Wireless-N 300 [Realtek RTL8192CU]", "WNA3100M 300"),
         T_DATA("WNDA3100v1 802.11abgn [Atheros AR9170+AR9104]", "WNDA3100v1"),
         T_DATA("WNDA3200 802.11abgn Wireless Adapter [Atheros AR7010+AR9280]", "WNDA3200"),
         T_DATA("WNDA4100 802.11abgn 3x3:3 [Ralink RT3573]", "WNDA4100"),
@@ -2280,18 +2280,18 @@ typedef struct {
 #define READ_VPN_DETAIL_DATA(...) ((ReadVpnDetailData[]){__VA_ARGS__})
 
 static gboolean
-_do_read_vpn_details_impl1(const char *             file,
+_do_read_vpn_details_impl1(const char              *file,
                            int                      line,
                            int                      memfd,
-                           char *                   mem,
+                           char                    *mem,
                            gsize                    len,
                            const ReadVpnDetailData *expected_data,
                            guint                    expected_data_len,
                            const ReadVpnDetailData *expected_secrets,
                            guint                    expected_secrets_len)
 {
-    gssize             written;
-    off_t              lseeked;
+    gssize                         written;
+    off_t                          lseeked;
     gs_unref_hashtable GHashTable *data    = NULL;
     gs_unref_hashtable GHashTable *secrets = NULL;
 
@@ -2312,11 +2312,11 @@ _do_read_vpn_details_impl1(const char *             file,
 #define _assert_hash(hash, expected, expected_len)                                            \
     G_STMT_START                                                                              \
     {                                                                                         \
-        GHashTable *             _hash         = (hash);                                      \
+        GHashTable              *_hash         = (hash);                                      \
         guint                    _expected_len = (expected_len);                              \
         const ReadVpnDetailData *_expected     = (expected);                                  \
         GHashTableIter           _iter;                                                       \
-        const char *             _k, *_v;                                                     \
+        const char              *_k, *_v;                                                     \
         guint                    _i;                                                          \
                                                                                               \
         g_assert(_hash);                                                                      \
@@ -2758,8 +2758,8 @@ test_types(void)
 
     for (i_type = 0; i_type < G_N_ELEMENTS(get_type_fcns); i_type++) {
         nm_auto_unref_gtypeclass GObjectClass *klass_unref = NULL;
-        GType                                  gtype       = (get_type_fcns[i_type]) ();
-        GObjectClass *                         klass;
+        GType                                  gtype       = (get_type_fcns[i_type])();
+        GObjectClass                          *klass;
 
         g_assert(g_str_has_prefix(g_type_name(gtype), "NM"));
 
@@ -2803,16 +2803,16 @@ test_types(void)
 static void
 test_nml_dbus_meta(void)
 {
-    const NMLDBusMetaIface *   meta_iface;
+    const NMLDBusMetaIface    *meta_iface;
     const NMLDBusMetaProperty *meta_property;
     guint                      prop_idx;
     gsize                      i, j;
     guint                      l, m;
 
     for (i = 0; i < G_N_ELEMENTS(_nml_dbus_meta_ifaces); i++) {
-        const NMLDBusMetaIface * mif                       = _nml_dbus_meta_ifaces[i];
+        const NMLDBusMetaIface                *mif         = _nml_dbus_meta_ifaces[i];
         nm_auto_unref_gtypeclass GObjectClass *klass_unref = NULL;
-        GObjectClass *                         klass;
+        GObjectClass                          *klass;
         GType                                  gtype;
 
 #define COMMON_PREFIX "org.freedesktop.NetworkManager"
@@ -2836,6 +2836,11 @@ test_nml_dbus_meta(void)
         }
 
         g_assert((mif->n_dbus_properties > 0) == (!!mif->dbus_properties));
+
+        if (nm_streq(mif->dbus_iface_name, "org.freedesktop.NetworkManager.Device"))
+            g_assert(nm_streq(
+                mif->dbus_properties[_NML_DEVICE_META_PROPERTY_INDEX_PORTS].dbus_property_name,
+                "Ports"));
 
         if (mif->interface_prio == NML_DBUS_META_INTERFACE_PRIO_NONE) {
             g_assert(!mif->get_type_fcn);
@@ -2999,7 +3004,7 @@ test_nml_dbus_meta(void)
 check_dbus_properties:
         for (l = 0; l < mif->n_dbus_properties; l++) {
             const NMLDBusMetaProperty *mpr               = &mif->dbus_properties[l];
-            gs_free char *             obj_property_name = NULL;
+            gs_free char              *obj_property_name = NULL;
             const struct {
                 const char *dbus_type;
                 GType       default_gtype;
@@ -3068,7 +3073,7 @@ check_dbus_properties:
                 pspec = mif->obj_properties[mpr->obj_properties_idx];
             }
 
-            if (mpr->use_notify_update_prop) {
+            if (mpr->notify_update_prop) {
                 g_assert(mpr->notify_update_prop);
             } else {
                 if (klass)
@@ -3129,7 +3134,7 @@ check_dbus_properties:
 
                 g_assert_cmpstr(expected_property_name, ==, pspec->name);
 
-                if (!mpr->use_notify_update_prop) {
+                if (!mpr->notify_update_prop) {
                     for (p_expected_type_2 = &expected_types[0];
                          p_expected_type_2 < &expected_types[G_N_ELEMENTS(expected_types)];
                          p_expected_type_2++) {
@@ -3213,7 +3218,7 @@ static void
 test_dbus_meta_types(void)
 {
     struct list_data {
-        const char *            dbus_iface_name;
+        const char             *dbus_iface_name;
         GType                   gtype;
         NMLDBusMetaInteracePrio interface_prio;
     } list[] = {
@@ -3459,8 +3464,8 @@ test_nm_auth_permissions(void)
     for (i = 1; i < NM_CLIENT_PERMISSION_LAST; i++) {
         NMClientPermission a   = nm_auth_permission_sorted[i - 1];
         NMClientPermission b   = nm_auth_permission_sorted[i];
-        const char *       s_a = nm_auth_permission_names_by_idx[a - 1];
-        const char *       s_b = nm_auth_permission_names_by_idx[b - 1];
+        const char        *s_a = nm_auth_permission_names_by_idx[a - 1];
+        const char        *s_b = nm_auth_permission_names_by_idx[b - 1];
 
         g_assert_cmpstr(s_a, <, s_b);
         g_assert(a != b);

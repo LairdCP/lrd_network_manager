@@ -31,6 +31,31 @@ G_STATIC_ASSERT(4 == _nm_alignof(NMIPAddr));
 /*****************************************************************************/
 
 static void
+test_nm_static_assert(void)
+{
+    int                                v1[NM_STATIC_ASSERT_EXPR_1(1)];
+    typeof(NM_STATIC_ASSERT_EXPR_1(1)) v_int;
+    int                               *p_int;
+
+    G_STATIC_ASSERT(sizeof(v1) == sizeof(int));
+    G_STATIC_ASSERT(NM_STATIC_ASSERT_EXPR_1(1) == 1);
+    G_STATIC_ASSERT(NM_STATIC_ASSERT_EXPR_1(NM_STATIC_ASSERT_EXPR_1(1)) == 1);
+    G_STATIC_ASSERT(NM_STATIC_ASSERT_EXPR_1(NM_STATIC_ASSERT_EXPR_1(NM_STATIC_ASSERT_EXPR_1(1)))
+                    == 1);
+
+    g_assert(NM_STATIC_ASSERT_EXPR_1(2) == 1);
+
+    p_int = &v_int;
+    g_assert(&v_int == p_int);
+
+    (void) NM_STATIC_ASSERT_EXPR_1(2 > 1);
+
+    NM_STATIC_ASSERT_EXPR_VOID(2 > 1);
+}
+
+/*****************************************************************************/
+
+static void
 test_gpid(void)
 {
     const int *int_ptr;
@@ -193,7 +218,7 @@ test_nm_strndup_a(void)
 
         {
             gs_free char *dup_free = NULL;
-            const char *  dup;
+            const char   *dup;
 
             l   = strlen(input) + 1;
             dup = nm_strndup_a(10, input, l - 1, &dup_free);
@@ -206,7 +231,7 @@ test_nm_strndup_a(void)
 
         {
             gs_free char *dup_free = NULL;
-            const char *  dup;
+            const char   *dup;
 
             l   = nmtst_get_rand_uint32() % 23;
             dup = nm_strndup_a(10, input, l, &dup_free);
@@ -296,10 +321,10 @@ test_unaligned(void)
 /*****************************************************************************/
 
 static void
-_strv_cmp_fuzz_input(const char *const * in,
+_strv_cmp_fuzz_input(const char *const  *in,
                      gssize              l,
-                     const char ***      out_strv_free_shallow,
-                     char ***            out_strv_free_deep,
+                     const char       ***out_strv_free_shallow,
+                     char             ***out_strv_free_deep,
                      const char *const **out_s1,
                      const char *const **out_s2)
 {
@@ -377,12 +402,12 @@ test_strv_cmp(void)
     {                                                                                               \
         gssize               _l1 = (l1);                                                            \
         gssize               _l2 = (l2);                                                            \
-        const char *const *  _a1;                                                                   \
-        const char *const *  _a2;                                                                   \
-        const char *const *  _a1x;                                                                  \
-        const char *const *  _a2x;                                                                  \
-        char **              _a1_free_deep    = NULL;                                               \
-        char **              _a2_free_deep    = NULL;                                               \
+        const char *const   *_a1;                                                                   \
+        const char *const   *_a2;                                                                   \
+        const char *const   *_a1x;                                                                  \
+        const char *const   *_a2x;                                                                  \
+        char               **_a1_free_deep    = NULL;                                               \
+        char               **_a2_free_deep    = NULL;                                               \
         gs_free const char **_a1_free_shallow = NULL;                                               \
         gs_free const char **_a2_free_shallow = NULL;                                               \
         int                  _c1, _c2;                                                              \
@@ -390,8 +415,8 @@ test_strv_cmp(void)
         _strv_cmp_fuzz_input((a1), _l1, &_a1_free_shallow, &_a1_free_deep, &_a1, &_a1x);            \
         _strv_cmp_fuzz_input((a2), _l2, &_a2_free_shallow, &_a2_free_deep, &_a2, &_a2x);            \
                                                                                                     \
-        _c1 = nm_utils_strv_cmp_n(_a1, _l1, _a2, _l2);                                              \
-        _c2 = nm_utils_strv_cmp_n(_a2, _l2, _a1, _l1);                                              \
+        _c1 = nm_strv_cmp_n(_a1, _l1, _a2, _l2);                                                    \
+        _c2 = nm_strv_cmp_n(_a2, _l2, _a1, _l1);                                                    \
         if (equal) {                                                                                \
             g_assert_cmpint(_c1, ==, 0);                                                            \
             g_assert_cmpint(_c2, ==, 0);                                                            \
@@ -402,8 +427,8 @@ test_strv_cmp(void)
                                                                                                     \
         /* Compare with self. _strv_cmp_fuzz_input() randomly swapped the arguments (_a1 and _a1x).
          * Either way, the arrays must compare equal to their semantically equal alternative. */ \
-        g_assert_cmpint(nm_utils_strv_cmp_n(_a1, _l1, _a1x, _l1), ==, 0);                           \
-        g_assert_cmpint(nm_utils_strv_cmp_n(_a2, _l2, _a2x, _l2), ==, 0);                           \
+        g_assert_cmpint(nm_strv_cmp_n(_a1, _l1, _a1x, _l1), ==, 0);                                 \
+        g_assert_cmpint(nm_strv_cmp_n(_a2, _l2, _a2x, _l2), ==, 0);                                 \
                                                                                                     \
         _strv_cmp_free_deep(_a1_free_deep, _l1);                                                    \
         _strv_cmp_free_deep(_a2_free_deep, _l2);                                                    \
@@ -443,8 +468,8 @@ _do_strstrip_avoid_copy(const char *str)
     gs_free char *str2 = g_strdup(str);
     gs_free char *str3 = NULL;
     gs_free char *str4 = NULL;
-    const char *  s3;
-    const char *  s4;
+    const char   *s3;
+    const char   *s4;
 
     if (str1)
         g_strstrip(str1);
@@ -503,11 +528,11 @@ test_nm_utils_bin2hexstr(void)
         gboolean upper_case = nmtst_get_rand_bool();
         gboolean hexdigit_pairs_mangled;
         gsize    expected_strlen;
-        char *   str_hex;
+        char    *str_hex;
         gsize    required_len;
         gboolean outlen_set;
         gsize    outlen;
-        guint8 * bin2;
+        guint8  *bin2;
         guint    i, j;
 
         nmtst_rand_buf(NULL, buf, len);
@@ -622,15 +647,22 @@ static void
 test_nm_ref_string(void)
 {
     nm_auto_ref_string NMRefString *s1 = NULL;
-    NMRefString *                   s2;
+    NMRefString                    *s2;
 
     g_assert(NULL == NM_REF_STRING_UPCAST(NULL));
+    g_assert(nm_ref_string_equal_str(NULL, NULL));
+    g_assert(!nm_ref_string_equal_str(NULL, ""));
+    g_assert(!nm_ref_string_equal_str(NULL, "a"));
 
     s1 = nm_ref_string_new("hallo");
     g_assert(s1);
     g_assert_cmpstr(s1->str, ==, "hallo");
     g_assert_cmpint(s1->len, ==, strlen("hallo"));
     g_assert(s1 == NM_REF_STRING_UPCAST(s1->str));
+    g_assert(nm_ref_string_equal_str(s1, "hallo"));
+    g_assert(!nm_ref_string_equal_str(s1, "hallox"));
+    g_assert(!nm_ref_string_equal_str(s1, "hall"));
+    g_assert(!nm_ref_string_equal_str(s1, NULL));
 
     s2 = nm_ref_string_new("hallo");
     g_assert(s2 == s1);
@@ -647,6 +679,7 @@ test_nm_ref_string(void)
     g_assert_cmpint(s2->len, ==, NM_STRLEN(STR_WITH_NUL));
     g_assert_cmpint(s2->len, >, strlen(s2->str));
     g_assert_cmpmem(s2->str, s2->len, STR_WITH_NUL, NM_STRLEN(STR_WITH_NUL));
+    g_assert(!nm_ref_string_equal_str(s2, "hallo"));
     g_assert(s2->str[s2->len] == '\0');
     nm_ref_string_unref(s2);
 }
@@ -884,8 +917,8 @@ test_nm_str_buf(void)
     guint i_run;
 
     for (i_run = 0; TRUE; i_run++) {
-        nm_auto_str_buf NMStrBuf strbuf    = {};
-        nm_auto_free_gstring GString *gstr = NULL;
+        nm_auto_str_buf NMStrBuf      strbuf = {};
+        nm_auto_free_gstring GString *gstr   = NULL;
         int                           i, j, k;
         int                           c;
 
@@ -1006,10 +1039,10 @@ again:
         else
             g_assert(!data);
 
-        g_assert(nm_utils_strv_cmp_n((const char *const *) strv->pdata,
-                                     strv->len,
-                                     (const char *const *) strv2->pdata,
-                                     strv2->len)
+        g_assert(nm_strv_cmp_n((const char *const *) strv->pdata,
+                               strv->len,
+                               (const char *const *) strv2->pdata,
+                               strv2->len)
                  == 0);
     }
 }
@@ -1077,7 +1110,7 @@ test_strv_dup_packed(void)
     for (i_run = 0; i_run < 500; i_run++) {
         const int            strv_len = nmtst_get_rand_word_length(NULL);
         gs_free const char **strv_cpy = NULL;
-        const char *const *  strv_src;
+        const char *const   *strv_src;
         int                  i, j;
 
         g_ptr_array_set_size(src, 0);
@@ -1097,15 +1130,14 @@ test_strv_dup_packed(void)
         g_assert(NM_PTRARRAY_LEN(strv_src) == strv_len);
 
         strv_cpy =
-            nm_utils_strv_dup_packed(strv_src,
-                                     nmtst_get_rand_bool() ? (gssize) strv_len : (gssize) -1);
+            nm_strv_dup_packed(strv_src, nmtst_get_rand_bool() ? (gssize) strv_len : (gssize) -1);
         if (strv_len == 0)
             g_assert(!strv_cpy);
         else
             g_assert(strv_cpy);
         g_assert(NM_PTRARRAY_LEN(strv_cpy) == strv_len);
         if (strv_cpy)
-            g_assert(nm_utils_strv_equal(strv_cpy, strv_src));
+            g_assert(nm_strv_equal(strv_cpy, strv_src));
     }
 }
 
@@ -1345,6 +1377,49 @@ test_nm_g_source_sentinel(void)
 
 /*****************************************************************************/
 
+static void
+test_nm_ascii(void)
+{
+    int i;
+
+    for (i = 0; i < 256; i++) {
+        const char ch = i;
+        gboolean   is_space;
+
+        if (ch == 127) {
+            g_assert(nm_ascii_is_ctrl_or_del(ch));
+            g_assert(!nm_ascii_is_ctrl(ch));
+        } else
+            g_assert(nm_ascii_is_ctrl_or_del(ch) == nm_ascii_is_ctrl(ch));
+        g_assert(nm_ascii_is_ctrl_or_del(ch) == g_ascii_iscntrl(ch));
+
+        g_assert(nm_ascii_is_non_ascii(ch) == (i >= 128));
+
+        g_assert(!nm_ascii_is_ctrl_or_del(ch) || !nm_ascii_is_non_ascii(ch));
+
+        g_assert((nm_ascii_is_ctrl_or_del(ch) || nm_ascii_is_regular(ch))
+                 != nm_ascii_is_non_ascii(ch));
+
+        g_assert(nm_ascii_is_regular(ch)
+                 == (!nm_ascii_is_ctrl_or_del(ch) && !nm_ascii_is_non_ascii(ch)));
+
+        is_space = g_ascii_isspace(ch);
+        if (NM_IN_SET(ch, '\t', '\n', '\f', '\r')) {
+            /* hack is-space, so that the check below works to check for regular ASCII characters. */
+            g_assert(!nm_ascii_is_regular(ch));
+            g_assert(is_space);
+            is_space = FALSE;
+        }
+        g_assert(nm_ascii_is_regular(ch)
+                 == (g_ascii_isalnum(ch) || g_ascii_isalpha(ch) || g_ascii_isdigit(ch)
+                     || g_ascii_isgraph(ch) || g_ascii_islower(ch) || g_ascii_isprint(ch)
+                     || g_ascii_ispunct(ch) || is_space || g_ascii_isupper(ch)
+                     || g_ascii_isxdigit(ch)));
+    }
+}
+
+/*****************************************************************************/
+
 NMTST_DEFINE();
 
 int
@@ -1352,6 +1427,7 @@ main(int argc, char **argv)
 {
     nmtst_init(&argc, &argv, TRUE);
 
+    g_test_add_func("/general/test_nm_static_assert", test_nm_static_assert);
     g_test_add_func("/general/test_gpid", test_gpid);
     g_test_add_func("/general/test_monotonic_timestamp", test_monotonic_timestamp);
     g_test_add_func("/general/test_nmhash", test_nmhash);
@@ -1376,6 +1452,7 @@ main(int argc, char **argv)
     g_test_add_func("/general/test_strv_dup_packed", test_strv_dup_packed);
     g_test_add_func("/general/test_utils_hashtable_cmp", test_utils_hashtable_cmp);
     g_test_add_func("/general/test_nm_g_source_sentinel", test_nm_g_source_sentinel);
+    g_test_add_func("/general/test_nm_ascii", test_nm_ascii);
 
     return g_test_run();
 }

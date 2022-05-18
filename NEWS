@@ -1,4 +1,144 @@
 =============================================
+NetworkManager-1.36
+Overview of changes since NetworkManager-1.34
+=============================================
+
+* The handling of Layer 3 configurations has been substantially reworked.
+  While this is mostly internal change, it results in more robust
+  behavior when addressing information from multiple sources (DHCP,
+  manually configured, VPN) need to be applied simultaneously.
+  Overall performance and memory use have also slightly improved.
+* Manually configured addresses can no longer expire even if the same
+  addresses are also obtained dynamically.
+* Code for systemd-based DHCP and DHCPv6 clients has been updated from
+  upstream.
+* NTP servers obtained via DHCPv6 are now exposed on the DBus API, visible
+  in nmcli and available for use by dispatcher scripts.
+* 5G NR (New Radio) modems are now supported.
+* The "rd.znet_ifnames" kernel command line option is now honored on
+  network bootups on an IBM s390 platform.
+* Wi-Fi P2P support does now work with the IWD backend, in addition to
+  wpa_supplicant backend.
+* Support for special route types have been added: "prohibit", "blackhole"
+  and "unreachable".
+* Routes managed by routing daemons are now ignored. This is done to
+  address a performance bottleneck on specialized routers.
+* Handling of IP addressing and routing information is now slightly
+  more efficient and uses less memory. This is apparent on systems with
+  large amount of IP configuration information.
+* It is now possible to start NetworkManager without root user privileges.
+  This is experimental doesn't necessarily result in a working daemon.
+  NetworkManager service already drops many of capabilities available
+  to the root user.
+* WPA3 Wi-FI network security have been improved by enabling new H2E (hash
+  to element) method for generating SAE password element.
+* It is now possible to select the default Wi-Fi backend (wpa_supplicant or
+  IWD) at build-time.
+* Replies from broken DHCP servers that send duplicate address or mask
+  options are now handled gracefully.
+* Bridge support has gained the possibility of turning off MAC ageing.
+* "configure-and-quit" mode and nm-iface-helper have been removed.
+* A number of bugs that could cause NetworkManager to crash in rare
+  conditions have been fixed.
+
+=============================================
+NetworkManager-1.34
+Overview of changes since NetworkManager-1.32
+=============================================
+
+* initrd: wait for both IPv4 and IPv6 with "ip=dhcp,dhcp6".
+* core: better handle sd-resolved errors when resolving hostnames.
+* nmcli: fix import WireGuard profile with DNS domain and address
+  family disabled.
+* ndisc: send router solicitations before expiry.
+* policy: send earlier the ip configs to the DNS manager.
+* core: support linking with LLD 13.
+* wireguard: importing wg-quick configuration files with nmcli
+  no longer sets a negative, exclusive "dns-priority". This plays
+  better with common split DNS setups that use systemd-resolved.
+  Adjust the "dns-priority" to your liking after import yourself.
+* NetworkManager no longer listens for netlink events for traffic
+  control objects (qdiscs and filters).
+* core: add internal nm-priv-helper service for separating privileges
+  and have a way to drop capabilities from NetworkManager daemon.
+* bond: add support for setting queue-id of bond port.
+* dns: support configuring DNS over TLS (DoT) with systemd-resolved.
+* nmtui: add support for WireGuard profiles.
+* nmcli: add aliases `nmcli device up|down` beside connect|disconnect.
+* conscious language: Deprecate 'Device.Slaves' D-Bus property in favor of new
+  'Device.Ports' property. Depracate 'nm_device_*_get_slaves()' in favor of
+  'nm_device_get_ports()' in libnm.
+* nmcli: invoking nmcli command without arguments will now show 'default'
+  instead of null address in route4 or route6 section.
+
+The following changes were backported to 1.32.x releases between 1.32.0
+and 1.32.12 are also present in NetworkManager-1.34:
+
+- 1.32.12:
+* Fix wrong order of addresses when restarting NetworkManager.
+* Preserve the IPv6 ff00::/8 route added by kernel in the local table,
+  necessary for multicast communication.
+* Fix emitting the signal for changed metered status of devices.
+* Fix applying the ethtool autonegotiation and speed settings.
+* initrd: fix crash parsing plain '=' without key.
+* cloud-setup: use suppress_prefixlength rule to honor
+  non-default-routes in the main table.
+
+- 1.32.10:
+* core: fix the order of IPv6 addresses changing on service restart.
+* initrd: add command line option to configure link autonegotiation
+  and speed.
+* ifcfg-rh: fix crash when parsing invalid DNS address.
+* ifcfg-rh: extend ifup/ifdown scripts to work with connection profile
+  names.
+* udev: also react to "move" (and "change") udev actions in our rules.
+
+- 1.32.8:
+* firewalld: configure zones on "Reloaded" signal.
+* core: fix wrong MTU for bridge interfaces.
+* cloud-setup: fix gateway address for Aliyun cloud.
+
+- 1.32.6:
+* core: fix adding stale local routes when address changes.
+* initrd: tag generated profiles with origin in user data.
+* core: introduce "allowed-connections" option to disallow
+  profiles on a device. This allows to filter out profiles
+  that originate from initrd.
+* core: introduce "keep-configuration" device option to forcefully
+  activate a profile on start.
+* dhcp: handle filename/bootfile_name DHCP option and write it to
+  device state file for initrd/kickstart.
+* initrd: add "ib.pkey=" command line option
+
+- 1.32.4:
+* core: remove stale entries from "seen-bssids" and "timestamp"
+  files in "/var/lib/NetworkManager".
+* bond: support the peer_notif_delay option.
+* core: add ipv[46].required-timeout option to wait for IP
+  configuration while activating.
+* core: send ARP announcements when there is carrier.
+* core: start DHCPv6 when a prefix delegation is needed for shared
+  mode.
+* firewall: fix nftables backend to create "ip" table for
+  IPv4 only.
+* initrd: set required-timeout of 20 seconds for default IPv4 configuration
+  to opportunistically wait for IPv4.
+* ifcfg: log warning about invalid keys in ifcfg files.
+* ifcfg: reject non-UTF-8 from ifcfg files.
+* nmcli: show DNS SEARCH field in device information.
+* cloud-setup: add support for Aliyun cloud.
+
+- 1.32.2:
+* hostname: prefer IPv4 addresses for reverse DNS lookup.
+* dhcp: ignore unauthenticated FORCERENEW messages with
+  internal, systemd-based DHCPv4 plugin (CVE-2020-13529).
+  This plugin is not used, unless the undocumented dhcp=systemd
+  option was set.
+* cloud-setup: preserve IP addresses, routes and rules from
+  currently active connection profile.
+* Various bugfixes and performance improvements.
+
+=============================================
 NetworkManager-1.32
 Overview of changes since NetworkManager-1.30
 =============================================
@@ -32,6 +172,7 @@ Overview of changes since NetworkManager-1.30
   Please note that SELinux might prevent NetworkManager from communicating with nft.
 * ethtool: add support for pause settings.
 * Support "prohibit"/"blackhole"/"unreachable" type routing rules.
+* Support uidrange attribute for policy routing rules.
 * Now NetworkManager preserves by default the existing traffic control
   configuration (qdiscs and filters) when activating a connection.
 * wifi/iwd: mirror NetworkManager connection profiles to iwd config files.

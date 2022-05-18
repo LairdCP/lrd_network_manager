@@ -27,18 +27,19 @@
 /*****************************************************************************/
 
 typedef struct {
-    GHashTable *  hash;
-    GPtrArray *   array;
-    GPtrArray *   vlan_parents;
-    GHashTable *  explicit_ip_connections;
+    GHashTable   *hash;
+    GPtrArray    *array;
+    GPtrArray    *vlan_parents;
+    GHashTable   *explicit_ip_connections;
     NMConnection *bootdev_connection; /* connection for bootdev=$ifname */
     NMConnection *default_connection; /* connection not bound to any ifname */
-    char *        hostname;
+    char         *hostname;
+    GHashTable   *znet_ifnames;
 
     /* Parameters to be set for all connections */
     gboolean ignore_auto_dns;
     int      dhcp_timeout;
-    char *   dhcp4_vci;
+    char    *dhcp4_vci;
 
     gint64 carrier_timeout_sec;
 } Reader;
@@ -55,6 +56,7 @@ reader_new(void)
             g_hash_table_new_full(nm_direct_hash, NULL, g_object_unref, NULL),
         .vlan_parents = g_ptr_array_new_with_free_func(g_free),
         .array        = g_ptr_array_new(),
+        .znet_ifnames = g_hash_table_new_full(nm_str_hash, g_str_equal, g_free, g_free),
     };
 
     return reader;
@@ -70,6 +72,7 @@ reader_destroy(Reader *reader, gboolean free_hash)
     g_hash_table_unref(reader->explicit_ip_connections);
     hash = g_steal_pointer(&reader->hash);
     nm_clear_g_free(&reader->hostname);
+    g_hash_table_unref(reader->znet_ifnames);
     nm_clear_g_free(&reader->dhcp4_vci);
     nm_g_slice_free(reader);
     if (!free_hash)
@@ -91,16 +94,16 @@ reader_add_connection(Reader *reader, const char *name, NMConnection *connection
 
 /* Returns a new connection owned by the reader */
 static NMConnection *
-reader_create_connection(Reader *                 reader,
-                         const char *             basename,
-                         const char *             id,
-                         const char *             ifname,
-                         const char *             mac,
-                         const char *             type_name,
+reader_create_connection(Reader                  *reader,
+                         const char              *basename,
+                         const char              *id,
+                         const char              *ifname,
+                         const char              *mac,
+                         const char              *type_name,
                          NMConnectionMultiConnect multi_connect)
 {
     NMConnection *connection;
-    NMSetting *   setting;
+    NMSetting    *setting;
 
     connection = reader_add_connection(reader, basename, nm_simple_connection_new());
 
@@ -119,6 +122,8 @@ reader_create_connection(Reader *                 reader,
                  reader->dhcp_timeout,
                  NM_SETTING_IP4_CONFIG_DHCP_VENDOR_CLASS_IDENTIFIER,
                  reader->dhcp4_vci,
+                 NM_SETTING_IP_CONFIG_REQUIRED_TIMEOUT,
+                 NMI_IP_REQUIRED_TIMEOUT_MSEC,
                  NULL);
 
     setting = nm_setting_ip6_config_new();
@@ -193,14 +198,14 @@ reader_get_default_connection(Reader *reader)
 }
 
 static NMConnection *
-reader_get_connection(Reader *    reader,
+reader_get_connection(Reader     *reader,
                       const char *iface_spec,
                       const char *type_name,
                       gboolean    create_if_missing)
 {
     NMConnection *connection = NULL;
-    NMSetting *   setting;
-    const char *  ifname = NULL;
+    NMSetting    *setting;
+    const char   *ifname = NULL;
     gs_free char *mac    = NULL;
 
     if (iface_spec) {
@@ -214,7 +219,7 @@ reader_get_connection(Reader *    reader,
     }
 
     if (!ifname && !mac) {
-        NMConnection *       candidate;
+        NMConnection        *candidate;
         NMSettingConnection *s_con;
         guint                i;
 
@@ -312,14 +317,14 @@ get_word(char **argument, const char separator)
 
 static void
 connection_set(NMConnection *connection,
-               const char *  setting_name,
-               const char *  property,
-               const char *  value)
+               const char   *setting_name,
+               const char   *property,
+               const char   *value)
 {
-    NMSetting *              setting;
-    GType                    setting_type;
+    NMSetting                             *setting;
+    GType                                  setting_type;
     nm_auto_unref_gtypeclass GObjectClass *object_class = NULL;
-    GParamSpec *                           spec;
+    GParamSpec                            *spec;
 
     setting_type = nm_setting_lookup_type(setting_name);
     object_class = g_type_class_ref(setting_type);
@@ -353,20 +358,20 @@ static void
 reader_read_all_connections_from_fw(Reader *reader, const char *sysfs_dir)
 {
     gs_unref_hashtable GHashTable *ibft = NULL;
-    NMConnection *                 dt_connection;
-    const char *                   mac;
-    GHashTable *                   nic;
-    const char *                   index;
-    GError *                       error = NULL;
+    NMConnection                  *dt_connection;
+    const char                    *mac;
+    GHashTable                    *nic;
+    const char                    *index;
+    GError                        *error = NULL;
     guint                          i, length;
-    gs_free const char **          keys = NULL;
+    gs_free const char           **keys = NULL;
 
     ibft = nmi_ibft_read(sysfs_dir);
-    keys = nm_utils_strdict_get_keys(ibft, TRUE, &length);
+    keys = nm_strdict_get_keys(ibft, TRUE, &length);
 
     for (i = 0; i < length; i++) {
         gs_unref_object NMConnection *connection = NULL;
-        gs_free char *                name       = NULL;
+        gs_free char                 *name       = NULL;
 
         mac        = keys[i];
         nic        = g_hash_table_lookup(ibft, mac);
@@ -392,27 +397,144 @@ reader_read_all_connections_from_fw(Reader *reader, const char *sysfs_dir)
         reader_add_connection(reader, "ofw", dt_connection);
 }
 
+#define _strv_is_same_unordered(strv, ...) \
+    nm_strv_is_same_unordered(NM_CAST_STRV_CC(strv), -1, NM_MAKE_STRV(__VA_ARGS__), -1)
+
+static void
+_strv_remove(const char **strv, const char *needle)
+{
+    gssize idx;
+    gsize  len;
+    gsize  i;
+
+    idx = nm_strv_find_first(strv, -1, needle);
+    if (idx < 0)
+        return;
+
+    /* Remove element at idx, by shifting the remaining ones
+     * (including the terminating NULL). */
+    len = NM_PTRARRAY_LEN(strv);
+    for (i = idx; i < len; i++)
+        strv[i] = strv[i + 1];
+}
+
+static const char *
+_parse_ip_method(const char *kind)
+{
+    const char *const KINDS[] = {
+        "none",
+        "dhcp",
+        "dhcp6",
+        "link6",
+        "auto",
+        "ibft",
+    };
+    gs_free char        *kind_to_free = NULL;
+    gs_free const char **strv         = NULL;
+    gsize                i;
+
+    kind = nm_strstrip_avoid_copy_a(300, kind, &kind_to_free);
+
+    if (nm_str_is_empty(kind)) {
+        /* Dracut defaults empty/missing to "dhcp". We treat them differently, as it
+         * depends on whether we have IP addresses too.
+         * https://github.com/dracutdevs/dracut/blob/3cc9f1c10c67dcdb5254e0eb69f19e9ab22abf20/modules.d/35network-legacy/parse-ip-opts.sh#L62 */
+        return "auto";
+    }
+
+    for (i = 0; i < G_N_ELEMENTS(KINDS); i++) {
+        if (nm_streq(kind, KINDS[i]))
+            return KINDS[i];
+    }
+
+    /* the following are (currently) treated as aliases. */
+    if (nm_streq(kind, "fw"))
+        return "ibft";
+    if (nm_streq(kind, "single-dhcp"))
+        return "dhcp";
+    if (nm_streq(kind, "off"))
+        return "none";
+    if (nm_streq(kind, "auto6"))
+        return "dhcp6";
+    if (NM_IN_STRSET(kind, "on", "any"))
+        return "auto";
+
+    if (!strchr(kind, ','))
+        return NULL;
+
+    /* dracut also supports combinations, separated by comma. We don't
+     * support arbitrary combinations, but accept specific subsets. */
+    strv = nm_strsplit_set_full(kind, ",", NM_STRSPLIT_SET_FLAGS_STRSTRIP);
+    if (!strv)
+        return NULL;
+
+    /* first normalize the strv array by replacing all entries by their
+     * normalized kind. */
+    for (i = 0; strv[i]; i++) {
+        strv[i] = _parse_ip_method(strv[i]);
+        if (!strv[i]) {
+            /* Unknown key. Not recognized.  */
+            return NULL;
+        }
+    }
+
+    /* sort list and remove duplicates. */
+    nm_strv_sort(strv, -1);
+    nm_strv_cleanup_const(strv, TRUE, TRUE);
+
+    if (nm_strv_find_first(strv, -1, "auto") >= 0) {
+        /* if "auto" is present, then "dhcp4", "dhcp6", and "local6" is implied. */
+        _strv_remove(strv, "dhcp4");
+        _strv_remove(strv, "dhcp6");
+        _strv_remove(strv, "local6");
+    } else if (nm_strv_find_first(strv, -1, "dhcp6") >= 0) {
+        /* if "dhcp6" is present, then "local6" is implied. */
+        _strv_remove(strv, "local6");
+    }
+
+    if (strv[0] && !strv[1]) {
+        /* there is only one value left. It's good. */
+        return strv[0];
+    }
+
+    /* only certain combinations are allowed... those are listed
+     * and mapped to a canonical value.
+     */
+    if (_strv_is_same_unordered(strv, "dhcp", "dhcp6"))
+        return "dhcp4+auto6";
+    /* For the moment, this maps to "auto". This might be revisited
+     * in the future to add new kinds like "dhcp+local6"
+     */
+    if (_strv_is_same_unordered(strv, "dhcp", "local6"))
+        return "auto";
+
+    /* undetected. */
+    return NULL;
+}
+
 static void
 reader_parse_ip(Reader *reader, const char *sysfs_dir, char *argument)
 {
-    NMConnection *       connection;
-    NMSettingConnection *s_con;
-    NMSettingIPConfig *  s_ip4 = NULL, *s_ip6 = NULL;
+    NMConnection                  *connection;
+    NMSettingConnection           *s_con;
+    NMSettingIPConfig             *s_ip4 = NULL, *s_ip6 = NULL;
     gs_unref_hashtable GHashTable *ibft = NULL;
-    const char *                   tmp;
-    const char *                   tmp2;
-    const char *                   kind             = NULL;
-    const char *                   client_ip        = NULL;
-    const char *                   peer             = NULL;
-    const char *                   gateway_ip       = NULL;
-    const char *                   netmask          = NULL;
-    const char *                   client_hostname  = NULL;
-    const char *                   iface_spec       = NULL;
-    const char *                   mtu              = NULL;
-    const char *                   macaddr          = NULL;
-    int                            client_ip_family = AF_UNSPEC;
-    int                            client_ip_prefix = -1;
-    const char *                   dns[2]           = {
+    const char                    *tmp;
+    const char                    *tmp2;
+    const char                    *tmp3;
+    const char                    *kind;
+    const char                    *client_ip                  = NULL;
+    const char                    *peer                       = NULL;
+    const char                    *gateway_ip                 = NULL;
+    const char                    *netmask                    = NULL;
+    const char                    *client_hostname            = NULL;
+    const char                    *iface_spec                 = NULL;
+    const char                    *mtu                        = NULL;
+    const char                    *macaddr                    = NULL;
+    int                            client_ip_family           = AF_UNSPEC;
+    int                            client_ip_prefix           = -1;
+    gboolean                       clear_ip4_required_timeout = TRUE;
+    const char                    *dns[2]                     = {
         NULL,
         NULL,
     };
@@ -429,23 +551,17 @@ reader_parse_ip(Reader *reader, const char *sysfs_dir, char *argument)
     tmp = get_word(&argument, ':');
     if (!*argument) {
         /* ip={dhcp|on|any|dhcp6|auto6|link6|ibft} */
-        kind = tmp;
+        kind = _parse_ip_method(tmp);
+        if (!kind) {
+            /* invalid method. We treat it as "auto". */
+            kind = "auto";
+        }
     } else {
         tmp2 = get_word(&argument, ':');
-        if (NM_IN_STRSET(tmp2,
-                         "none",
-                         "off",
-                         "dhcp",
-                         "on"
-                         "any",
-                         "dhcp6",
-                         "auto",
-                         "auto6",
-                         "link6",
-                         "ibft")) {
+        if (!nm_str_is_empty(tmp2) && (tmp3 = _parse_ip_method(tmp2))) {
             /* <ifname>:{none|off|dhcp|on|any|dhcp6|auto|auto6|link6|ibft} */
             iface_spec = tmp;
-            kind       = tmp2;
+            kind       = tmp3;
         } else {
             /* <client-IP>:[<peer>]:<gateway-IP>:<netmask>:<client_hostname>:<kind> */
             client_ip = tmp;
@@ -462,7 +578,12 @@ reader_parse_ip(Reader *reader, const char *sysfs_dir, char *argument)
             netmask         = get_word(&argument, ':');
             client_hostname = get_word(&argument, ':');
             iface_spec      = get_word(&argument, ':');
-            kind            = get_word(&argument, ':');
+            tmp2            = get_word(&argument, ':');
+            kind            = _parse_ip_method(tmp2);
+            if (!kind) {
+                /* invalid method. We treat that as "auto". */
+                kind = "auto";
+            }
         }
 
         if (client_hostname && !nm_sd_hostname_is_valid(client_hostname, FALSE))
@@ -491,7 +612,7 @@ reader_parse_ip(Reader *reader, const char *sysfs_dir, char *argument)
         }
     }
 
-    if (iface_spec == NULL && NM_IN_STRSET(kind, "fw", "ibft")) {
+    if (iface_spec == NULL && nm_streq(kind, "ibft")) {
         reader_read_all_connections_from_fw(reader, sysfs_dir);
         return;
     }
@@ -588,7 +709,7 @@ reader_parse_ip(Reader *reader, const char *sysfs_dir, char *argument)
     }
 
     /* Dynamic IP configuration configured explicitly. */
-    if (NM_IN_STRSET(kind, "none", "off")) {
+    if (nm_streq(kind, "none")) {
         if (nm_setting_ip_config_get_num_addresses(s_ip6) == 0) {
             g_object_set(s_ip6,
                          NM_SETTING_IP_CONFIG_METHOD,
@@ -601,7 +722,7 @@ reader_parse_ip(Reader *reader, const char *sysfs_dir, char *argument)
                          NM_SETTING_IP4_CONFIG_METHOD_DISABLED,
                          NULL);
         }
-    } else if (nm_streq0(kind, "dhcp")) {
+    } else if (nm_streq(kind, "dhcp")) {
         g_object_set(s_ip4,
                      NM_SETTING_IP_CONFIG_METHOD,
                      NM_SETTING_IP4_CONFIG_METHOD_AUTO,
@@ -614,7 +735,7 @@ reader_parse_ip(Reader *reader, const char *sysfs_dir, char *argument)
                          NM_SETTING_IP6_CONFIG_METHOD_AUTO,
                          NULL);
         }
-    } else if (NM_IN_STRSET(kind, "auto6", "dhcp6")) {
+    } else if (nm_streq(kind, "dhcp6")) {
         g_object_set(s_ip6,
                      NM_SETTING_IP_CONFIG_METHOD,
                      NM_SETTING_IP6_CONFIG_METHOD_AUTO,
@@ -627,7 +748,17 @@ reader_parse_ip(Reader *reader, const char *sysfs_dir, char *argument)
                          NM_SETTING_IP4_CONFIG_METHOD_DISABLED,
                          NULL);
         }
-    } else if (nm_streq0(kind, "link6")) {
+    } else if (nm_streq(kind, "dhcp4+auto6")) {
+        /* Both DHCPv4 and IPv6 autoconf are enabled, and
+         * each of them is tried for at least IP_REQUIRED_TIMEOUT_MSEC,
+         * even if the other one completes before.
+         */
+        clear_ip4_required_timeout = FALSE;
+        g_object_set(s_ip6,
+                     NM_SETTING_IP_CONFIG_REQUIRED_TIMEOUT,
+                     NMI_IP_REQUIRED_TIMEOUT_MSEC,
+                     NULL);
+    } else if (nm_streq(kind, "link6")) {
         g_object_set(s_ip6,
                      NM_SETTING_IP_CONFIG_METHOD,
                      NM_SETTING_IP6_CONFIG_METHOD_LINK_LOCAL,
@@ -640,13 +771,13 @@ reader_parse_ip(Reader *reader, const char *sysfs_dir, char *argument)
                          NM_SETTING_IP4_CONFIG_METHOD_DISABLED,
                          NULL);
         }
-    } else if (nm_streq0(kind, "ibft")) {
+    } else if (nm_streq(kind, "ibft")) {
         NMSettingWired *s_wired;
-        const char *    mac = NULL;
-        const char *    ifname;
-        gs_free char *  mac_free     = NULL;
-        gs_free char *  address_path = NULL;
-        GHashTable *    nic          = NULL;
+        const char     *mac = NULL;
+        const char     *ifname;
+        gs_free char   *mac_free     = NULL;
+        gs_free char   *address_path = NULL;
+        GHashTable     *nic          = NULL;
 
         if ((s_wired = nm_connection_get_setting_wired(connection))
             && (mac = nm_setting_wired_get_mac_address(s_wired))) {
@@ -679,7 +810,13 @@ reader_parse_ip(Reader *reader, const char *sysfs_dir, char *argument)
                 g_clear_error(&error);
             }
         }
+    } else {
+        nm_assert(nm_streq(kind, "auto"));
+        clear_ip4_required_timeout = FALSE;
     }
+
+    if (clear_ip4_required_timeout)
+        g_object_set(s_ip4, NM_SETTING_IP_CONFIG_REQUIRED_TIMEOUT, -1, NULL);
 
     if (peer && *peer)
         _LOGW(LOGD_CORE, "Ignoring peer: %s (not implemented)\n", peer);
@@ -723,14 +860,14 @@ reader_parse_ip(Reader *reader, const char *sysfs_dir, char *argument)
 static void
 reader_parse_master(Reader *reader, char *argument, const char *type_name, const char *default_name)
 {
-    NMConnection *       connection;
+    NMConnection        *connection;
     NMSettingConnection *s_con;
-    gs_free char *       master_to_free = NULL;
-    const char *         master;
-    char *               slaves;
-    const char *         slave;
-    char *               opts;
-    const char *         mtu = NULL;
+    gs_free char        *master_to_free = NULL;
+    const char          *master;
+    char                *slaves;
+    const char          *slave;
+    char                *opts;
+    const char          *mtu = NULL;
 
     master = get_word(&argument, ':');
     if (!master)
@@ -752,8 +889,8 @@ reader_parse_master(Reader *reader, char *argument, const char *type_name, const
         opts = get_word(&argument, ':');
         while (opts && *opts) {
             gs_free_error GError *error = NULL;
-            char *                opt;
-            const char *          opt_name;
+            char                 *opt;
+            const char           *opt_name;
 
             opt      = get_word(&opts, ',');
             opt_name = get_word(&opt, '=');
@@ -800,17 +937,17 @@ reader_add_routes(Reader *reader, GPtrArray *array)
     guint i;
 
     for (i = 0; i < array->len; i++) {
-        NMConnection *     connection = NULL;
-        const char *       net;
-        const char *       gateway;
-        const char *       interface;
-        int                family       = AF_UNSPEC;
-        NMIPAddr           net_addr     = {};
-        NMIPAddr           gateway_addr = {};
-        int                net_prefix   = -1;
-        NMIPRoute *        route;
-        NMSettingIPConfig *s_ip;
-        char *             argument;
+        NMConnection         *connection = NULL;
+        const char           *net;
+        const char           *gateway;
+        const char           *interface;
+        int                   family       = AF_UNSPEC;
+        NMIPAddr              net_addr     = {};
+        NMIPAddr              gateway_addr = {};
+        int                   net_prefix   = -1;
+        NMIPRoute            *route;
+        NMSettingIPConfig    *s_ip;
+        char                 *argument;
         gs_free_error GError *error = NULL;
 
         argument  = array->pdata[i];
@@ -876,11 +1013,11 @@ reader_add_routes(Reader *reader, GPtrArray *array)
 static void
 reader_parse_vlan(Reader *reader, char *argument)
 {
-    NMConnection * connection;
+    NMConnection  *connection;
     NMSettingVlan *s_vlan;
-    const char *   vlan;
-    const char *   phy;
-    const char *   vlanid;
+    const char    *vlan;
+    const char    *phy;
+    const char    *vlanid;
 
     vlan = get_word(&argument, ':');
     phy  = get_word(&argument, ':');
@@ -908,18 +1045,85 @@ reader_parse_vlan(Reader *reader, char *argument)
 }
 
 static void
+reader_parse_ib_pkey(Reader *reader, char *argument)
+{
+    NMConnection        *connection;
+    NMSettingInfiniband *s_ib;
+    char                *ifname;
+    gs_free char        *parent = NULL;
+    char                *pkey;
+    gint64               pkey_int;
+
+    /* At the moment we only support ib.pkey=<parent>.<pkey>;
+     * in the future we want to possibly support other options:
+     * ib.pkey=<parent>.<pkey>:<option>:...
+     */
+    ifname = get_word(&argument, ':');
+    if (!ifname) {
+        _LOGW(LOGD_CORE, "ib.pkey= without argument");
+        return;
+    }
+
+    parent = g_strdup(ifname);
+    pkey   = strchr(parent, '.');
+    if (!pkey) {
+        _LOGW(LOGD_CORE, "No pkey found for '%s'", ifname);
+        return;
+    }
+
+    *pkey = '\0';
+    pkey++;
+
+    pkey_int = _nm_utils_ascii_str_to_int64(pkey, 16, 0, 0xFFFF, -1);
+    if (pkey_int == -1) {
+        _LOGW(LOGD_CORE, "Invalid pkey '%s'", pkey);
+        return;
+    }
+
+    connection = reader_get_connection(reader, ifname, NM_SETTING_INFINIBAND_SETTING_NAME, TRUE);
+
+    s_ib = nm_connection_get_setting_infiniband(connection);
+    g_object_set(s_ib,
+                 NM_SETTING_INFINIBAND_PARENT,
+                 parent,
+                 NM_SETTING_INFINIBAND_P_KEY,
+                 (int) pkey_int,
+                 NULL);
+
+    if (argument && *argument)
+        _LOGW(LOGD_CORE, "Ignoring extra: '%s' for ib.pkey=", argument);
+}
+
+static void
+reader_parse_znet_ifname(Reader *reader, char *argument)
+{
+    char *ifname;
+
+    ifname = get_word(&argument, ':');
+    if (!ifname) {
+        _LOGW(LOGD_CORE, "rd.znet_ifname= without argument");
+        return;
+    }
+
+    if (!g_hash_table_replace(reader->znet_ifnames, g_strdup(argument), g_strdup(ifname))) {
+        _LOGW(LOGD_CORE, "duplicate rd.znet_ifname for ifname=%s", ifname);
+    }
+}
+
+static void
 reader_parse_rd_znet(Reader *reader, char *argument, gboolean net_ifnames)
 {
-    const char *    nettype;
-    const char *    subchannels[4] = {0, 0, 0, 0};
-    const char *    tmp;
-    gs_free char *  ifname = NULL;
-    const char *    prefix;
-    NMConnection *  connection;
+    const char     *nettype;
+    const char     *subchannels[4] = {0, 0, 0, 0};
+    const char     *tmp;
+    gs_free char   *ifname          = NULL;
+    gs_free char   *str_subchannels = NULL;
+    const char     *prefix;
+    NMConnection   *connection;
     NMSettingWired *s_wired;
     static int      count_ctc = 0;
     static int      count_eth = 0;
-    int             index;
+    int             index     = -1;
 
     nettype        = get_word(&argument, ',');
     subchannels[0] = get_word(&argument, ',');
@@ -947,7 +1151,13 @@ reader_parse_rd_znet(Reader *reader, char *argument, gboolean net_ifnames)
         }
     }
 
-    if (net_ifnames == TRUE) {
+    str_subchannels = g_strjoinv(",", (char **) subchannels);
+    ifname          = g_hash_table_lookup(reader->znet_ifnames, str_subchannels);
+
+    if (ifname) {
+        ifname = g_strdup(ifname);
+        g_hash_table_remove(reader->znet_ifnames, str_subchannels);
+    } else if (net_ifnames == TRUE) {
         const char *bus_id;
         size_t      bus_id_len;
         size_t      bus_id_start;
@@ -960,6 +1170,7 @@ reader_parse_rd_znet(Reader *reader, char *argument, gboolean net_ifnames)
 
         ifname = g_strdup_printf("%sc%s", prefix, bus_id);
     } else {
+        nm_assert(index > -1);
         ifname = g_strdup_printf("%s%d", prefix, index);
     }
 
@@ -976,7 +1187,7 @@ reader_parse_rd_znet(Reader *reader, char *argument, gboolean net_ifnames)
 
     while ((tmp = get_word(&argument, ',')) != NULL) {
         const char *key;
-        char *      val;
+        char       *val;
 
         val = strchr(tmp, '=');
         if (!val) {
@@ -998,6 +1209,65 @@ reader_parse_rd_znet(Reader *reader, char *argument, gboolean net_ifnames)
 }
 
 static void
+reader_parse_ethtool(Reader *reader, char *argument)
+{
+    NMConnection   *connection;
+    NMSettingWired *s_wired;
+    const char     *autoneg_str;
+    const char     *speed_str;
+    const char     *interface;
+    int             autoneg;
+    guint           speed;
+
+    interface = get_word(&argument, ':');
+    if (!interface) {
+        _LOGW(LOGD_CORE, "rd.ethtool: interface unspecified. Ignore");
+        return;
+    }
+
+    autoneg_str = get_word(&argument, ':');
+    speed_str   = get_word(&argument, ':');
+
+    autoneg = -1;
+    if (autoneg_str) {
+        autoneg = _nm_utils_ascii_str_to_bool(autoneg_str, -1);
+        if (autoneg == -1)
+            _LOGW(LOGD_CORE, "rd.ethtool: autoneg invalid. Must be boolean or empty");
+    }
+
+    speed = 0;
+    if (speed_str) {
+        speed = _nm_utils_ascii_str_to_int64(speed_str, 10, 0, G_MAXUINT32, 0);
+        if (errno)
+            _LOGW(LOGD_CORE, "rd.ethtool: speed invalid. Must be an integer or empty");
+    }
+
+    if (speed == 0 && autoneg == FALSE) {
+        _LOGW(LOGD_CORE,
+              "rd.ethtool: autoneg ignored. Cannot disable autoneg without setting speed");
+    }
+
+    connection = reader_get_connection(reader, interface, NM_SETTING_WIRED_SETTING_NAME, TRUE);
+
+    if (autoneg != -1 || speed != 0) {
+        if (autoneg == -1)
+            autoneg = FALSE;
+        s_wired = nm_connection_get_setting_wired(connection);
+        g_object_set(s_wired,
+                     NM_SETTING_WIRED_AUTO_NEGOTIATE,
+                     (gboolean) autoneg,
+                     NM_SETTING_WIRED_SPEED,
+                     speed,
+                     NM_SETTING_WIRED_DUPLEX,
+                     speed == 0 ? NULL : "full",
+                     NULL);
+    }
+
+    if (*argument)
+        _LOGW(LOGD_CORE, "rd.ethtool: extra argument ignored");
+}
+
+static void
 _normalize_conn(gpointer key, gpointer value, gpointer user_data)
 {
     NMConnection *connection = value;
@@ -1008,11 +1278,11 @@ _normalize_conn(gpointer key, gpointer value, gpointer user_data)
 static void
 reader_add_nameservers(Reader *reader, GPtrArray *nameservers)
 {
-    NMConnection *     connection;
+    NMConnection      *connection;
     NMSettingIPConfig *s_ip;
     GHashTableIter     iter;
     int                addr_family;
-    const char *       ns;
+    const char        *ns;
     guint              i;
 
     for (i = 0; i < nameservers->len; i++) {
@@ -1062,7 +1332,7 @@ connection_set_needed(NMConnection *connection)
 
     g_object_set(s_con,
                  NM_SETTING_CONNECTION_WAIT_DEVICE_TIMEOUT,
-                 (int) NMI_WAIT_DEVICE_TIMEOUT_MS,
+                 (int) NMI_WAIT_DEVICE_TIMEOUT_MSEC,
                  NULL);
 }
 
@@ -1073,21 +1343,22 @@ connection_set_needed_cb(gpointer key, gpointer value, gpointer user_data)
 }
 
 GHashTable *
-nmi_cmdline_reader_parse(const char *       sysfs_dir,
+nmi_cmdline_reader_parse(const char        *etc_connections_dir,
+                         const char        *sysfs_dir,
                          const char *const *argv,
-                         char **            hostname,
-                         gint64 *           carrier_timeout_sec)
+                         char             **hostname,
+                         gint64            *carrier_timeout_sec)
 {
-    Reader *          reader;
-    const char *      tag;
-    gboolean          ignore_bootif          = FALSE;
-    gboolean          neednet                = FALSE;
-    gs_free char *    bootif_val             = NULL;
-    gs_free char *    bootdev                = NULL;
-    gboolean          net_ifnames            = TRUE;
-    gs_unref_ptrarray GPtrArray *nameservers = NULL;
-    gs_unref_ptrarray GPtrArray *routes      = NULL;
-    gs_unref_ptrarray GPtrArray *znets       = NULL;
+    Reader                      *reader;
+    const char                  *tag;
+    gboolean                     ignore_bootif = FALSE;
+    gboolean                     neednet       = FALSE;
+    gs_free char                *bootif_val    = NULL;
+    gs_free char                *bootdev       = NULL;
+    gboolean                     net_ifnames   = TRUE;
+    gs_unref_ptrarray GPtrArray *nameservers   = NULL;
+    gs_unref_ptrarray GPtrArray *routes        = NULL;
+    gs_unref_ptrarray GPtrArray *znets         = NULL;
     int                          i;
     guint64                      dhcp_timeout   = 90;
     guint64                      dhcp_num_tries = 1;
@@ -1096,14 +1367,16 @@ nmi_cmdline_reader_parse(const char *       sysfs_dir,
 
     for (i = 0; argv[i]; i++) {
         gs_free char *argument_clone = NULL;
-        char *        argument;
+        char         *argument;
 
         argument_clone = g_strdup(argv[i]);
         argument       = argument_clone;
 
         tag = get_word(&argument, '=');
 
-        if (nm_streq(tag, "net.ifnames"))
+        if (!tag) {
+            /* pass */
+        } else if (nm_streq(tag, "net.ifnames"))
             net_ifnames = !nm_streq(argument, "0");
         else if (nm_streq(tag, "rd.peerdns"))
             reader->ignore_auto_dns = !_nm_utils_ascii_str_to_bool(argument, TRUE);
@@ -1119,7 +1392,7 @@ nmi_cmdline_reader_parse(const char *       sysfs_dir,
                 _nm_utils_ascii_str_to_int64(argument, 10, 1, G_MAXINT32, dhcp_num_tries);
         } else if (nm_streq(tag, "rd.net.dhcp.vendor-class")) {
             if (nm_utils_validate_dhcp4_vendor_class_id(argument, NULL))
-                nm_utils_strdup_reset(&reader->dhcp4_vci, argument);
+                nm_strdup_reset(&reader->dhcp4_vci, argument);
         } else if (nm_streq(tag, "rd.net.timeout.carrier")) {
             reader->carrier_timeout_sec =
                 _nm_utils_ascii_str_to_int64(argument, 10, 0, G_MAXINT32, 0);
@@ -1130,14 +1403,16 @@ nmi_cmdline_reader_parse(const char *       sysfs_dir,
 
     for (i = 0; argv[i]; i++) {
         gs_free char *argument_clone = NULL;
-        char *        argument;
-        char *        word;
+        char         *argument;
+        char         *word;
 
         argument_clone = g_strdup(argv[i]);
         argument       = argument_clone;
 
         tag = get_word(&argument, '=');
-        if (nm_streq(tag, "ip"))
+        if (!tag) {
+            /* pass */
+        } else if (nm_streq(tag, "ip"))
             reader_parse_ip(reader, sysfs_dir, argument);
         else if (nm_streq(tag, "rd.route")) {
             if (!routes)
@@ -1151,6 +1426,8 @@ nmi_cmdline_reader_parse(const char *       sysfs_dir,
             reader_parse_master(reader, argument, NM_SETTING_TEAM_SETTING_NAME, NULL);
         else if (nm_streq(tag, "vlan"))
             reader_parse_vlan(reader, argument);
+        else if (nm_streq(tag, "ib.pkey"))
+            reader_parse_ib_pkey(reader, argument);
         else if (nm_streq(tag, "bootdev")) {
             g_free(bootdev);
             bootdev = g_strdup(argument);
@@ -1173,14 +1450,17 @@ nmi_cmdline_reader_parse(const char *       sysfs_dir,
             if (!znets)
                 znets = g_ptr_array_new_with_free_func(g_free);
             g_ptr_array_add(znets, g_strdup(argument));
+        } else if (nm_streq(tag, "rd.znet_ifname")) {
+            reader_parse_znet_ifname(reader, argument);
         } else if (g_ascii_strcasecmp(tag, "BOOTIF") == 0) {
             nm_clear_g_free(&bootif_val);
             bootif_val = g_strdup(argument);
-        }
+        } else if (nm_streq(tag, "rd.ethtool"))
+            reader_parse_ethtool(reader, argument);
     }
 
     for (i = 0; i < reader->vlan_parents->len; i++) {
-        NMConnection *     connection;
+        NMConnection      *connection;
         NMSettingIPConfig *s_ip;
 
         /* Disable IP configuration for parent connections of VLANs,
@@ -1209,9 +1489,9 @@ nmi_cmdline_reader_parse(const char *       sysfs_dir,
     if (ignore_bootif)
         nm_clear_g_free(&bootif_val);
     if (bootif_val) {
-        NMConnection *  connection;
+        NMConnection   *connection;
         NMSettingWired *s_wired;
-        const char *    bootif = bootif_val;
+        const char     *bootif = bootif_val;
         char            prefix[4];
 
         if (!nm_utils_hwaddr_valid(bootif, ETH_ALEN)) {
@@ -1262,7 +1542,8 @@ nmi_cmdline_reader_parse(const char *       sysfs_dir,
     }
 
     if (neednet) {
-        if (g_hash_table_size(reader->hash) == 0) {
+        if (!(etc_connections_dir && g_file_test(etc_connections_dir, G_FILE_TEST_IS_DIR))
+            && g_hash_table_size(reader->hash) == 0) {
             /* Make sure there's some connection. */
             reader_get_default_connection(reader);
         }
@@ -1279,6 +1560,10 @@ nmi_cmdline_reader_parse(const char *       sysfs_dir,
     if (znets) {
         for (i = 0; i < znets->len; i++)
             reader_parse_rd_znet(reader, znets->pdata[i], net_ifnames);
+    }
+
+    if (g_hash_table_size(reader->znet_ifnames)) {
+        _LOGW(LOGD_CORE, "Mismatch between rd.znet_ifname and rd.znet");
     }
 
     g_hash_table_foreach(reader->hash, _normalize_conn, NULL);

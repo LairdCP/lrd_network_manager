@@ -8,7 +8,7 @@
 #define __NM_SETTING_BLUETOOTH_H__
 
 #if !defined(__NETWORKMANAGER_H_INSIDE__) && !defined(NETWORKMANAGER_COMPILATION)
-    #error "Only <NetworkManager.h> can be included directly."
+#error "Only <NetworkManager.h> can be included directly."
 #endif
 
 #include "nm-setting.h"
@@ -59,7 +59,7 @@ typedef struct _NMSettingBluetoothClass NMSettingBluetoothClass;
 
 GType nm_setting_bluetooth_get_type(void);
 
-NMSetting * nm_setting_bluetooth_new(void);
+NMSetting  *nm_setting_bluetooth_new(void);
 const char *nm_setting_bluetooth_get_bdaddr(NMSettingBluetooth *setting);
 const char *nm_setting_bluetooth_get_connection_type(NMSettingBluetooth *setting);
 

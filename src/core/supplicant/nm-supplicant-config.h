@@ -33,13 +33,13 @@ NMSupplicantConfig *nm_supplicant_config_new(NMSupplCapMask capabilities);
 
 guint32 nm_supplicant_config_get_ap_scan(NMSupplicantConfig *self);
 
-guint32 nm_supplicant_config_get_ccx (NMSupplicantConfig *self);
-guint32 nm_supplicant_config_get_scan_delay (NMSupplicantConfig *self);
-guint32 nm_supplicant_config_get_scan_dwell (NMSupplicantConfig *self);
-guint32 nm_supplicant_config_get_scan_passive_dwell (NMSupplicantConfig *self);
-guint32 nm_supplicant_config_get_scan_suspend_time (NMSupplicantConfig *self);
-guint32 nm_supplicant_config_get_scan_roam_delta (NMSupplicantConfig *self);
-guint32 nm_supplicant_config_get_frequency_dfs (NMSupplicantConfig *self);
+guint32 nm_supplicant_config_get_ccx(NMSupplicantConfig *self);
+guint32 nm_supplicant_config_get_scan_delay(NMSupplicantConfig *self);
+guint32 nm_supplicant_config_get_scan_dwell(NMSupplicantConfig *self);
+guint32 nm_supplicant_config_get_scan_passive_dwell(NMSupplicantConfig *self);
+guint32 nm_supplicant_config_get_scan_suspend_time(NMSupplicantConfig *self);
+guint32 nm_supplicant_config_get_scan_roam_delta(NMSupplicantConfig *self);
+guint32 nm_supplicant_config_get_frequency_dfs(NMSupplicantConfig *self);
 
 gboolean nm_supplicant_config_fast_required(NMSupplicantConfig *self);
 
@@ -48,36 +48,36 @@ GVariant *nm_supplicant_config_to_variant(NMSupplicantConfig *self);
 GHashTable *nm_supplicant_config_get_blobs(NMSupplicantConfig *self);
 
 gboolean nm_supplicant_config_add_setting_wireless(NMSupplicantConfig *self,
-                                                   NMSettingWireless * setting,
+                                                   NMSettingWireless  *setting,
                                                    guint32             fixed_freq,
-                                                   GError **           error);
+                                                   GError            **error);
 
 gboolean
 nm_supplicant_config_add_bgscan(NMSupplicantConfig *self, NMConnection *connection, GError **error);
 
-gboolean nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig *       self,
-                                                            NMSettingWireless *setting_wireless,
+gboolean nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig *self,
+                                                            NMSettingWireless  *setting_wireless,
                                                             NMSettingWirelessSecurity *setting,
                                                             NMSetting8021x *setting_8021x,
-                                                            const char *    con_uuid,
+                                                            const char     *con_uuid,
                                                             guint32         mtu,
                                                             NMSettingWirelessSecurityPmf  pmf,
                                                             NMSettingWirelessSecurityFils fils,
-                                                            NMSettingWirelessSecurityFt ft,
-                                                            GError **                     error);
+                                                            NMSettingWirelessSecurityFt   ft,
+                                                            GError                      **error);
 
 gboolean nm_supplicant_config_add_no_security(NMSupplicantConfig *self, GError **error);
 
 gboolean nm_supplicant_config_add_setting_8021x(NMSupplicantConfig *self,
-                                                NMSetting8021x *    setting,
-                                                const char *        con_uuid,
+                                                NMSetting8021x     *setting,
+                                                const char         *con_uuid,
                                                 guint32             mtu,
                                                 gboolean            wired,
-                                                GError **           error);
+                                                GError            **error);
 
 gboolean nm_supplicant_config_add_setting_macsec(NMSupplicantConfig *self,
-                                                 NMSettingMacsec *   setting,
-                                                 GError **           error);
+                                                 NMSettingMacsec    *setting,
+                                                 GError            **error);
 
 gboolean nm_supplicant_config_enable_pmf_akm(NMSupplicantConfig *self, GError **error);
 

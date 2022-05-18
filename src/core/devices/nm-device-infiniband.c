@@ -13,9 +13,9 @@
 #include "NetworkManagerUtils.h"
 #include "nm-device-private.h"
 #include "nm-act-request.h"
-#include "nm-ip4-config.h"
 #include "libnm-platform/nm-platform.h"
 #include "nm-device-factory.h"
+#include "libnm-core-aux-intern/nm-libnm-core-utils.h"
 #include "libnm-core-intern/nm-core-internal.h"
 
 #define NM_DEVICE_INFINIBAND_IS_PARTITION "is-partition"
@@ -63,7 +63,7 @@ act_stage1_prepare(NMDevice *device, NMDeviceStateReason *out_failure_reason)
     nm_auto_close int    dirfd = -1;
     NMSettingInfiniband *s_infiniband;
     char                 ifname_verified[IFNAMSIZ];
-    const char *         transport_mode;
+    const char          *transport_mode;
     gboolean             ok;
 
     s_infiniband = nm_device_get_applied_setting(device, NM_TYPE_SETTING_INFINIBAND);
@@ -138,19 +138,15 @@ check_connection_compatible(NMDevice *device, NMConnection *connection, GError *
 }
 
 static gboolean
-complete_connection(NMDevice *           device,
-                    NMConnection *       connection,
-                    const char *         specific_object,
+complete_connection(NMDevice            *device,
+                    NMConnection        *connection,
+                    const char          *specific_object,
                     NMConnection *const *existing_connections,
-                    GError **            error)
+                    GError             **error)
 {
     NMSettingInfiniband *s_infiniband;
 
-    s_infiniband = nm_connection_get_setting_infiniband(connection);
-    if (!s_infiniband) {
-        s_infiniband = (NMSettingInfiniband *) nm_setting_infiniband_new();
-        nm_connection_add_setting(connection, NM_SETTING(s_infiniband));
-    }
+    s_infiniband = _nm_connection_ensure_setting(connection, NM_TYPE_SETTING_INFINIBAND);
 
     nm_utils_complete_generic(
         nm_device_get_platform(device),
@@ -175,15 +171,11 @@ complete_connection(NMDevice *           device,
 static void
 update_connection(NMDevice *device, NMConnection *connection)
 {
-    NMSettingInfiniband *s_infiniband   = nm_connection_get_setting_infiniband(connection);
-    const char *         mac            = nm_device_get_permanent_hw_address(device);
-    const char *         transport_mode = "datagram";
-    int                  ifindex;
-
-    if (!s_infiniband) {
-        s_infiniband = (NMSettingInfiniband *) nm_setting_infiniband_new();
-        nm_connection_add_setting(connection, (NMSetting *) s_infiniband);
-    }
+    NMSettingInfiniband *s_infiniband =
+        _nm_connection_ensure_setting(connection, NM_TYPE_SETTING_INFINIBAND);
+    const char *mac            = nm_device_get_permanent_hw_address(device);
+    const char *transport_mode = "datagram";
+    int         ifindex;
 
     if (mac && !nm_utils_hwaddr_matches(mac, -1, NULL, INFINIBAND_ALEN))
         g_object_set(s_infiniband, NM_SETTING_INFINIBAND_MAC_ADDRESS, mac, NULL);
@@ -204,12 +196,12 @@ update_connection(NMDevice *device, NMConnection *connection)
 }
 
 static gboolean
-can_reapply_change(NMDevice *  device,
+can_reapply_change(NMDevice   *device,
                    const char *setting_name,
-                   NMSetting * s_old,
-                   NMSetting * s_new,
+                   NMSetting  *s_old,
+                   NMSetting  *s_new,
                    GHashTable *diffs,
-                   GError **   error)
+                   GError    **error)
 {
     NMDeviceClass *device_class;
 
@@ -226,14 +218,14 @@ can_reapply_change(NMDevice *  device,
 }
 
 static gboolean
-create_and_realize(NMDevice *             device,
-                   NMConnection *         connection,
-                   NMDevice *             parent,
+create_and_realize(NMDevice              *device,
+                   NMConnection          *connection,
+                   NMDevice              *parent,
                    const NMPlatformLink **out_plink,
-                   GError **              error)
+                   GError               **error)
 {
     NMDeviceInfinibandPrivate *priv = NM_DEVICE_INFINIBAND_GET_PRIVATE(device);
-    NMSettingInfiniband *      s_infiniband;
+    NMSettingInfiniband       *s_infiniband;
     int                        r;
 
     s_infiniband = nm_connection_get_setting_infiniband(connection);
@@ -374,9 +366,9 @@ static const NMDBusInterfaceInfoExtended interface_info_device_infiniband = {
 static void
 nm_device_infiniband_class_init(NMDeviceInfinibandClass *klass)
 {
-    GObjectClass *     object_class      = G_OBJECT_CLASS(klass);
+    GObjectClass      *object_class      = G_OBJECT_CLASS(klass);
     NMDBusObjectClass *dbus_object_class = NM_DBUS_OBJECT_CLASS(klass);
-    NMDeviceClass *    device_class      = NM_DEVICE_CLASS(klass);
+    NMDeviceClass     *device_class      = NM_DEVICE_CLASS(klass);
 
     object_class->get_property = get_property;
     object_class->set_property = set_property;
@@ -417,11 +409,11 @@ nm_device_infiniband_class_init(NMDeviceInfinibandClass *klass)
                                 NMInfinibandDeviceFactory))
 
 static NMDevice *
-create_device(NMDeviceFactory *     factory,
-              const char *          iface,
+create_device(NMDeviceFactory      *factory,
+              const char           *iface,
               const NMPlatformLink *plink,
-              NMConnection *        connection,
-              gboolean *            out_ignore)
+              NMConnection         *connection,
+              gboolean             *out_ignore)
 {
     gboolean is_partition = FALSE;
 

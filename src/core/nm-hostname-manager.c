@@ -10,8 +10,8 @@
 #include <sys/stat.h>
 
 #if HAVE_SELINUX
-    #include <selinux/selinux.h>
-    #include <selinux/label.h>
+#include <selinux/selinux.h>
+#include <selinux/label.h>
 #endif
 
 #include "libnm-core-aux-intern/nm-common-macros.h"
@@ -37,30 +37,30 @@
 #if (defined(HOSTNAME_PERSIST_SUSE) + defined(HOSTNAME_PERSIST_SLACKWARE) \
      + defined(HOSTNAME_PERSIST_GENTOO))                                  \
     > 1
-    #error "Can only define one of HOSTNAME_PERSIST_*"
+#error "Can only define one of HOSTNAME_PERSIST_*"
 #endif
 
 #if defined(HOSTNAME_PERSIST_SUSE)
-    #define HOSTNAME_FILE HOSTNAME_FILE_UCASE_HOSTNAME
+#define HOSTNAME_FILE HOSTNAME_FILE_UCASE_HOSTNAME
 #elif defined(HOSTNAME_PERSIST_SLACKWARE)
-    #define HOSTNAME_FILE HOSTNAME_FILE_UCASE_HOSTNAME
+#define HOSTNAME_FILE HOSTNAME_FILE_UCASE_HOSTNAME
 #elif defined(HOSTNAME_PERSIST_GENTOO)
-    #define HOSTNAME_FILE HOSTNAME_FILE_GENTOO
+#define HOSTNAME_FILE HOSTNAME_FILE_GENTOO
 #else
-    #define HOSTNAME_FILE HOSTNAME_FILE_DEFAULT
+#define HOSTNAME_FILE HOSTNAME_FILE_DEFAULT
 #endif
 
 /*****************************************************************************/
 
-NM_GOBJECT_PROPERTIES_DEFINE(NMHostnameManager, PROP_HOSTNAME, );
+NM_GOBJECT_PROPERTIES_DEFINE(NMHostnameManager, PROP_STATIC_HOSTNAME, );
 
 typedef struct {
-    char *        current_hostname;
+    char         *static_hostname;
     GFileMonitor *monitor;
     GFileMonitor *dhcp_monitor;
     gulong        monitor_id;
     gulong        dhcp_monitor_id;
-    GDBusProxy *  hostnamed_proxy;
+    GDBusProxy   *hostnamed_proxy;
 } NMHostnameManagerPrivate;
 
 struct _NMHostnameManager {
@@ -86,13 +86,26 @@ NM_DEFINE_SINGLETON_GETTER(NMHostnameManager, nm_hostname_manager_get, NM_TYPE_H
 
 /*****************************************************************************/
 
+static inline GFileMonitor *
+_file_monitor_new(const char *path)
+{
+    gs_unref_object GFile *file = NULL;
+
+    nm_assert(path);
+
+    file = g_file_new_for_path(path);
+    return g_file_monitor_file(file, G_FILE_MONITOR_NONE, NULL, NULL);
+}
+
+/*****************************************************************************/
+
 #if defined(HOSTNAME_PERSIST_GENTOO)
 static char *
 read_hostname_gentoo(const char *path)
 {
-    gs_free char *     contents  = NULL;
+    gs_free char      *contents  = NULL;
     gs_strfreev char **all_lines = NULL;
-    const char *       tmp;
+    const char        *tmp;
     guint              i;
 
     if (!g_file_get_contents(path, &contents, NULL, NULL))
@@ -116,7 +129,7 @@ read_hostname_gentoo(const char *path)
 static char *
 read_hostname_slackware(const char *path)
 {
-    gs_free char *     contents  = NULL;
+    gs_free char      *contents  = NULL;
     gs_strfreev char **all_lines = NULL;
     guint              i         = 0;
 
@@ -139,7 +152,7 @@ static gboolean
 hostname_is_dynamic(void)
 {
     GIOChannel *channel;
-    char *      str     = NULL;
+    char       *str     = NULL;
     gboolean    dynamic = FALSE;
 
     channel = g_io_channel_new_file(CONF_DHCP, "r", NULL);
@@ -162,21 +175,65 @@ hostname_is_dynamic(void)
 }
 #endif
 
-/* Returns an allocated string which the caller owns and must eventually free */
-char *
-nm_hostname_manager_read_hostname(NMHostnameManager *self)
+/*****************************************************************************/
+
+const char *
+nm_hostname_manager_get_static_hostname(NMHostnameManager *self)
+{
+    g_return_val_if_fail(NM_IS_HOSTNAME_MANAGER(self), NULL);
+
+    return NM_HOSTNAME_MANAGER_GET_PRIVATE(self)->static_hostname;
+}
+
+static void
+_set_hostname(NMHostnameManager *self, const char *hostname)
+{
+    NMHostnameManagerPrivate *priv          = NM_HOSTNAME_MANAGER_GET_PRIVATE(self);
+    gs_free char             *hostname_free = NULL;
+    char                     *old_hostname;
+
+    hostname = nm_str_not_empty(hostname);
+
+    if (hostname) {
+        /* as we also read the file from disk, it might not be in UTF-8 encoding.
+         *
+         * A hostname in non-UTF-8 encoding would be odd and cause issues when we
+         * try to expose them on D-Bus via the NM_SETTINGS_STATIC_HOSTNAME property.
+         *
+         * Sanitize somewhat. It's wrong anyway. */
+        hostname = nm_utils_str_utf8safe_escape(hostname,
+                                                NM_UTILS_STR_UTF8_SAFE_FLAG_ESCAPE_CTRL,
+                                                &hostname_free);
+    }
+
+    if (nm_streq0(hostname, priv->static_hostname))
+        return;
+
+    _LOGI("static hostname changed from %s%s%s to %s%s%s",
+          NM_PRINT_FMT_QUOTED(priv->static_hostname, "\"", priv->static_hostname, "\"", "(none)"),
+          NM_PRINT_FMT_QUOTED(hostname, "\"", hostname, "\"", "(none)"));
+
+    old_hostname          = priv->static_hostname;
+    priv->static_hostname = g_strdup(hostname);
+    g_free(old_hostname);
+
+    _notify(self, PROP_STATIC_HOSTNAME);
+}
+
+static void
+_set_hostname_read_file(NMHostnameManager *self)
 {
     NMHostnameManagerPrivate *priv     = NM_HOSTNAME_MANAGER_GET_PRIVATE(self);
-    char *                    hostname = NULL;
+    gs_free char             *hostname = NULL;
 
     if (priv->hostnamed_proxy) {
-        hostname = g_strdup(priv->current_hostname);
-        goto out;
+        /* read-hostname returns the current hostname with hostnamed. */
+        return;
     }
 
 #if defined(HOSTNAME_PERSIST_SUSE)
     if (priv->dhcp_monitor_id && hostname_is_dynamic())
-        return NULL;
+        return;
 #endif
 
 #if defined(HOSTNAME_PERSIST_GENTOO)
@@ -188,105 +245,41 @@ nm_hostname_manager_read_hostname(NMHostnameManager *self)
         g_strchomp(hostname);
 #endif
 
-out:
-    if (hostname && !hostname[0]) {
-        g_free(hostname);
-        return NULL;
-    }
-
-    return hostname;
+    _set_hostname(self, hostname);
 }
 
 /*****************************************************************************/
-
-const char *
-nm_hostname_manager_get_hostname(NMHostnameManager *self)
-{
-    g_return_val_if_fail(NM_IS_HOSTNAME_MANAGER(self), NULL);
-    return NM_HOSTNAME_MANAGER_GET_PRIVATE(self)->current_hostname;
-}
-
-static void
-_set_hostname_take(NMHostnameManager *self, char *hostname)
-{
-    NMHostnameManagerPrivate *priv = NM_HOSTNAME_MANAGER_GET_PRIVATE(self);
-
-    _LOGI("hostname changed from %s%s%s to %s%s%s",
-          NM_PRINT_FMT_QUOTED(priv->current_hostname, "\"", priv->current_hostname, "\"", "(none)"),
-          NM_PRINT_FMT_QUOTED(hostname, "\"", hostname, "\"", "(none)"));
-
-    g_free(priv->current_hostname);
-    priv->current_hostname = hostname;
-    _notify(self, PROP_HOSTNAME);
-}
-
-static void
-_set_hostname(NMHostnameManager *self, const char *hostname)
-{
-    NMHostnameManagerPrivate *priv = NM_HOSTNAME_MANAGER_GET_PRIVATE(self);
-
-    hostname = nm_str_not_empty(hostname);
-    if (!nm_streq0(hostname, priv->current_hostname))
-        _set_hostname_take(self, g_strdup(hostname));
-}
-
-static void
-_set_hostname_read(NMHostnameManager *self)
-{
-    NMHostnameManagerPrivate *priv = NM_HOSTNAME_MANAGER_GET_PRIVATE(self);
-    char *                    hostname;
-
-    if (priv->hostnamed_proxy) {
-        /* read-hostname returns the current hostname with hostnamed. */
-        return;
-    }
-
-    hostname = nm_hostname_manager_read_hostname(self);
-
-    if (nm_streq0(hostname, priv->current_hostname)) {
-        g_free(hostname);
-        return;
-    }
-
-    _set_hostname_take(self, hostname);
-}
-
-/*****************************************************************************/
-
-typedef struct {
-    char *                         hostname;
-    NMHostnameManagerSetHostnameCb cb;
-    gpointer                       user_data;
-} SetHostnameInfo;
 
 static void
 set_transient_hostname_done(GObject *object, GAsyncResult *res, gpointer user_data)
 {
-    GDBusProxy *proxy                 = G_DBUS_PROXY(object);
-    gs_free SetHostnameInfo *info     = user_data;
-    gs_unref_variant GVariant *result = NULL;
-    gs_free_error GError *error       = NULL;
+    GDBusProxy                    *proxy    = G_DBUS_PROXY(object);
+    gs_unref_variant GVariant     *result   = NULL;
+    gs_free_error GError          *error    = NULL;
+    gs_free char                  *hostname = NULL;
+    NMHostnameManagerSetHostnameCb cb;
+    gpointer                       cb_user_data;
+
+    nm_utils_user_data_unpack(user_data, &hostname, &cb, &cb_user_data);
 
     result = g_dbus_proxy_call_finish(proxy, res, &error);
 
     if (error) {
         _LOGW("couldn't set the system hostname to '%s' using hostnamed: %s",
-              info->hostname,
+              hostname,
               error->message);
     }
 
-    info->cb(info->hostname, !error, info->user_data);
-    g_free(info->hostname);
+    cb(hostname, !error, cb_user_data);
 }
 
 void
-nm_hostname_manager_set_transient_hostname(NMHostnameManager *            self,
-                                           const char *                   hostname,
+nm_hostname_manager_set_transient_hostname(NMHostnameManager             *self,
+                                           const char                    *hostname,
                                            NMHostnameManagerSetHostnameCb cb,
                                            gpointer                       user_data)
 {
     NMHostnameManagerPrivate *priv;
-    SetHostnameInfo *         info;
 
     g_return_if_fail(NM_IS_HOSTNAME_MANAGER(self));
 
@@ -297,11 +290,6 @@ nm_hostname_manager_set_transient_hostname(NMHostnameManager *            self,
         return;
     }
 
-    info            = g_new0(SetHostnameInfo, 1);
-    info->hostname  = g_strdup(hostname);
-    info->cb        = cb;
-    info->user_data = user_data;
-
     g_dbus_proxy_call(priv->hostnamed_proxy,
                       "SetHostname",
                       g_variant_new("(sb)", hostname, FALSE),
@@ -309,14 +297,14 @@ nm_hostname_manager_set_transient_hostname(NMHostnameManager *            self,
                       -1,
                       NULL,
                       set_transient_hostname_done,
-                      info);
+                      nm_utils_user_data_pack(g_strdup(hostname), cb, user_data));
 }
 
 gboolean
 nm_hostname_manager_get_transient_hostname(NMHostnameManager *self, char **hostname)
 {
     NMHostnameManagerPrivate *priv = NM_HOSTNAME_MANAGER_GET_PRIVATE(self);
-    GVariant *                v_hostname;
+    GVariant                 *v_hostname;
 
     if (!priv->hostnamed_proxy)
         return FALSE;
@@ -336,17 +324,17 @@ nm_hostname_manager_get_transient_hostname(NMHostnameManager *self, char **hostn
 gboolean
 nm_hostname_manager_write_hostname(NMHostnameManager *self, const char *hostname)
 {
-    NMHostnameManagerPrivate *priv;
-    char *                    hostname_eol;
-    gboolean                  ret;
-    gs_free_error GError *error     = NULL;
-    const char *          file      = HOSTNAME_FILE;
-    gs_free char *        link_path = NULL;
-    gs_unref_variant GVariant *var  = NULL;
+    NMHostnameManagerPrivate  *priv;
+    char                      *hostname_eol;
+    gboolean                   ret;
+    gs_free_error GError      *error     = NULL;
+    const char                *file      = HOSTNAME_FILE;
+    gs_free char              *link_path = NULL;
+    gs_unref_variant GVariant *var       = NULL;
     struct stat                file_stat;
 #if HAVE_SELINUX
     gboolean fcon_was_set = FALSE;
-    char *   fcon_prev    = NULL;
+    char    *fcon_prev    = NULL;
 #endif
 
     g_return_val_if_fail(NM_IS_HOSTNAME_MANAGER(self), FALSE);
@@ -391,7 +379,7 @@ nm_hostname_manager_write_hostname(NMHostnameManager *self, const char *hostname
         handle = selabel_open(SELABEL_CTX_FILE, NULL, 0);
         if (handle) {
             mode_t st_mode = 0;
-            char * fcon    = NULL;
+            char  *fcon    = NULL;
 
             if (stat(file, &file_stat) == 0)
                 st_mode = file_stat.st_mode;
@@ -428,71 +416,63 @@ nm_hostname_manager_write_hostname(NMHostnameManager *self, const char *hostname
     return TRUE;
 }
 
-gboolean
-nm_hostname_manager_validate_hostname(const char *hostname)
-{
-    const char *p;
-    gboolean    dot = TRUE;
-
-    if (!hostname || !hostname[0])
-        return FALSE;
-
-    for (p = hostname; *p; p++) {
-        if (*p == '.') {
-            if (dot)
-                return FALSE;
-            dot = TRUE;
-        } else {
-            if (!g_ascii_isalnum(*p) && (*p != '-') && (*p != '_'))
-                return FALSE;
-            dot = FALSE;
-        }
-    }
-
-    if (dot)
-        return FALSE;
-
-    return (p - hostname <= HOST_NAME_MAX);
-}
+/*****************************************************************************/
 
 static void
-hostname_file_changed_cb(GFileMonitor *    monitor,
-                         GFile *           file,
-                         GFile *           other_file,
-                         GFileMonitorEvent event_type,
-                         gpointer          user_data)
+hostnamed_properties_changed(GDBusProxy *proxy,
+                             GVariant   *changed_properties,
+                             char      **invalidated_properties,
+                             gpointer    user_data)
 {
-    _set_hostname_read(user_data);
+    NMHostnameManager         *self    = user_data;
+    NMHostnameManagerPrivate  *priv    = NM_HOSTNAME_MANAGER_GET_PRIVATE(self);
+    gs_unref_variant GVariant *variant = NULL;
+
+    variant = g_dbus_proxy_get_cached_property(priv->hostnamed_proxy, "StaticHostname");
+    if (variant && g_variant_is_of_type(variant, G_VARIANT_TYPE_STRING))
+        _set_hostname(self, g_variant_get_string(variant, NULL));
 }
 
 /*****************************************************************************/
 
 static void
-hostnamed_properties_changed(GDBusProxy *proxy,
-                             GVariant *  changed_properties,
-                             char **     invalidated_properties,
-                             gpointer    user_data)
+_file_monitors_file_changed_cb(GFileMonitor     *monitor,
+                               GFile            *file,
+                               GFile            *other_file,
+                               GFileMonitorEvent event_type,
+                               gpointer          user_data)
 {
-    NMHostnameManager *       self = user_data;
-    NMHostnameManagerPrivate *priv = NM_HOSTNAME_MANAGER_GET_PRIVATE(self);
-    GVariant *                v_hostname;
+    _set_hostname_read_file(user_data);
+}
 
-    v_hostname = g_dbus_proxy_get_cached_property(priv->hostnamed_proxy, "StaticHostname");
-    if (v_hostname) {
-        _set_hostname(self, g_variant_get_string(v_hostname, NULL));
-        g_variant_unref(v_hostname);
+static void
+_file_monitors_clear(NMHostnameManager *self)
+{
+    NMHostnameManagerPrivate *priv = NM_HOSTNAME_MANAGER_GET_PRIVATE(self);
+
+    if (priv->monitor) {
+        nm_clear_g_signal_handler(priv->monitor, &priv->monitor_id);
+        g_file_monitor_cancel(priv->monitor);
+        g_clear_object(&priv->monitor);
+    }
+
+    if (priv->dhcp_monitor) {
+        nm_clear_g_signal_handler(priv->dhcp_monitor, &priv->dhcp_monitor_id);
+        g_file_monitor_cancel(priv->dhcp_monitor);
+        g_clear_object(&priv->dhcp_monitor);
     }
 }
 
 static void
-setup_hostname_file_monitors(NMHostnameManager *self)
+_file_monitors_setup(NMHostnameManager *self)
 {
     NMHostnameManagerPrivate *priv = NM_HOSTNAME_MANAGER_GET_PRIVATE(self);
-    GFileMonitor *            monitor;
-    const char *              path      = HOSTNAME_FILE;
-    char *                    link_path = NULL;
+    GFileMonitor             *monitor;
+    const char               *path      = HOSTNAME_FILE;
+    gs_free char             *link_path = NULL;
     struct stat               file_stat;
-    GFile *                   file;
+
+    _file_monitors_clear(self);
 
     /* resolve the path to the hostname file if it is a symbolic link */
     if (lstat(path, &file_stat) == 0 && S_ISLNK(file_stat.st_mode)
@@ -505,29 +485,24 @@ setup_hostname_file_monitors(NMHostnameManager *self)
     }
 
     /* monitor changes to hostname file */
-    file    = g_file_new_for_path(path);
-    monitor = g_file_monitor_file(file, G_FILE_MONITOR_NONE, NULL, NULL);
-    g_object_unref(file);
-    g_free(link_path);
+    monitor = _file_monitor_new(path);
     if (monitor) {
         priv->monitor_id =
-            g_signal_connect(monitor, "changed", G_CALLBACK(hostname_file_changed_cb), self);
+            g_signal_connect(monitor, "changed", G_CALLBACK(_file_monitors_file_changed_cb), self);
         priv->monitor = monitor;
     }
 
 #if defined(HOSTNAME_PERSIST_SUSE)
     /* monitor changes to dhcp file to know whether the hostname is valid */
-    file    = g_file_new_for_path(CONF_DHCP);
-    monitor = g_file_monitor_file(file, G_FILE_MONITOR_NONE, NULL, NULL);
-    g_object_unref(file);
+    monitor = _file_monitor_new(CONF_DHCP);
     if (monitor) {
         priv->dhcp_monitor_id =
-            g_signal_connect(monitor, "changed", G_CALLBACK(hostname_file_changed_cb), self);
+            g_signal_connect(monitor, "changed", G_CALLBACK(_file_monitors_file_changed_cb), self);
         priv->dhcp_monitor = monitor;
     }
 #endif
 
-    _set_hostname_read(self);
+    _set_hostname_read_file(self);
 }
 
 /*****************************************************************************/
@@ -538,8 +513,8 @@ get_property(GObject *object, guint prop_id, GValue *value, GParamSpec *pspec)
     NMHostnameManager *self = NM_HOSTNAME_MANAGER(object);
 
     switch (prop_id) {
-    case PROP_HOSTNAME:
-        g_value_set_string(value, nm_hostname_manager_get_hostname(self));
+    case PROP_STATIC_HOSTNAME:
+        g_value_set_string(value, nm_hostname_manager_get_static_hostname(self));
         break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
@@ -556,11 +531,11 @@ nm_hostname_manager_init(NMHostnameManager *self)
 static void
 constructed(GObject *object)
 {
-    NMHostnameManager *       self = NM_HOSTNAME_MANAGER(object);
+    NMHostnameManager        *self = NM_HOSTNAME_MANAGER(object);
     NMHostnameManagerPrivate *priv = NM_HOSTNAME_MANAGER_GET_PRIVATE(self);
-    GDBusProxy *              proxy;
-    GVariant *                variant;
-    gs_free_error GError *error = NULL;
+    GDBusProxy               *proxy;
+    GVariant                 *variant;
+    gs_free_error GError     *error = NULL;
 
     proxy = g_dbus_proxy_new_for_bus_sync(G_BUS_TYPE_SYSTEM,
                                           0,
@@ -591,7 +566,7 @@ constructed(GObject *object)
     }
 
     if (!priv->hostnamed_proxy)
-        setup_hostname_file_monitors(self);
+        _file_monitors_setup(self);
 
     G_OBJECT_CLASS(nm_hostname_manager_parent_class)->constructed(object);
 }
@@ -599,7 +574,7 @@ constructed(GObject *object)
 static void
 dispose(GObject *object)
 {
-    NMHostnameManager *       self = NM_HOSTNAME_MANAGER(object);
+    NMHostnameManager        *self = NM_HOSTNAME_MANAGER(object);
     NMHostnameManagerPrivate *priv = NM_HOSTNAME_MANAGER_GET_PRIVATE(self);
 
     if (priv->hostnamed_proxy) {
@@ -609,23 +584,9 @@ dispose(GObject *object)
         g_clear_object(&priv->hostnamed_proxy);
     }
 
-    if (priv->monitor) {
-        if (priv->monitor_id)
-            g_signal_handler_disconnect(priv->monitor, priv->monitor_id);
+    _file_monitors_clear(self);
 
-        g_file_monitor_cancel(priv->monitor);
-        g_clear_object(&priv->monitor);
-    }
-
-    if (priv->dhcp_monitor) {
-        if (priv->dhcp_monitor_id)
-            g_signal_handler_disconnect(priv->dhcp_monitor, priv->dhcp_monitor_id);
-
-        g_file_monitor_cancel(priv->dhcp_monitor);
-        g_clear_object(&priv->dhcp_monitor);
-    }
-
-    nm_clear_g_free(&priv->current_hostname);
+    nm_clear_g_free(&priv->static_hostname);
 
     G_OBJECT_CLASS(nm_hostname_manager_parent_class)->dispose(object);
 }
@@ -639,11 +600,12 @@ nm_hostname_manager_class_init(NMHostnameManagerClass *class)
     object_class->get_property = get_property;
     object_class->dispose      = dispose;
 
-    obj_properties[PROP_HOSTNAME] = g_param_spec_string(NM_HOSTNAME_MANAGER_HOSTNAME,
-                                                        "",
-                                                        "",
-                                                        NULL,
-                                                        G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
+    obj_properties[PROP_STATIC_HOSTNAME] =
+        g_param_spec_string(NM_HOSTNAME_MANAGER_STATIC_HOSTNAME,
+                            "",
+                            "",
+                            NULL,
+                            G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
 
     g_object_class_install_properties(object_class, _PROPERTY_ENUMS_LAST, obj_properties);
 }

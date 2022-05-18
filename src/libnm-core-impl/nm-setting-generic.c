@@ -34,11 +34,11 @@ typedef struct {
  */
 struct _NMSettingGeneric {
     NMSetting parent;
+    /* In the past, this struct was public API. Preserve ABI! */
 };
 
 struct _NMSettingGenericClass {
     NMSettingClass parent;
-
     /* In the past, this struct was public API. Preserve ABI! */
     gpointer padding[4];
 };
@@ -74,5 +74,5 @@ nm_setting_generic_class_init(NMSettingGenericClass *klass)
 
     g_type_class_add_private(klass, sizeof(NMSettingGenericPrivate));
 
-    _nm_setting_class_commit(setting_class, NM_META_SETTING_TYPE_GENERIC);
+    _nm_setting_class_commit(setting_class, NM_META_SETTING_TYPE_GENERIC, NULL, NULL, 0);
 }

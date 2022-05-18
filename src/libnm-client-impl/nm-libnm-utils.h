@@ -179,13 +179,13 @@ GQuark nm_context_busy_watcher_quark(void);
 
 void nm_context_busy_watcher_integrate_source(GMainContext *outer_context,
                                               GMainContext *inner_context,
-                                              GObject *     context_busy_watcher);
+                                              GObject      *context_busy_watcher);
 
 /*****************************************************************************/
 
 typedef struct {
     GCancellable *cancellable;
-    GSource *     cancel_on_idle_source;
+    GSource      *cancel_on_idle_source;
     gulong        cancelled_id;
     union {
         struct {
@@ -193,7 +193,7 @@ typedef struct {
         } async;
         struct {
             GMainLoop *main_loop;
-            GError **  error_location;
+            GError   **error_location;
         } sync;
     } data;
     bool is_sync : 1;
@@ -206,7 +206,7 @@ NMLInitData *nml_init_data_new_async(GCancellable *cancellable, GTask *task_take
 
 void nml_init_data_return(NMLInitData *init_data, GError *error_take);
 
-void nml_cleanup_context_busy_watcher_on_idle(GObject *     context_busy_watcher_take,
+void nml_cleanup_context_busy_watcher_on_idle(GObject      *context_busy_watcher_take,
                                               GMainContext *context);
 
 /*****************************************************************************/
@@ -244,9 +244,9 @@ typedef struct {
 } NMLDBusPropertVTableO;
 
 struct _NMLDBusPropertyO {
-    NMLDBusObject *         owner_dbobj;
-    NMLDBusObjWatcher *     obj_watcher;
-    GObject *               nmobj;
+    NMLDBusObject          *owner_dbobj;
+    NMLDBusObjWatcher      *obj_watcher;
+    GObject                *nmobj;
     const NMLDBusMetaIface *meta_iface;
     guint                   dbus_property_idx;
     bool                    is_ready : 1;
@@ -272,8 +272,8 @@ typedef struct {
     GType (*get_o_type_fcn)(void);
 
     void (*notify_changed_ao)(NMLDBusPropertyAO *pr_ao,
-                              NMClient *         self,
-                              NMObject *         nmobj,
+                              NMClient          *self,
+                              NMObject          *nmobj,
                               gboolean           is_added /* or else removed */);
 
     gboolean (*check_nmobj_visible_fcn)(GObject *nmobj);
@@ -289,10 +289,10 @@ struct _NMLDBusPropertyAOData;
 
 struct _NMLDBusPropertyAO {
     CList                          data_lst_head;
-    GHashTable *                   hash;
-    NMLDBusObject *                owner_dbobj;
-    const NMLDBusMetaIface *       meta_iface;
-    GPtrArray *                    arr;
+    GHashTable                    *hash;
+    NMLDBusObject                 *owner_dbobj;
+    const NMLDBusMetaIface        *meta_iface;
+    GPtrArray                     *arr;
     struct _NMLDBusPropertyAOData *changed_head;
     guint                          dbus_property_idx;
     guint                          n_not_ready;
@@ -303,7 +303,7 @@ const GPtrArray *nml_dbus_property_ao_get_objs_as_ptrarray(NMLDBusPropertyAO *pr
 
 gboolean nml_dbus_property_ao_is_ready(const NMLDBusPropertyAO *pr_ao);
 
-void nml_dbus_property_ao_clear(NMLDBusPropertyAO *pr_ao, NMClient *client);
+gboolean nml_dbus_property_ao_clear(NMLDBusPropertyAO *pr_ao, NMClient *client);
 
 void nml_dbus_property_ao_clear_many(NMLDBusPropertyAO *pr_ao, guint len, NMClient *self);
 
@@ -316,42 +316,45 @@ typedef enum {
     NML_DBUS_NOTIFY_UPDATE_PROP_FLAGS_NOTIFY = 0x1,
 } NMLDBusNotifyUpdatePropFlags;
 
-NMLDBusNotifyUpdatePropFlags _nml_dbus_notify_update_prop_ignore(NMClient *              client,
-                                                                 NMLDBusObject *         dbobj,
+NMLDBusNotifyUpdatePropFlags _nml_dbus_notify_update_prop_ignore(NMClient               *client,
+                                                                 NMLDBusObject          *dbobj,
                                                                  const NMLDBusMetaIface *meta_iface,
                                                                  guint     dbus_property_idx,
                                                                  GVariant *value);
 
-NMLDBusNotifyUpdatePropFlags _nml_dbus_notify_update_prop_o(NMClient *              client,
-                                                            NMLDBusObject *         dbobj,
+NMLDBusNotifyUpdatePropFlags _nml_dbus_notify_update_prop_o(NMClient               *client,
+                                                            NMLDBusObject          *dbobj,
                                                             const NMLDBusMetaIface *meta_iface,
                                                             guint     dbus_property_idx,
                                                             GVariant *value);
 
+NMLDBusNotifyUpdatePropFlags nml_dbus_property_ao_notify(NMClient               *self,
+                                                         NMLDBusPropertyAO      *pr_ao,
+                                                         NMLDBusObject          *dbobj,
+                                                         const NMLDBusMetaIface *meta_iface,
+                                                         guint                   dbus_property_idx,
+                                                         GVariant               *value);
+
 typedef struct {
-    const char *        dbus_property_name;
+    const char         *dbus_property_name;
     const GVariantType *dbus_type;
+
+    NMLDBusNotifyUpdatePropFlags (*notify_update_prop)(NMClient               *client,
+                                                       NMLDBusObject          *dbobj,
+                                                       const NMLDBusMetaIface *meta_iface,
+                                                       guint                   dbus_property_idx,
+                                                       GVariant               *value);
 
     guint16 prop_struct_offset;
 
     guint8 obj_properties_idx;
 
-    bool use_notify_update_prop : 1;
-
     bool obj_property_no_reverse_idx : 1;
 
     union {
-        union {
-            const NMLDBusPropertVTableO * property_vtable_o;
-            const NMLDBusPropertVTableAO *property_vtable_ao;
-        } extra;
-
-        NMLDBusNotifyUpdatePropFlags (*notify_update_prop)(NMClient *              client,
-                                                           NMLDBusObject *         dbobj,
-                                                           const NMLDBusMetaIface *meta_iface,
-                                                           guint     dbus_property_idx,
-                                                           GVariant *value);
-    };
+        const NMLDBusPropertVTableO  *property_vtable_o;
+        const NMLDBusPropertVTableAO *property_vtable_ao;
+    } extra;
 
 } NMLDBusMetaProperty;
 
@@ -395,17 +398,16 @@ typedef struct {
 #define NML_DBUS_META_PROPERTY_INIT_AY(...) \
     _NML_DBUS_META_PROPERTY_INIT_DEFAULT("ay", GBytes *, __VA_ARGS__)
 
-#define NML_DBUS_META_PROPERTY_INIT_O(v_dbus_property_name,                                          \
-                                      v_obj_properties_idx,                                          \
-                                      v_container,                                                   \
-                                      v_field)                                                       \
-    NML_DBUS_META_PROPERTY_INIT(                                                                     \
-        v_dbus_property_name,                                                                        \
-        "o",                                                                                         \
-        v_obj_properties_idx,                                                                        \
-        .prop_struct_offset     = NM_STRUCT_OFFSET_ENSURE_TYPE(NMRefString *, v_container, v_field), \
-        .use_notify_update_prop = TRUE,                                                              \
-        .notify_update_prop     = _nml_dbus_notify_update_prop_o)
+#define NML_DBUS_META_PROPERTY_INIT_O(v_dbus_property_name,                                      \
+                                      v_obj_properties_idx,                                      \
+                                      v_container,                                               \
+                                      v_field)                                                   \
+    NML_DBUS_META_PROPERTY_INIT(                                                                 \
+        v_dbus_property_name,                                                                    \
+        "o",                                                                                     \
+        v_obj_properties_idx,                                                                    \
+        .prop_struct_offset = NM_STRUCT_OFFSET_ENSURE_TYPE(NMRefString *, v_container, v_field), \
+        .notify_update_prop = _nml_dbus_notify_update_prop_o)
 
 #define NML_DBUS_META_PROPERTY_INIT_O_PROP(v_dbus_property_name,                  \
                                            v_obj_properties_idx,                  \
@@ -437,24 +439,22 @@ typedef struct {
         .extra.property_vtable_ao = &(                                             \
             (const NMLDBusPropertVTableAO){.get_o_type_fcn = (v_get_o_type_fcn), ##__VA_ARGS__}))
 
-#define NML_DBUS_META_PROPERTY_INIT_FCN(v_dbus_property_name,                     \
-                                        v_obj_properties_idx,                     \
-                                        v_dbus_type,                              \
-                                        v_notify_update_prop,                     \
-                                        ...)                                      \
-    NML_DBUS_META_PROPERTY_INIT(v_dbus_property_name,                             \
-                                v_dbus_type,                                      \
-                                v_obj_properties_idx,                             \
-                                .use_notify_update_prop = TRUE,                   \
-                                .notify_update_prop     = (v_notify_update_prop), \
+#define NML_DBUS_META_PROPERTY_INIT_FCN(v_dbus_property_name,                 \
+                                        v_obj_properties_idx,                 \
+                                        v_dbus_type,                          \
+                                        v_notify_update_prop,                 \
+                                        ...)                                  \
+    NML_DBUS_META_PROPERTY_INIT(v_dbus_property_name,                         \
+                                v_dbus_type,                                  \
+                                v_obj_properties_idx,                         \
+                                .notify_update_prop = (v_notify_update_prop), \
                                 ##__VA_ARGS__)
 
 #define NML_DBUS_META_PROPERTY_INIT_IGNORE(v_dbus_property_name, v_dbus_type) \
     NML_DBUS_META_PROPERTY_INIT(v_dbus_property_name,                         \
                                 v_dbus_type,                                  \
                                 0,                                            \
-                                .use_notify_update_prop = TRUE,               \
-                                .notify_update_prop     = _nml_dbus_notify_update_prop_ignore)
+                                .notify_update_prop = _nml_dbus_notify_update_prop_ignore)
 
 /* "TODO" is like "IGNORE". The difference is that we don't plan to ever implement "IGNORE", but
  * "TODO" is something we should add support for. */
@@ -475,9 +475,9 @@ struct _NMLDBusMetaIface {
      *     assert (meta_iface->dbus_properties[d_idx].obj_properties_idx == o_idx)
      * if (and only if) two properties correspond.
      */
-    const GParamSpec *const *  obj_properties;
+    const GParamSpec *const   *obj_properties;
     const NMLDBusMetaProperty *dbus_properties;
-    const guint8 *             obj_properties_reverse_idx;
+    const guint8              *obj_properties_reverse_idx;
 
     guint8 n_dbus_properties;
     guint8 n_obj_properties;
@@ -610,10 +610,10 @@ extern const NMLDBusMetaIface _nml_dbus_meta_iface_nm_wifip2ppeer;
 const NMLDBusMetaIface *nml_dbus_meta_iface_get(const char *dbus_iface_name);
 
 const NMLDBusMetaProperty *nml_dbus_meta_property_get(const NMLDBusMetaIface *meta_iface,
-                                                      const char *            dbus_property_name,
-                                                      guint *                 out_idx);
+                                                      const char             *dbus_property_name,
+                                                      guint                  *out_idx);
 
-void _nml_dbus_meta_class_init_with_properties_impl(GObjectClass *                 object_class,
+void _nml_dbus_meta_class_init_with_properties_impl(GObjectClass                  *object_class,
                                                     const NMLDBusMetaIface *const *meta_iface);
 #define _nml_dbus_meta_class_init_with_properties(object_class, ...) \
     _nml_dbus_meta_class_init_with_properties_impl(                  \
@@ -682,8 +682,8 @@ void nml_dbus_object_unref(NMLDBusObject *dbobj);
 NM_AUTO_DEFINE_FCN0(NMLDBusObject *, _nm_auto_unref_nml_dbusobj, nml_dbus_object_unref);
 #define nm_auto_unref_nml_dbusobj nm_auto(_nm_auto_unref_nml_dbusobj)
 
-gpointer nml_dbus_object_get_property_location(NMLDBusObject *            dbobj,
-                                               const NMLDBusMetaIface *   meta_iface,
+gpointer nml_dbus_object_get_property_location(NMLDBusObject             *dbobj,
+                                               const NMLDBusMetaIface    *meta_iface,
                                                const NMLDBusMetaProperty *meta_property);
 
 /*****************************************************************************/
@@ -713,7 +713,7 @@ struct _NMObject {
 
 typedef struct _NMObjectClassFieldInfo {
     const struct _NMObjectClassFieldInfo *parent;
-    NMObjectClass *                       klass;
+    NMObjectClass                        *klass;
     guint16                               offset;
     guint16                               num;
 } _NMObjectClassFieldInfo;
@@ -758,21 +758,29 @@ struct _NMObjectClass {
     }                                                                             \
     G_STMT_END
 
-#define _NM_OBJECT_CLASS_INIT_FIELD_INFO(_nm_object_class, _field_name, _offset, _num) \
-    G_STMT_START                                                                       \
-    {                                                                                  \
-        (_nm_object_class)->_field_name = ({                                           \
-            static _NMObjectClassFieldInfo _f;                                         \
-                                                                                       \
-            _f = (_NMObjectClassFieldInfo){                                            \
-                .parent = (_nm_object_class)->_field_name,                             \
-                .klass  = (_nm_object_class),                                          \
-                .offset = _offset,                                                     \
-                .num    = _num,                                                        \
-            };                                                                         \
-            &_f;                                                                       \
-        });                                                                            \
-    }                                                                                  \
+#define _NM_OBJECT_CLASS_INIT_FIELD_INFO(nm_object_class, field_name, _offset, _num) \
+    G_STMT_START                                                                     \
+    {                                                                                \
+        NMObjectClass *const _klass = (nm_object_class);                             \
+                                                                                     \
+        _klass->field_name = ({                                                      \
+            static _NMObjectClassFieldInfo _f;                                       \
+                                                                                     \
+            /* this code is called inside a _class_init() function, it thus
+             * is only executed once, so we are fine to initialize a static
+             * variable here. */          \
+            nm_assert(!_f.klass);                                                    \
+                                                                                     \
+            _f = (_NMObjectClassFieldInfo){                                          \
+                .parent = _klass->field_name,                                        \
+                .klass  = _klass,                                                    \
+                .offset = (_offset),                                                 \
+                .num    = (_num),                                                    \
+            };                                                                       \
+                                                                                     \
+            &_f;                                                                     \
+        });                                                                          \
+    }                                                                                \
     G_STMT_END
 
 #define _NM_OBJECT_CLASS_INIT_PROPERTY_O_FIELDS_1(nm_object_class, type_name, field_name) \
@@ -820,7 +828,14 @@ struct _NMDeviceClass {
     const char *(*get_type_description)(NMDevice *device);
 
     GType (*get_setting_type)(NMDevice *device);
+
+    /* Slaves was originally part of some subtypes of NMDevice. It was deprecated and
+    * a new NMDevice::ports property was added. When that property changes, we need
+    * to notify about the subclass' respective property. This is the property. */
+    const GParamSpec *slaves_param_spec;
 };
+
+#define _NML_DEVICE_META_PROPERTY_INDEX_PORTS 27
 
 /*****************************************************************************/
 
@@ -911,14 +926,14 @@ struct _NMClientNotifyEvent {
     int                   priority;
 };
 
-gpointer _nm_client_notify_event_queue(NMClient *            self,
+gpointer _nm_client_notify_event_queue(NMClient             *self,
                                        int                   priority,
                                        NMClientNotifyEventCb callback,
                                        gsize                 event_size);
 
 typedef struct _NMClientNotifyEventWithPtr NMClientNotifyEventWithPtr;
 
-typedef void (*NMClientNotifyEventWithPtrCb)(NMClient *                  self,
+typedef void (*NMClientNotifyEventWithPtrCb)(NMClient                   *self,
                                              NMClientNotifyEventWithPtr *notify_event);
 
 struct _NMClientNotifyEventWithPtr {
@@ -927,13 +942,13 @@ struct _NMClientNotifyEventWithPtr {
 };
 
 NMClientNotifyEventWithPtr *
-_nm_client_notify_event_queue_with_ptr(NMClient *                   self,
+_nm_client_notify_event_queue_with_ptr(NMClient                    *self,
                                        int                          priority,
                                        NMClientNotifyEventWithPtrCb callback,
                                        gpointer                     user_data);
 
 void _nm_client_notify_event_queue_emit_obj_signal(NMClient *self,
-                                                   GObject * source,
+                                                   GObject  *source,
                                                    NMObject *nmobj,
                                                    gboolean  is_added /* or else removed */,
                                                    int       prio_offset,
@@ -944,57 +959,57 @@ void _nm_client_notify_event_queue_emit_obj_signal(NMClient *self,
 GError *_nm_client_new_error_nm_not_running(void);
 GError *_nm_client_new_error_nm_not_cached(void);
 
-void _nm_client_dbus_call_simple(NMClient *          self,
-                                 GCancellable *      cancellable,
-                                 const char *        object_path,
-                                 const char *        interface_name,
-                                 const char *        method_name,
-                                 GVariant *          parameters,
+void _nm_client_dbus_call_simple(NMClient           *self,
+                                 GCancellable       *cancellable,
+                                 const char         *object_path,
+                                 const char         *interface_name,
+                                 const char         *method_name,
+                                 GVariant           *parameters,
                                  const GVariantType *reply_type,
                                  GDBusCallFlags      flags,
                                  int                 timeout_msec,
                                  GAsyncReadyCallback callback,
                                  gpointer            user_data);
 
-void _nm_client_dbus_call(NMClient *          self,
+void _nm_client_dbus_call(NMClient           *self,
                           gpointer            source_obj,
                           gpointer            source_tag,
-                          GCancellable *      cancellable,
+                          GCancellable       *cancellable,
                           GAsyncReadyCallback user_callback,
                           gpointer            user_callback_data,
-                          const char *        object_path,
-                          const char *        interface_name,
-                          const char *        method_name,
-                          GVariant *          parameters,
+                          const char         *object_path,
+                          const char         *interface_name,
+                          const char         *method_name,
+                          GVariant           *parameters,
                           const GVariantType *reply_type,
                           GDBusCallFlags      flags,
                           int                 timeout_msec,
                           GAsyncReadyCallback internal_callback);
 
-GVariant *_nm_client_dbus_call_sync(NMClient *          self,
-                                    GCancellable *      cancellable,
-                                    const char *        object_path,
-                                    const char *        interface_name,
-                                    const char *        method_name,
-                                    GVariant *          parameters,
+GVariant *_nm_client_dbus_call_sync(NMClient           *self,
+                                    GCancellable       *cancellable,
+                                    const char         *object_path,
+                                    const char         *interface_name,
+                                    const char         *method_name,
+                                    GVariant           *parameters,
                                     const GVariantType *reply_type,
                                     GDBusCallFlags      flags,
                                     int                 timeout_msec,
                                     gboolean            strip_dbus_error,
-                                    GError **           error);
+                                    GError            **error);
 
-gboolean _nm_client_dbus_call_sync_void(NMClient *     self,
-                                        GCancellable * cancellable,
-                                        const char *   object_path,
-                                        const char *   interface_name,
-                                        const char *   method_name,
-                                        GVariant *     parameters,
+gboolean _nm_client_dbus_call_sync_void(NMClient      *self,
+                                        GCancellable  *cancellable,
+                                        const char    *object_path,
+                                        const char    *interface_name,
+                                        const char    *method_name,
+                                        GVariant      *parameters,
                                         GDBusCallFlags flags,
                                         int            timeout_msec,
                                         gboolean       strip_dbus_error,
-                                        GError **      error);
+                                        GError       **error);
 
-void _nm_client_set_property_sync_legacy(NMClient *  self,
+void _nm_client_set_property_sync_legacy(NMClient   *self,
                                          const char *object_path,
                                          const char *interface,
                                          const char *prop_name,
@@ -1019,11 +1034,17 @@ void _nm_vpn_connection_state_changed_commit(NMVpnConnection *self, guint32 stat
 /*****************************************************************************/
 
 NMLDBusNotifyUpdatePropFlags
-_nm_device_notify_update_prop_hw_address(NMClient *              client,
-                                         NMLDBusObject *         dbobj,
+_nm_device_notify_update_prop_hw_address(NMClient               *client,
+                                         NMLDBusObject          *dbobj,
                                          const NMLDBusMetaIface *meta_iface,
                                          guint                   dbus_property_idx,
-                                         GVariant *              value);
+                                         GVariant               *value);
+
+NMLDBusNotifyUpdatePropFlags _nm_device_notify_update_prop_ports(NMClient               *client,
+                                                                 NMLDBusObject          *dbobj,
+                                                                 const NMLDBusMetaIface *meta_iface,
+                                                                 guint     dbus_property_idx,
+                                                                 GVariant *value);
 
 /*****************************************************************************/
 

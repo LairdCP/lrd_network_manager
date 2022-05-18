@@ -1183,7 +1183,7 @@ msgstr "ದೋಷ: ಸಂಪರ್ಕವು ಮಾನ್ಯವಾದುದಾಗ
 
 #: ../src/libnm-client-impl/nm-device.c:2773
 #, c-format
-msgid "The interface names of the device and the connection didn't match."
+msgid "The interface names of the device and the connection didn't match"
 msgstr ""
 
 #: ../src/libnm-client-impl/nm-secret-agent-old.c:1384
@@ -9841,7 +9841,7 @@ msgid "Error: 'connection show': %s"
 msgstr "ದೋಷ: 'connection show': %s"
 
 #: ../src/nmcli/connections.c:1497
-msgid "Activate connection details"
+msgid "Active connection details"
 msgstr "ಸಂಪರ್ಕಗಳ ವಿವರಗಳನ್ನು ಸಕ್ರಿಯಗೊಳಿಸು"
 
 #: ../src/nmcli/connections.c:1626 ../src/nmcli/devices.c:1610

@@ -10,6 +10,7 @@
 #include <arpa/inet.h>
 
 #include "nm-setting-private.h"
+#include "nm-utils-private.h"
 #include "nm-core-enum-types.h"
 #include "libnm-core-intern/nm-core-internal.h"
 
@@ -45,11 +46,13 @@ NM_GOBJECT_PROPERTIES_DEFINE_BASE(PROP_IP6_PRIVACY,
                                   PROP_RA_TIMEOUT, );
 
 typedef struct {
-    char *                        token;
-    char *                        dhcp_duid;
-    NMSettingIP6ConfigPrivacy     ip6_privacy;
-    NMSettingIP6ConfigAddrGenMode addr_gen_mode;
-    gint32                        ra_timeout;
+    NMSettingIPConfigPrivate parent;
+
+    char  *token;
+    char  *dhcp_duid;
+    int    ip6_privacy;
+    gint32 addr_gen_mode;
+    gint32 ra_timeout;
 } NMSettingIP6ConfigPrivate;
 
 /**
@@ -59,11 +62,11 @@ typedef struct {
  */
 struct _NMSettingIP6Config {
     NMSettingIPConfig parent;
+    /* In the past, this struct was public API. Preserve ABI! */
 };
 
 struct _NMSettingIP6ConfigClass {
     NMSettingIPConfigClass parent;
-
     /* In the past, this struct was public API. Preserve ABI! */
     gpointer padding[4];
 };
@@ -172,9 +175,9 @@ static gboolean
 verify(NMSetting *setting, NMConnection *connection, GError **error)
 {
     NMSettingIP6ConfigPrivate *priv = NM_SETTING_IP6_CONFIG_GET_PRIVATE(setting);
-    NMSettingIPConfig *        s_ip = NM_SETTING_IP_CONFIG(setting);
+    NMSettingIPConfig         *s_ip = NM_SETTING_IP_CONFIG(setting);
     NMSettingVerifyResult      ret;
-    const char *               method;
+    const char                *method;
     gboolean                   token_needs_normalization = FALSE;
 
     ret = NM_SETTING_CLASS(nm_setting_ip6_config_parent_class)->verify(setting, connection, error);
@@ -360,27 +363,29 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
 }
 
 static GVariant *
-ip6_dns_to_dbus(const GValue *prop_value)
+ip6_dns_to_dbus(_NM_SETT_INFO_PROP_TO_DBUS_FCN_ARGS _nm_nil)
 {
-    return nm_utils_ip6_dns_to_variant(g_value_get_boxed(prop_value));
+    GPtrArray *dns;
+
+    dns = _nm_setting_ip_config_get_dns_array(NM_SETTING_IP_CONFIG(setting));
+
+    if (nm_g_ptr_array_len(dns) == 0)
+        return NULL;
+
+    return _nm_utils_ip6_dns_to_variant((const char *const *) dns->pdata, dns->len);
 }
 
 static void
-ip6_dns_from_dbus(GVariant *dbus_value, GValue *prop_value)
+ip6_dns_from_dbus(_NM_SETT_INFO_PROP_FROM_DBUS_GPROP_FCN_ARGS _nm_nil)
 {
-    g_value_take_boxed(prop_value, nm_utils_ip6_dns_from_variant(dbus_value));
+    g_value_take_boxed(to, nm_utils_ip6_dns_from_variant(from));
 }
 
 static GVariant *
-ip6_addresses_get(const NMSettInfoSetting *               sett_info,
-                  guint                                   property_idx,
-                  NMConnection *                          connection,
-                  NMSetting *                             setting,
-                  NMConnectionSerializationFlags          flags,
-                  const NMConnectionSerializationOptions *options)
+ip6_addresses_get(_NM_SETT_INFO_PROP_TO_DBUS_FCN_ARGS _nm_nil)
 {
     gs_unref_ptrarray GPtrArray *addrs = NULL;
-    const char *                 gateway;
+    const char                  *gateway;
 
     g_object_get(setting, NM_SETTING_IP_CONFIG_ADDRESSES, &addrs, NULL);
     gateway = nm_setting_ip_config_get_gateway(NM_SETTING_IP_CONFIG(setting));
@@ -388,20 +393,15 @@ ip6_addresses_get(const NMSettInfoSetting *               sett_info,
 }
 
 static gboolean
-ip6_addresses_set(NMSetting *         setting,
-                  GVariant *          connection_dict,
-                  const char *        property,
-                  GVariant *          value,
-                  NMSettingParseFlags parse_flags,
-                  GError **           error)
+ip6_addresses_set(_NM_SETT_INFO_PROP_FROM_DBUS_FCN_ARGS _nm_nil)
 {
     GPtrArray *addrs;
-    char *     gateway = NULL;
+    char      *gateway = NULL;
 
-    /* FIXME: properly handle errors */
-
-    if (!_nm_setting_use_legacy_property(setting, connection_dict, "addresses", "address-data"))
+    if (!_nm_setting_use_legacy_property(setting, connection_dict, "addresses", "address-data")) {
+        *out_is_modified = FALSE;
         return TRUE;
+    }
 
     addrs = nm_utils_ip6_addresses_from_variant(value, &gateway);
 
@@ -417,12 +417,7 @@ ip6_addresses_set(NMSetting *         setting,
 }
 
 static GVariant *
-ip6_address_data_get(const NMSettInfoSetting *               sett_info,
-                     guint                                   property_idx,
-                     NMConnection *                          connection,
-                     NMSetting *                             setting,
-                     NMConnectionSerializationFlags          flags,
-                     const NMConnectionSerializationOptions *options)
+ip6_address_data_get(_NM_SETT_INFO_PROP_TO_DBUS_FCN_ARGS _nm_nil)
 {
     gs_unref_ptrarray GPtrArray *addrs = NULL;
 
@@ -434,20 +429,15 @@ ip6_address_data_get(const NMSettInfoSetting *               sett_info,
 }
 
 static gboolean
-ip6_address_data_set(NMSetting *         setting,
-                     GVariant *          connection_dict,
-                     const char *        property,
-                     GVariant *          value,
-                     NMSettingParseFlags parse_flags,
-                     GError **           error)
+ip6_address_data_set(_NM_SETT_INFO_PROP_FROM_DBUS_FCN_ARGS _nm_nil)
 {
     GPtrArray *addrs;
 
-    /* FIXME: properly handle errors */
-
     /* Ignore 'address-data' if we're going to process 'addresses' */
-    if (_nm_setting_use_legacy_property(setting, connection_dict, "addresses", "address-data"))
+    if (_nm_setting_use_legacy_property(setting, connection_dict, "addresses", "address-data")) {
+        *out_is_modified = FALSE;
         return TRUE;
+    }
 
     addrs = nm_utils_ip_addresses_from_variant(value, AF_INET6);
     g_object_set(setting, NM_SETTING_IP_CONFIG_ADDRESSES, addrs, NULL);
@@ -456,12 +446,7 @@ ip6_address_data_set(NMSetting *         setting,
 }
 
 static GVariant *
-ip6_routes_get(const NMSettInfoSetting *               sett_info,
-               guint                                   property_idx,
-               NMConnection *                          connection,
-               NMSetting *                             setting,
-               NMConnectionSerializationFlags          flags,
-               const NMConnectionSerializationOptions *options)
+ip6_routes_get(_NM_SETT_INFO_PROP_TO_DBUS_FCN_ARGS _nm_nil)
 {
     gs_unref_ptrarray GPtrArray *routes = NULL;
 
@@ -470,33 +455,23 @@ ip6_routes_get(const NMSettInfoSetting *               sett_info,
 }
 
 static gboolean
-ip6_routes_set(NMSetting *         setting,
-               GVariant *          connection_dict,
-               const char *        property,
-               GVariant *          value,
-               NMSettingParseFlags parse_flags,
-               GError **           error)
+ip6_routes_set(_NM_SETT_INFO_PROP_FROM_DBUS_FCN_ARGS _nm_nil)
 {
     GPtrArray *routes;
 
-    /* FIXME: properly handle errors */
-
-    if (!_nm_setting_use_legacy_property(setting, connection_dict, "routes", "route-data"))
+    if (!_nm_setting_use_legacy_property(setting, connection_dict, "routes", "route-data")) {
+        *out_is_modified = FALSE;
         return TRUE;
+    }
 
     routes = nm_utils_ip6_routes_from_variant(value);
-    g_object_set(setting, property, routes, NULL);
+    g_object_set(setting, property_info->name, routes, NULL);
     g_ptr_array_unref(routes);
     return TRUE;
 }
 
 static GVariant *
-ip6_route_data_get(const NMSettInfoSetting *               sett_info,
-                   guint                                   property_idx,
-                   NMConnection *                          connection,
-                   NMSetting *                             setting,
-                   NMConnectionSerializationFlags          flags,
-                   const NMConnectionSerializationOptions *options)
+ip6_route_data_get(_NM_SETT_INFO_PROP_TO_DBUS_FCN_ARGS _nm_nil)
 {
     gs_unref_ptrarray GPtrArray *routes = NULL;
 
@@ -508,20 +483,15 @@ ip6_route_data_get(const NMSettInfoSetting *               sett_info,
 }
 
 static gboolean
-ip6_route_data_set(NMSetting *         setting,
-                   GVariant *          connection_dict,
-                   const char *        property,
-                   GVariant *          value,
-                   NMSettingParseFlags parse_flags,
-                   GError **           error)
+ip6_route_data_set(_NM_SETT_INFO_PROP_FROM_DBUS_FCN_ARGS _nm_nil)
 {
     GPtrArray *routes;
 
-    /* FIXME: properly handle errors */
-
     /* Ignore 'route-data' if we're going to process 'routes' */
-    if (_nm_setting_use_legacy_property(setting, connection_dict, "routes", "route-data"))
+    if (_nm_setting_use_legacy_property(setting, connection_dict, "routes", "route-data")) {
+        *out_is_modified = FALSE;
         return TRUE;
+    }
 
     routes = nm_utils_ip_routes_from_variant(value, AF_INET6);
     g_object_set(setting, NM_SETTING_IP_CONFIG_ROUTES, routes, NULL);
@@ -532,70 +502,11 @@ ip6_route_data_set(NMSetting *         setting,
 /*****************************************************************************/
 
 static void
-get_property(GObject *object, guint prop_id, GValue *value, GParamSpec *pspec)
-{
-    NMSettingIP6ConfigPrivate *priv = NM_SETTING_IP6_CONFIG_GET_PRIVATE(object);
-
-    switch (prop_id) {
-    case PROP_IP6_PRIVACY:
-        g_value_set_enum(value, priv->ip6_privacy);
-        break;
-    case PROP_ADDR_GEN_MODE:
-        g_value_set_int(value, priv->addr_gen_mode);
-        break;
-    case PROP_TOKEN:
-        g_value_set_string(value, priv->token);
-        break;
-    case PROP_DHCP_DUID:
-        g_value_set_string(value, priv->dhcp_duid);
-        break;
-    case PROP_RA_TIMEOUT:
-        g_value_set_int(value, priv->ra_timeout);
-        break;
-    default:
-        G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
-        break;
-    }
-}
-
-static void
-set_property(GObject *object, guint prop_id, const GValue *value, GParamSpec *pspec)
-{
-    NMSettingIP6ConfigPrivate *priv = NM_SETTING_IP6_CONFIG_GET_PRIVATE(object);
-
-    switch (prop_id) {
-    case PROP_IP6_PRIVACY:
-        priv->ip6_privacy = g_value_get_enum(value);
-        break;
-    case PROP_ADDR_GEN_MODE:
-        priv->addr_gen_mode = g_value_get_int(value);
-        break;
-    case PROP_TOKEN:
-        g_free(priv->token);
-        priv->token = g_value_dup_string(value);
-        break;
-    case PROP_DHCP_DUID:
-        g_free(priv->dhcp_duid);
-        priv->dhcp_duid = g_value_dup_string(value);
-        break;
-    case PROP_RA_TIMEOUT:
-        priv->ra_timeout = g_value_get_int(value);
-        break;
-    default:
-        G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
-        break;
-    }
-}
-
-/*****************************************************************************/
-
-static void
 nm_setting_ip6_config_init(NMSettingIP6Config *setting)
 {
     NMSettingIP6ConfigPrivate *priv = NM_SETTING_IP6_CONFIG_GET_PRIVATE(setting);
 
-    priv->ip6_privacy   = NM_SETTING_IP6_CONFIG_PRIVACY_UNKNOWN;
-    priv->addr_gen_mode = NM_SETTING_IP6_CONFIG_ADDR_GEN_MODE_STABLE_PRIVACY;
+    _nm_setting_ip_config_private_init(setting, &priv->parent);
 }
 
 /**
@@ -612,31 +523,21 @@ nm_setting_ip6_config_new(void)
 }
 
 static void
-finalize(GObject *object)
-{
-    NMSettingIP6Config *       self = NM_SETTING_IP6_CONFIG(object);
-    NMSettingIP6ConfigPrivate *priv = NM_SETTING_IP6_CONFIG_GET_PRIVATE(self);
-
-    g_free(priv->token);
-    g_free(priv->dhcp_duid);
-
-    G_OBJECT_CLASS(nm_setting_ip6_config_parent_class)->finalize(object);
-}
-
-static void
 nm_setting_ip6_config_class_init(NMSettingIP6ConfigClass *klass)
 {
-    GObjectClass *  object_class        = G_OBJECT_CLASS(klass);
-    NMSettingClass *setting_class       = NM_SETTING_CLASS(klass);
-    GArray *        properties_override = _nm_sett_info_property_override_create_array_ip_config();
+    GObjectClass           *object_class            = G_OBJECT_CLASS(klass);
+    NMSettingClass         *setting_class           = NM_SETTING_CLASS(klass);
+    NMSettingIPConfigClass *setting_ip_config_class = NM_SETTING_IP_CONFIG_CLASS(klass);
+    GArray *properties_override = _nm_sett_info_property_override_create_array_ip_config(AF_INET6);
 
     g_type_class_add_private(klass, sizeof(NMSettingIP6ConfigPrivate));
 
-    object_class->get_property = get_property;
-    object_class->set_property = set_property;
-    object_class->finalize     = finalize;
+    object_class->get_property = _nm_setting_property_get_property_direct;
+    object_class->set_property = _nm_setting_property_set_property_direct;
 
     setting_class->verify = verify;
+
+    setting_ip_config_class->private_offset = g_type_class_get_instance_private_offset(klass);
 
     /* ---ifcfg-rh---
      * property: method
@@ -841,13 +742,15 @@ nm_setting_ip6_config_class_init(NMSettingIP6ConfigClass *klass)
      * example: IPV6_PRIVACY=rfc3041 IPV6_PRIVACY_PREFER_PUBLIC_IP=yes
      * ---end---
      */
-    obj_properties[PROP_IP6_PRIVACY] =
-        g_param_spec_enum(NM_SETTING_IP6_CONFIG_IP6_PRIVACY,
-                          "",
-                          "",
-                          NM_TYPE_SETTING_IP6_CONFIG_PRIVACY,
-                          NM_SETTING_IP6_CONFIG_PRIVACY_UNKNOWN,
-                          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+    _nm_setting_property_define_direct_enum(properties_override,
+                                            obj_properties,
+                                            NM_SETTING_IP6_CONFIG_IP6_PRIVACY,
+                                            PROP_IP6_PRIVACY,
+                                            NM_TYPE_SETTING_IP6_CONFIG_PRIVACY,
+                                            NM_SETTING_IP6_CONFIG_PRIVACY_UNKNOWN,
+                                            NM_SETTING_PARAM_NONE,
+                                            NMSettingIP6ConfigPrivate,
+                                            ip6_privacy);
 
     /**
      * NMSettingIP6Config:addr-gen-mode:
@@ -890,14 +793,16 @@ nm_setting_ip6_config_class_init(NMSettingIP6ConfigClass *klass)
      * example: IPV6_ADDR_GEN_MODE=stable-privacy
      * ---end---
      */
-    obj_properties[PROP_ADDR_GEN_MODE] =
-        g_param_spec_int(NM_SETTING_IP6_CONFIG_ADDR_GEN_MODE,
-                         "",
-                         "",
-                         G_MININT,
-                         G_MAXINT,
-                         NM_SETTING_IP6_CONFIG_ADDR_GEN_MODE_STABLE_PRIVACY,
-                         G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+    _nm_setting_property_define_direct_int32(properties_override,
+                                             obj_properties,
+                                             NM_SETTING_IP6_CONFIG_ADDR_GEN_MODE,
+                                             PROP_ADDR_GEN_MODE,
+                                             G_MININT32,
+                                             G_MAXINT32,
+                                             NM_SETTING_IP6_CONFIG_ADDR_GEN_MODE_STABLE_PRIVACY,
+                                             NM_SETTING_PARAM_NONE,
+                                             NMSettingIP6ConfigPrivate,
+                                             addr_gen_mode);
 
     /**
      * NMSettingIP6Config:token:
@@ -914,12 +819,13 @@ nm_setting_ip6_config_class_init(NMSettingIP6ConfigClass *klass)
      * example: IPV6_TOKEN=::53
      * ---end---
      */
-    obj_properties[PROP_TOKEN] = g_param_spec_string(NM_SETTING_IP6_CONFIG_TOKEN,
-                                                     "",
-                                                     "",
-                                                     NULL,
-                                                     G_PARAM_READWRITE | NM_SETTING_PARAM_INFERRABLE
-                                                         | G_PARAM_STATIC_STRINGS);
+    _nm_setting_property_define_direct_string(properties_override,
+                                              obj_properties,
+                                              NM_SETTING_IP6_CONFIG_TOKEN,
+                                              PROP_TOKEN,
+                                              NM_SETTING_PARAM_INFERRABLE,
+                                              NMSettingIP6ConfigPrivate,
+                                              token);
 
     /**
      * NMSettingIP6Config:ra-timeout:
@@ -939,15 +845,16 @@ nm_setting_ip6_config_class_init(NMSettingIP6ConfigClass *klass)
      * example: IPV6_RA_TIMEOUT=10
      * ---end---
      */
-
-    obj_properties[PROP_RA_TIMEOUT] = g_param_spec_int(
-        NM_SETTING_IP6_CONFIG_RA_TIMEOUT,
-        "",
-        "",
-        0,
-        G_MAXINT32,
-        0,
-        G_PARAM_READWRITE | NM_SETTING_PARAM_FUZZY_IGNORE | G_PARAM_STATIC_STRINGS);
+    _nm_setting_property_define_direct_int32(properties_override,
+                                             obj_properties,
+                                             NM_SETTING_IP6_CONFIG_RA_TIMEOUT,
+                                             PROP_RA_TIMEOUT,
+                                             0,
+                                             G_MAXINT32,
+                                             0,
+                                             NM_SETTING_PARAM_FUZZY_IGNORE,
+                                             NMSettingIP6ConfigPrivate,
+                                             ra_timeout);
 
     /**
      * NMSettingIP6Config:dhcp-duid:
@@ -994,12 +901,13 @@ nm_setting_ip6_config_class_init(NMSettingIP6ConfigClass *klass)
      * example: DHCPV6_DUID=LL; DHCPV6_DUID=0301deadbeef0001; DHCPV6_DUID=03:01:de:ad:be:ef:00:01
      * ---end---
      */
-    obj_properties[PROP_DHCP_DUID] =
-        g_param_spec_string(NM_SETTING_IP6_CONFIG_DHCP_DUID,
-                            "",
-                            "",
-                            NULL,
-                            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+    _nm_setting_property_define_direct_string(properties_override,
+                                              obj_properties,
+                                              NM_SETTING_IP6_CONFIG_DHCP_DUID,
+                                              PROP_DHCP_DUID,
+                                              NM_SETTING_PARAM_NONE,
+                                              NMSettingIP6ConfigPrivate,
+                                              dhcp_duid);
 
     /* IP6-specific property overrides */
 
@@ -1012,9 +920,12 @@ nm_setting_ip6_config_class_init(NMSettingIP6ConfigClass *klass)
     _nm_properties_override_gobj(
         properties_override,
         g_object_class_find_property(G_OBJECT_CLASS(setting_class), NM_SETTING_IP_CONFIG_DNS),
-        NM_SETT_INFO_PROPERT_TYPE(.dbus_type           = NM_G_VARIANT_TYPE("aay"),
-                                  .gprop_to_dbus_fcn   = ip6_dns_to_dbus,
-                                  .gprop_from_dbus_fcn = ip6_dns_from_dbus, ));
+        NM_SETT_INFO_PROPERT_TYPE_DBUS(NM_G_VARIANT_TYPE("aay"),
+                                       .compare_fcn = _nm_setting_property_compare_fcn_default,
+                                       .to_dbus_fcn = ip6_dns_to_dbus,
+                                       .typdata_from_dbus.gprop_fcn = ip6_dns_from_dbus,
+                                       .from_dbus_fcn = _nm_setting_property_from_dbus_fcn_gprop,
+                                       .from_dbus_is_full = TRUE));
 
     /* ---dbus---
      * property: addresses
@@ -1030,12 +941,22 @@ nm_setting_ip6_config_class_init(NMSettingIP6ConfigClass *klass)
      *   that subnet.
      * ---end---
      */
+    /* ---nmcli---
+     * property: addresses
+     * format: a comma separated list of addresses
+     * description: A list of IPv6 addresses and their prefix length. Multiple addresses
+     * can be separated by comma. For example "2001:db8:85a3::8a2e:370:7334/64, 2001:db8:85a3::5/64".
+     * The addresses are listed in increasing priority, meaning the last address will
+     * be the primary address.
+     * ---end---
+     */
     _nm_properties_override_gobj(
         properties_override,
         g_object_class_find_property(G_OBJECT_CLASS(setting_class), NM_SETTING_IP_CONFIG_ADDRESSES),
-        NM_SETT_INFO_PROPERT_TYPE(.dbus_type     = NM_G_VARIANT_TYPE("a(ayuay)"),
-                                  .to_dbus_fcn   = ip6_addresses_get,
-                                  .from_dbus_fcn = ip6_addresses_set, ));
+        NM_SETT_INFO_PROPERT_TYPE_DBUS(NM_G_VARIANT_TYPE("a(ayuay)"),
+                                       .to_dbus_fcn   = ip6_addresses_get,
+                                       .compare_fcn   = _nm_setting_ip_config_compare_fcn_addresses,
+                                       .from_dbus_fcn = ip6_addresses_set, ));
 
     /* ---dbus---
      * property: address-data
@@ -1049,9 +970,10 @@ nm_setting_ip6_config_class_init(NMSettingIP6ConfigClass *klass)
     _nm_properties_override_dbus(
         properties_override,
         "address-data",
-        NM_SETT_INFO_PROPERT_TYPE(.dbus_type     = NM_G_VARIANT_TYPE("aa{sv}"),
-                                  .to_dbus_fcn   = ip6_address_data_get,
-                                  .from_dbus_fcn = ip6_address_data_set, ));
+        NM_SETT_INFO_PROPERT_TYPE_DBUS(NM_G_VARIANT_TYPE("aa{sv}"),
+                                       .to_dbus_fcn   = ip6_address_data_get,
+                                       .compare_fcn   = _nm_setting_property_compare_fcn_ignore,
+                                       .from_dbus_fcn = ip6_address_data_set, ));
 
     /* ---dbus---
      * property: routes
@@ -1067,12 +989,78 @@ nm_setting_ip6_config_class_init(NMSettingIP6ConfigClass *klass)
      *   default metric for the device.
      * ---end---
      */
+    /* ---nmcli---
+     * property: routes
+     * format: a comma separated list of routes
+     * description-docbook:
+     *   <para>
+     *     A list of IPv6 destination addresses, prefix length, optional IPv6
+     *     next hop addresses, optional route metric, optional attribute. The valid syntax is:
+     *     "ip[/prefix] [next-hop] [metric] [attribute=val]...[,ip[/prefix]...]".
+     *   </para>
+     *   <para>
+     *     Various attributes are supported:
+     *     <itemizedlist>
+     *      <listitem>
+     *        <para><literal>"cwnd"</literal> - an unsigned 32 bit integer.</para>
+     *      </listitem>
+     *      <listitem>
+     *        <para><literal>"from"</literal> - an IPv6 address with optional prefix. IPv6 only.</para>
+     *      </listitem>
+     *      <listitem>
+     *        <para><literal>"initcwnd"</literal> - an unsigned 32 bit integer.</para>
+     *      </listitem>
+     *      <listitem>
+     *        <para><literal>"initrwnd"</literal> - an unsigned 32 bit integer.</para>
+     *      </listitem>
+     *      <listitem>
+     *        <para><literal>"lock-cwnd"</literal> - a boolean value.</para>
+     *      </listitem>
+     *      <listitem>
+     *        <para><literal>"lock-initcwnd"</literal> - a boolean value.</para>
+     *      </listitem>
+     *      <listitem>
+     *        <para><literal>"lock-initrwnd"</literal> - a boolean value.</para>
+     *      </listitem>
+     *      <listitem>
+     *        <para><literal>"lock-mtu"</literal> - a boolean value.</para>
+     *      </listitem>
+     *      <listitem>
+     *        <para><literal>"lock-window"</literal> - a boolean value.</para>
+     *      </listitem>
+     *      <listitem>
+     *        <para><literal>"mtu"</literal> - an unsigned 32 bit integer.</para>
+     *      </listitem>
+     *      <listitem>
+     *        <para><literal>"onlink"</literal> - a boolean value.</para>
+     *      </listitem>
+     *      <listitem>
+     *        <para><literal>"src"</literal> - an IPv6 address.</para>
+     *      </listitem>
+     *      <listitem>
+     *        <para><literal>"table"</literal> - an unsigned 32 bit integer. The default depends on ipv6.route-table.</para>
+     *      </listitem>
+     *      <listitem>
+     *        <para><literal>"type"</literal> - one of <literal>unicast</literal>, <literal>local</literal>, <literal>blackhole</literal>,
+     *          <literal>unavailable</literal>, <literal>prohibit</literal>. The default is <literal>unicast</literal>.</para>
+     *      </listitem>
+     *      <listitem>
+     *        <para><literal>"window"</literal> - an unsigned 32 bit integer.</para>
+     *      </listitem>
+     *     </itemizedlist>
+     *   </para>
+     *   <para>
+     *   For details see also `man ip-route`.
+     *   </para>
+     * ---end---
+     */
     _nm_properties_override_gobj(
         properties_override,
         g_object_class_find_property(G_OBJECT_CLASS(setting_class), NM_SETTING_IP_CONFIG_ROUTES),
-        NM_SETT_INFO_PROPERT_TYPE(.dbus_type     = NM_G_VARIANT_TYPE("a(ayuayu)"),
-                                  .to_dbus_fcn   = ip6_routes_get,
-                                  .from_dbus_fcn = ip6_routes_set, ));
+        NM_SETT_INFO_PROPERT_TYPE_DBUS(NM_G_VARIANT_TYPE("a(ayuayu)"),
+                                       .to_dbus_fcn   = ip6_routes_get,
+                                       .compare_fcn   = _nm_setting_ip_config_compare_fcn_routes,
+                                       .from_dbus_fcn = ip6_routes_set, ));
 
     /* ---dbus---
      * property: route-data
@@ -1087,16 +1075,36 @@ nm_setting_ip6_config_class_init(NMSettingIP6ConfigClass *klass)
      *   also exist on some routes.
      * ---end---
      */
-    _nm_properties_override_dbus(properties_override,
-                                 "route-data",
-                                 NM_SETT_INFO_PROPERT_TYPE(.dbus_type = NM_G_VARIANT_TYPE("aa{sv}"),
-                                                           .to_dbus_fcn   = ip6_route_data_get,
-                                                           .from_dbus_fcn = ip6_route_data_set, ));
+    _nm_properties_override_dbus(
+        properties_override,
+        "route-data",
+        NM_SETT_INFO_PROPERT_TYPE_DBUS(NM_G_VARIANT_TYPE("aa{sv}"),
+                                       .to_dbus_fcn   = ip6_route_data_get,
+                                       .compare_fcn   = _nm_setting_property_compare_fcn_ignore,
+                                       .from_dbus_fcn = ip6_route_data_set, ));
+
+    /* ---nmcli---
+     * property: routing-rules
+     * format: a comma separated list of routing rules
+     * description: A comma separated list of routing rules for policy routing.
+     * description-docbook:
+     *   <para>
+     *   A comma separated list of routing rules for policy routing. The format
+     *   is based on <command>ip rule add</command> syntax and mostly compatible.
+     *   One difference is that routing rules in NetworkManager always need a
+     *   fixed priority.
+     *   </para>
+     *   <para>
+     *   Example: <literal>priority 5 from 1:2:3::5/128 table 45</literal>
+     *   </para>
+     * ---end---
+     */
 
     g_object_class_install_properties(object_class, _PROPERTY_ENUMS_LAST, obj_properties);
 
-    _nm_setting_class_commit_full(setting_class,
-                                  NM_META_SETTING_TYPE_IP6_CONFIG,
-                                  NULL,
-                                  properties_override);
+    _nm_setting_class_commit(setting_class,
+                             NM_META_SETTING_TYPE_IP6_CONFIG,
+                             NULL,
+                             properties_override,
+                             setting_ip_config_class->private_offset);
 }

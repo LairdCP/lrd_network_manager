@@ -41,10 +41,10 @@ static void
 _test_ri4a(const char *const *addrs_before, const char *const *addrs_new)
 {
     gs_unref_object NMSettingIPConfig *s_ip = NULL;
-    gs_unref_ptrarray GPtrArray *arr        = NULL;
-    const gsize                  n          = NM_PTRARRAY_LEN(addrs_new);
-    gboolean                     changed;
-    gsize                        i;
+    gs_unref_ptrarray GPtrArray       *arr  = NULL;
+    const gsize                        n    = NM_PTRARRAY_LEN(addrs_new);
+    gboolean                           changed;
+    gsize                              i;
 
     s_ip = _ri4a_new_s_ip(addrs_before);
     arr  = _ri4a_new_arr(addrs_new);
@@ -56,7 +56,7 @@ _test_ri4a(const char *const *addrs_before, const char *const *addrs_new)
 
     changed = nmcs_setting_ip_replace_ipv4_addresses(s_ip, (NMIPAddress **) arr->pdata, arr->len);
 
-    g_assert_cmpint(changed, !=, nm_utils_strv_equal(addrs_before, addrs_new));
+    g_assert_cmpint(changed, !=, nm_strv_equal(addrs_before, addrs_new));
     g_assert_cmpint(nm_setting_ip_config_get_num_addresses(s_ip), ==, n);
 
     for (i = 0; i < n; i++) {

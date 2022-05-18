@@ -20,7 +20,7 @@
 #include "nm-setting-ip4-config.h"
 
 typedef struct {
-    char *         value;
+    char          *value;
     guint32        len;
     NMSupplOptType type;
 } ConfigOption;
@@ -28,16 +28,15 @@ typedef struct {
 /*****************************************************************************/
 
 typedef struct {
-    GHashTable *   config;
-    GHashTable *   blobs;
-
-    guint32    ccx;
-    guint32    scan_delay;
-    guint32    scan_dwell;
-    guint32    scan_passive_dwell;
-    guint32    scan_suspend_time;
-    guint32    scan_roam_delta;
-    guint32    frequency_dfs;
+    GHashTable *config;
+    GHashTable *blobs;
+    guint32     ccx;
+    guint32     scan_delay;
+    guint32     scan_dwell;
+    guint32     scan_passive_dwell;
+    guint32     scan_suspend_time;
+    guint32     scan_roam_delta;
+    guint32     frequency_dfs;
 
     struct {
         gboolean suiteb;
@@ -74,16 +73,16 @@ _get_capability(NMSupplicantConfigPrivate *priv, NMSupplCapType type)
 }
 
 static gboolean
-_get_capability_laird (NMSupplicantConfigPrivate *priv)
+_get_capability_laird(NMSupplicantConfigPrivate *priv)
 {
-    return NM_SUPPL_CAP_MASK_GET (priv->capabilities, NM_SUPPL_CAP_TYPE_LAIRD) == NM_TERNARY_TRUE;
+    return NM_SUPPL_CAP_MASK_GET(priv->capabilities, NM_SUPPL_CAP_TYPE_LAIRD) == NM_TERNARY_TRUE;
 }
 
 NMSupplicantConfig *
 nm_supplicant_config_new(NMSupplCapMask capabilities)
 {
     NMSupplicantConfigPrivate *priv;
-    NMSupplicantConfig *       self;
+    NMSupplicantConfig        *self;
 
     self = g_object_new(NM_TYPE_SUPPLICANT_CONFIG, NULL);
     priv = NM_SUPPLICANT_CONFIG_GET_PRIVATE(self);
@@ -116,16 +115,16 @@ nm_supplicant_config_init(NMSupplicantConfig *self)
 
 static gboolean
 nm_supplicant_config_add_option_with_type(NMSupplicantConfig *self,
-                                          const char *        key,
-                                          const char *        value,
+                                          const char         *key,
+                                          const char         *value,
                                           gint32              len,
                                           NMSupplOptType      opt_type,
-                                          const char *        display_value,
-                                          GError **           error)
+                                          const char         *display_value,
+                                          GError            **error)
 {
     NMSupplicantConfigPrivate *priv;
-    ConfigOption *             old_opt;
-    ConfigOption *             opt;
+    ConfigOption              *old_opt;
+    ConfigOption              *opt;
     NMSupplOptType             type;
 
     g_return_val_if_fail(NM_IS_SUPPLICANT_CONFIG(self), FALSE);
@@ -144,7 +143,7 @@ nm_supplicant_config_add_option_with_type(NMSupplicantConfig *self,
         type = nm_supplicant_settings_verify_setting(key, value, len);
         if (type == NM_SUPPL_OPT_TYPE_INVALID) {
             gs_free char *str_free = NULL;
-            const char *  str;
+            const char   *str;
 
             str = nm_utils_buf_utf8safe_escape(value,
                                                len,
@@ -198,11 +197,11 @@ nm_supplicant_config_add_option_with_type(NMSupplicantConfig *self,
 
 static gboolean
 nm_supplicant_config_add_option(NMSupplicantConfig *self,
-                                const char *        key,
-                                const char *        value,
+                                const char         *key,
+                                const char         *value,
                                 gint32              len,
-                                const char *        display_value,
-                                GError **           error)
+                                const char         *display_value,
+                                GError            **error)
 {
     return nm_supplicant_config_add_option_with_type(self,
                                                      key,
@@ -215,16 +214,16 @@ nm_supplicant_config_add_option(NMSupplicantConfig *self,
 
 static gboolean
 nm_supplicant_config_add_blob(NMSupplicantConfig *self,
-                              const char *        key,
-                              GBytes *            value,
-                              const char *        blobid,
-                              GError **           error)
+                              const char         *key,
+                              GBytes             *value,
+                              const char         *blobid,
+                              GError            **error)
 {
     NMSupplicantConfigPrivate *priv;
-    ConfigOption *             old_opt;
-    ConfigOption *             opt;
+    ConfigOption              *old_opt;
+    ConfigOption              *opt;
     NMSupplOptType             type;
-    const guint8 *             data;
+    const guint8              *data;
     gsize                      data_len;
 
     g_return_val_if_fail(NM_IS_SUPPLICANT_CONFIG(self), FALSE);
@@ -276,14 +275,14 @@ nm_supplicant_config_add_blob(NMSupplicantConfig *self,
 
 static gboolean
 nm_supplicant_config_add_blob_for_connection(NMSupplicantConfig *self,
-                                             GBytes *            field,
-                                             const char *        name,
-                                             const char *        con_uid,
-                                             GError **           error)
+                                             GBytes             *field,
+                                             const char         *name,
+                                             const char         *con_uid,
+                                             GError            **error)
 {
     if (field && g_bytes_get_size(field)) {
         gs_free char *uid = NULL;
-        char *        p;
+        char         *p;
 
         uid = g_strdup_printf("%s-%s", con_uid, name);
         for (p = uid; *p; p++) {
@@ -324,59 +323,59 @@ nm_supplicant_config_get_ap_scan(NMSupplicantConfig *self)
 }
 
 guint32
-nm_supplicant_config_get_ccx (NMSupplicantConfig * self)
+nm_supplicant_config_get_ccx(NMSupplicantConfig *self)
 {
-    g_return_val_if_fail (NM_IS_SUPPLICANT_CONFIG (self), NM_SETTING_WIRELESS_CCX_DISABLE);
+    g_return_val_if_fail(NM_IS_SUPPLICANT_CONFIG(self), NM_SETTING_WIRELESS_CCX_DISABLE);
 
-    return NM_SUPPLICANT_CONFIG_GET_PRIVATE (self)->ccx;
+    return NM_SUPPLICANT_CONFIG_GET_PRIVATE(self)->ccx;
 }
 
 guint32
-nm_supplicant_config_get_scan_delay (NMSupplicantConfig * self)
+nm_supplicant_config_get_scan_delay(NMSupplicantConfig *self)
 {
-    g_return_val_if_fail (NM_IS_SUPPLICANT_CONFIG (self), 0);
+    g_return_val_if_fail(NM_IS_SUPPLICANT_CONFIG(self), 0);
 
-    return NM_SUPPLICANT_CONFIG_GET_PRIVATE (self)->scan_delay;
+    return NM_SUPPLICANT_CONFIG_GET_PRIVATE(self)->scan_delay;
 }
 
 guint32
-nm_supplicant_config_get_scan_dwell (NMSupplicantConfig * self)
+nm_supplicant_config_get_scan_dwell(NMSupplicantConfig *self)
 {
-    g_return_val_if_fail (NM_IS_SUPPLICANT_CONFIG (self), 0);
+    g_return_val_if_fail(NM_IS_SUPPLICANT_CONFIG(self), 0);
 
-    return NM_SUPPLICANT_CONFIG_GET_PRIVATE (self)->scan_dwell;
+    return NM_SUPPLICANT_CONFIG_GET_PRIVATE(self)->scan_dwell;
 }
 
 guint32
-nm_supplicant_config_get_scan_passive_dwell (NMSupplicantConfig * self)
+nm_supplicant_config_get_scan_passive_dwell(NMSupplicantConfig *self)
 {
-    g_return_val_if_fail (NM_IS_SUPPLICANT_CONFIG (self), 0);
+    g_return_val_if_fail(NM_IS_SUPPLICANT_CONFIG(self), 0);
 
-    return NM_SUPPLICANT_CONFIG_GET_PRIVATE (self)->scan_passive_dwell;
+    return NM_SUPPLICANT_CONFIG_GET_PRIVATE(self)->scan_passive_dwell;
 }
 
 guint32
-nm_supplicant_config_get_scan_suspend_time (NMSupplicantConfig * self)
+nm_supplicant_config_get_scan_suspend_time(NMSupplicantConfig *self)
 {
-    g_return_val_if_fail (NM_IS_SUPPLICANT_CONFIG (self), 0);
+    g_return_val_if_fail(NM_IS_SUPPLICANT_CONFIG(self), 0);
 
-    return NM_SUPPLICANT_CONFIG_GET_PRIVATE (self)->scan_suspend_time;
+    return NM_SUPPLICANT_CONFIG_GET_PRIVATE(self)->scan_suspend_time;
 }
 
 guint32
-nm_supplicant_config_get_scan_roam_delta (NMSupplicantConfig * self)
+nm_supplicant_config_get_scan_roam_delta(NMSupplicantConfig *self)
 {
-    g_return_val_if_fail (NM_IS_SUPPLICANT_CONFIG (self), 0);
+    g_return_val_if_fail(NM_IS_SUPPLICANT_CONFIG(self), 0);
 
-    return NM_SUPPLICANT_CONFIG_GET_PRIVATE (self)->scan_roam_delta;
+    return NM_SUPPLICANT_CONFIG_GET_PRIVATE(self)->scan_roam_delta;
 }
 
 guint32
-nm_supplicant_config_get_frequency_dfs (NMSupplicantConfig * self)
+nm_supplicant_config_get_frequency_dfs(NMSupplicantConfig *self)
 {
-    g_return_val_if_fail (NM_IS_SUPPLICANT_CONFIG (self), 0);
+    g_return_val_if_fail(NM_IS_SUPPLICANT_CONFIG(self), 0);
 
-    return NM_SUPPLICANT_CONFIG_GET_PRIVATE (self)->frequency_dfs;
+    return NM_SUPPLICANT_CONFIG_GET_PRIVATE(self)->frequency_dfs;
 }
 
 gboolean
@@ -393,8 +392,8 @@ nm_supplicant_config_to_variant(NMSupplicantConfig *self)
     NMSupplicantConfigPrivate *priv;
     GVariantBuilder            builder;
     GHashTableIter             iter;
-    ConfigOption *             option;
-    const char *               key;
+    ConfigOption              *option;
+    const char                *key;
 
     g_return_val_if_fail(NM_IS_SUPPLICANT_CONFIG(self), NULL);
 
@@ -440,8 +439,8 @@ wifi_freqs_to_string(gboolean bg_band)
 {
     static const char *str_2ghz = NULL;
     static const char *str_5ghz = NULL;
-    const char **      f_p;
-    const char *       f;
+    const char       **f_p;
+    const char        *f;
 
     f_p = bg_band ? &str_2ghz : &str_5ghz;
 
@@ -450,7 +449,7 @@ again:
 
     if (G_UNLIKELY(!f)) {
         nm_auto_str_buf NMStrBuf strbuf = NM_STR_BUF_INIT(400, FALSE);
-        const guint *            freqs;
+        const guint             *freqs;
         int                      i;
 
         freqs = bg_band ? nm_utils_wifi_2ghz_freqs() : nm_utils_wifi_5ghz_freqs();
@@ -476,69 +475,49 @@ wifi_channel_width_24g(guint32 channel, int width, int *ht40)
 {
     if (width == 80) {
         *ht40 = 0;
-        return; // 80MHz is not supported, fallback to 20MHz
+        return;  // 80MHz is not supported, fallback to 20MHz
     }
     if (channel < 1 || channel > 11) {
         *ht40 = 0;
-        return; // channel only supports 20MHz
+        return;  // channel only supports 20MHz
     }
     if (channel < 5) {
-        *ht40 = 1; // secondary channel is always above
+        *ht40 = 1;  // secondary channel is always above
     } else if (channel > 7) {
-        *ht40 = -1; // secondary channel is always below
+        *ht40 = -1;  // secondary channel is always below
     } else {
         if (*ht40 == 0)
-            *ht40 = 1; // default to secondary channel is above
+            *ht40 = 1;  // default to secondary channel is above
     }
 }
 
 typedef struct {
     int chan;
-    int ht40; // ht40 -- secondary channel: 1=above, -1=below
-    int vht80_cfreq; // vht 80-MHz center frequency
+    int ht40;         // ht40 -- secondary channel: 1=above, -1=below
+    int vht80_cfreq;  // vht 80-MHz center frequency
 } vhtchan_t;
 
-static vhtchan_t vht_table[] =
-{
-    { 36, 1, 5210 },
-    { 40, -1, 5210 },
-    { 44, 1, 5210 },
-    { 48, -1, 5210 },
+static vhtchan_t vht_table[] = {{36, 1, 5210},  {40, -1, 5210},  {44, 1, 5210},  {48, -1, 5210},
 
-    { 52, 1, 5290 },
-    { 56, -1, 5290 },
-    { 60, 1, 5290 },
-    { 64, -1, 5290 },
+                                {52, 1, 5290},  {56, -1, 5290},  {60, 1, 5290},  {64, -1, 5290},
 
-    { 100, 1, 5530 },
-    { 104, -1, 5530 },
-    { 108, 1, 5530 },
-    { 112, -1, 5530 },
+                                {100, 1, 5530}, {104, -1, 5530}, {108, 1, 5530}, {112, -1, 5530},
 
-    { 116, 1, 5610 },
-    { 120, -1, 5610 },
-    { 124, 1, 5610 },
-    { 128, -1, 5610 },
+                                {116, 1, 5610}, {120, -1, 5610}, {124, 1, 5610}, {128, -1, 5610},
 
-    { 132, 1, 5690 },
-    { 136, -1, 5690 },
-    { 140, 1, 5690 },
-    { 144, -1, 5690 },
+                                {132, 1, 5690}, {136, -1, 5690}, {140, 1, 5690}, {144, -1, 5690},
 
-    { 149, 1, 5775 },
-    { 153, -1, 5775 },
-    { 157, 1, 5775 },
-    { 161, -1, 5775 },
+                                {149, 1, 5775}, {153, -1, 5775}, {157, 1, 5775}, {161, -1, 5775},
 
-    { 0, 0, 0 }
-};
+                                {0, 0, 0}};
 
 static void
 wifi_channel_width_5g(guint32 channel, int width, int *ht40, int *vht80_cfreq)
 {
     vhtchan_t *pt = vht_table;
     while (pt->chan) {
-        if (pt->chan == channel) break;
+        if (pt->chan == channel)
+            break;
         pt++;
     }
     if (pt->chan) {
@@ -547,7 +526,7 @@ wifi_channel_width_5g(guint32 channel, int width, int *ht40, int *vht80_cfreq)
             *vht80_cfreq = pt->vht80_cfreq;
         return;
     }
-    *ht40 = 0;
+    *ht40        = 0;
     *vht80_cfreq = 0;
 }
 
@@ -555,49 +534,50 @@ wifi_channel_width_5g(guint32 channel, int width, int *ht40, int *vht80_cfreq)
  * settings for 40 and 80 MHz channels
  */
 static gboolean
-nm_supplicant_config_add_channel_width(NMSupplicantConfig * self,
-                                       const char *band, guint32 channel,
-                                       const char *width_str,
-                                       GError **error)
+nm_supplicant_config_add_channel_width(NMSupplicantConfig *self,
+                                       const char         *band,
+                                       guint32             channel,
+                                       const char         *width_str,
+                                       GError            **error)
 {
-    int ht40 = 0; // secondary channel is above(+1), or below(-1)
+    int ht40        = 0;  // secondary channel is above(+1), or below(-1)
     int vht80_cfreq = 0;
     int width;
 
     if (!width_str) {
-        return TRUE; // default to 20MHz
+        return TRUE;  // default to 20MHz
     } else if (!strcmp(width_str, "80")) {
         width = 80;
     } else if (!strcmp(width_str, "40")) {
         width = 40;
     } else if (!strcmp(width_str, "40+")) {
         width = 40;
-        ht40 = 1;
+        ht40  = 1;
     } else if (!strcmp(width_str, "40-")) {
         width = 40;
-        ht40 = -1;
+        ht40  = -1;
     } else {
-        return TRUE; // unsupported channel width, or 20MHz
+        return TRUE;  // unsupported channel width, or 20MHz
     }
-    if (!strcmp (band, "bg")) {
+    if (!strcmp(band, "bg")) {
         wifi_channel_width_24g(channel, width, &ht40);
-    } else if (!strcmp (band, "a")) {
+    } else if (!strcmp(band, "a")) {
         wifi_channel_width_5g(channel, width, &ht40, &vht80_cfreq);
     } else {
-        return TRUE; // unsupported band
+        return TRUE;  // unsupported band
     }
     if (ht40) {
         char buf[32];
-        snprintf (buf, sizeof (buf), "%d", ht40);
-        if (!nm_supplicant_config_add_option (self, "ht40", buf, -1, NULL, error))
+        snprintf(buf, sizeof(buf), "%d", ht40);
+        if (!nm_supplicant_config_add_option(self, "ht40", buf, -1, NULL, error))
             return FALSE;
         if (vht80_cfreq) {
-            snprintf (buf, sizeof (buf), "%d", vht80_cfreq);
-            if (!nm_supplicant_config_add_option (self, "vht_center_freq1", buf, -1, NULL, error))
+            snprintf(buf, sizeof(buf), "%d", vht80_cfreq);
+            if (!nm_supplicant_config_add_option(self, "vht_center_freq1", buf, -1, NULL, error))
                 return FALSE;
-            if (!nm_supplicant_config_add_option (self, "vht", "1", -1, NULL, error))
+            if (!nm_supplicant_config_add_option(self, "vht", "1", -1, NULL, error))
                 return FALSE;
-            if (!nm_supplicant_config_add_option (self, "max_oper_chwidth", "1", -1, NULL, error))
+            if (!nm_supplicant_config_add_option(self, "max_oper_chwidth", "1", -1, NULL, error))
                 return FALSE;
         }
     }
@@ -607,8 +587,8 @@ nm_supplicant_config_add_channel_width(NMSupplicantConfig * self,
 
 gboolean
 nm_supplicant_config_add_setting_macsec(NMSupplicantConfig *self,
-                                        NMSettingMacsec *   setting,
-                                        GError **           error)
+                                        NMSettingMacsec    *setting,
+                                        GError            **error)
 {
     const char *value;
     char        buf[32];
@@ -627,7 +607,7 @@ nm_supplicant_config_add_setting_macsec(NMSupplicantConfig *self,
 
     port = nm_setting_macsec_get_port(setting);
     if (port > 0 && port < 65534) {
-        snprintf(buf, sizeof(buf), "%d", port);
+        g_snprintf(buf, sizeof(buf), "%d", port);
         if (!nm_supplicant_config_add_option(self, "macsec_port", buf, -1, NULL, error))
             return FALSE;
     }
@@ -675,35 +655,32 @@ nm_supplicant_config_add_setting_macsec(NMSupplicantConfig *self,
     return TRUE;
 }
 
-static const char scan_a_freq_str[] = {
-    "5180 5200 5220 5240 "
-    "5260 5280 5300 5320 "
-    "5500 5520 5540 5560 "
-    "5580 5600 5620 5640 "
-    "5660 5680 5700 5720 "
-    "5745 5765 5785 5805 5825"
-};
+static const char scan_a_freq_str[] = {"5180 5200 5220 5240 "
+                                       "5260 5280 5300 5320 "
+                                       "5500 5520 5540 5560 "
+                                       "5580 5600 5620 5640 "
+                                       "5660 5680 5700 5720 "
+                                       "5745 5765 5785 5805 5825"};
 
 static const char scan_bg_freq_str[] = {
     "2412 2417 2422 2427 2432 2437 2442 2447 2452 2457 2462 2467 "
     "2472 "
-    "2484"
-};
+    "2484"};
 
 gboolean
 nm_supplicant_config_add_setting_wireless(NMSupplicantConfig *self,
-                                          NMSettingWireless * setting,
+                                          NMSettingWireless  *setting,
                                           guint32             fixed_freq,
-                                          GError **           error)
+                                          GError            **error)
 {
     NMSupplicantConfigPrivate *priv;
     gboolean                   is_adhoc, is_ap, is_mesh;
-    const char *               mode, *band;
+    const char                *mode, *band;
     guint32                    channel;
-    const char *frequency_list;
-    GBytes *                   ssid;
-    const char *               bssid;
-    const char *client_name;
+    const char                *frequency_list;
+    GBytes                    *ssid;
+    const char                *bssid;
+    const char                *client_name;
 
     g_return_val_if_fail(NM_IS_SUPPLICANT_CONFIG(self), FALSE);
     g_return_val_if_fail(setting != NULL, FALSE);
@@ -721,13 +698,13 @@ nm_supplicant_config_add_setting_wireless(NMSupplicantConfig *self,
         priv->ap_scan = 1;
 
     if (_get_capability_laird(priv)) {
-        priv->ccx = nm_setting_wireless_get_ccx (setting);
-        priv->scan_delay = nm_setting_wireless_get_scan_delay (setting);
-        priv->scan_dwell = nm_setting_wireless_get_scan_dwell (setting);
-        priv->scan_passive_dwell = nm_setting_wireless_get_scan_passive_dwell (setting);
-        priv->scan_suspend_time = nm_setting_wireless_get_scan_suspend_time (setting);
-        priv->scan_roam_delta = nm_setting_wireless_get_scan_roam_delta (setting);
-        priv->frequency_dfs = nm_setting_wireless_get_frequency_dfs (setting);
+        priv->ccx                = nm_setting_wireless_get_ccx(setting);
+        priv->scan_delay         = nm_setting_wireless_get_scan_delay(setting);
+        priv->scan_dwell         = nm_setting_wireless_get_scan_dwell(setting);
+        priv->scan_passive_dwell = nm_setting_wireless_get_scan_passive_dwell(setting);
+        priv->scan_suspend_time  = nm_setting_wireless_get_scan_suspend_time(setting);
+        priv->scan_roam_delta    = nm_setting_wireless_get_scan_roam_delta(setting);
+        priv->frequency_dfs      = nm_setting_wireless_get_frequency_dfs(setting);
     }
 
     ssid = nm_setting_wireless_get_ssid(setting);
@@ -761,9 +738,12 @@ nm_supplicant_config_add_setting_wireless(NMSupplicantConfig *self,
             const char *ap_config_file;
             ap_config_file = nm_setting_wireless_get_ap_config_file(setting);
             if (ap_config_file) {
-                if (!nm_supplicant_config_add_option (self,
-                                                 "ap_config_file", ap_config_file,
-                                                 -1, NULL, error))
+                if (!nm_supplicant_config_add_option(self,
+                                                     "ap_config_file",
+                                                     ap_config_file,
+                                                     -1,
+                                                     NULL,
+                                                     error))
                     return FALSE;
             }
         }
@@ -796,21 +776,25 @@ nm_supplicant_config_add_setting_wireless(NMSupplicantConfig *self,
             return FALSE;
     }
 
-    band    = nm_setting_wireless_get_band(setting);
-    channel = nm_setting_wireless_get_channel(setting);
-    frequency_list = nm_setting_wireless_get_frequency_list (setting);
+    band           = nm_setting_wireless_get_band(setting);
+    channel        = nm_setting_wireless_get_channel(setting);
+    frequency_list = nm_setting_wireless_get_frequency_list(setting);
     if (frequency_list) {
-        if (!nm_supplicant_config_add_option (self, "freq_list", frequency_list, -1, NULL, error))
-                return FALSE;
+        if (!nm_supplicant_config_add_option(self, "freq_list", frequency_list, -1, NULL, error))
+            return FALSE;
         if (_get_capability_laird(priv)) {
             // only summit; sterling may reject scan if unsupported frequencies
-            if (!nm_supplicant_config_add_option (self, "scan_freq", frequency_list, -1, NULL, error))
+            if (!nm_supplicant_config_add_option(self,
+                                                 "scan_freq",
+                                                 frequency_list,
+                                                 -1,
+                                                 NULL,
+                                                 error))
                 return FALSE;
         }
-    } else
-    if (band) {
+    } else if (band) {
         if (channel) {
-            const char *width;
+            const char   *width;
             guint32       freq;
             gs_free char *str_freq = NULL;
 
@@ -820,23 +804,20 @@ nm_supplicant_config_add_setting_wireless(NMSupplicantConfig *self,
                 return FALSE;
             if (_get_capability_laird(priv)) {
                 // only summit; sterling may reject scan if invalid frequencies
-                if (!nm_supplicant_config_add_option (self, "scan_freq", str_freq, -1, NULL, error))
+                if (!nm_supplicant_config_add_option(self, "scan_freq", str_freq, -1, NULL, error))
                     return FALSE;
             }
-            width = nm_setting_wireless_get_channel_width (setting);
+            width = nm_setting_wireless_get_channel_width(setting);
             if (!nm_supplicant_config_add_channel_width(self, band, channel, width, error))
                 return FALSE;
         } else {
-            const char *freqs = NULL;
+            const char *freqs      = NULL;
             const char *scan_freqs = NULL;
-            if (nm_streq(band, "a"))
-            {
-                freqs = wifi_freqs_to_string(FALSE);
+            if (nm_streq(band, "a")) {
+                freqs      = wifi_freqs_to_string(FALSE);
                 scan_freqs = scan_a_freq_str;
-            }
-            else if (nm_streq(band, "bg"))
-            {
-                freqs = wifi_freqs_to_string(TRUE);
+            } else if (nm_streq(band, "bg")) {
+                freqs      = wifi_freqs_to_string(TRUE);
                 scan_freqs = scan_bg_freq_str;
             }
 
@@ -850,48 +831,59 @@ nm_supplicant_config_add_setting_wireless(NMSupplicantConfig *self,
                 return FALSE;
             if (_get_capability_laird(priv)) {
                 // only summit; sterling may reject scan if invalid frequencies
-                if (scan_freqs && !nm_supplicant_config_add_option (self, "scan_freq", scan_freqs, strlen (scan_freqs), NULL, error))
+                if (scan_freqs
+                    && !nm_supplicant_config_add_option(self,
+                                                        "scan_freq",
+                                                        scan_freqs,
+                                                        strlen(scan_freqs),
+                                                        NULL,
+                                                        error))
                     return FALSE;
             }
         }
     }
 
     if (priv->ccx) {
-        client_name = nm_setting_wireless_get_client_name (setting);
+        client_name = nm_setting_wireless_get_client_name(setting);
         if (client_name)
-            if (!nm_supplicant_config_add_option (self, "laird_ccx_client_name", client_name, strlen (client_name), NULL, error))
+            if (!nm_supplicant_config_add_option(self,
+                                                 "laird_ccx_client_name",
+                                                 client_name,
+                                                 strlen(client_name),
+                                                 NULL,
+                                                 error))
                 return FALSE;
     }
 
     if (_get_capability_laird(priv)) {
         guint32 auth_timeout;
-        auth_timeout = nm_setting_wireless_get_auth_timeout (setting);
+        auth_timeout = nm_setting_wireless_get_auth_timeout(setting);
         if (auth_timeout) {
             char buf[32];
-            snprintf (buf, sizeof (buf), "%d", auth_timeout);
-            if (!nm_supplicant_config_add_option (self, "laird_auth_timeout", buf, -1, NULL, error))
+            snprintf(buf, sizeof(buf), "%d", auth_timeout);
+            if (!nm_supplicant_config_add_option(self, "laird_auth_timeout", buf, -1, NULL, error))
                 return FALSE;
         }
     }
 
     if (_get_capability_laird(priv)) {
         guint32 dms;
-        dms = nm_setting_wireless_get_dms (setting);
+        dms = nm_setting_wireless_get_dms(setting);
         if (dms) {
             char buf[32];
-            snprintf (buf, sizeof (buf), "%d", dms);
-            if (!nm_supplicant_config_add_option (self, "dms", buf, -1, NULL, error))
+            snprintf(buf, sizeof(buf), "%d", dms);
+            if (!nm_supplicant_config_add_option(self, "dms", buf, -1, NULL, error))
                 return FALSE;
         }
     }
 
     if (_get_capability_laird(priv)) {
         guint32 acs;
-        acs = nm_setting_wireless_get_acs (setting);
+        acs = nm_setting_wireless_get_acs(setting);
         if (acs) {
             char buf[32];
-            snprintf (buf, sizeof (buf), "%d", acs);
-            if (!nm_supplicant_config_add_option (self, "acs", buf, -1, NULL, error))
+            snprintf(buf, sizeof(buf), "%d", acs);
+            if (!nm_supplicant_config_add_option(self, "acs", buf, -1, NULL, error))
                 return FALSE;
         }
     }
@@ -902,9 +894,9 @@ nm_supplicant_config_add_setting_wireless(NMSupplicantConfig *self,
 gboolean
 nm_supplicant_config_add_bgscan(NMSupplicantConfig *self, NMConnection *connection, GError **error)
 {
-    NMSettingWireless *        s_wifi;
+    NMSettingWireless         *s_wifi;
     NMSettingWirelessSecurity *s_wsec;
-    const char *               bgscan;
+    const char                *bgscan;
 
     s_wifi = nm_connection_get_setting_wireless(connection);
     g_assert(s_wifi);
@@ -926,9 +918,9 @@ nm_supplicant_config_add_bgscan(NMSupplicantConfig *self, NMConnection *connecti
 
     /* Laird: bgscan from configuration */
     {
-        bgscan = nm_setting_wireless_get_bgscan (s_wifi);
+        bgscan = nm_setting_wireless_get_bgscan(s_wifi);
         if (bgscan) {
-            return nm_supplicant_config_add_option (self, "bgscan", bgscan, -1, FALSE, error);
+            return nm_supplicant_config_add_option(self, "bgscan", bgscan, -1, FALSE, error);
         }
     }
 
@@ -960,11 +952,11 @@ nm_supplicant_config_add_bgscan(NMSupplicantConfig *self, NMConnection *connecti
 
 static gboolean
 add_string_val(NMSupplicantConfig *self,
-               const char *        field,
-               const char *        name,
+               const char         *field,
+               const char         *name,
                gboolean            ucase,
-               const char *        display_value,
-               GError **           error)
+               const char         *display_value,
+               GError            **error)
 {
     if (field) {
         gs_free char *value = NULL;
@@ -1005,7 +997,7 @@ struct _NMSetting8021x {
                                                                                           \
         if (nm_setting_##setting_name##_get_num_##field_plural(_setting)) {               \
             const char _separator = (separator);                                          \
-            GString *  _str       = g_string_new(NULL);                                   \
+            GString   *_str       = g_string_new(NULL);                                   \
             guint      _k, _n;                                                            \
                                                                                           \
             _n = nm_setting_##setting_name##_get_num_##field_plural(_setting);            \
@@ -1035,37 +1027,44 @@ struct _NMSetting8021x {
         _success;                                                                         \
     })
 
-
-#define ADD_STRING_LIST_VAL_TO_STRING(_str, setting, setting_name, field, field_plural, name, separator, ucase, secret, error) \
-    ({ \
-        typeof (*(setting)) *_setting = (setting); \
-        gboolean _success = TRUE; \
-        \
-        if (nm_setting_##setting_name##_get_num_##field_plural (_setting)) { \
-            const char _separator = (separator); \
-            guint _k, _n; \
-            \
-            _n = nm_setting_##setting_name##_get_num_##field_plural (_setting); \
-            for (_k = 0; _k < _n; _k++) { \
-                const char *item = nm_setting_##setting_name##_get_##field (_setting, _k); \
-                GString *temp = g_string_new (NULL); \
-                g_string_append_printf(temp,"%s",item); \
-                \
-                if ((ucase)) \
-                    g_string_ascii_up (temp); \
-                \
-                if (!_str->len) { \
-                    g_string_append_printf (_str, "%s=%s",name,temp->str); \
-                } else { \
-                    g_string_append_c (_str, _separator); \
-                    g_string_append_printf (_str, "%s=%s",name,temp->str); \
-                } \
-                g_string_free (temp, TRUE); \
-            } \
-        } \
-        _success; \
+#define ADD_STRING_LIST_VAL_TO_STRING(_str,                                               \
+                                      setting,                                            \
+                                      setting_name,                                       \
+                                      field,                                              \
+                                      field_plural,                                       \
+                                      name,                                               \
+                                      separator,                                          \
+                                      ucase,                                              \
+                                      secret,                                             \
+                                      error)                                              \
+    ({                                                                                    \
+        typeof(*(setting)) *_setting = (setting);                                         \
+        gboolean            _success = TRUE;                                              \
+                                                                                          \
+        if (nm_setting_##setting_name##_get_num_##field_plural(_setting)) {               \
+            const char _separator = (separator);                                          \
+            guint      _k, _n;                                                            \
+                                                                                          \
+            _n = nm_setting_##setting_name##_get_num_##field_plural(_setting);            \
+            for (_k = 0; _k < _n; _k++) {                                                 \
+                const char *item = nm_setting_##setting_name##_get_##field(_setting, _k); \
+                GString    *temp = g_string_new(NULL);                                    \
+                g_string_append_printf(temp, "%s", item);                                 \
+                                                                                          \
+                if ((ucase))                                                              \
+                    g_string_ascii_up(temp);                                              \
+                                                                                          \
+                if (!_str->len) {                                                         \
+                    g_string_append_printf(_str, "%s=%s", name, temp->str);               \
+                } else {                                                                  \
+                    g_string_append_c(_str, _separator);                                  \
+                    g_string_append_printf(_str, "%s=%s", name, temp->str);               \
+                }                                                                         \
+                g_string_free(temp, TRUE);                                                \
+            }                                                                             \
+        }                                                                                 \
+        _success;                                                                         \
     })
-
 
 static void
 wep128_passphrase_hash(const char *input, gsize input_len, guint8 *digest /* 13 bytes */)
@@ -1093,10 +1092,10 @@ wep128_passphrase_hash(const char *input, gsize input_len, guint8 *digest /* 13 
 
 static gboolean
 add_wep_key(NMSupplicantConfig *self,
-            const char *        key,
-            const char *        name,
+            const char         *key,
+            const char         *name,
             NMWepKeyType        wep_type,
-            GError **           error)
+            GError            **error)
 {
     gsize key_len;
 
@@ -1167,54 +1166,54 @@ add_wep_key(NMSupplicantConfig *self,
 }
 
 static gboolean
-has_proto (NMSettingWirelessSecurity *s_wsec, const char *proto)
+has_proto(NMSettingWirelessSecurity *s_wsec, const char *proto)
 {
     int i;
 
-    for (i = 0; i < nm_setting_wireless_security_get_num_protos (s_wsec); i++) {
-        if (g_strcmp0 (proto, nm_setting_wireless_security_get_proto (s_wsec, i)) == 0)
+    for (i = 0; i < nm_setting_wireless_security_get_num_protos(s_wsec); i++) {
+        if (g_strcmp0(proto, nm_setting_wireless_security_get_proto(s_wsec, i)) == 0)
             return TRUE;
     }
     return FALSE;
 }
 
 static gboolean
-has_proto_only (NMSettingWirelessSecurity *s_wsec, const char *proto)
+has_proto_only(NMSettingWirelessSecurity *s_wsec, const char *proto)
 {
-    if (1 != nm_setting_wireless_security_get_num_protos (s_wsec))
+    if (1 != nm_setting_wireless_security_get_num_protos(s_wsec))
         return FALSE;
-    return has_proto (s_wsec, proto);
+    return has_proto(s_wsec, proto);
 }
 
 gboolean
-nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig *          self,
-                                                   NMSettingWireless *           setting_wireless,
-                                                   NMSettingWirelessSecurity *   setting,
-                                                   NMSetting8021x *              setting_8021x,
-                                                   const char *                  con_uuid,
+nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig           *self,
+                                                   NMSettingWireless            *setting_wireless,
+                                                   NMSettingWirelessSecurity    *setting,
+                                                   NMSetting8021x               *setting_8021x,
+                                                   const char                   *con_uuid,
                                                    guint32                       mtu,
                                                    NMSettingWirelessSecurityPmf  pmf,
                                                    NMSettingWirelessSecurityFils fils,
                                                    NMSettingWirelessSecurityFt   ft,
-                                                   GError **                     error)
+                                                   GError                      **error)
 {
-    NMSupplicantConfigPrivate *priv             = NM_SUPPLICANT_CONFIG_GET_PRIVATE(self);
+    NMSupplicantConfigPrivate    *priv          = NM_SUPPLICANT_CONFIG_GET_PRIVATE(self);
     nm_auto_free_gstring GString *key_mgmt_conf = NULL;
-    const char *                  key_mgmt, *auth_alg;
-    const char *                  psk;
+    const char                   *key_mgmt, *auth_alg;
+    const char                   *psk;
     gboolean                      set_pmf, wps_disabled;
     gboolean                      wpa3_only;
-    const char *mode;
-    gboolean is_ap;
+    const char                   *mode;
+    gboolean                      is_ap;
 
     g_return_val_if_fail(NM_IS_SUPPLICANT_CONFIG(self), FALSE);
-	g_return_val_if_fail (setting_wireless != NULL, FALSE);
+    g_return_val_if_fail(setting_wireless != NULL, FALSE);
     g_return_val_if_fail(setting != NULL, FALSE);
     g_return_val_if_fail(con_uuid != NULL, FALSE);
     g_return_val_if_fail(!error || !*error, FALSE);
 
-    mode = nm_setting_wireless_get_mode (setting_wireless);
-    is_ap = (mode && !strcmp (mode, "ap")) ? TRUE : FALSE;
+    mode  = nm_setting_wireless_get_mode(setting_wireless);
+    is_ap = (mode && !strcmp(mode, "ap")) ? TRUE : FALSE;
 
     wpa3_only = has_proto_only(setting, "wpa3");
 
@@ -1235,30 +1234,29 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig *         
     /* Check if we actually support FT */
     if (ft == NM_SETTING_WIRELESS_SECURITY_FT_DEFAULT)
         ft = NM_SETTING_WIRELESS_SECURITY_FT_OPTIONAL;
-    if (!_get_capability (priv, NM_SUPPL_CAP_TYPE_FT)) {
+    if (!_get_capability(priv, NM_SUPPL_CAP_TYPE_FT)) {
         if (ft == NM_SETTING_WIRELESS_SECURITY_FT_REQUIRED) {
-            g_set_error_literal (error, NM_SUPPLICANT_ERROR, NM_SUPPLICANT_ERROR_CONFIG,
-                                 "Supplicant does not support FT");
+            g_set_error_literal(error,
+                                NM_SUPPLICANT_ERROR,
+                                NM_SUPPLICANT_ERROR_CONFIG,
+                                "Supplicant does not support FT");
             return FALSE;
         } else if (ft == NM_SETTING_WIRELESS_SECURITY_FT_OPTIONAL)
             ft = NM_SETTING_WIRELESS_SECURITY_FT_DISABLE;
     }
 
-    key_mgmt      = nm_setting_wireless_security_get_key_mgmt(setting);
+    key_mgmt = nm_setting_wireless_security_get_key_mgmt(setting);
 
     // override pmf setting if necessary
     if (pmf == NM_SETTING_WIRELESS_SECURITY_PMF_DEFAULT)
         pmf = NM_SETTING_WIRELESS_SECURITY_PMF_OPTIONAL;
-    if (NM_IN_STRSET (key_mgmt, "sae", "wpa-eap-suite-b", "wpa-eap-suite-b-192"))
-    {
+    if (NM_IN_STRSET(key_mgmt, "sae", "wpa-eap-suite-b", "wpa-eap-suite-b-192")) {
         // pmf required for suite-b and sae
         pmf = NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED;
-    }
-    else if (wpa3_only) {
-
+    } else if (wpa3_only) {
         /* wpa3/wpa-psk (wpa3-sae transition): default to pmf optional */
         /* wpa3/other: pmf required */
-        if (NM_IN_STRSET (key_mgmt, "wpa-psk")) {
+        if (NM_IN_STRSET(key_mgmt, "wpa-psk")) {
             // wpa3-sae transition mode: default to pmf optional
             if (pmf != NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED)
                 pmf = NM_SETTING_WIRELESS_SECURITY_PMF_OPTIONAL;
@@ -1266,32 +1264,37 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig *         
             // wpa3: pmf required
             pmf = NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED;
         }
-    }
-    else
-    /* Don't try to enable PMF on non-WPA/SAE networks */
-    if (!NM_IN_STRSET (key_mgmt, "wpa-eap", "wpa-psk", "sae", "owe", "owe-only"))
-        pmf = NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE;
+    } else
+        /* Don't try to enable PMF on non-WPA/SAE networks */
+        if (!NM_IN_STRSET(key_mgmt, "wpa-eap", "wpa-psk", "sae", "owe", "owe-only"))
+            pmf = NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE;
 
     /* Check if we actually support PMF */
     set_pmf = TRUE;
-    if (!_get_capability (priv, NM_SUPPL_CAP_TYPE_PMF)) {
+    if (!_get_capability(priv, NM_SUPPL_CAP_TYPE_PMF)) {
         if (pmf == NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED) {
-            g_set_error_literal (error, NM_SUPPLICANT_ERROR, NM_SUPPLICANT_ERROR_CONFIG,
-                                 "Supplicant does not support PMF");
+            g_set_error_literal(error,
+                                NM_SUPPLICANT_ERROR,
+                                NM_SUPPLICANT_ERROR_CONFIG,
+                                "Supplicant does not support PMF");
             return FALSE;
         }
         if (wpa3_only) {
-            g_set_error_literal (error, NM_SUPPLICANT_ERROR, NM_SUPPLICANT_ERROR_CONFIG,
-                                 "Supplicant does not support PMF.  Required for wpa3.");
+            g_set_error_literal(error,
+                                NM_SUPPLICANT_ERROR,
+                                NM_SUPPLICANT_ERROR_CONFIG,
+                                "Supplicant does not support PMF.  Required for wpa3.");
             return FALSE;
         }
         if (fils != NM_SETTING_WIRELESS_SECURITY_FILS_DISABLE) {
-            g_set_error_literal (error, NM_SUPPLICANT_ERROR, NM_SUPPLICANT_ERROR_CONFIG,
-                                 "Supplicant does not support PMF.  Required for fils.");
+            g_set_error_literal(error,
+                                NM_SUPPLICANT_ERROR,
+                                NM_SUPPLICANT_ERROR_CONFIG,
+                                "Supplicant does not support PMF.  Required for fils.");
             return FALSE;
         }
 
-        pmf = NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE;
+        pmf     = NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE;
         set_pmf = FALSE;
     }
 
@@ -1303,24 +1306,24 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig *         
     } else if (nm_streq(key_mgmt, "ieee8021x")) {
         g_string_append(key_mgmt_conf, "IEEE8021X");
 
-    } else if (NM_IN_STRSET (key_mgmt, "owe", "owe-only")) {
+    } else if (NM_IN_STRSET(key_mgmt, "owe", "owe-only")) {
         pmf = NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED;
 
         g_string_append(key_mgmt_conf, "OWE");
 
     } else if (nm_streq(key_mgmt, "wpa-psk")) {
         // if (pmf != NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED)
-            g_string_append(key_mgmt_conf, "WPA-PSK");
+        g_string_append(key_mgmt_conf, "WPA-PSK");
         if (pmf != NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE)
             g_string_append(key_mgmt_conf, " WPA-PSK-SHA256");
 
 #if 1
-        // BZ19892 -- do not enable SAE for wpa-psk (except wpa3 sae-transition)
-        // makes behavior consistent with previous release
-        // use wifi-sec.key-mgmt "sae" if needed
+            // BZ19892 -- do not enable SAE for wpa-psk (except wpa3 sae-transition)
+            // makes behavior consistent with previous release
+            // use wifi-sec.key-mgmt "sae" if needed
 #else
-        if (_get_capability(priv, NM_SUPPL_CAP_TYPE_SAE) &&
-            pmf != NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE) {
+        if (_get_capability(priv, NM_SUPPL_CAP_TYPE_SAE)
+            && pmf != NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE) {
             g_string_append(key_mgmt_conf, " SAE");
             if (ft != NM_SETTING_WIRELESS_SECURITY_FT_DISABLE)
                 g_string_append(key_mgmt_conf, " FT-SAE");
@@ -1329,19 +1332,19 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig *         
 
         // wpa3-psk: must also enable sae
         if (wpa3_only)
-            g_string_append (key_mgmt_conf, " SAE");
+            g_string_append(key_mgmt_conf, " SAE");
         if (ft != NM_SETTING_WIRELESS_SECURITY_FT_DISABLE) {
             // Only FT modes should present when in required state
             if (ft == NM_SETTING_WIRELESS_SECURITY_FT_REQUIRED)
-                g_string_truncate (key_mgmt_conf, 0);
+                g_string_truncate(key_mgmt_conf, 0);
 
             g_string_append(key_mgmt_conf, " FT-PSK");
 
             // wpa3-psk: must also enable sae
             if (wpa3_only)
-                g_string_append (key_mgmt_conf, " FT-SAE");
+                g_string_append(key_mgmt_conf, " FT-SAE");
         }
-    /* LAIRD: use the ft variable instead of checking capability, to allow disabling ft via configuration */
+        /* LAIRD: use the ft variable instead of checking capability, to allow disabling ft via configuration */
     } else if (nm_streq(key_mgmt, "sae")) {
         pmf = NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED;
 
@@ -1350,7 +1353,7 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig *         
             g_string_append(key_mgmt_conf, " FT-SAE");
     } else if (nm_streq(key_mgmt, "wpa-eap")) {
         // if (pmf != NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED)
-            g_string_append(key_mgmt_conf, "WPA-EAP");
+        g_string_append(key_mgmt_conf, "WPA-EAP");
         bool add_ft = true, add_fils = true, add_fils_ft = true;
         if (pmf != NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE) {
             g_string_append(key_mgmt_conf, " WPA-EAP-SHA256");
@@ -1358,38 +1361,35 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig *         
                 && pmf == NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED)
                 g_string_append(key_mgmt_conf, " WPA-EAP-SUITE-B-192");
         }
-        if (fils == NM_SETTING_WIRELESS_SECURITY_FILS_DISABLE ||
-            pmf == NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE) {
+        if (fils == NM_SETTING_WIRELESS_SECURITY_FILS_DISABLE
+            || pmf == NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE) {
             add_fils = add_fils_ft = false;
         }
         if (ft == NM_SETTING_WIRELESS_SECURITY_FT_DISABLE) {
             add_ft = add_fils_ft = false;
         }
-        if (fils == NM_SETTING_WIRELESS_SECURITY_FILS_REQUIRED &&
-            ft == NM_SETTING_WIRELESS_SECURITY_FT_REQUIRED)
-        {
+        if (fils == NM_SETTING_WIRELESS_SECURITY_FILS_REQUIRED
+            && ft == NM_SETTING_WIRELESS_SECURITY_FT_REQUIRED) {
             add_fils = add_ft = false;
         }
-        if (fils == NM_SETTING_WIRELESS_SECURITY_FILS_REQUIRED ||
-            ft == NM_SETTING_WIRELESS_SECURITY_FT_REQUIRED)
-        {
-            g_string_truncate (key_mgmt_conf, 0); 
+        if (fils == NM_SETTING_WIRELESS_SECURITY_FILS_REQUIRED
+            || ft == NM_SETTING_WIRELESS_SECURITY_FT_REQUIRED) {
+            g_string_truncate(key_mgmt_conf, 0);
         }
         if (add_ft) {
-            g_string_append(key_mgmt_conf, " ft-eap"); 
-            if (_get_capability (priv, NM_SUPPL_CAP_TYPE_SHA384))
+            g_string_append(key_mgmt_conf, " ft-eap");
+            if (_get_capability(priv, NM_SUPPL_CAP_TYPE_SHA384))
                 g_string_append(key_mgmt_conf, " ft-eap-sha384");
         }
         if (add_fils) {
-            g_string_append (key_mgmt_conf, " FILS-SHA256");
-            if (_get_capability (priv, NM_SUPPL_CAP_TYPE_SHA384))
+            g_string_append(key_mgmt_conf, " FILS-SHA256");
+            if (_get_capability(priv, NM_SUPPL_CAP_TYPE_SHA384))
                 g_string_append(key_mgmt_conf, " FILS-SHA256 FILS-SHA384");
         }
         if (add_fils_ft) {
-                    g_string_append(key_mgmt_conf, " FT-FILS-SHA256");
-            if (_get_capability (priv, NM_SUPPL_CAP_TYPE_SHA384))
-                        g_string_append(key_mgmt_conf, " FT-FILS-SHA384");
-
+            g_string_append(key_mgmt_conf, " FT-FILS-SHA256");
+            if (_get_capability(priv, NM_SUPPL_CAP_TYPE_SHA384))
+                g_string_append(key_mgmt_conf, " FT-FILS-SHA384");
         }
     } else if (nm_streq(key_mgmt, "wpa-eap-suite-b-192")) {
         pmf = NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED;
@@ -1399,7 +1399,7 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig *         
             && _get_capability(priv, NM_SUPPL_CAP_TYPE_SHA384))
             g_string_append(key_mgmt_conf, " FT-EAP-SHA384");
 #if 1
-        // BZ19994 -- pairwise/group are set below -- do not set here
+            // BZ19994 -- pairwise/group are set below -- do not set here
 #else
         if (!nm_supplicant_config_add_option(self, "pairwise", "GCMP-256", -1, NULL, error)
             || !nm_supplicant_config_add_option(self, "group", "GCMP-256", -1, NULL, error))
@@ -1409,20 +1409,20 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig *         
         g_string_append(key_mgmt_conf, "WPA-EAP-SUITE-B");
     } else if (nm_streq(key_mgmt, "cckm")) {
         g_string_append(key_mgmt_conf, "CCKM");
-    } else if (nm_streq (key_mgmt, "open")) {
+    } else if (nm_streq(key_mgmt, "open")) {
         g_string_append(key_mgmt_conf, "OPEN");
         // wpa3-open: must use owe
         if (wpa3_only) {
-            g_string_truncate (key_mgmt_conf, 0);
-            g_string_append (key_mgmt_conf, "OWE");
+            g_string_truncate(key_mgmt_conf, 0);
+            g_string_append(key_mgmt_conf, "OWE");
         }
     }
 
     if (!add_string_val(self, key_mgmt_conf->str, "key_mgmt", TRUE, NULL, error))
         return FALSE;
 
-    if (nm_streq (key_mgmt, "owe-only")) {
-        if (!add_string_val (self, "1", "owe_only", TRUE, NULL, error))
+    if (nm_streq(key_mgmt, "owe-only")) {
+        if (!add_string_val(self, "1", "owe_only", TRUE, NULL, error))
             return FALSE;
     }
 
@@ -1490,98 +1490,114 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig *         
     }
 
     /* Don't try to enable PMF on non-WPA/SAE/OWE networks */
-    if (NM_IN_STRSET(key_mgmt, "wpa-psk", "wpa-eap", "wpa-eap-suite-b", "wpa-eap-suite-b-192", "cckm",
-        "sae", "owe", "owe-only") || wpa3_only)
-    {
-        const char *_pairwise = NULL;
-        const char *_group = NULL;
+    if (NM_IN_STRSET(key_mgmt,
+                     "wpa-psk",
+                     "wpa-eap",
+                     "wpa-eap-suite-b",
+                     "wpa-eap-suite-b-192",
+                     "cckm",
+                     "sae",
+                     "owe",
+                     "owe-only")
+        || wpa3_only) {
+        const char *_pairwise   = NULL;
+        const char *_group      = NULL;
         const char *_group_mgmt = NULL;
 
         if (wpa3_only) {
-            if (!strcmp (key_mgmt, "wpa-eap-suite-b")) {
+            if (!strcmp(key_mgmt, "wpa-eap-suite-b")) {
                 // suite-b: GCMP/BIP-GMAC (same as wpa2 mode)
-                _pairwise = "GCMP";
-                _group = "GCMP";
+                _pairwise   = "GCMP";
+                _group      = "GCMP";
                 _group_mgmt = "BIP-GMAC-128";
-            } else if (!strcmp (key_mgmt, "wpa-eap-suite-b-192")) {
+            } else if (!strcmp(key_mgmt, "wpa-eap-suite-b-192")) {
                 // wpa3-enterprise-192: GCMP-256/BIP-GMAC-256, PMF required
-                _pairwise = "GCMP-256";
-                _group = "GCMP-256";
+                _pairwise   = "GCMP-256";
+                _group      = "GCMP-256";
                 _group_mgmt = "BIP-GMAC-256";
             } else {
                 // wpa3: no wep/tkip
-                _pairwise = "CCMP CCMP-256 GCMP GCMP-256";
-                _group = "CCMP CCMP-256 GCMP GCMP-256";
+                _pairwise   = "CCMP CCMP-256 GCMP GCMP-256";
+                _group      = "CCMP CCMP-256 GCMP GCMP-256";
                 _group_mgmt = "AES-128-CMAC BIP-CMAC-256 BIP-GMAC-128 BIP-GMAC-256";
             }
             // use "WPA3" so sae-transition will use pmf for sae
-            if (!nm_supplicant_config_add_option (self, "proto", "WPA3", -1, NULL, error))
+            if (!nm_supplicant_config_add_option(self, "proto", "WPA3", -1, NULL, error))
                 return FALSE;
         } else {
-            if (!strcmp (key_mgmt, "wpa-eap-suite-b")) {
+            if (!strcmp(key_mgmt, "wpa-eap-suite-b")) {
                 // suite-b: GCMP/BIP-GMAC
-                _pairwise = "GCMP";
-                _group = "GCMP";
+                _pairwise   = "GCMP";
+                _group      = "GCMP";
                 _group_mgmt = "BIP-GMAC-128";
-            } else if (!strcmp (key_mgmt, "wpa-eap-suite-b-192")) {
+            } else if (!strcmp(key_mgmt, "wpa-eap-suite-b-192")) {
                 // suite-b-192: CCMP-256/GCMP-256/BIP-CMAC-256/BIP-GMAC-256, PMF required
-                _pairwise = "CCMP-256 GCMP-256";
-                _group = "CCMP-256 GCMP-256";
+                _pairwise   = "CCMP-256 GCMP-256";
+                _group      = "CCMP-256 GCMP-256";
                 _group_mgmt = "BIP-CMAC-256 BIP-GMAC-256";
             }
-            if (!ADD_STRING_LIST_VAL (self, setting, wireless_security, proto, protos, "proto", ' ', TRUE, NULL, error))
-                return FALSE;
-        } 
-
-        if (nm_setting_wireless_security_get_num_pairwise (setting) == 0) {
-            if (_pairwise && !nm_supplicant_config_add_option (self, "pairwise", _pairwise, -1, NULL, error))
-                return FALSE;
-        } else
             if (!ADD_STRING_LIST_VAL(self,
                                      setting,
                                      wireless_security,
-                                     pairwise,
-                                     pairwise,
-                                     "pairwise",
+                                     proto,
+                                     protos,
+                                     "proto",
                                      ' ',
                                      TRUE,
                                      NULL,
                                      error))
                 return FALSE;
+        }
 
-        if (nm_setting_wireless_security_get_num_groups (setting) == 0) {
-            if (_group && !nm_supplicant_config_add_option (self, "group", _group, -1, NULL, error))
+        if (nm_setting_wireless_security_get_num_pairwise(setting) == 0) {
+            if (_pairwise
+                && !nm_supplicant_config_add_option(self, "pairwise", _pairwise, -1, NULL, error))
                 return FALSE;
-        } else
-            if (!ADD_STRING_LIST_VAL(self,
-                                     setting,
-                                     wireless_security,
-                                     group,
-                                     groups,
-                                     "group",
-                                     ' ',
-                                     TRUE,
-                                     NULL,
-                                     error))
-                return FALSE;
+        } else if (!ADD_STRING_LIST_VAL(self,
+                                        setting,
+                                        wireless_security,
+                                        pairwise,
+                                        pairwise,
+                                        "pairwise",
+                                        ' ',
+                                        TRUE,
+                                        NULL,
+                                        error))
+            return FALSE;
 
-        if (_group_mgmt && !nm_supplicant_config_add_option (self, "group_mgmt", _group_mgmt, -1, NULL, error))
+        if (nm_setting_wireless_security_get_num_groups(setting) == 0) {
+            if (_group && !nm_supplicant_config_add_option(self, "group", _group, -1, NULL, error))
+                return FALSE;
+        } else if (!ADD_STRING_LIST_VAL(self,
+                                        setting,
+                                        wireless_security,
+                                        group,
+                                        groups,
+                                        "group",
+                                        ' ',
+                                        TRUE,
+                                        NULL,
+                                        error))
+            return FALSE;
+
+        if (_group_mgmt
+            && !nm_supplicant_config_add_option(self, "group_mgmt", _group_mgmt, -1, NULL, error))
             return FALSE;
 
         if (wpa3_only) {
             // pmf: was set to required, or optional above
-            if (!nm_supplicant_config_add_option (self,
-                                                  "ieee80211w",
-                                                  pmf == NM_SETTING_WIRELESS_SECURITY_PMF_OPTIONAL ? "1" : "2",
-                                                  -1,
-                                                  NULL,
-                                                  error))
+            if (!nm_supplicant_config_add_option(
+                    self,
+                    "ieee80211w",
+                    pmf == NM_SETTING_WIRELESS_SECURITY_PMF_OPTIONAL ? "1" : "2",
+                    -1,
+                    NULL,
+                    error))
                 return FALSE;
-        } else
-        if (set_pmf
-            && NM_IN_SET(pmf,
-                         NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE,
-                         NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED)) {
+        } else if (set_pmf
+                   && NM_IN_SET(pmf,
+                                NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE,
+                                NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED)) {
             if (!nm_supplicant_config_add_option(
                     self,
                     "ieee80211w",
@@ -1596,10 +1612,10 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig *         
     /* WEP keys if required */
     if (nm_streq(key_mgmt, "none")) {
         NMWepKeyType wep_type = nm_setting_wireless_security_get_wep_key_type(setting);
-        const char * wep0     = nm_setting_wireless_security_get_wep_key(setting, 0);
-        const char * wep1     = nm_setting_wireless_security_get_wep_key(setting, 1);
-        const char * wep2     = nm_setting_wireless_security_get_wep_key(setting, 2);
-        const char * wep3     = nm_setting_wireless_security_get_wep_key(setting, 3);
+        const char  *wep0     = nm_setting_wireless_security_get_wep_key(setting, 0);
+        const char  *wep1     = nm_setting_wireless_security_get_wep_key(setting, 1);
+        const char  *wep2     = nm_setting_wireless_security_get_wep_key(setting, 2);
+        const char  *wep3     = nm_setting_wireless_security_get_wep_key(setting, 3);
 
         if (!add_wep_key(self, wep0, "wep_key0", wep_type, error))
             return FALSE;
@@ -1644,18 +1660,24 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig *         
         }
     } else {
         /* 802.1x for Dynamic WEP and WPA-Enterprise */
-        if (NM_IN_STRSET(key_mgmt, "ieee8021x", "wpa-eap", "cckm", "wpa-eap-suite-b", "wpa-eap-suite-b-192")) {
+        if (NM_IN_STRSET(key_mgmt,
+                         "ieee8021x",
+                         "wpa-eap",
+                         "cckm",
+                         "wpa-eap-suite-b",
+                         "wpa-eap-suite-b-192")) {
             if (is_ap && _get_capability_laird(priv)) {
-                ; // ap mode: summit supplicant support with ap-config-file
-                if (!strcmp (key_mgmt, "cckm"))
-                {
+                ;  // ap mode: summit supplicant support with ap-config-file
+                if (!strcmp(key_mgmt, "cckm")) {
                     // ap mode: cckm is not allowed
-                    g_set_error (error, NM_SUPPLICANT_ERROR, NM_SUPPLICANT_ERROR_CONFIG,
-                                 "Invalid key-mgmt \"%s\" for AP mode", key_mgmt);
+                    g_set_error(error,
+                                NM_SUPPLICANT_ERROR,
+                                NM_SUPPLICANT_ERROR_CONFIG,
+                                "Invalid key-mgmt \"%s\" for AP mode",
+                                key_mgmt);
                     return FALSE;
                 }
-            } else
-            if (!setting_8021x) {
+            } else if (!setting_8021x) {
                 g_set_error(error,
                             NM_SUPPLICANT_ERROR,
                             NM_SUPPLICANT_ERROR_CONFIG,
@@ -1663,8 +1685,7 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig *         
                             key_mgmt);
                 return FALSE;
             }
-            if (NM_IN_STRSET(key_mgmt, "wpa-eap-suite-b", "wpa-eap-suite-b-192"))
-            {
+            if (NM_IN_STRSET(key_mgmt, "wpa-eap-suite-b", "wpa-eap-suite-b-192")) {
                 priv->flags1x.suiteb = TRUE;
             } else {
                 priv->flags1x.suiteb = FALSE;
@@ -1675,14 +1696,13 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig *         
                 priv->flags1x.ca_cert_check = FALSE;
             }
             if (is_ap && _get_capability_laird(priv)) {
-                ; // ap mode: summit supplicant support with ap-config-file
-            } else
-            if (!nm_supplicant_config_add_setting_8021x(self,
-                                                        setting_8021x,
-                                                        con_uuid,
-                                                        mtu,
-                                                        FALSE,
-                                                        error))
+                ;  // ap mode: summit supplicant support with ap-config-file
+            } else if (!nm_supplicant_config_add_setting_8021x(self,
+                                                               setting_8021x,
+                                                               con_uuid,
+                                                               mtu,
+                                                               FALSE,
+                                                               error))
                 return FALSE;
         }
 
@@ -1691,8 +1711,14 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig *         
              * called Opportunistic Key Caching) to avoid full EAP exchanges when
              * roaming between access points in the same mobility group.
              */
-            const char* proactive_key_caching = nm_setting_wireless_security_get_proactive_key_caching (setting);
-            if (!add_string_val (self, proactive_key_caching, "proactive_key_caching", TRUE, FALSE, error)) {
+            const char *proactive_key_caching =
+                nm_setting_wireless_security_get_proactive_key_caching(setting);
+            if (!add_string_val(self,
+                                proactive_key_caching,
+                                "proactive_key_caching",
+                                TRUE,
+                                FALSE,
+                                error)) {
                 if (!nm_supplicant_config_add_option(self,
                                                      "proactive_key_caching",
                                                      "1",
@@ -1711,8 +1737,7 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig *         
         if (wps_method == NM_SETTING_WIRELESS_SECURITY_WPS_METHOD_DEFAULT)
             wps_method = NM_SETTING_WIRELESS_SECURITY_WPS_METHOD_DISABLED;
 
-        wps_disabled = (wps_method
-                        == NM_SETTING_WIRELESS_SECURITY_WPS_METHOD_DISABLED);
+        wps_disabled = (wps_method == NM_SETTING_WIRELESS_SECURITY_WPS_METHOD_DISABLED);
     }
 
     if (wps_disabled) {
@@ -1724,18 +1749,18 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig *         
 }
 
 static gboolean
-add_pkcs11_uri_with_pin(NMSupplicantConfig *       self,
-                        const char *               name,
-                        const char *               uri,
-                        const char *               pin,
+add_pkcs11_uri_with_pin(NMSupplicantConfig        *self,
+                        const char                *name,
+                        const char                *uri,
+                        const char                *pin,
                         const NMSettingSecretFlags pin_flags,
-                        GError **                  error)
+                        GError                   **error)
 {
     gs_strfreev char **split     = NULL;
-    gs_free char *     tmp       = NULL;
-    gs_free char *     tmp_log   = NULL;
-    gs_free char *     pin_qattr = NULL;
-    char *             escaped   = NULL;
+    gs_free char      *tmp       = NULL;
+    gs_free char      *tmp_log   = NULL;
+    gs_free char      *pin_qattr = NULL;
+    char              *escaped   = NULL;
 
     if (uri == NULL)
         return TRUE;
@@ -1771,29 +1796,29 @@ add_pkcs11_uri_with_pin(NMSupplicantConfig *       self,
 
 gboolean
 nm_supplicant_config_add_setting_8021x(NMSupplicantConfig *self,
-                                       NMSetting8021x *    setting,
-                                       const char *        con_uuid,
+                                       NMSetting8021x     *setting,
+                                       const char         *con_uuid,
                                        guint32             mtu,
                                        gboolean            wired,
-                                       GError **           error)
+                                       GError            **error)
 {
-    NMSupplicantConfigPrivate *priv;
-    char *                     tmp;
-    const char *               peapver, *value, *path;
-    gboolean                   added;
-    GString *                  phase1, *phase2;
-    GBytes *                   bytes;
-    gboolean                   fast = FALSE;
-    guint32                    i, num_eap;
-    gboolean                   fast_provisoning_allowed = FALSE;
-    const char *               ca_path_override = NULL, *ca_cert_override = NULL;
-    guint32                    frag, hdrs;
-    gs_free char *             frag_str = NULL;
-    NMSetting8021xAuthFlags    phase1_auth_flags;
-    nm_auto_free_gstring GString *eap_str = NULL;
-    char const *tls_disable = NULL;
-    int ca_cert_needed = 0;
-    int ca_cert_configured = 0;
+    NMSupplicantConfigPrivate    *priv;
+    char                         *tmp;
+    const char                   *peapver, *value, *path;
+    gboolean                      added;
+    GString                      *phase1, *phase2;
+    GBytes                       *bytes;
+    gboolean                      fast = FALSE;
+    guint32                       i, num_eap;
+    gboolean                      fast_provisoning_allowed = FALSE;
+    const char                   *ca_path_override = NULL, *ca_cert_override = NULL;
+    guint32                       frag, hdrs;
+    gs_free char                 *frag_str = NULL;
+    NMSetting8021xAuthFlags       phase1_auth_flags;
+    nm_auto_free_gstring GString *eap_str            = NULL;
+    char const                   *tls_disable        = NULL;
+    int                           ca_cert_needed     = 0;
+    int                           ca_cert_configured = 0;
 
     g_return_val_if_fail(NM_IS_SUPPLICANT_CONFIG(self), FALSE);
     g_return_val_if_fail(setting != NULL, FALSE);
@@ -1840,9 +1865,11 @@ nm_supplicant_config_add_setting_8021x(NMSupplicantConfig *self,
 
         if (priv->flags1x.suiteb) {
             // suiteb, 802-1x.eap must be only tls
-            if (!nm_streq (method, "tls")) {
-                g_set_error (error, NM_SUPPLICANT_ERROR, NM_SUPPLICANT_ERROR_CONFIG,
-                             "suite-b must use 802-1x.eap tls");
+            if (!nm_streq(method, "tls")) {
+                g_set_error(error,
+                            NM_SUPPLICANT_ERROR,
+                            NM_SUPPLICANT_ERROR_CONFIG,
+                            "suite-b must use 802-1x.eap tls");
                 return FALSE;
             }
         }
@@ -1864,9 +1891,7 @@ nm_supplicant_config_add_setting_8021x(NMSupplicantConfig *self,
             continue;
         }
 
-        if (nm_streq (method, "tls") ||
-            nm_streq (method, "peap") ||
-            nm_streq (method, "ttls")) {
+        if (nm_streq(method, "tls") || nm_streq(method, "peap") || nm_streq(method, "ttls")) {
             ca_cert_needed = 1;
         }
 
@@ -1877,8 +1902,10 @@ nm_supplicant_config_add_setting_8021x(NMSupplicantConfig *self,
 
     if (priv->flags1x.suiteb && num_eap != 1) {
         // suiteb, 802-1x.eap must be only tls
-        g_set_error (error, NM_SUPPLICANT_ERROR, NM_SUPPLICANT_ERROR_CONFIG,
-                     "suite-b must use 802-1x.eap tls");
+        g_set_error(error,
+                    NM_SUPPLICANT_ERROR,
+                    NM_SUPPLICANT_ERROR_CONFIG,
+                    "suite-b must use 802-1x.eap tls");
         return FALSE;
     }
 
@@ -1935,13 +1962,16 @@ nm_supplicant_config_add_setting_8021x(NMSupplicantConfig *self,
     if (NM_FLAGS_HAS(phase1_auth_flags, NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_3_ENABLE))
         g_string_append_printf(phase1, "%stls_disable_tlsv1_3=0", (phase1->len ? " " : ""));
 
-    tls_disable = nm_setting_802_1x_get_tls_disable_time_checks (setting);
+    tls_disable = nm_setting_802_1x_get_tls_disable_time_checks(setting);
     if (tls_disable) {
-        g_string_append_printf (phase1, "%stls_disable_time_checks=%s", (phase1->len ? " " : ""), tls_disable);
+        g_string_append_printf(phase1,
+                               "%stls_disable_time_checks=%s",
+                               (phase1->len ? " " : ""),
+                               tls_disable);
     }
 
     if (priv->flags1x.suiteb) {
-        g_string_append_printf (phase1, "%stls_suiteb=1", (phase1->len ? " " : ""));
+        g_string_append_printf(phase1, "%stls_suiteb=1", (phase1->len ? " " : ""));
     }
 
     if (phase1->len) {
@@ -1953,22 +1983,43 @@ nm_supplicant_config_add_setting_8021x(NMSupplicantConfig *self,
     g_string_free(phase1, TRUE);
 
     phase2 = g_string_new(NULL);
-    if (nm_setting_802_1x_get_num_phase2_auths (setting) && !fast_provisoning_allowed) {
-            if(!ADD_STRING_LIST_VAL_TO_STRING(phase2,setting,802_1x,phase2_auth,phase2_auths,"auth",' ', TRUE, FALSE, error)){
+    if (nm_setting_802_1x_get_num_phase2_auths(setting) && !fast_provisoning_allowed) {
+        if (!ADD_STRING_LIST_VAL_TO_STRING(phase2,
+                                           setting,
+                                           802_1x,
+                                           phase2_auth,
+                                           phase2_auths,
+                                           "auth",
+                                           ' ',
+                                           TRUE,
+                                           FALSE,
+                                           error)) {
             g_string_free(phase2, TRUE);
             return FALSE;
         }
     }
 
-    if (nm_setting_802_1x_get_num_phase2_autheaps (setting)) {
-            if(!ADD_STRING_LIST_VAL_TO_STRING(phase2,setting,802_1x,phase2_autheap,phase2_autheaps,"autheap",' ', TRUE, FALSE, error)){
+    if (nm_setting_802_1x_get_num_phase2_autheaps(setting)) {
+        if (!ADD_STRING_LIST_VAL_TO_STRING(phase2,
+                                           setting,
+                                           802_1x,
+                                           phase2_autheap,
+                                           phase2_autheaps,
+                                           "autheap",
+                                           ' ',
+                                           TRUE,
+                                           FALSE,
+                                           error)) {
             g_string_free(phase2, TRUE);
             return FALSE;
         }
     }
 
     if (tls_disable) {
-        g_string_append_printf (phase2, "%stls_disable_time_checks=%s", (phase2->len ? " " : ""), tls_disable);
+        g_string_append_printf(phase2,
+                               "%stls_disable_time_checks=%s",
+                               (phase2->len ? " " : ""),
+                               tls_disable);
     }
 
     if (phase2->len) {
@@ -1987,8 +2038,8 @@ nm_supplicant_config_add_setting_8021x(NMSupplicantConfig *self,
 
         if (_get_capability_laird(priv)) {
             /* PAC file password for manually provisioned PAC files */
-            const char *pwd = nm_setting_802_1x_get_pac_file_password (setting);
-            if (pwd && !add_string_val (self, pwd, "pac_file_password", FALSE, "<hidden>", error))
+            const char *pwd = nm_setting_802_1x_get_pac_file_password(setting);
+            if (pwd && !add_string_val(self, pwd, "pac_file_password", FALSE, "<hidden>", error))
                 return FALSE;
         }
 
@@ -2079,12 +2130,12 @@ nm_supplicant_config_add_setting_8021x(NMSupplicantConfig *self,
         }
     }
 
-    if (priv->flags1x.ca_cert_check &&
-        ca_cert_needed && !ca_cert_configured)
-    {
+    if (priv->flags1x.ca_cert_check && ca_cert_needed && !ca_cert_configured) {
         // wpa3 must have ca cert if required for eap
-        g_set_error (error, NM_SUPPLICANT_ERROR, NM_SUPPLICANT_ERROR_CONFIG,
-                     "wpa3 missing ca certificate");
+        g_set_error(error,
+                    NM_SUPPLICANT_ERROR,
+                    NM_SUPPLICANT_ERROR_CONFIG,
+                    "wpa3 missing ca certificate");
         return FALSE;
     }
 

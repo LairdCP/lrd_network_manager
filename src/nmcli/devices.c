@@ -9,7 +9,11 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#if HAVE_EDITLINE_READLINE
+#include <editline/readline.h>
+#else
 #include <readline/readline.h>
+#endif
 #include <linux/if_ether.h>
 
 #include "libnm-glib-aux/nm-secret-utils.h"
@@ -115,9 +119,10 @@ wifi_signal_to_color(guint8 strength)
 
 /*****************************************************************************/
 
-static gconstpointer _metagen_device_status_get_fcn(NMC_META_GENERIC_INFO_GET_FCN_ARGS)
+static gconstpointer
+_metagen_device_status_get_fcn(NMC_META_GENERIC_INFO_GET_FCN_ARGS)
 {
-    NMDevice *          d = target;
+    NMDevice           *d = target;
     NMActiveConnection *ac;
 
     NMC_HANDLE_COLOR(nmc_device_state_to_color(d));
@@ -174,13 +179,14 @@ const NmcMetaGenericInfo
 
 /*****************************************************************************/
 
-static gconstpointer _metagen_device_detail_general_get_fcn(NMC_META_GENERIC_INFO_GET_FCN_ARGS)
+static gconstpointer
+_metagen_device_detail_general_get_fcn(NMC_META_GENERIC_INFO_GET_FCN_ARGS)
 {
-    NMDevice *          d = target;
+    NMDevice           *d = target;
     NMActiveConnection *ac;
     NMDeviceStateReason state_reason;
     NMConnectivityState connectivity;
-    const char *        s;
+    const char         *s;
 
     NMC_HANDLE_COLOR(NM_META_COLOR_NONE);
 
@@ -339,7 +345,7 @@ static NMRemoteConnection **
 _device_get_available_connections(NMDevice *d, guint *out_len)
 {
     NMRemoteConnection **avail_cons;
-    const GPtrArray *    avail_cons_arr;
+    const GPtrArray     *avail_cons_arr;
 
     avail_cons_arr = nm_device_get_available_connections(d);
     if (!avail_cons_arr || avail_cons_arr->len == 0) {
@@ -355,15 +361,16 @@ _device_get_available_connections(NMDevice *d, guint *out_len)
     return avail_cons;
 }
 
-static gconstpointer _metagen_device_detail_connections_get_fcn(NMC_META_GENERIC_INFO_GET_FCN_ARGS)
+static gconstpointer
+_metagen_device_detail_connections_get_fcn(NMC_META_GENERIC_INFO_GET_FCN_ARGS)
 {
-    NMDevice *d                             = target;
+    NMDevice                    *d          = target;
     gs_free NMRemoteConnection **avail_cons = NULL;
     guint                        avail_cons_len;
     guint                        i;
     guint                        j;
-    char **                      arr = NULL;
-    GString *                    str;
+    char                       **arr = NULL;
+    GString                     *str;
     gboolean                     had_prefix;
     gboolean                     has_prefix;
 
@@ -382,8 +389,8 @@ static gconstpointer _metagen_device_detail_connections_get_fcn(NMC_META_GENERIC
         j   = 0;
         for (i = 0; i < avail_cons_len; i++) {
             NMRemoteConnection *ac      = avail_cons[i];
-            const char *        ac_id   = nm_connection_get_id(NM_CONNECTION(ac));
-            const char *        ac_uuid = nm_connection_get_uuid(NM_CONNECTION(ac));
+            const char         *ac_id   = nm_connection_get_id(NM_CONNECTION(ac));
+            const char         *ac_uuid = nm_connection_get_uuid(NM_CONNECTION(ac));
 
             if (!ac_id || !ac_uuid) {
                 const char *ac_path = nm_connection_get_path(NM_CONNECTION(ac));
@@ -412,7 +419,7 @@ static gconstpointer _metagen_device_detail_connections_get_fcn(NMC_META_GENERIC
         had_prefix = FALSE;
         for (i = 0; i < avail_cons_len; i++) {
             NMRemoteConnection *ac = avail_cons[i];
-            const char *        p  = nm_connection_get_path(NM_CONNECTION(ac));
+            const char         *p  = nm_connection_get_path(NM_CONNECTION(ac));
 
             if (!p)
                 continue;
@@ -469,9 +476,10 @@ const NmcMetaGenericInfo *const
 
 /*****************************************************************************/
 
-static gconstpointer _metagen_device_detail_capabilities_get_fcn(NMC_META_GENERIC_INFO_GET_FCN_ARGS)
+static gconstpointer
+_metagen_device_detail_capabilities_get_fcn(NMC_META_GENERIC_INFO_GET_FCN_ARGS)
 {
-    NMDevice *           d = target;
+    NMDevice            *d = target;
     NMDeviceCapabilities caps;
     guint32              speed;
 
@@ -533,7 +541,7 @@ const NmcMetaGenericInfo
 /*****************************************************************************/
 
 static gconstpointer
-    _metagen_device_detail_wired_properties_get_fcn(NMC_META_GENERIC_INFO_GET_FCN_ARGS)
+_metagen_device_detail_wired_properties_get_fcn(NMC_META_GENERIC_INFO_GET_FCN_ARGS)
 {
     NMDevice *d = target;
 
@@ -574,9 +582,9 @@ const NmcMetaGenericInfo *const
 /*****************************************************************************/
 
 static gconstpointer
-    _metagen_device_detail_wifi_properties_get_fcn(NMC_META_GENERIC_INFO_GET_FCN_ARGS)
+_metagen_device_detail_wifi_properties_get_fcn(NMC_META_GENERIC_INFO_GET_FCN_ARGS)
 {
-    NMDevice *               d = target;
+    NMDevice                *d = target;
     NMDeviceWifiCapabilities wcaps;
 
     NMC_HANDLE_COLOR(NM_META_COLOR_NONE);
@@ -671,9 +679,9 @@ const NmcMetaGenericInfo *const
 /*****************************************************************************/
 
 static gconstpointer
-    _metagen_device_detail_interface_flags_get_fcn(NMC_META_GENERIC_INFO_GET_FCN_ARGS)
+_metagen_device_detail_interface_flags_get_fcn(NMC_META_GENERIC_INFO_GET_FCN_ARGS)
 {
-    NMDevice *             d = target;
+    NMDevice              *d = target;
     NMDeviceInterfaceFlags flags;
 
     NMC_HANDLE_COLOR(NM_META_COLOR_NONE);
@@ -1071,8 +1079,8 @@ quit(void)
 static int
 compare_devices(const void *a, const void *b)
 {
-    NMDevice *          da    = *(NMDevice **) a;
-    NMDevice *          db    = *(NMDevice **) b;
+    NMDevice           *da    = *(NMDevice **) a;
+    NMDevice           *db    = *(NMDevice **) b;
     NMActiveConnection *da_ac = nm_device_get_active_connection(da);
     NMActiveConnection *db_ac = nm_device_get_active_connection(db);
 
@@ -1089,7 +1097,7 @@ NMDevice **
 nmc_get_devices_sorted(NMClient *client)
 {
     const GPtrArray *devs;
-    NMDevice **      sorted;
+    NMDevice       **sorted;
 
     devs = nm_client_get_devices(client);
 
@@ -1133,9 +1141,9 @@ get_device_list(NmCli *nmc, int argc, const char *const *argv)
     int                arg_num = argc;
     gs_strfreev char **arg_arr = NULL;
     const char *const *arg_ptr = argv;
-    NMDevice **        devices;
-    GSList *           queue = NULL;
-    NMDevice *         device;
+    NMDevice         **devices;
+    GSList            *queue = NULL;
+    NMDevice          *device;
     int                i;
 
     if (argc == 0) {
@@ -1193,8 +1201,8 @@ static NMDevice *
 get_device(NmCli *nmc, int *argc, const char *const **argv, GError **error)
 {
     gs_free NMDevice **devices    = NULL;
-    gs_free char *     ifname_ask = NULL;
-    const char *       ifname     = NULL;
+    gs_free char      *ifname_ask = NULL;
+    const char        *ifname     = NULL;
     int                i;
 
     if (*argc == 0) {
@@ -1267,39 +1275,39 @@ sort_access_points(const GPtrArray *aps)
 }
 
 typedef struct {
-    NmCli *     nmc;
+    NmCli      *nmc;
     int         index;
     guint32     output_flags;
     const char *active_bssid;
     const char *device;
-    GPtrArray * output_data;
+    GPtrArray  *output_data;
 } APInfo;
 
 static void
 fill_output_access_point(gpointer data, gpointer user_data)
 {
-    NMAccessPoint *        ap   = NM_ACCESS_POINT(data);
-    APInfo *               info = (APInfo *) user_data;
-    NmcOutputField *       arr;
+    NMAccessPoint         *ap   = NM_ACCESS_POINT(data);
+    APInfo                *info = (APInfo *) user_data;
+    NmcOutputField        *arr;
     gboolean               active = FALSE;
     NM80211ApFlags         flags;
     NM80211ApSecurityFlags wpa_flags, rsn_flags;
     guint32                freq, bitrate;
     guint8                 strength;
-    GBytes *               ssid;
-    const char *           bssid;
+    GBytes                *ssid;
+    const char            *bssid;
     NM80211Mode            mode;
-    char *                 channel_str;
-    char *                 freq_str;
-    char *                 ssid_str     = NULL;
-    char *                 ssid_hex_str = NULL;
-    char *                 bitrate_str;
-    char *                 strength_str;
-    char *                 wpa_flags_str;
-    char *                 rsn_flags_str;
-    GString *              security_str;
-    char *                 ap_name;
-    const char *           sig_bars;
+    char                  *channel_str;
+    char                  *freq_str;
+    char                  *ssid_str     = NULL;
+    char                  *ssid_hex_str = NULL;
+    char                  *bitrate_str;
+    char                  *strength_str;
+    char                  *wpa_flags_str;
+    char                  *rsn_flags_str;
+    GString               *security_str;
+    char                  *ap_name;
+    const char            *sig_bars;
     NMMetaColor            color;
 
     if (info->active_bssid) {
@@ -1360,12 +1368,11 @@ fill_output_access_point(gpointer data, gpointer user_data)
                            NM_802_11_AP_SEC_PAIR_TKIP|
                            NM_802_11_AP_SEC_GROUP_WEP40|
                            NM_802_11_AP_SEC_GROUP_WEP104|
-                           NM_802_11_AP_SEC_GROUP_TKIP)))
-    {
+                           NM_802_11_AP_SEC_GROUP_TKIP))) {
         if (rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_SAE) {
             // wpa3-sae access point
             // TBD: should check for MGMT_GROUP cipher also
-            g_string_append (security_str, "WPA3 ");
+            g_string_append(security_str, "WPA3 ");
         } else if (rsn_flags ==
                    (NM_802_11_AP_SEC_KEY_MGMT_EAP_SUITE_B_192|
                     NM_802_11_AP_SEC_PAIR_GCMP_256|
@@ -1381,10 +1388,10 @@ fill_output_access_point(gpointer data, gpointer user_data)
     }
 
     if ((wpa_flags & NM_802_11_AP_SEC_KEY_MGMT_802_1X)
-           || (rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_CCKM)
-           || (rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_SUITE_B)
-           || (rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_EAP_SUITE_B_192)
-           || (rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_802_1X)) {
+        || (rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_CCKM)
+        || (rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_SUITE_B)
+        || (rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_EAP_SUITE_B_192)
+        || (rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_802_1X)) {
         g_string_append(security_str, "802.1X ");
     }
 
@@ -1401,11 +1408,11 @@ fill_output_access_point(gpointer data, gpointer user_data)
     set_val_strc(arr, 3, bssid);
     set_val_strc(arr,
                  4,
-                 mode == NM_802_11_MODE_ADHOC   ? _("Ad-Hoc")
+                 mode == NM_802_11_MODE_ADHOC          ? _("Ad-Hoc")
                  : (flags & NM_802_11_AP_FLAGS_P2P_IE) ? _("P2P")
-                 : mode == NM_802_11_MODE_INFRA ? _("Infra")
-                 : mode == NM_802_11_MODE_MESH  ? _("Mesh")
-                                                : _("N/A"));
+                 : mode == NM_802_11_MODE_INFRA        ? _("Infra")
+                 : mode == NM_802_11_MODE_MESH         ? _("Mesh")
+                                                       : _("N/A"));
     set_val_str(arr, 5, channel_str);
     set_val_str(arr, 6, freq_str);
     set_val_str(arr, 7, bitrate_str);
@@ -1464,16 +1471,16 @@ construct_header_name(const char *base, const char *spec)
 }
 
 static gboolean
-print_bond_bridge_info(NMDevice *  device,
-                       NmCli *     nmc,
+print_bond_bridge_info(NMDevice   *device,
+                       NmCli      *nmc,
                        const char *group_prefix,
                        const char *one_field)
 {
-    const GPtrArray *                slaves = NULL;
-    GString *                        slaves_str;
+    const GPtrArray                 *slaves = NULL;
+    GString                         *slaves_str;
     int                              idx;
     const NMMetaAbstractInfo *const *tmpl;
-    NmcOutputField *                 arr;
+    NmcOutputField                  *arr;
     NMC_OUTPUT_DATA_DEFINE_SCOPED(out);
 
     if (NM_IS_DEVICE_BOND(device))
@@ -1485,7 +1492,7 @@ print_bond_bridge_info(NMDevice *  device,
 
     slaves_str = g_string_new(NULL);
     for (idx = 0; slaves && idx < slaves->len; idx++) {
-        NMDevice *  slave = g_ptr_array_index(slaves, idx);
+        NMDevice   *slave = g_ptr_array_index(slaves, idx);
         const char *iface = nm_device_get_iface(slave);
 
         if (iface) {
@@ -1534,11 +1541,11 @@ sanitize_team_config(const char *config)
 static gboolean
 print_team_info(NMDevice *device, NmCli *nmc, const char *group_prefix, const char *one_field)
 {
-    const GPtrArray *                slaves = NULL;
-    GString *                        slaves_str;
+    const GPtrArray                 *slaves = NULL;
+    GString                         *slaves_str;
     int                              idx;
     const NMMetaAbstractInfo *const *tmpl;
-    NmcOutputField *                 arr;
+    NmcOutputField                  *arr;
     NMC_OUTPUT_DATA_DEFINE_SCOPED(out);
 
     if (NM_IS_DEVICE_TEAM(device))
@@ -1548,7 +1555,7 @@ print_team_info(NMDevice *device, NmCli *nmc, const char *group_prefix, const ch
 
     slaves_str = g_string_new(NULL);
     for (idx = 0; slaves && idx < slaves->len; idx++) {
-        NMDevice *  slave = g_ptr_array_index(slaves, idx);
+        NMDevice   *slave = g_ptr_array_index(slaves, idx);
         const char *iface = nm_device_get_iface(slave);
 
         if (iface) {
@@ -1579,18 +1586,18 @@ print_team_info(NMDevice *device, NmCli *nmc, const char *group_prefix, const ch
 static gboolean
 show_device_info(NMDevice *device, NmCli *nmc)
 {
-    GError *                         error = NULL;
+    GError                          *error = NULL;
     NMDeviceState                    state = NM_DEVICE_STATE_UNKNOWN;
-    GArray *                         sections_array;
+    GArray                          *sections_array;
     int                              k;
-    const char *                     fields_str = NULL;
+    const char                      *fields_str = NULL;
     const NMMetaAbstractInfo *const *tmpl;
-    NmcOutputField *                 arr;
+    NmcOutputField                  *arr;
     gboolean                         was_output = FALSE;
-    NMIPConfig *                     cfg4, *cfg6;
-    NMDhcpConfig *                   dhcp4, *dhcp6;
-    const char *                     base_hdr          = _("Device details");
-    GPtrArray *                      fields_in_section = NULL;
+    NMIPConfig                      *cfg4, *cfg6;
+    NMDhcpConfig                    *dhcp4, *dhcp6;
+    const char                      *base_hdr          = _("Device details");
+    GPtrArray                       *fields_in_section = NULL;
 
     if (!nmc->required_fields || g_ascii_strcasecmp(nmc->required_fields, "common") == 0)
         fields_str = NMC_FIELDS_DEV_SHOW_SECTIONS_COMMON;
@@ -1613,9 +1620,9 @@ show_device_info(NMDevice *device, NmCli *nmc)
     }
 
     {
-        gs_unref_array GArray *out_indices = NULL;
-        gs_free char *         header_name = NULL;
-        gs_free NmcOutputField *row        = NULL;
+        gs_unref_array GArray  *out_indices = NULL;
+        gs_free char           *header_name = NULL;
+        gs_free NmcOutputField *row         = NULL;
         int                     i;
 
         /* Main header (pretty only) */
@@ -1727,7 +1734,7 @@ show_device_info(NMDevice *device, NmCli *nmc)
         /* Wireless specific information */
         if ((NM_IS_DEVICE_WIFI(device))) {
             NMAccessPoint *active_ap    = NULL;
-            const char *   active_bssid = NULL;
+            const char    *active_bssid = NULL;
 
             /* section AP */
             if (!g_ascii_strcasecmp(nmc_fields_dev_show_sections[section_idx]->name,
@@ -1752,12 +1759,12 @@ show_device_info(NMDevice *device, NmCli *nmc)
                 {
                     gs_unref_ptrarray GPtrArray *aps  = NULL;
                     APInfo                       info = {
-                        .nmc          = nmc,
-                        .index        = 1,
-                        .output_flags = NMC_OF_FLAG_SECTION_PREFIX,
-                        .active_bssid = active_bssid,
-                        .device       = nm_device_get_iface(device),
-                        .output_data  = out.output_data,
+                                              .nmc          = nmc,
+                                              .index        = 1,
+                                              .output_flags = NMC_OF_FLAG_SECTION_PREFIX,
+                                              .active_bssid = active_bssid,
+                                              .device       = nm_device_get_iface(device),
+                                              .output_data  = out.output_data,
                     };
 
                     aps = sort_access_points(
@@ -1959,9 +1966,9 @@ nmc_device_state_to_color(NMDevice *device)
 static void
 do_devices_status(const NMCCommand *cmd, NmCli *nmc, int argc, const char *const *argv)
 {
-    GError *error                 = NULL;
+    GError            *error      = NULL;
     gs_free NMDevice **devices    = NULL;
-    const char *       fields_str = NULL;
+    const char        *fields_str = NULL;
 
     next_arg(nmc, &argc, &argv, NULL);
 
@@ -2071,17 +2078,17 @@ progress_cb(gpointer user_data)
 }
 
 typedef struct {
-    NmCli *             nmc;
-    NMDevice *          device;
+    NmCli              *nmc;
+    NMDevice           *device;
     NMActiveConnection *active;
-    char *              specific_object;
+    char               *specific_object;
     bool                hotspot : 1;
     bool                create : 1;
 } AddAndActivateInfo;
 
 static AddAndActivateInfo *
-add_and_activate_info_new(NmCli *     nmc,
-                          NMDevice *  device,
+add_and_activate_info_new(NmCli      *nmc,
+                          NMDevice   *device,
                           gboolean    hotspot,
                           gboolean    create,
                           const char *specific_object)
@@ -2154,10 +2161,10 @@ connected_state_cb(AddAndActivateInfo *info)
 static void
 add_and_activate_cb(GObject *client, GAsyncResult *result, gpointer user_data)
 {
-    nm_auto_free_add_and_activate_info AddAndActivateInfo *info = user_data;
-    NmCli *                                                nmc  = info->nmc;
-    gs_unref_object NMActiveConnection *active                  = NULL;
-    gs_free_error GError *error                                 = NULL;
+    nm_auto_free_add_and_activate_info AddAndActivateInfo *info   = user_data;
+    NmCli                                                 *nmc    = info->nmc;
+    gs_unref_object NMActiveConnection                    *active = NULL;
+    gs_free_error GError                                  *error  = NULL;
 
     if (info->create)
         active = nm_client_add_and_activate_connection_finish(NM_CLIENT(client), result, &error);
@@ -2202,7 +2209,7 @@ add_and_activate_cb(GObject *client, GAsyncResult *result, gpointer user_data)
 static void
 create_connect_connection_for_device(AddAndActivateInfo *info)
 {
-    NMConnection *       connection;
+    NMConnection        *connection;
     NMSettingConnection *s_con;
 
     /* Create new connection and tie it to the device */
@@ -2223,10 +2230,10 @@ create_connect_connection_for_device(AddAndActivateInfo *info)
 static void
 connect_device_cb(GObject *client, GAsyncResult *result, gpointer user_data)
 {
-    nm_auto_free_add_and_activate_info AddAndActivateInfo *info = user_data;
-    NmCli *                                                nmc  = info->nmc;
-    gs_unref_object NMActiveConnection *active                  = NULL;
-    GError *                            error                   = NULL;
+    nm_auto_free_add_and_activate_info AddAndActivateInfo *info   = user_data;
+    NmCli                                                 *nmc    = info->nmc;
+    gs_unref_object NMActiveConnection                    *active = NULL;
+    GError                                                *error  = NULL;
 
     active = nm_client_activate_connection_finish(NM_CLIENT(client), result, &error);
 
@@ -2271,8 +2278,8 @@ connect_device_cb(GObject *client, GAsyncResult *result, gpointer user_data)
 static void
 do_device_connect(const NMCCommand *cmd, NmCli *nmc, int argc, const char *const *argv)
 {
-    NMDevice *          device = NULL;
-    AddAndActivateInfo *info;
+    NMDevice             *device = NULL;
+    AddAndActivateInfo   *info;
     gs_free_error GError *error = NULL;
 
     /* Set default timeout for connect operation. */
@@ -2328,8 +2335,8 @@ do_device_connect(const NMCCommand *cmd, NmCli *nmc, int argc, const char *const
 }
 
 typedef struct {
-    NmCli *       nmc;
-    GSList *      queue;
+    NmCli        *nmc;
+    GSList       *queue;
     guint         timeout_id;
     gboolean      cmd_disconnect;
     GCancellable *cancellable;
@@ -2418,10 +2425,10 @@ device_cb_info_finish(DeviceCbInfo *info, NMDevice *device)
 static void
 reapply_device_cb(GObject *object, GAsyncResult *result, gpointer user_data)
 {
-    NMDevice *    device = NM_DEVICE(object);
+    NMDevice     *device = NM_DEVICE(object);
     DeviceCbInfo *info   = (DeviceCbInfo *) user_data;
-    NmCli *       nmc    = info->nmc;
-    GError *      error  = NULL;
+    NmCli        *nmc    = info->nmc;
+    GError       *error  = NULL;
 
     if (!nm_device_reapply_finish(device, result, &error)) {
         g_string_printf(nmc->return_text,
@@ -2444,8 +2451,8 @@ reapply_device_cb(GObject *object, GAsyncResult *result, gpointer user_data)
 static void
 do_device_reapply(const NMCCommand *cmd, NmCli *nmc, int argc, const char *const *argv)
 {
-    NMDevice *    device;
-    DeviceCbInfo *info          = NULL;
+    NMDevice             *device;
+    DeviceCbInfo         *info  = NULL;
     gs_free_error GError *error = NULL;
 
     /* Set default timeout for reapply operation. */
@@ -2498,10 +2505,10 @@ NM_AUTO_DEFINE_FCN_VOID0(ModifyInfo *, _auto_free_modify_info, modify_info_free)
 static void
 modify_reapply_cb(GObject *object, GAsyncResult *result, gpointer user_data)
 {
-    NMDevice *                                  device = NM_DEVICE(object);
+    NMDevice                                   *device = NM_DEVICE(object);
     nm_auto(_auto_free_modify_info) ModifyInfo *info   = user_data;
-    NmCli *                                     nmc    = info->nmc;
-    GError *                                    error  = NULL;
+    NmCli                                      *nmc    = info->nmc;
+    GError                                     *error  = NULL;
 
     if (!nm_device_reapply_finish(device, result, &error)) {
         g_string_printf(nmc->return_text,
@@ -2524,14 +2531,14 @@ modify_reapply_cb(GObject *object, GAsyncResult *result, gpointer user_data)
 static void
 modify_get_applied_cb(GObject *object, GAsyncResult *result, gpointer user_data)
 {
-    NMDevice *                                  device = NM_DEVICE(object);
+    NMDevice                                   *device = NM_DEVICE(object);
     nm_auto(_auto_free_modify_info) ModifyInfo *info   = user_data;
-    NmCli *                                     nmc    = info->nmc;
-    gs_free_error GError *error                        = NULL;
-    NMConnection *        connection;
-    guint64               version_id;
-    int                   argc;
-    const char *const *   argv;
+    NmCli                                      *nmc    = info->nmc;
+    gs_free_error GError                       *error  = NULL;
+    NMConnection                               *connection;
+    guint64                                     version_id;
+    int                                         argc;
+    const char *const                          *argv;
 
     connection = nm_device_get_applied_connection_finish(device, result, &version_id, &error);
     if (!connection) {
@@ -2572,8 +2579,8 @@ modify_get_applied_cb(GObject *object, GAsyncResult *result, gpointer user_data)
 static void
 do_device_modify(const NMCCommand *cmd, NmCli *nmc, int argc, const char *const *argv)
 {
-    NMDevice *    device = NULL;
-    ModifyInfo *  info;
+    NMDevice             *device = NULL;
+    ModifyInfo           *info;
     gs_free_error GError *error = NULL;
 
     next_arg(nmc, &argc, &argv, NULL);
@@ -2594,7 +2601,7 @@ do_device_modify(const NMCCommand *cmd, NmCli *nmc, int argc, const char *const 
     *info = (ModifyInfo){
         .nmc  = nmc,
         .argc = argc,
-        .argv = nm_utils_strv_dup(argv, argc, TRUE),
+        .argv = nm_strv_dup(argv, argc, TRUE),
     };
 
     nm_device_get_applied_connection_async(device, 0, NULL, modify_get_applied_cb, info);
@@ -2603,11 +2610,11 @@ do_device_modify(const NMCCommand *cmd, NmCli *nmc, int argc, const char *const 
 static void
 disconnect_device_cb(GObject *object, GAsyncResult *result, gpointer user_data)
 {
-    NMDevice *    device = NM_DEVICE(object);
+    NMDevice     *device = NM_DEVICE(object);
     DeviceCbInfo *info   = (DeviceCbInfo *) user_data;
-    NmCli *       nmc;
+    NmCli        *nmc;
     NMDeviceState state;
-    GError *      error = NULL;
+    GError       *error = NULL;
 
     if (!nm_device_disconnect_finish(device, result, &error)) {
         if (g_error_matches(error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
@@ -2639,9 +2646,9 @@ disconnect_device_cb(GObject *object, GAsyncResult *result, gpointer user_data)
 static void
 do_devices_disconnect(const NMCCommand *cmd, NmCli *nmc, int argc, const char *const *argv)
 {
-    NMDevice *    device;
+    NMDevice     *device;
     DeviceCbInfo *info = NULL;
-    GSList *      queue, *iter;
+    GSList       *queue, *iter;
 
     /* Set default timeout for disconnect operation. */
     if (nmc->timeout == -1)
@@ -2684,10 +2691,10 @@ out:
 static void
 delete_device_cb(GObject *object, GAsyncResult *result, gpointer user_data)
 {
-    NMDevice *    device = NM_DEVICE(object);
+    NMDevice     *device = NM_DEVICE(object);
     DeviceCbInfo *info   = (DeviceCbInfo *) user_data;
-    NmCli *       nmc    = info->nmc;
-    GError *      error  = NULL;
+    NmCli        *nmc    = info->nmc;
+    GError       *error  = NULL;
 
     if (!nm_device_delete_finish(device, result, &error)) {
         g_string_printf(nmc->return_text, _("Error: not all devices deleted."));
@@ -2707,9 +2714,9 @@ delete_device_cb(GObject *object, GAsyncResult *result, gpointer user_data)
 static void
 do_devices_delete(const NMCCommand *cmd, NmCli *nmc, int argc, const char *const *argv)
 {
-    NMDevice *    device;
+    NMDevice     *device;
     DeviceCbInfo *info = NULL;
-    GSList *      queue, *iter;
+    GSList       *queue, *iter;
 
     /* Set default timeout for delete operation. */
     if (nmc->timeout == -1)
@@ -2865,7 +2872,7 @@ static void
 device_ac(NMDevice *device, GParamSpec *pspec, NmCli *nmc)
 {
     NMActiveConnection *ac = nm_device_get_active_connection(device);
-    const char *        id = ac ? nm_active_connection_get_id(ac) : NULL;
+    const char         *id = ac ? nm_active_connection_get_id(ac) : NULL;
 
     if (!id)
         return;
@@ -2979,7 +2986,7 @@ static NMAccessPoint *
 find_ap_on_device(NMDevice *device, const char *bssid, const char *ssid, gboolean complete)
 {
     const GPtrArray *aps;
-    NMAccessPoint *  ap = NULL;
+    NMAccessPoint   *ap = NULL;
     int              i;
 
     g_return_val_if_fail(NM_IS_DEVICE_WIFI(device), NULL);
@@ -3005,7 +3012,7 @@ find_ap_on_device(NMDevice *device, const char *bssid, const char *ssid, gboolea
         if (ssid) {
             /* Parameter is SSID */
             GBytes *candidate_ssid;
-            char *  ssid_tmp;
+            char   *ssid_tmp;
 
             candidate_ssid = nm_access_point_get_ssid(candidate_ap);
             if (!candidate_ssid)
@@ -3038,8 +3045,8 @@ find_ap_on_device(NMDevice *device, const char *bssid, const char *ssid, gboolea
 static void
 show_access_point_info(NMDeviceWifi *wifi, NmCli *nmc, NmcOutputData *out)
 {
-    NMAccessPoint * active_ap    = NULL;
-    const char *    active_bssid = NULL;
+    NMAccessPoint  *active_ap    = NULL;
+    const char     *active_bssid = NULL;
     NmcOutputField *arr;
 
     if (nm_device_get_state(NM_DEVICE(wifi)) == NM_DEVICE_STATE_ACTIVATED) {
@@ -3054,12 +3061,12 @@ show_access_point_info(NMDeviceWifi *wifi, NmCli *nmc, NmcOutputData *out)
     {
         gs_unref_ptrarray GPtrArray *aps  = NULL;
         APInfo                       info = {
-            .nmc          = nmc,
-            .index        = 1,
-            .output_flags = 0,
-            .active_bssid = active_bssid,
-            .device       = nm_device_get_iface(NM_DEVICE(wifi)),
-            .output_data  = out->output_data,
+                                  .nmc          = nmc,
+                                  .index        = 1,
+                                  .output_flags = 0,
+                                  .active_bssid = active_bssid,
+                                  .device       = nm_device_get_iface(NM_DEVICE(wifi)),
+                                  .output_data  = out->output_data,
         };
 
         aps = sort_access_points(nm_device_wifi_get_access_points(wifi));
@@ -3070,21 +3077,21 @@ show_access_point_info(NMDeviceWifi *wifi, NmCli *nmc, NmcOutputData *out)
 }
 
 static void
-wifi_print_aps(NMDeviceWifi *                   wifi,
-               NmCli *                          nmc,
-               GArray *                         _out_indices,
+wifi_print_aps(NMDeviceWifi                    *wifi,
+               NmCli                           *nmc,
+               GArray                          *_out_indices,
                const NMMetaAbstractInfo *const *tmpl,
-               const char *                     bssid_user,
-               gboolean *                       bssid_found)
+               const char                      *bssid_user,
+               gboolean                        *bssid_found)
 {
-    NMAccessPoint *  ap = NULL;
+    NMAccessPoint   *ap = NULL;
     const GPtrArray *aps;
-    APInfo *         info;
+    APInfo          *info;
     guint            i;
-    NmcOutputField * arr;
-    const char *     base_hdr = _("Wi-Fi scan list");
+    NmcOutputField  *arr;
+    const char      *base_hdr = _("Wi-Fi scan list");
     NMC_OUTPUT_DATA_DEFINE_SCOPED(out);
-    gs_free char *  header_name = NULL;
+    gs_free char   *header_name = NULL;
     static gboolean empty_line  = FALSE;
 
     if (empty_line)
@@ -3148,17 +3155,17 @@ _device_wifi_get_last_scan(NMDeviceWifi *wifi)
 }
 
 typedef struct {
-    NmCli *                          nmc;
-    NMDevice **                      devices;
+    NmCli                           *nmc;
+    NMDevice                       **devices;
     const NMMetaAbstractInfo *const *tmpl;
-    char *                           bssid_user;
-    GArray *                         out_indices;
+    char                            *bssid_user;
+    GArray                          *out_indices;
     gint64                           rescan_cutoff_msec;
     guint                            pending;
 } ScanInfo;
 
 typedef struct {
-    ScanInfo *    scan_info;
+    ScanInfo     *scan_info;
     NMDeviceWifi *wifi;
     gulong        last_scan_id;
     guint         timeout_id;
@@ -3169,7 +3176,7 @@ static void
 wifi_list_finish(WifiListData *wifi_list_data, gboolean force_finished)
 {
     ScanInfo *scan_info   = wifi_list_data->scan_info;
-    NmCli *   nmc         = scan_info->nmc;
+    NmCli    *nmc         = scan_info->nmc;
     gboolean  bssid_found = FALSE;
     guint     i;
 
@@ -3240,9 +3247,9 @@ wifi_list_rescan_retry_cb(gpointer user_data, GCancellable *cancellable)
 static void
 wifi_list_rescan_cb(GObject *source_object, GAsyncResult *res, gpointer user_data)
 {
-    NMDeviceWifi *wifi          = NM_DEVICE_WIFI(source_object);
+    NMDeviceWifi         *wifi  = NM_DEVICE_WIFI(source_object);
     gs_free_error GError *error = NULL;
-    WifiListData *        wifi_list_data;
+    WifiListData         *wifi_list_data;
     gboolean              force_finished;
     gboolean              done;
 
@@ -3299,7 +3306,7 @@ wifi_list_scan_timeout(gpointer user_data)
 }
 
 static void
-complete_aps(NMDevice ** devices,
+complete_aps(NMDevice  **devices,
              const char *ifname,
              const char *bssid_prefix,
              const char *ssid_prefix)
@@ -3323,21 +3330,21 @@ nmc_complete_bssid(NMClient *client, const char *ifname, const char *bssid_prefi
 static void
 do_device_wifi_list(const NMCCommand *cmd, NmCli *nmc, int argc, const char *const *argv)
 {
-    GError *    error                           = NULL;
-    NMDevice *  device                          = NULL;
-    const char *ifname                          = NULL;
-    const char *bssid_user                      = NULL;
-    const char *rescan                          = NULL;
-    gs_free NMDevice **              devices    = NULL;
-    const char *                     fields_str = NULL;
+    GError                          *error      = NULL;
+    NMDevice                        *device     = NULL;
+    const char                      *ifname     = NULL;
+    const char                      *bssid_user = NULL;
+    const char                      *rescan     = NULL;
+    gs_free NMDevice               **devices    = NULL;
+    const char                      *fields_str = NULL;
     const NMMetaAbstractInfo *const *tmpl;
-    gs_unref_array GArray *out_indices = NULL;
-    int                    option;
-    gint64                 rescan_cutoff_msec;
-    ScanInfo *             scan_info = NULL;
-    gboolean               ifname_handled;
-    NMDevice *             ifname_handled_candidate;
-    guint                  i, j;
+    gs_unref_array GArray           *out_indices = NULL;
+    int                              option;
+    gint64                           rescan_cutoff_msec;
+    ScanInfo                        *scan_info = NULL;
+    gboolean                         ifname_handled;
+    NMDevice                        *ifname_handled_candidate;
+    guint                            i, j;
 
     devices = nmc_get_devices_sorted(nmc->client);
 
@@ -3539,11 +3546,11 @@ do_device_wifi_list(const NMCCommand *cmd, NmCli *nmc, int argc, const char *con
 static void
 activate_update2_cb(GObject *source_object, GAsyncResult *res, gpointer user_data)
 {
-    NMRemoteConnection *remote_con   = NM_REMOTE_CONNECTION(source_object);
-    AddAndActivateInfo *info         = user_data;
-    NmCli *             nmc          = info->nmc;
-    gs_unref_variant GVariant *ret   = NULL;
-    GError *                   error = NULL;
+    NMRemoteConnection        *remote_con = NM_REMOTE_CONNECTION(source_object);
+    AddAndActivateInfo        *info       = user_data;
+    NmCli                     *nmc        = info->nmc;
+    gs_unref_variant GVariant *ret        = NULL;
+    GError                    *error      = NULL;
 
     ret = nm_remote_connection_update2_finish(remote_con, res, &error);
 
@@ -3566,11 +3573,11 @@ activate_update2_cb(GObject *source_object, GAsyncResult *res, gpointer user_dat
 }
 
 static void
-save_and_activate_connection(NmCli *       nmc,
-                             NMDevice *    device,
+save_and_activate_connection(NmCli        *nmc,
+                             NMDevice     *device,
                              NMConnection *connection,
                              gboolean      hotspot,
-                             const char *  specific_object)
+                             const char   *specific_object)
 {
     AddAndActivateInfo *info;
 
@@ -3602,29 +3609,29 @@ save_and_activate_connection(NmCli *       nmc,
 static void
 do_device_wifi_connect(const NMCCommand *cmd, NmCli *nmc, int argc, const char *const *argv)
 {
-    NMDevice *             device = NULL;
-    NMAccessPoint *        ap     = NULL;
-    NM80211ApFlags         ap_flags;
-    NM80211ApSecurityFlags ap_wpa_flags;
-    NM80211ApSecurityFlags ap_rsn_flags;
+    NMDevice                     *device = NULL;
+    NMAccessPoint                *ap     = NULL;
+    NM80211ApFlags                ap_flags;
+    NM80211ApSecurityFlags        ap_wpa_flags;
+    NM80211ApSecurityFlags        ap_rsn_flags;
     gs_unref_object NMConnection *connection = NULL;
-    NMSettingConnection *         s_con;
-    NMSettingWireless *           s_wifi;
-    const char *                  param_user = NULL;
-    const char *                  ifname     = NULL;
-    const char *                  bssid      = NULL;
-    const char *                  password   = NULL;
-    const char *                  con_name   = NULL;
+    NMSettingConnection          *s_con;
+    NMSettingWireless            *s_wifi;
+    const char                   *param_user = NULL;
+    const char                   *ifname     = NULL;
+    const char                   *bssid      = NULL;
+    const char                   *password   = NULL;
+    const char                   *con_name   = NULL;
     gboolean private                         = FALSE;
-    gboolean    hidden                       = FALSE;
-    gboolean    wep_passphrase               = FALSE;
-    GByteArray *bssid1_arr                   = NULL;
-    GByteArray *bssid2_arr                   = NULL;
+    gboolean           hidden                = FALSE;
+    gboolean           wep_passphrase        = FALSE;
+    GByteArray        *bssid1_arr            = NULL;
+    GByteArray        *bssid2_arr            = NULL;
     gs_free NMDevice **devices               = NULL;
     int                devices_idx;
-    char *             ssid_ask   = NULL;
-    char *             passwd_ask = NULL;
-    const GPtrArray *  avail_cons;
+    char              *ssid_ask   = NULL;
+    char              *passwd_ask = NULL;
+    const GPtrArray   *avail_cons;
     gboolean           name_match = FALSE;
     int                i;
 
@@ -3832,8 +3839,8 @@ do_device_wifi_connect(const NMCCommand *cmd, NmCli *nmc, int argc, const char *
     /* For hidden SSID first scan it so that NM learns about the AP */
     if (hidden) {
         GVariantBuilder builder, array_builder;
-        GVariant *      options;
-        GError *        scan_err = NULL;
+        GVariant       *options;
+        GError         *scan_err = NULL;
 
         g_variant_builder_init(&builder, G_VARIANT_TYPE_VARDICT);
         g_variant_builder_init(&array_builder, G_VARIANT_TYPE("aay"));
@@ -3891,7 +3898,7 @@ do_device_wifi_connect(const NMCCommand *cmd, NmCli *nmc, int argc, const char *
     avail_cons = nm_device_get_available_connections(device);
     for (i = 0; i < avail_cons->len; i++) {
         NMConnection *avail_con = g_ptr_array_index(avail_cons, i);
-        const char *  id        = nm_connection_get_id(NM_CONNECTION(avail_con));
+        const char   *id        = nm_connection_get_id(NM_CONNECTION(avail_con));
 
         if (con_name) {
             if (!id || strcmp(id, con_name))
@@ -3980,7 +3987,7 @@ do_device_wifi_connect(const NMCCommand *cmd, NmCli *nmc, int argc, const char *
         || (ap_rsn_flags != NM_802_11_AP_SEC_NONE
             && !NM_FLAGS_ANY(ap_rsn_flags,
                              NM_802_11_AP_SEC_KEY_MGMT_OWE | NM_802_11_AP_SEC_KEY_MGMT_OWE_TM))) {
-        const char *               con_password = NULL;
+        const char                *con_password = NULL;
         NMSettingWirelessSecurity *s_wsec       = NULL;
 
         if (connection) {
@@ -4057,7 +4064,7 @@ static GBytes *
 generate_ssid_for_hotspot(void)
 {
     GBytes *ssid_bytes;
-    char *  ssid = NULL;
+    char   *ssid = NULL;
 
     ssid = g_strdup_printf("Hotspot-%s", g_get_host_name());
     if (strlen(ssid) > 32)
@@ -4110,11 +4117,11 @@ generate_wep_key(char *key, size_t len)
 
 static gboolean
 set_wireless_security_for_hotspot(NMSettingWirelessSecurity *s_wsec,
-                                  const char *               wifi_mode,
+                                  const char                *wifi_mode,
                                   NMDeviceWifiCapabilities   caps,
-                                  const char *               password,
+                                  const char                *password,
                                   gboolean                   show_password,
-                                  GError **                  error)
+                                  GError                   **error)
 {
     char        generated_key[11];
     const char *key;
@@ -4186,15 +4193,15 @@ set_wireless_security_for_hotspot(NMSettingWirelessSecurity *s_wsec,
 }
 
 static NMConnection *
-find_hotspot_conn(NMDevice *       device,
+find_hotspot_conn(NMDevice        *device,
                   const GPtrArray *connections,
-                  const char *     con_name,
-                  GBytes *         ssid_bytes,
-                  const char *     wifi_mode,
-                  const char *     band,
+                  const char      *con_name,
+                  GBytes          *ssid_bytes,
+                  const char      *wifi_mode,
+                  const char      *band,
                   gint64           channel_int)
 {
-    NMConnection *     connection;
+    NMConnection      *connection;
     NMSettingWireless *s_wifi;
     int                i;
 
@@ -4228,19 +4235,19 @@ find_hotspot_conn(NMDevice *       device,
 
 static NMConnection *
 create_hotspot_conn(const GPtrArray *connections,
-                    const char *     con_name,
-                    GBytes *         ssid_bytes,
-                    const char *     wifi_mode,
-                    const char *     band,
+                    const char      *con_name,
+                    GBytes          *ssid_bytes,
+                    const char      *wifi_mode,
+                    const char      *band,
                     gint64           channel_int)
 {
-    char *                     default_name = NULL;
-    NMConnection *             connection;
-    NMSettingConnection *      s_con;
-    NMSettingWireless *        s_wifi;
+    char                      *default_name = NULL;
+    NMConnection              *connection;
+    NMSettingConnection       *s_con;
+    NMSettingWireless         *s_wifi;
     NMSettingWirelessSecurity *s_wsec;
-    NMSettingIPConfig *        s_ip4, *s_ip6;
-    NMSettingProxy *           s_proxy;
+    NMSettingIPConfig         *s_ip4, *s_ip6;
+    NMSettingProxy            *s_proxy;
 
     connection = nm_simple_connection_new();
     s_con      = (NMSettingConnection *) nm_setting_connection_new();
@@ -4295,22 +4302,22 @@ create_hotspot_conn(const GPtrArray *connections,
 static void
 do_device_wifi_hotspot(const NMCCommand *cmd, NmCli *nmc, int argc, const char *const *argv)
 {
-    const char *   ifname             = NULL;
-    const char *   con_name           = NULL;
-    gs_unref_bytes GBytes *ssid_bytes = NULL;
-    const char *           wifi_mode;
-    const char *           band          = NULL;
-    const char *           channel       = NULL;
-    gint64                 channel_int   = -1;
-    const char *           password      = NULL;
-    gboolean               show_password = FALSE;
-    NMDevice *             device        = NULL;
-    gs_free NMDevice **      devices     = NULL;
-    NMDeviceWifiCapabilities caps;
+    const char                   *ifname     = NULL;
+    const char                   *con_name   = NULL;
+    gs_unref_bytes GBytes        *ssid_bytes = NULL;
+    const char                   *wifi_mode;
+    const char                   *band          = NULL;
+    const char                   *channel       = NULL;
+    gint64                        channel_int   = -1;
+    const char                   *password      = NULL;
+    gboolean                      show_password = FALSE;
+    NMDevice                     *device        = NULL;
+    gs_free NMDevice            **devices       = NULL;
+    NMDeviceWifiCapabilities      caps;
     gs_unref_object NMConnection *connection = NULL;
-    const GPtrArray *             connections;
-    NMSettingWirelessSecurity *   s_wsec;
-    GError *                      error = NULL;
+    const GPtrArray              *connections;
+    NMSettingWirelessSecurity    *s_wsec;
+    GError                       *error = NULL;
 
     /* Set default timeout waiting for operation completion. */
     if (nmc->timeout == -1)
@@ -4510,7 +4517,7 @@ do_device_wifi_hotspot(const NMCCommand *cmd, NmCli *nmc, int argc, const char *
 static void
 request_rescan_cb(GObject *object, GAsyncResult *result, gpointer user_data)
 {
-    NmCli * nmc   = (NmCli *) user_data;
+    NmCli  *nmc   = (NmCli *) user_data;
     GError *error = NULL;
 
     nm_device_wifi_request_scan_finish(NM_DEVICE_WIFI(object), result, &error);
@@ -4525,13 +4532,13 @@ request_rescan_cb(GObject *object, GAsyncResult *result, gpointer user_data)
 static void
 do_device_wifi_rescan(const NMCCommand *cmd, NmCli *nmc, int argc, const char *const *argv)
 {
-    NMDevice *        device;
-    const char *      ifname           = NULL;
-    gs_unref_ptrarray GPtrArray *ssids = NULL;
-    gs_free NMDevice **devices         = NULL;
-    GVariantBuilder    builder, array_builder;
-    GVariant *         options;
-    int                i;
+    NMDevice                    *device;
+    const char                  *ifname  = NULL;
+    gs_unref_ptrarray GPtrArray *ssids   = NULL;
+    gs_free NMDevice           **devices = NULL;
+    GVariantBuilder              builder, array_builder;
+    GVariant                    *options;
+    int                          i;
 
     ssids   = g_ptr_array_new();
     devices = nmc_get_devices_sorted(nmc->client);
@@ -4650,13 +4657,13 @@ string_append_mecard(GString *string, const char *tag, const char *text)
 static void
 print_wifi_connection(const NmcConfig *nmc_config, NMConnection *connection)
 {
-    NMSettingWireless *        s_wireless;
-    NMSettingWirelessSecurity *s_wsec;
-    const char *               key_mgmt = NULL;
-    const char *               psk      = NULL;
-    const char *               type     = NULL;
-    GBytes *                   ssid_bytes;
-    gs_free char *             ssid      = NULL;
+    NMSettingWireless            *s_wireless;
+    NMSettingWirelessSecurity    *s_wsec;
+    const char                   *key_mgmt = NULL;
+    const char                   *psk      = NULL;
+    const char                   *type     = NULL;
+    GBytes                       *ssid_bytes;
+    gs_free char                 *ssid   = NULL;
     nm_auto_free_gstring GString *string = NULL;
 
     s_wireless = nm_connection_get_setting_wireless(connection);
@@ -4712,9 +4719,9 @@ print_wifi_connection(const NmcConfig *nmc_config, NMConnection *connection)
 static gboolean
 wifi_show_device(const NmcConfig *nmc_config, NMDevice *device, GError **error)
 {
-    NMActiveConnection *active_conn;
+    NMActiveConnection           *active_conn;
     gs_unref_object NMConnection *connection = NULL;
-    gs_unref_variant GVariant *secrets       = NULL;
+    gs_unref_variant GVariant    *secrets    = NULL;
 
     if (!NM_IS_DEVICE_WIFI(device)) {
         g_set_error(error,
@@ -4759,10 +4766,10 @@ wifi_show_device(const NmcConfig *nmc_config, NMDevice *device, GError **error)
 static void
 do_device_wifi_show_password(const NMCCommand *cmd, NmCli *nmc, int argc, const char *const *argv)
 {
-    const char *ifname          = NULL;
-    gs_free NMDevice **devices  = NULL;
-    gs_free_error GError *error = NULL;
-    gboolean              found = FALSE;
+    const char           *ifname  = NULL;
+    gs_free NMDevice    **devices = NULL;
+    gs_free_error GError *error   = NULL;
+    gboolean              found   = FALSE;
     int                   i;
 
     devices = nmc_get_devices_sorted(nmc->client);
@@ -4846,9 +4853,9 @@ static int
 show_device_lldp_list(NMDevice *device, NmCli *nmc, const char *fields_str, int *counter)
 {
     const NMMetaAbstractInfo *const *tmpl;
-    NmcOutputField *                 arr;
-    GPtrArray *                      neighbors;
-    const char *                     str;
+    NmcOutputField                  *arr;
+    GPtrArray                       *neighbors;
+    const char                      *str;
     int                              i;
     NMC_OUTPUT_DATA_DEFINE_SCOPED(out);
     gs_free char *header_name = NULL;
@@ -4945,10 +4952,10 @@ show_device_lldp_list(NMDevice *device, NmCli *nmc, const char *fields_str, int 
 static void
 do_device_lldp_list(const NMCCommand *cmd, NmCli *nmc, int argc, const char *const *argv)
 {
-    NMDevice *    device               = NULL;
-    gs_free_error GError *error        = NULL;
-    const char *          fields_str   = NULL;
-    int                   counter      = 0;
+    NMDevice              *device      = NULL;
+    gs_free_error GError  *error       = NULL;
+    const char            *fields_str  = NULL;
+    int                    counter     = 0;
     gs_unref_array GArray *out_indices = NULL;
 
     next_arg(nmc, &argc, &argv, NULL);
@@ -5047,7 +5054,7 @@ is_single_word(const char *line)
 static char **
 nmcli_device_tab_completion(const char *text, int start, int end)
 {
-    char **              match_array    = NULL;
+    char               **match_array    = NULL;
     rl_compentry_func_t *generator_func = NULL;
 
     /* Disable readline's default filename completion */
@@ -5075,17 +5082,19 @@ void
 nmc_command_func_device(const NMCCommand *cmd, NmCli *nmc, int argc, const char *const *argv)
 {
     static const NMCCommand cmds[] = {
-        {"status", do_devices_status, usage_device_status, TRUE, TRUE},
-        {"show", do_device_show, usage_device_show, TRUE, TRUE},
         {"connect", do_device_connect, usage_device_connect, TRUE, TRUE},
-        {"reapply", do_device_reapply, usage_device_reapply, TRUE, TRUE},
         {"disconnect", do_devices_disconnect, usage_device_disconnect, TRUE, TRUE},
         {"delete", do_devices_delete, usage_device_delete, TRUE, TRUE},
-        {"set", do_device_set, usage_device_set, TRUE, TRUE},
-        {"monitor", do_devices_monitor, usage_device_monitor, TRUE, TRUE},
-        {"wifi", do_device_wifi, usage_device_wifi, FALSE, FALSE},
+        {"down", do_devices_disconnect, usage_device_disconnect, TRUE, TRUE},
         {"lldp", do_device_lldp, usage_device_lldp, FALSE, FALSE},
+        {"monitor", do_devices_monitor, usage_device_monitor, TRUE, TRUE},
         {"modify", do_device_modify, usage_device_modify, TRUE, TRUE},
+        {"reapply", do_device_reapply, usage_device_reapply, TRUE, TRUE},
+        {"status", do_devices_status, usage_device_status, TRUE, TRUE},
+        {"set", do_device_set, usage_device_set, TRUE, TRUE},
+        {"show", do_device_show, usage_device_show, TRUE, TRUE},
+        {"up", do_device_connect, usage_device_connect, TRUE, TRUE},
+        {"wifi", do_device_wifi, usage_device_wifi, FALSE, FALSE},
         {NULL, do_devices_status, usage, TRUE, TRUE},
     };
 

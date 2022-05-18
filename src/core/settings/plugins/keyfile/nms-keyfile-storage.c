@@ -41,7 +41,7 @@ nms_keyfile_storage_copy_content(NMSKeyfileStorage *dst, const NMSKeyfileStorage
         dst->u.meta_data.shadowed_storage = g_strdup(dst->u.meta_data.shadowed_storage);
     } else {
         gs_unref_object NMConnection *connection_to_free       = NULL;
-        gs_free char *                shadowed_storage_to_free = NULL;
+        gs_free char                 *shadowed_storage_to_free = NULL;
 
         connection_to_free       = g_steal_pointer(&dst->u.conn_data.connection);
         shadowed_storage_to_free = g_steal_pointer(&dst->u.conn_data.shadowed_storage);
@@ -99,9 +99,9 @@ nms_keyfile_storage_init(NMSKeyfileStorage *self)
 {}
 
 static NMSKeyfileStorage *
-_storage_new(NMSKeyfilePlugin *    plugin,
-             const char *          uuid,
-             const char *          filename,
+_storage_new(NMSKeyfilePlugin     *plugin,
+             const char           *uuid,
+             const char           *filename,
              gboolean              is_meta_data,
              NMSKeyfileStorageType storage_type)
 
@@ -128,11 +128,11 @@ _storage_new(NMSKeyfilePlugin *    plugin,
 }
 
 NMSKeyfileStorage *
-nms_keyfile_storage_new_tombstone(NMSKeyfilePlugin *    plugin,
-                                  const char *          uuid,
-                                  const char *          filename,
+nms_keyfile_storage_new_tombstone(NMSKeyfilePlugin     *plugin,
+                                  const char           *uuid,
+                                  const char           *filename,
                                   NMSKeyfileStorageType storage_type,
-                                  const char *          shadowed_storage)
+                                  const char           *shadowed_storage)
 {
     NMSKeyfileStorage *self;
 
@@ -149,14 +149,14 @@ nms_keyfile_storage_new_tombstone(NMSKeyfilePlugin *    plugin,
 }
 
 NMSKeyfileStorage *
-nms_keyfile_storage_new_connection(NMSKeyfilePlugin *     plugin,
-                                   NMConnection *         connection_take /* pass reference */,
-                                   const char *           filename,
+nms_keyfile_storage_new_connection(NMSKeyfilePlugin      *plugin,
+                                   NMConnection          *connection_take /* pass reference */,
+                                   const char            *filename,
                                    NMSKeyfileStorageType  storage_type,
                                    NMTernary              is_nm_generated_opt,
                                    NMTernary              is_volatile_opt,
                                    NMTernary              is_external_opt,
-                                   const char *           shadowed_storage,
+                                   const char            *shadowed_storage,
                                    NMTernary              shadowed_owned_opt,
                                    const struct timespec *stat_mtime)
 {
@@ -168,7 +168,7 @@ nms_keyfile_storage_new_connection(NMSKeyfilePlugin *     plugin,
     nm_assert(filename && filename[0] == '/');
     nm_assert(storage_type >= NMS_KEYFILE_STORAGE_TYPE_RUN
               && storage_type <= _NMS_KEYFILE_STORAGE_TYPE_LIB_LAST);
-    nmtst_connection_assert_unchanging(connection_take);
+    nm_assert_connection_unchanging(connection_take);
 
     self = _storage_new(plugin,
                         nm_connection_get_uuid(connection_take),
@@ -228,7 +228,7 @@ nms_keyfile_storage_destroy(NMSKeyfileStorage *self)
 static void
 nms_keyfile_storage_class_init(NMSKeyfileStorageClass *klass)
 {
-    GObjectClass *          object_class  = G_OBJECT_CLASS(klass);
+    GObjectClass           *object_class  = G_OBJECT_CLASS(klass);
     NMSettingsStorageClass *storage_class = NM_SETTINGS_STORAGE_CLASS(klass);
 
     object_class->dispose = dispose;
@@ -241,7 +241,7 @@ nms_keyfile_storage_class_init(NMSKeyfileStorageClass *klass)
 #include "settings/nm-settings-connection.h"
 
 void
-nm_settings_storage_load_sett_flags(NMSettingsStorage *           self,
+nm_settings_storage_load_sett_flags(NMSettingsStorage            *self,
                                     NMSettingsConnectionIntFlags *sett_flags,
                                     NMSettingsConnectionIntFlags *sett_mask)
 {

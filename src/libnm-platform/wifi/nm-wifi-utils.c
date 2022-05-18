@@ -15,7 +15,7 @@
 #include "nm-wifi-utils-private.h"
 #include "nm-wifi-utils-nl80211.h"
 #if HAVE_WEXT
-    #include "nm-wifi-utils-wext.h"
+#include "nm-wifi-utils-wext.h"
 #endif
 #include "libnm-platform/nm-platform-utils.h"
 
@@ -119,9 +119,9 @@ nm_wifi_utils_get_can_apscan(NMWifiUtils *data)
 {
     NMWifiUtilsClass *klass;
 
-    g_return_val_if_fail (data != NULL, FALSE);
+    g_return_val_if_fail(data != NULL, FALSE);
 
-    return NM_WIFI_UTILS_GET_CLASS (data)->get_can_apscan(data);
+    return NM_WIFI_UTILS_GET_CLASS(data)->get_can_apscan(data);
 }
 
 guint32
@@ -142,8 +142,8 @@ nm_wifi_utils_find_freq(NMWifiUtils *data, const guint32 *freqs)
 gboolean
 nm_wifi_utils_get_station(NMWifiUtils *data,
                           NMEtherAddr *out_bssid,
-                          int *        out_quality,
-                          guint32 *    out_rate)
+                          int         *out_quality,
+                          guint32     *out_rate)
 {
     g_return_val_if_fail(data != NULL, FALSE);
 

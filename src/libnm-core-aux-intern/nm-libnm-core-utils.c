@@ -8,13 +8,14 @@
 
 #include "nm-common-macros.h"
 #include "nm-errors.h"
+#include "libnm-core-public/nm-connection.h"
 
 /*****************************************************************************/
 
 const char **
 nm_utils_bond_option_arp_ip_targets_split(const char *arp_ip_target)
 {
-    return nm_utils_strsplit_set_full(arp_ip_target, ",", NM_UTILS_STRSPLIT_SET_FLAGS_STRSTRIP);
+    return nm_strsplit_set_full(arp_ip_target, ",", NM_STRSPLIT_SET_FLAGS_STRSTRIP);
 }
 
 void
@@ -25,6 +26,7 @@ _nm_setting_bond_remove_options_miimon(NMSettingBond *s_bond)
     nm_setting_bond_remove_option(s_bond, NM_SETTING_BOND_OPTION_MIIMON);
     nm_setting_bond_remove_option(s_bond, NM_SETTING_BOND_OPTION_UPDELAY);
     nm_setting_bond_remove_option(s_bond, NM_SETTING_BOND_OPTION_DOWNDELAY);
+    nm_setting_bond_remove_option(s_bond, NM_SETTING_BOND_OPTION_PEER_NOTIF_DELAY);
 }
 
 void
@@ -102,11 +104,11 @@ _nm_setting_bond_mode_to_string(int mode)
 
 gboolean
 nm_utils_vlan_priority_map_parse_str(NMVlanPriorityMap map_type,
-                                     const char *      str,
+                                     const char       *str,
                                      gboolean          allow_wildcard_to,
-                                     guint32 *         out_from,
-                                     guint32 *         out_to,
-                                     gboolean *        out_has_wildcard_to)
+                                     guint32          *out_from,
+                                     guint32          *out_to,
+                                     gboolean         *out_has_wildcard_to)
 {
     const char *s2;
     gint64      v1, v2;
@@ -214,7 +216,7 @@ _nm_auth_permission_from_string_cmp(gconstpointer a, gconstpointer b, gpointer u
 {
     const NMClientPermission *const p      = a;
     const char *const               needle = b;
-    const char *                    ss     = nm_auth_permission_names_by_idx[*p - 1];
+    const char                     *ss     = nm_auth_permission_names_by_idx[*p - 1];
 
     nm_assert(NM_STR_HAS_PREFIX(ss, AUTH_PERMISSION_PREFIX));
     nm_assert(ss[NM_STRLEN(AUTH_PERMISSION_PREFIX)] != '\0');
@@ -279,7 +281,7 @@ nm_client_permission_result_to_string(NMClientPermissionResult permission)
 gboolean
 nm_utils_validate_dhcp4_vendor_class_id(const char *vci, GError **error)
 {
-    const char *  bin;
+    const char   *bin;
     gsize         unescaped_len;
     gs_free char *to_free = NULL;
 
@@ -356,4 +358,23 @@ nm_settings_connection_validate_permission_user(const char *item, gssize len)
         return FALSE;
 
     return TRUE;
+}
+
+gpointer
+_nm_connection_ensure_setting(NMConnection *connection, GType gtype)
+{
+    return nm_connection_get_setting(connection, gtype)
+               ?: _nm_connection_new_setting(connection, gtype);
+}
+
+gpointer
+_nm_connection_new_setting(NMConnection *connection, GType gtype)
+{
+    NMSetting *setting;
+
+    nm_assert(g_type_is_a(gtype, NM_TYPE_SETTING));
+
+    setting = g_object_new(gtype, NULL);
+    nm_connection_add_setting(connection, setting);
+    return setting;
 }

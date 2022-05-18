@@ -9,16 +9,16 @@
 
 #include <arpa/inet.h>
 #include <netinet/icmp6.h>
-/* stdarg.h included because of a bug in ndp.h */
 #include <stdarg.h>
 #include <ndp.h>
 
-#include "libnm-glib-aux/nm-str-buf.h"
-#include "libnm-systemd-shared/nm-sd-utils-shared.h"
-#include "nm-ndisc-private.h"
 #include "NetworkManagerUtils.h"
+#include "libnm-glib-aux/nm-str-buf.h"
 #include "libnm-platform/nm-platform.h"
 #include "libnm-platform/nmp-netns.h"
+#include "libnm-systemd-shared/nm-sd-utils-shared.h"
+#include "nm-l3cfg.h"
+#include "nm-ndisc-private.h"
 
 #define _NMLOG_PREFIX_NAME "ndisc-lndp"
 
@@ -26,7 +26,7 @@
 
 typedef struct {
     struct ndp *ndp;
-    GSource *   event_source;
+    GSource    *event_source;
 } NMLndpNDiscPrivate;
 
 /*****************************************************************************/
@@ -53,7 +53,7 @@ static gboolean
 send_rs(NMNDisc *ndisc, GError **error)
 {
     NMLndpNDiscPrivate *priv = NM_LNDP_NDISC_GET_PRIVATE(ndisc);
-    struct ndp_msg *    msg;
+    struct ndp_msg     *msg;
     int                 errsv;
 
     errsv = ndp_msg_new(&msg, NDP_MSG_RS);
@@ -85,14 +85,14 @@ send_rs(NMNDisc *ndisc, GError **error)
 static NMIcmpv6RouterPref
 _route_preference_coerce(enum ndp_route_preference pref)
 {
-#define _ASSERT_ENUM(v1, v2)                                       \
-    G_STMT_START                                                   \
-    {                                                              \
-        G_STATIC_ASSERT((NMIcmpv6RouterPref) (v1) == (v2));        \
-        G_STATIC_ASSERT((enum ndp_route_preference) (v2) == (v1)); \
-        G_STATIC_ASSERT((gint64) (v1) == (v2));                    \
-        G_STATIC_ASSERT((gint64) (v2) == (v1));                    \
-    }                                                              \
+#define _ASSERT_ENUM(v1, v2)                                      \
+    G_STMT_START                                                  \
+    {                                                             \
+        G_STATIC_ASSERT((NMIcmpv6RouterPref) (v1) == (v2));       \
+        G_STATIC_ASSERT((enum ndp_route_preference)(v2) == (v1)); \
+        G_STATIC_ASSERT((gint64) (v1) == (v2));                   \
+        G_STATIC_ASSERT((gint64) (v2) == (v1));                   \
+    }                                                             \
     G_STMT_END
 
     switch (pref) {
@@ -112,10 +112,10 @@ _route_preference_coerce(enum ndp_route_preference pref)
 static int
 receive_ra(struct ndp *ndp, struct ndp_msg *msg, gpointer user_data)
 {
-    NMNDisc *            ndisc   = (NMNDisc *) user_data;
+    NMNDisc             *ndisc   = (NMNDisc *) user_data;
     NMNDiscDataInternal *rdata   = ndisc->rdata;
     NMNDiscConfigMap     changed = 0;
-    struct ndp_msgra *   msgra   = ndp_msgra(msg);
+    struct ndp_msgra    *msgra   = ndp_msgra(msg);
     struct in6_addr      gateway_addr;
     const gint64         now_msec = nm_utils_get_monotonic_timestamp_msec();
     int                  offset;
@@ -386,11 +386,11 @@ G_STATIC_ASSERT(sizeof(NMLndpDnsslOption) == 8u);
 static gboolean
 send_ra(NMNDisc *ndisc, GError **error)
 {
-    NMLndpNDiscPrivate *     priv  = NM_LNDP_NDISC_GET_PRIVATE(ndisc);
-    NMNDiscDataInternal *    rdata = ndisc->rdata;
+    NMLndpNDiscPrivate      *priv  = NM_LNDP_NDISC_GET_PRIVATE(ndisc);
+    NMNDiscDataInternal     *rdata = ndisc->rdata;
     int                      errsv;
-    struct in6_addr *        addr;
-    struct ndp_msg *         msg;
+    struct in6_addr         *addr;
+    struct ndp_msg          *msg;
     guint                    i;
     nm_auto_str_buf NMStrBuf sbuf = NM_STR_BUF_INIT(0, FALSE);
 
@@ -417,7 +417,7 @@ send_ra(NMNDisc *ndisc, GError **error)
     /* The device let us know about all addresses that the device got
      * whose prefixes are suitable for delegating. Let's announce them. */
     for (i = 0; i < rdata->addresses->len; i++) {
-        const NMNDiscAddress *     address = &g_array_index(rdata->addresses, NMNDiscAddress, i);
+        const NMNDiscAddress      *address = &g_array_index(rdata->addresses, NMNDiscAddress, i);
         struct nd_opt_prefix_info *prefix;
 
         prefix = _ndp_msg_add_option(msg, sizeof(*prefix));
@@ -573,9 +573,9 @@ receive_rs(struct ndp *ndp, struct ndp_msg *msg, gpointer user_data)
 static gboolean
 event_ready(int fd, GIOCondition condition, gpointer user_data)
 {
-    gs_unref_object NMNDisc *ndisc    = g_object_ref(NM_NDISC(user_data));
+    gs_unref_object NMNDisc    *ndisc = g_object_ref(NM_NDISC(user_data));
     nm_auto_pop_netns NMPNetns *netns = NULL;
-    NMLndpNDiscPrivate *        priv  = NM_LNDP_NDISC_GET_PRIVATE(ndisc);
+    NMLndpNDiscPrivate         *priv  = NM_LNDP_NDISC_GET_PRIVATE(ndisc);
 
     _LOGD("processing libndp events");
 
@@ -599,9 +599,7 @@ start(NMNDisc *ndisc)
 
     fd = ndp_get_eventfd(priv->ndp);
 
-    priv->event_source =
-        nm_g_unix_fd_source_new(fd, G_IO_IN, G_PRIORITY_DEFAULT, event_ready, ndisc, NULL);
-    g_source_attach(priv->event_source, NULL);
+    priv->event_source = nm_g_unix_fd_add_source(fd, G_IO_IN, event_ready, ndisc);
 
     /* Flush any pending messages to avoid using obsolete information */
     event_ready(fd, 0, ndisc);
@@ -666,140 +664,44 @@ stop(NMNDisc *ndisc)
 
 /*****************************************************************************/
 
-static int
-ipv6_sysctl_get(NMPlatform *platform,
-                const char *ifname,
-                const char *property,
-                int         min,
-                int         max,
-                int         defval)
-{
-    return nm_platform_sysctl_ip_conf_get_int_checked(platform,
-                                                      AF_INET6,
-                                                      ifname,
-                                                      property,
-                                                      10,
-                                                      min,
-                                                      max,
-                                                      defval);
-}
-
-void
-nm_lndp_ndisc_get_sysctl(NMPlatform *platform,
-                         const char *ifname,
-                         int *       out_max_addresses,
-                         int *       out_router_solicitations,
-                         int *       out_router_solicitation_interval,
-                         guint32 *   out_default_ra_timeout)
-{
-    int router_solicitation_interval = 0;
-    int router_solicitations         = 0;
-
-    if (out_max_addresses) {
-        *out_max_addresses = ipv6_sysctl_get(platform,
-                                             ifname,
-                                             "max_addresses",
-                                             0,
-                                             G_MAXINT32,
-                                             NM_NDISC_MAX_ADDRESSES_DEFAULT);
-    }
-    if (out_router_solicitations || out_default_ra_timeout) {
-        router_solicitations = ipv6_sysctl_get(platform,
-                                               ifname,
-                                               "router_solicitations",
-                                               1,
-                                               G_MAXINT32,
-                                               NM_NDISC_ROUTER_SOLICITATIONS_DEFAULT);
-        NM_SET_OUT(out_router_solicitations, router_solicitations);
-    }
-    if (out_router_solicitation_interval || out_default_ra_timeout) {
-        router_solicitation_interval = ipv6_sysctl_get(platform,
-                                                       ifname,
-                                                       "router_solicitation_interval",
-                                                       1,
-                                                       G_MAXINT32,
-                                                       NM_NDISC_RFC4861_RTR_SOLICITATION_INTERVAL);
-        NM_SET_OUT(out_router_solicitation_interval, router_solicitation_interval);
-    }
-    if (out_default_ra_timeout) {
-        *out_default_ra_timeout =
-            NM_MAX((((gint64) router_solicitations) * router_solicitation_interval) + 1, 30);
-    }
-}
-
-/*****************************************************************************/
-
 static void
 nm_lndp_ndisc_init(NMLndpNDisc *lndp_ndisc)
 {}
 
 NMNDisc *
-nm_lndp_ndisc_new(NMPlatform *                  platform,
-                  int                           ifindex,
-                  const char *                  ifname,
-                  NMUtilsStableType             stable_type,
-                  const char *                  network_id,
-                  NMSettingIP6ConfigAddrGenMode addr_gen_mode,
-                  NMNDiscNodeType               node_type,
-                  int                           max_addresses,
-                  int                           router_solicitations,
-                  int                           router_solicitation_interval,
-                  guint32                       ra_timeout,
-                  GError **                     error)
+nm_lndp_ndisc_new(const NMNDiscConfig *config)
 {
     nm_auto_pop_netns NMPNetns *netns = NULL;
-    NMNDisc *                   ndisc;
-    NMLndpNDiscPrivate *        priv;
+    gs_unref_object NMNDisc    *ndisc = NULL;
+    NMLndpNDiscPrivate         *priv;
     int                         errsv;
 
-    g_return_val_if_fail(NM_IS_PLATFORM(platform), NULL);
-    g_return_val_if_fail(!error || !*error, NULL);
-    g_return_val_if_fail(network_id, NULL);
+    g_return_val_if_fail(config, NULL);
+    g_return_val_if_fail(NM_IS_L3CFG(config->l3cfg), NULL);
+    g_return_val_if_fail(config->network_id, NULL);
 
-    if (!nm_platform_netns_push(platform, &netns))
-        return NULL;
+    if (!nm_platform_netns_push(nm_l3cfg_get_platform(config->l3cfg), &netns)) {
+        /* The inability to change the name space is also considered
+         * a fatal error. We have a FD open to the file descriptor, and
+         * it's unclear how to handle (or recover from) a failure to setns(). */
+        g_return_val_if_reached(NULL);
+    }
 
-    ndisc = g_object_new(NM_TYPE_LNDP_NDISC,
-                         NM_NDISC_PLATFORM,
-                         platform,
-                         NM_NDISC_STABLE_TYPE,
-                         (int) stable_type,
-                         NM_NDISC_IFINDEX,
-                         ifindex,
-                         NM_NDISC_IFNAME,
-                         ifname,
-                         NM_NDISC_NETWORK_ID,
-                         network_id,
-                         NM_NDISC_ADDR_GEN_MODE,
-                         (int) addr_gen_mode,
-                         NM_NDISC_NODE_TYPE,
-                         (int) node_type,
-                         NM_NDISC_MAX_ADDRESSES,
-                         max_addresses,
-                         NM_NDISC_ROUTER_SOLICITATIONS,
-                         router_solicitations,
-                         NM_NDISC_ROUTER_SOLICITATION_INTERVAL,
-                         router_solicitation_interval,
-                         NM_NDISC_RA_TIMEOUT,
-                         (guint) ra_timeout,
-                         NULL);
+    ndisc = g_object_new(NM_TYPE_LNDP_NDISC, NM_NDISC_CONFIG, config, NULL);
 
     priv = NM_LNDP_NDISC_GET_PRIVATE(ndisc);
 
     errsv = ndp_open(&priv->ndp);
 
     if (errsv != 0) {
-        errsv = nm_errno_native(errsv);
-        g_set_error(error,
-                    NM_UTILS_ERROR,
-                    NM_UTILS_ERROR_UNKNOWN,
-                    "failure creating libndp socket: %s (%d)",
-                    nm_strerror_native(errsv),
-                    errsv);
-        g_object_unref(ndisc);
-        return NULL;
+        /* This is serious. It might be ENOMEM or the inability to open (or modify)
+         * a file descriptor. In all cases there is not much reason trying to recover
+         * from that. File descriptors are a basic resource, that we just require (just
+         * like memory). */
+        g_return_val_if_reached(NULL);
     }
-    return ndisc;
+
+    return g_steal_pointer(&ndisc);
 }
 
 static void
@@ -819,8 +721,9 @@ nm_lndp_ndisc_class_init(NMLndpNDiscClass *klass)
     NMNDiscClass *ndisc_class  = NM_NDISC_CLASS(klass);
 
     object_class->dispose = dispose;
-    ndisc_class->start    = start;
-    ndisc_class->stop     = stop;
-    ndisc_class->send_rs  = send_rs;
-    ndisc_class->send_ra  = send_ra;
+
+    ndisc_class->start   = start;
+    ndisc_class->stop    = stop;
+    ndisc_class->send_rs = send_rs;
+    ndisc_class->send_ra = send_ra;
 }

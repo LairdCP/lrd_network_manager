@@ -8,7 +8,7 @@
 #define __NM_VPN_CONNECTION_H__
 
 #if !defined(__NETWORKMANAGER_H_INSIDE__) && !defined(NETWORKMANAGER_COMPILATION)
-    #error "Only <NetworkManager.h> can be included directly."
+#error "Only <NetworkManager.h> can be included directly."
 #endif
 
 #include "nm-active-connection.h"
@@ -37,7 +37,7 @@ typedef struct _NMVpnConnectionClass NMVpnConnectionClass;
 GType nm_vpn_connection_get_type(void);
 
 NMVpnConnectionState nm_vpn_connection_get_vpn_state(NMVpnConnection *vpn);
-const char *         nm_vpn_connection_get_banner(NMVpnConnection *vpn);
+const char          *nm_vpn_connection_get_banner(NMVpnConnection *vpn);
 
 G_END_DECLS
 
