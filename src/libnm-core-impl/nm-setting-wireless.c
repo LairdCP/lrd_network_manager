@@ -1847,8 +1847,6 @@ finalize(GObject *object)
     NMSettingWirelessPrivate *priv = NM_SETTING_WIRELESS_GET_PRIVATE(object);
 
     g_free(priv->cloned_mac_address);
-    g_free(priv->client_name);
-    g_free(priv->bgscan);
     g_array_unref(priv->mac_address_blacklist);
     nm_g_ptr_array_unref(priv->seen_bssids);
 
