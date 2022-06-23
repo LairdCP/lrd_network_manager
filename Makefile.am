@@ -1428,6 +1428,7 @@ libnm/libnm.typelib: libnm/libnm.gir
 
 INTROSPECTION_GIRS += libnm/NM-1.0.gir
 
+if BUILD_DOCS
 libnm_noinst_data = \
 	libnm/nm-property-docs.xml \
 	libnm/nm-settings-docs-overrides.xml \
@@ -1472,6 +1473,7 @@ libnm/nm-settings-ifcfg-rh-docs.xml: libnm/generate-plugin-docs.pl $(libnm_docs_
 	$(AM_V_GEN) $(srcdir)/libnm/generate-plugin-docs.pl ifcfg-rh $@ $(filter-out $<,$^)
 
 EXTRA_DIST += $(libnm_noinst_data)
+endif
 
 endif
 
@@ -4084,7 +4086,7 @@ $(clients_common_libnmc_base_la_OBJECTS): $(libnm_lib_h_pub_mkenums)
 $(clients_common_libnmc_base_la_OBJECTS): clients/common/.dirstamp
 
 clients_common_settings_doc_h = clients/common/settings-docs.h
-if HAVE_INTROSPECTION
+if BUILD_DOCS
 $(clients_common_settings_doc_h): clients/common/settings-docs.xsl libnm/nm-property-docs.xml clients/common/.dirstamp
 	$(AM_V_GEN) $(XSLTPROC) --output $@ $< $(word 2,$^)
 DISTCLEANFILES += $(clients_common_settings_doc_h)
