@@ -1869,6 +1869,7 @@ src/libnm-client-impl/libnm.typelib: src/libnm-client-impl/libnm.gir
 
 INTROSPECTION_GIRS += src/libnm-client-impl/NM-1.0.gir
 
+if BUILD_DOCS
 libnm_noinst_data = \
 	src/nmcli/generate-docs-nm-settings-nmcli.xml \
 	man/nm-settings-docs-dbus.xml \
@@ -1882,6 +1883,7 @@ libnm_noinst_data = \
 	$(NULL)
 
 noinst_DATA += $(libnm_noinst_data)
+endif
 
 EXTRA_DIST += src/nmcli/generate-docs-nm-settings-nmcli.xml.in
 
@@ -1898,6 +1900,7 @@ src/nmcli/generate-docs-nm-settings-nmcli.xml: src/nmcli/generate-docs-nm-settin
 check-local-generate-docs-nm-settings-nmcli:
 endif
 
+if BUILD_DOCS
 libnm_docs_sources = $(src_libnm_core_impl_lib_c_settings_real)
 
 src/libnm-client-impl/nm-property-infos-%.xml: tools/generate-docs-nm-property-infos.py $(libnm_docs_sources)
@@ -1924,6 +1927,7 @@ man/nm-settings-docs-%.xml: src/libnm-client-impl/nm-property-infos-%.xml src/li
 
 EXTRA_DIST += $(libnm_noinst_data)
 DISTCLEANFILES += $(libnm_noinst_data)
+endif
 
 endif
 
