@@ -907,11 +907,6 @@ data_conf.set('sysconfdir',                              nm_sysconfdir)
 '''
 build_docs=no
 if test -n "$INTROSPECTION_MAKEFILE"; then
-  # If g-i is installed we know we have python, but we might not have pygobject
-  if ! "$PYTHON" -c 'from gi.repository import GObject' >& /dev/null; then
-    AC_MSG_ERROR(["--enable-introspection aims to build the settings documentation. This requires GObject introspection for python (pygobject)])
-  fi
-
   AC_PATH_PROG(PERL, perl)
   if test -z "$PERL"; then
     AC_MSG_ERROR([--enable-introspection requires perl])
@@ -923,6 +918,10 @@ if test -n "$INTROSPECTION_MAKEFILE"; then
 
   have_introspection=yes
   if test "$enable_gtk_doc" = "yes"; then
+    # If g-i is installed we know we have python, but we might not have pygobject
+    if ! "$PYTHON" -c 'from gi.repository import GObject' >& /dev/null; then
+      AC_MSG_ERROR(["--enable-introspection aims to build the settings documentation. This requires GObject introspection for python (pygobject)])
+    fi
     build_docs=yes
   fi
 else
