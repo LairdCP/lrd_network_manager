@@ -975,12 +975,6 @@ add_string_val(NMSupplicantConfig *self,
     return TRUE;
 }
 
-// Laird: Upstream 1.32.0 moved _NMSetting8021x from nm-setting-8021x.h to nm-setting-8021x.c, making it inaccessible.
-// src/core/supplicant/nm-supplicant-config.c:1023:17: error: dereferencing pointer to incomplete type ‘NMSetting8021x {aka struct _NMSetting8021x}’
-struct _NMSetting8021x {
-    struct parent;
-};
-
 #define ADD_STRING_LIST_VAL(self,                                                         \
                             setting,                                                      \
                             setting_name,                                                 \
@@ -1038,8 +1032,8 @@ struct _NMSetting8021x {
                                       secret,                                             \
                                       error)                                              \
     ({                                                                                    \
-        typeof(*(setting)) *_setting = (setting);                                         \
-        gboolean            _success = TRUE;                                              \
+        typeof(setting) _setting = (setting);                                             \
+        gboolean        _success = TRUE;                                                  \
                                                                                           \
         if (nm_setting_##setting_name##_get_num_##field_plural(_setting)) {               \
             const char _separator = (separator);                                          \
