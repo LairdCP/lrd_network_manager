@@ -1351,9 +1351,13 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig           
         bool add_ft = true, add_fils = true, add_fils_ft = true;
         if (pmf != NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE) {
             g_string_append(key_mgmt_conf, " WPA-EAP-SHA256");
+#if 1
+            // BZ22274 -- Do not auto-enable suite-b-192 with other options, enable only when explicitly specified.
+#else
             if (_get_capability(priv, NM_SUPPL_CAP_TYPE_SUITEB192)
                 && pmf == NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED)
                 g_string_append(key_mgmt_conf, " WPA-EAP-SUITE-B-192");
+#endif
         }
         if (fils == NM_SETTING_WIRELESS_SECURITY_FILS_DISABLE
             || pmf == NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE) {
