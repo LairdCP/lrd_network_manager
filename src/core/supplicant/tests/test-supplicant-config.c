@@ -114,10 +114,10 @@ build_supplicant_config(NMConnection  *connection,
         s_8021x                            = nm_connection_get_setting_802_1x(connection);
         success =
             nm_supplicant_config_add_setting_wireless_security(config,
-                                                               s_wifi,
                                                                s_wsec,
                                                                s_8021x,
                                                                nm_connection_get_uuid(connection),
+                                                               nm_setting_wireless_get_mode(s_wifi),
                                                                mtu,
                                                                pmf,
                                                                fils,
