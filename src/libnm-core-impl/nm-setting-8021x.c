@@ -3225,11 +3225,18 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
     }
 
     if (!NM_IN_STRSET(priv->phase1_peapver, NULL, "0", "1")) {
-        g_set_error(error,
-                    NM_CONNECTION_ERROR,
-                    NM_CONNECTION_ERROR_INVALID_PROPERTY,
-                    _("'%s' is not a valid value for the property"),
-                    priv->phase1_peapver);
+        if (priv->phase1_peapver) {
+            g_set_error(error,
+                        NM_CONNECTION_ERROR,
+                        NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                        _("'%s' is not a valid value for the property"),
+                        priv->phase1_peapver);
+        } else {
+            g_set_error(error,
+                        NM_CONNECTION_ERROR,
+                        NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                        _("property is empty"));
+        }
         g_prefix_error(error,
                        "%s.%s: ",
                        NM_SETTING_802_1X_SETTING_NAME,
@@ -3238,11 +3245,18 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
     }
 
     if (!NM_IN_STRSET(priv->phase1_peaplabel, NULL, "0", "1")) {
-        g_set_error(error,
-                    NM_CONNECTION_ERROR,
-                    NM_CONNECTION_ERROR_INVALID_PROPERTY,
-                    _("'%s' is not a valid value for the property"),
-                    priv->phase1_peaplabel);
+        if (priv->phase1_peaplabel) {
+            g_set_error(error,
+                        NM_CONNECTION_ERROR,
+                        NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                        _("'%s' is not a valid value for the property"),
+                        priv->phase1_peaplabel);
+        } else {
+            g_set_error(error,
+                        NM_CONNECTION_ERROR,
+                        NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                        _("property is empty"));
+        }
         g_prefix_error(error,
                        "%s.%s: ",
                        NM_SETTING_802_1X_SETTING_NAME,
@@ -3251,11 +3265,18 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
     }
 
     if (!NM_IN_STRSET(priv->phase1_fast_provisioning, NULL, "0", "1", "2", "3")) {
-        g_set_error(error,
-                    NM_CONNECTION_ERROR,
-                    NM_CONNECTION_ERROR_INVALID_PROPERTY,
-                    _("'%s' is not a valid value for the property"),
-                    priv->phase1_fast_provisioning);
+        if (priv->phase1_fast_provisioning) {
+            g_set_error(error,
+                        NM_CONNECTION_ERROR,
+                        NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                        _("'%s' is not a valid value for the property"),
+                        priv->phase1_fast_provisioning);
+        } else {
+            g_set_error(error,
+                        NM_CONNECTION_ERROR,
+                        NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                        _("property is empty"));
+        }
         g_prefix_error(error,
                        "%s.%s: ",
                        NM_SETTING_802_1X_SETTING_NAME,
@@ -3335,6 +3356,50 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
                                NULL,
                                error))
         return FALSE;
+
+        /* normalizable warnings from here on. */
+
+#define _check_strempty_and_return(priv, prop_name, field, error)                               \
+    G_STMT_START                                                                                \
+    {                                                                                           \
+        NMSetting8021xPrivate *_priv  = (priv);                                                 \
+        GError               **_error = (error);                                                \
+                                                                                                \
+        if (_priv->field && _priv->field[0] == '\0') {                                          \
+            g_set_error(_error,                                                                 \
+                        NM_CONNECTION_ERROR,                                                    \
+                        NM_CONNECTION_ERROR_INVALID_PROPERTY,                                   \
+                        _("property is empty"));                                                \
+            g_prefix_error(_error, "%s.%s: ", NM_SETTING_802_1X_SETTING_NAME, "" prop_name ""); \
+            return NM_SETTING_VERIFY_NORMALIZABLE;                                              \
+        }                                                                                       \
+    }                                                                                           \
+    G_STMT_END
+
+    _check_strempty_and_return(priv, NM_SETTING_802_1X_IDENTITY, identity, error);
+    _check_strempty_and_return(priv,
+                               NM_SETTING_802_1X_ANONYMOUS_IDENTITY,
+                               anonymous_identity,
+                               error);
+    _check_strempty_and_return(priv, NM_SETTING_802_1X_PAC_FILE, pac_file, error);
+    _check_strempty_and_return(priv, NM_SETTING_802_1X_SUBJECT_MATCH, subject_match, error);
+    _check_strempty_and_return(priv,
+                               NM_SETTING_802_1X_PHASE2_SUBJECT_MATCH,
+                               phase2_subject_match,
+                               error);
+    _check_strempty_and_return(priv,
+                               NM_SETTING_802_1X_DOMAIN_SUFFIX_MATCH,
+                               domain_suffix_match,
+                               error);
+    _check_strempty_and_return(priv,
+                               NM_SETTING_802_1X_PHASE2_DOMAIN_SUFFIX_MATCH,
+                               phase2_domain_suffix_match,
+                               error);
+    _check_strempty_and_return(priv, NM_SETTING_802_1X_DOMAIN_MATCH, domain_match, error);
+    _check_strempty_and_return(priv,
+                               NM_SETTING_802_1X_PHASE2_DOMAIN_MATCH,
+                               phase2_domain_match,
+                               error);
 
     return TRUE;
 }

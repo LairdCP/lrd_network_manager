@@ -3893,12 +3893,15 @@ _dev_l3_cfg_notify_cb(NML3Cfg *l3cfg, const NML3ConfigNotifyData *notify_data, N
     case NM_L3_CONFIG_NOTIFY_TYPE_PRE_COMMIT:
     {
         const NML3ConfigData *l3cd;
+        NMDeviceState         state = nm_device_get_state(self);
 
-        /* FIXME(l3cfg): MTU handling should be moved to l3cfg. */
-        l3cd = nm_l3cfg_get_combined_l3cd(l3cfg, TRUE);
-        if (l3cd)
-            priv->ip6_mtu = nm_l3_config_data_get_ip6_mtu(l3cd);
-        _commit_mtu(self);
+        if (state >= NM_DEVICE_STATE_IP_CONFIG && state < NM_DEVICE_STATE_DEACTIVATING) {
+            /* FIXME(l3cfg): MTU handling should be moved to l3cfg. */
+            l3cd = nm_l3cfg_get_combined_l3cd(l3cfg, TRUE);
+            if (l3cd)
+                priv->ip6_mtu = nm_l3_config_data_get_ip6_mtu(l3cd);
+            _commit_mtu(self);
+        }
         return;
     }
     case NM_L3_CONFIG_NOTIFY_TYPE_POST_COMMIT:
@@ -3976,7 +3979,9 @@ _dev_l3_cfg_commit_type_reset(NMDevice *self)
         commit_type = NM_L3_CFG_COMMIT_TYPE_NONE;
         goto do_set;
     case NM_DEVICE_SYS_IFACE_STATE_ASSUME:
-        commit_type = NM_L3_CFG_COMMIT_TYPE_ASSUME;
+        /* TODO: NM_DEVICE_SYS_IFACE_STATE_ASSUME, will be dropped from the code.
+         * Meanwhile, the commit type must be updated. */
+        commit_type = NM_L3_CFG_COMMIT_TYPE_UPDATE;
         goto do_set;
     case NM_DEVICE_SYS_IFACE_STATE_MANAGED:
         commit_type = NM_L3_CFG_COMMIT_TYPE_UPDATE;
@@ -4016,7 +4021,6 @@ _set_ifindex(NMDevice *self, int ifindex, gboolean is_ip_ifindex)
     NMDevicePrivate         *priv                  = NM_DEVICE_GET_PRIVATE(self);
     gs_unref_object NML3Cfg *l3cfg_old             = NULL;
     NML3CfgCommitTypeHandle *l3cfg_commit_type_old = NULL;
-    gboolean                 l3_changed;
     int                      ip_ifindex_new;
     int                     *p_ifindex;
     gboolean                 l3cfg_was_reset = FALSE;
@@ -4057,6 +4061,10 @@ _set_ifindex(NMDevice *self, int ifindex, gboolean is_ip_ifindex)
             l3cfg_was_reset       = TRUE;
         }
     }
+
+    if (!priv->l3cfg && l3cfg_old)
+        _dev_l3_register_l3cds(self, l3cfg_old, FALSE, FALSE);
+
     if (!priv->l3cfg && ip_ifindex_new > 0) {
         priv->l3cfg_ = nm_netns_l3cfg_acquire(priv->netns, ip_ifindex_new);
 
@@ -4068,6 +4076,7 @@ _set_ifindex(NMDevice *self, int ifindex, gboolean is_ip_ifindex)
         _dev_l3_cfg_commit_type_reset(self);
         l3cfg_was_reset = TRUE;
     }
+
     if (!priv->l3cfg) {
         _cleanup_ip_pre(self, AF_INET, CLEANUP_TYPE_KEEP, FALSE);
         _cleanup_ip_pre(self, AF_INET6, CLEANUP_TYPE_KEEP, FALSE);
@@ -4108,11 +4117,7 @@ _set_ifindex(NMDevice *self, int ifindex, gboolean is_ip_ifindex)
         _notify(self, PROP_IP6_CONFIG);
     }
 
-    if (l3cfg_old != priv->l3cfg) {
-        l3_changed = FALSE;
-        if (_dev_l3_register_l3cds(self, l3cfg_old, FALSE, FALSE))
-            l3_changed = TRUE;
-
+    if (priv->l3cfg && l3cfg_old != priv->l3cfg) {
         /* Now it gets ugly. We changed the ip-ifindex, which determines the NML3Cfg instance.
          * But all the NML3ConfigData we currently track are still for the old ifindex. We
          * need to update them.
@@ -4121,12 +4126,10 @@ _set_ifindex(NMDevice *self, int ifindex, gboolean is_ip_ifindex)
          * associated with one ifindex (and not the ifindex/ip-ifindex split). Or it
          * is not at all associated with an ifindex, but only a controlling device for
          * a real NMDevice (that has the ifindex). */
+
         _dev_l3_update_l3cds_ifindex(self);
 
         if (_dev_l3_register_l3cds(self, priv->l3cfg, TRUE, FALSE))
-            l3_changed = TRUE;
-
-        if (l3_changed)
             _dev_l3_cfg_commit(self, TRUE);
     }
 
@@ -6145,10 +6148,6 @@ carrier_changed(NMDevice *self, gboolean carrier)
 
     if (nm_device_is_master(self)) {
         if (carrier) {
-            /* Force master to retry getting ip addresses when carrier
-             * is restored. */
-            if (priv->state == NM_DEVICE_STATE_ACTIVATED)
-                nm_device_update_dynamic_ip_setup(self);
             /* If needed, also resume IP configuration that is
              * waiting for carrier. */
             if (priv->state == NM_DEVICE_STATE_IP_CONFIG)
@@ -6176,12 +6175,6 @@ carrier_changed(NMDevice *self, gboolean carrier)
              * the device.
              */
             nm_device_emit_recheck_auto_activate(self);
-        } else if (priv->state == NM_DEVICE_STATE_ACTIVATED) {
-            /* If the device is active without a carrier (probably because it is
-             * tagged for carrier ignore) ensure that when the carrier appears we
-             * renew DHCP leases and such.
-             */
-            nm_device_update_dynamic_ip_setup(self);
         }
     } else {
         if (priv->state == NM_DEVICE_STATE_UNAVAILABLE) {
@@ -6566,8 +6559,17 @@ device_link_changed(gpointer user_data)
          * so that it theoretically would also work for NMVpnConnection (although,
          * NMVpnConnection should become like a regular device, akin to NMDevicePpp).
          */
-        if (!nm_device_sys_iface_state_is_external(self))
+        if (priv->state >= NM_DEVICE_STATE_IP_CONFIG && priv->state <= NM_DEVICE_STATE_ACTIVATED
+            && !nm_device_sys_iface_state_is_external(self))
             nm_device_l3cfg_commit(self, NM_L3_CFG_COMMIT_TYPE_REAPPLY, FALSE);
+
+        /* If the device is active without a carrier (probably because it is
+         * tagged for carrier ignore) ensure that when the carrier appears we
+         * renew DHCP leases and such.
+         */
+        if (priv->state == NM_DEVICE_STATE_ACTIVATED) {
+            nm_device_update_dynamic_ip_setup(self);
+        }
     }
 
     if (update_unmanaged_specs)
@@ -7841,7 +7843,8 @@ nm_device_slave_notify_release(NMDevice *self, NMDeviceStateReason reason)
 void
 nm_device_removed(NMDevice *self, gboolean unconfigure_ip_config)
 {
-    NMDevicePrivate *priv;
+    NMDevicePrivate      *priv;
+    const NML3ConfigData *l3cd_old;
 
     g_return_if_fail(NM_IS_DEVICE(self));
 
@@ -7860,6 +7863,18 @@ nm_device_removed(NMDevice *self, gboolean unconfigure_ip_config)
     }
 
     _dev_l3_register_l3cds(self, priv->l3cfg, FALSE, unconfigure_ip_config);
+
+    /* _dev_l3_register_l3cds() schedules a commit, but if the device has
+     * commit type NONE, that doesn't emit a l3cd-changed. Do it manually,
+     * to ensure that entries are removed from the DNS manager. */
+    if (priv->l3cfg
+        && NM_IN_SET(priv->sys_iface_state,
+                     NM_DEVICE_SYS_IFACE_STATE_REMOVED,
+                     NM_DEVICE_SYS_IFACE_STATE_EXTERNAL)) {
+        l3cd_old = nm_l3cfg_get_combined_l3cd(priv->l3cfg, TRUE);
+        if (l3cd_old)
+            g_signal_emit(self, signals[L3CD_CHANGED], 0, l3cd_old, NULL);
+    }
 }
 
 static gboolean
@@ -9517,8 +9532,6 @@ activate_stage2_device_config(NMDevice *self)
 
     lldp_setup(self, NM_TERNARY_DEFAULT);
 
-    _commit_mtu(self);
-
     nm_device_activate_schedule_stage3_ip_config(self, TRUE);
 }
 
@@ -10103,13 +10116,6 @@ _dev_ipdhcpx_start(NMDevice *self, int addr_family)
 
     hwaddr = nmp_link_address_get_as_bytes(&pllink->l_address);
 
-    if (!IS_IPv4) {
-        if (!hwaddr) {
-            fail_reason = "interface has no MAC address to start DHCPv6";
-            goto out_fail;
-        }
-    }
-
     request_broadcast = FALSE;
     if (pllink) {
         str = nmp_object_link_udev_device_get_property_value(NMP_OBJECT_UP_CAST(pllink),
@@ -10440,7 +10446,7 @@ void
 nm_device_use_ip6_subnet(NMDevice *self, const NMPlatformIP6Address *subnet)
 {
     nm_auto_unref_l3cd_init NML3ConfigData *l3cd = NULL;
-    char                                    sbuf[sizeof(_nm_utils_to_string_buffer)];
+    char                                    sbuf[NM_UTILS_TO_STRING_BUFFER_SIZE];
     NMPlatformIP6Address                    address;
 
     l3cd = nm_device_create_l3_config_data(self, NM_IP_CONFIG_SOURCE_SHARED);
@@ -11381,8 +11387,8 @@ _dev_ipac6_start(NMDevice *self)
 
     if (node_type == NM_NDISC_NODE_TYPE_ROUTER)
         _dev_ipac6_set_state(self, NM_DEVICE_IP_STATE_READY);
-    else
-        _dev_ipac6_grace_period_start(self, ra_timeout, TRUE);
+
+    _dev_ipac6_grace_period_start(self, ra_timeout, TRUE);
 
     nm_ndisc_start(priv->ipac6_data.ndisc);
 }
@@ -11863,6 +11869,15 @@ activate_stage3_ip_config(NMDevice *self)
                   "interface %s not up for IP configuration",
                   nm_device_get_ip_iface(self));
     }
+
+    /* We currently will attach ports in the state change NM_DEVICE_STATE_IP_CONFIG above.
+     * Note that kernel changes the MTU of bond ports, so we want to commit the MTU
+     * afterwards!
+     *
+     * This might reset the MTU to something different from the bond controller and
+     * it might not be a working configuration. But it's what the user asked for, so
+     * let's do it! */
+    _commit_mtu(self);
 
     ipv4_method = nm_device_get_effective_ip_config_method(self, AF_INET);
     if (nm_streq(ipv4_method, NM_SETTING_IP4_CONFIG_METHOD_AUTO)) {
