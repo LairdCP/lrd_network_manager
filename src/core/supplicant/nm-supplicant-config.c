@@ -1309,38 +1309,17 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig           
         g_string_append(key_mgmt_conf, "OWE");
 
     } else if (nm_streq(key_mgmt, "wpa-psk")) {
-#if 1
-        // Laird - Allow wpa-psk regardless of PMF
-        g_string_append(key_mgmt_conf, "WPA-PSK");
-
-        // Laird - Allow WPA-PSK-SHA256 to be disabled by disabling PMF in configuration
-        if (pmf != NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE)
-            g_string_append(key_mgmt_conf, " WPA-PSK-SHA256");
-
-        // Laird - BZ19892 -- do not enable SAE for wpa-psk (except wpa3 sae-transition)
-        //    makes behavior consistent with previous release
-        //    use wifi-sec.key-mgmt "sae" if needed
-        //    wpa3-psk: must also enable sae
-        if (wpa3_only)
-            g_string_append(key_mgmt_conf, " SAE");
-
-        if (!is_ap && ft != NM_SETTING_WIRELESS_SECURITY_FT_DISABLE) {
-            // Only FT modes should present when in required state
-            if (ft == NM_SETTING_WIRELESS_SECURITY_FT_REQUIRED)
-                g_string_truncate(key_mgmt_conf, 0);
-
-            g_string_append(key_mgmt_conf, " FT-PSK");
-
-            // wpa3-psk: must also enable sae
-            if (wpa3_only)
-                g_string_append(key_mgmt_conf, " FT-SAE");
+        // Laird modifications
+        //  1. Allow wpa-psk regardless of PMF
+        //  2. Allow SAE and WPA-PSK-SHA256 to be disabled by disabling PMF in configuration
+        //  3. Use FT setting instead of capability to allow configuration control
+        //  4. FT_REQUIRED configuration limits key_mgmt to ft-only
+        if (ft != NM_SETTING_WIRELESS_SECURITY_FT_REQUIRED) {
+                g_string_append(key_mgmt_conf, "WPA-PSK");
+                if (pmf != NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE)
+                    g_string_append(key_mgmt_conf, " WPA-PSK-SHA256");
         }
-#else
-        if (pmf != NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED)
-            g_string_append(key_mgmt_conf, "WPA-PSK");
-        if (_get_capability(priv, NM_SUPPL_CAP_TYPE_PMF))
-            g_string_append(key_mgmt_conf, " WPA-PSK-SHA256");
-        if (!is_ap && _get_capability(priv, NM_SUPPL_CAP_TYPE_FT))
+        if (!is_ap && ft != NM_SETTING_WIRELESS_SECURITY_FT_DISABLE)
             g_string_append(key_mgmt_conf, " FT-PSK");
 
         /* For NM "key-mgmt=wpa-psk" doesn't strictly mean WPA1/wPA2 only,
@@ -1366,17 +1345,17 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig           
          * is set to disabled. This also provides a way to be compatible with
          * some devices that are not fully compatible with WPA3-Personal
          * transition mode.
+         *
+         * Laird - Honor PMF setting (not just capability) for both AP and STA
          */
         if (_get_capability(priv, NM_SUPPL_CAP_TYPE_SAE)
-            && _get_capability(priv, NM_SUPPL_CAP_TYPE_PMF)
-            && _get_capability(priv, NM_SUPPL_CAP_TYPE_BIP)
-            && (!is_ap || pmf != NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE)) {
-            g_string_append(key_mgmt_conf, " SAE");
-            if (!is_ap && _get_capability(priv, NM_SUPPL_CAP_TYPE_FT))
+            && pmf != NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE
+            && _get_capability(priv, NM_SUPPL_CAP_TYPE_BIP)) {
+            if (ft != NM_SETTING_WIRELESS_SECURITY_FT_REQUIRED)
+                g_string_append(key_mgmt_conf, " SAE");
+            if (!is_ap && ft != NM_SETTING_WIRELESS_SECURITY_FT_DISABLE)
                 g_string_append(key_mgmt_conf, " FT-SAE");
         }
-#endif
-        /* LAIRD: use the ft variable instead of checking capability, to allow disabling ft via configuration */
     } else if (nm_streq(key_mgmt, "sae")) {
         pmf = NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED;
 
@@ -1626,18 +1605,23 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig           
                     NULL,
                     error))
                 return FALSE;
-        } else if (set_pmf
+        } else {
+            /* We set the supplicants global "pmf" config value to "1" (optional),
+             * so no need to set it network-specific again if PMF_OPTIONAL is set.
+             */
+            if (set_pmf
                    && NM_IN_SET(pmf,
                                 NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE,
                                 NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED)) {
-            if (!nm_supplicant_config_add_option(
-                    self,
-                    "ieee80211w",
-                    pmf == NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE ? "0" : "2",
-                    -1,
-                    NULL,
-                    error))
-                return FALSE;
+                if (!nm_supplicant_config_add_option(
+                        self,
+                        "ieee80211w",
+                        pmf == NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE ? "0" : "2",
+                        -1,
+                        NULL,
+                        error))
+                    return FALSE;
+            }
         }
     }
 
