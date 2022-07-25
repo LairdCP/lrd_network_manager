@@ -1306,39 +1306,25 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig           
         g_string_append(key_mgmt_conf, "OWE");
 
     } else if (nm_streq(key_mgmt, "wpa-psk")) {
-        // if (pmf != NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED)
-        g_string_append(key_mgmt_conf, "WPA-PSK");
-        if (pmf != NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE)
-            g_string_append(key_mgmt_conf, " WPA-PSK-SHA256");
-
-#if 1
-            // BZ19892 -- do not enable SAE for wpa-psk (except wpa3 sae-transition)
-            // makes behavior consistent with previous release
-            // use wifi-sec.key-mgmt "sae" if needed
-#else
+        // Laird modifications
+        //  1. Allow wpa-psk regardless of PMF
+        //  2. Allow SAE and WPA-PSK-SHA256 to be disabled by disabling PMF in configuration
+        //  3. Use FT setting instead of capability to allow configuration control
+        //  4. FT_REQUIRED configuration limits key_mgmt to ft-only
+        if (ft != NM_SETTING_WIRELESS_SECURITY_FT_REQUIRED) {
+            g_string_append(key_mgmt_conf, "WPA-PSK");
+            if (pmf != NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE)
+                g_string_append(key_mgmt_conf, " WPA-PSK-SHA256");
+        }
+        if (ft != NM_SETTING_WIRELESS_SECURITY_FT_DISABLE)
+            g_string_append(key_mgmt_conf, " FT-PSK");
         if (_get_capability(priv, NM_SUPPL_CAP_TYPE_SAE)
             && pmf != NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE) {
-            g_string_append(key_mgmt_conf, " SAE");
+            if (ft != NM_SETTING_WIRELESS_SECURITY_FT_REQUIRED)
+                g_string_append(key_mgmt_conf, " SAE");
             if (ft != NM_SETTING_WIRELESS_SECURITY_FT_DISABLE)
                 g_string_append(key_mgmt_conf, " FT-SAE");
         }
-#endif
-
-        // wpa3-psk: must also enable sae
-        if (wpa3_only)
-            g_string_append(key_mgmt_conf, " SAE");
-        if (ft != NM_SETTING_WIRELESS_SECURITY_FT_DISABLE) {
-            // Only FT modes should present when in required state
-            if (ft == NM_SETTING_WIRELESS_SECURITY_FT_REQUIRED)
-                g_string_truncate(key_mgmt_conf, 0);
-
-            g_string_append(key_mgmt_conf, " FT-PSK");
-
-            // wpa3-psk: must also enable sae
-            if (wpa3_only)
-                g_string_append(key_mgmt_conf, " FT-SAE");
-        }
-        /* LAIRD: use the ft variable instead of checking capability, to allow disabling ft via configuration */
     } else if (nm_streq(key_mgmt, "sae")) {
         pmf = NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED;
 
@@ -1346,14 +1332,14 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig           
         if (ft != NM_SETTING_WIRELESS_SECURITY_FT_DISABLE)
             g_string_append(key_mgmt_conf, " FT-SAE");
     } else if (nm_streq(key_mgmt, "wpa-eap")) {
+        // Laird - Allow wpa-eap regardless of PMF
         // if (pmf != NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED)
         g_string_append(key_mgmt_conf, "WPA-EAP");
         bool add_ft = true, add_fils = true, add_fils_ft = true;
         if (pmf != NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE) {
             g_string_append(key_mgmt_conf, " WPA-EAP-SHA256");
-#if 1
+#if 0
             // BZ22274 -- Do not auto-enable suite-b-192 with other options, enable only when explicitly specified.
-#else
             if (_get_capability(priv, NM_SUPPL_CAP_TYPE_SUITEB192)
                 && pmf == NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED)
                 g_string_append(key_mgmt_conf, " WPA-EAP-SUITE-B-192");
@@ -1396,13 +1382,6 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig           
         if (ft != NM_SETTING_WIRELESS_SECURITY_FT_DISABLE
             && _get_capability(priv, NM_SUPPL_CAP_TYPE_SHA384))
             g_string_append(key_mgmt_conf, " FT-EAP-SHA384");
-#if 1
-            // BZ19994 -- pairwise/group are set below -- do not set here
-#else
-        if (!nm_supplicant_config_add_option(self, "pairwise", "GCMP-256", -1, NULL, error)
-            || !nm_supplicant_config_add_option(self, "group", "GCMP-256", -1, NULL, error))
-            return FALSE;
-#endif
     } else if (nm_streq(key_mgmt, "wpa-eap-suite-b")) {
         g_string_append(key_mgmt_conf, "WPA-EAP-SUITE-B");
     } else if (nm_streq(key_mgmt, "cckm")) {
@@ -1592,18 +1571,23 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig           
                     NULL,
                     error))
                 return FALSE;
-        } else if (set_pmf
-                   && NM_IN_SET(pmf,
-                                NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE,
-                                NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED)) {
-            if (!nm_supplicant_config_add_option(
-                    self,
-                    "ieee80211w",
-                    pmf == NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE ? "0" : "2",
-                    -1,
-                    NULL,
-                    error))
-                return FALSE;
+        } else {
+            /* We set the supplicants global "pmf" config value to "1" (optional),
+             * so no need to set it network-specific again if PMF_OPTIONAL is set.
+             */
+            if (set_pmf
+                && NM_IN_SET(pmf,
+                            NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE,
+                            NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED)) {
+                if (!nm_supplicant_config_add_option(
+                            self,
+                            "ieee80211w",
+                            pmf == NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE ? "0" : "2",
+                        -1,
+                        NULL,
+                        error))
+                    return FALSE;
+             }
         }
     }
 
