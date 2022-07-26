@@ -29,6 +29,7 @@
 #include "n-dhcp4/src/n-dhcp4.h"
 #include "libnm-systemd-shared/nm-sd-utils-shared.h"
 #include "libnm-systemd-core/nm-sd-utils-dhcp.h"
+#include "libnm-systemd-shared/src/basic/hexdecoct.h"
 
 /*****************************************************************************/
 
@@ -631,8 +632,20 @@ lease_to_ip4_config(NMDedupMultiIndex *multi_idx,
     }
 
     r = _client_lease_query(lease, NM_DHCP_OPTION_DHCP4_VENDOR_SPECIFIC, &l_data, &l_data_len);
-    if ((r == 0) && memmem(l_data, l_data_len, "ANDROID_METERED", NM_STRLEN("ANDROID_METERED")))
-        nm_l3_config_data_set_metered(l3cd, TRUE);
+    if (r == 0) {
+        gs_free char *option_hex = NULL;
+
+        option_hex = hexmem(l_data, l_data_len);
+        if (option_hex) {
+            nm_dhcp_option_add_option(options,
+                                      AF_INET,
+                                      NM_DHCP_OPTION_DHCP4_VENDOR_SPECIFIC,
+                                      option_hex);
+        }
+
+        if (memmem(l_data, l_data_len, "ANDROID_METERED", NM_STRLEN("ANDROID_METERED")))
+            nm_l3_config_data_set_metered(l3cd, TRUE);
+    }
 
     r = _client_lease_query(lease, NM_DHCP_OPTION_DHCP4_HOST_NAME, &l_data, &l_data_len);
     if (r == 0) {
