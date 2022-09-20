@@ -4696,7 +4696,6 @@ nm_setting_802_1x_class_init(NMSetting8021xClass *klass)
      *
      * Flags indicating how to handle the #NMSetting8021x:pac-file-password property.
      *
-     * Since: 1.8
      **/
     /* ---ifcfg-rh---
      * ---end---
