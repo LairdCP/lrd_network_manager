@@ -130,7 +130,8 @@ NM_GOBJECT_PROPERTIES_DEFINE(NMSetting8021x,
                              PROP_OPTIONAL,
                              PROP_AUTH_TIMEOUT,
                              PROP_TLS_DISABLE_TIME_CHECKS,
-                             PROP_PAC_FILE_PASSWORD, );
+                             PROP_PAC_FILE_PASSWORD,
+                             PROP_PAC_FILE_PASSWORD_FLAGS, );
 
 typedef struct {
     GSList *eap; /* GSList of strings */
@@ -169,6 +170,7 @@ typedef struct {
     char   *phase2_private_key_password;
     char   *tls_disable_time_checks;
     char   *pac_file_password;
+    guint   pac_file_password_flags;
     guint   ca_cert_password_flags;
     guint   client_cert_password_flags;
     guint   phase2_ca_cert_password_flags;
@@ -4688,6 +4690,23 @@ nm_setting_802_1x_class_init(NMSetting8021xClass *klass)
                                               NM_SETTING_PARAM_SECRET,
                                               NMSetting8021xPrivate,
                                               pac_file_password);
+
+    /**
+     * NMSetting8021x:pac-file-password-flags:
+     *
+     * Flags indicating how to handle the #NMSetting8021x:pac-file-password property.
+     *
+     * Since: 1.8
+     **/
+    /* ---ifcfg-rh---
+     * ---end---
+     */
+    _nm_setting_property_define_direct_secret_flags(properties_override,
+                                                    obj_properties,
+                                                    NM_SETTING_802_1X_PAC_FILE_PASSWORD_FLAGS,
+                                                    PROP_PAC_FILE_PASSWORD_FLAGS,
+                                                    NMSetting8021xPrivate,
+                                                    pac_file_password_flags);
 
     g_object_class_install_properties(object_class, _PROPERTY_ENUMS_LAST, obj_properties);
 
