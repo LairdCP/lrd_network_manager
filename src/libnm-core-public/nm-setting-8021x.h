@@ -147,6 +147,7 @@ typedef enum { /*< flags, underscore_name=nm_setting_802_1x_auth_flags >*/
 #define NM_SETTING_802_1X_OPTIONAL                          "optional"
 #define NM_SETTING_802_1X_TLS_DISABLE_TIME_CHECKS           "tls-disable-time-checks"
 #define NM_SETTING_802_1X_PAC_FILE_PASSWORD                 "pac-file-password"
+#define NM_SETTING_802_1X_PAC_FILE_PASSWORD_FLAGS           "pac-file-password-flags"
 
 /* PRIVATE KEY NOTE: when setting PKCS#12 private keys directly via properties
  * using the "blob" scheme, the data must be passed in PKCS#12 binary format.
