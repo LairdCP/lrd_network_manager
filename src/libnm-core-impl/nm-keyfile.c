@@ -2865,7 +2865,6 @@ static const ParseInfoSetting *const parse_infos[_NM_META_SETTING_TYPE_NUM] = {
     PARSE_INFO_SETTING(
         NM_META_SETTING_TYPE_CONNECTION,
         PARSE_INFO_PROPERTIES(PARSE_INFO_PROPERTY(NM_SETTING_CONNECTION_READ_ONLY,
-                                                  .parser_skip = TRUE,
                                                   .writer_skip = TRUE, ),
                               PARSE_INFO_PROPERTY(NM_SETTING_CONNECTION_TYPE,
                                                   .parser = setting_alias_parser,

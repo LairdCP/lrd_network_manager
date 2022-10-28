@@ -1973,6 +1973,7 @@ nm_settings_update_connection(NMSettings                      *self,
     g_return_val_if_fail(NM_IS_SETTINGS(self), FALSE);
     g_return_val_if_fail(NM_IS_SETTINGS_CONNECTION(sett_conn), FALSE);
     g_return_val_if_fail(!connection || NM_IS_CONNECTION(connection), FALSE);
+    g_return_val_if_fail(!nm_setting_connection_get_read_only(sett_conn), FALSE);
 
     nm_assert(!NM_FLAGS_ANY(sett_mask, ~_NM_SETTINGS_CONNECTION_INT_FLAGS_PERSISTENT_MASK));
     nm_assert(!NM_FLAGS_ANY(sett_flags, ~sett_mask));
@@ -2308,6 +2309,7 @@ nm_settings_delete_connection(NMSettings           *self,
     g_return_if_fail(NM_IS_SETTINGS(self));
     g_return_if_fail(NM_IS_SETTINGS_CONNECTION(sett_conn));
     g_return_if_fail(nm_settings_has_connection(self, sett_conn));
+    g_return_if_fail(!nm_setting_connection_get_read_only(sett_conn));
 
     cur_storage = nm_settings_connection_get_storage(sett_conn);
 
