@@ -60,6 +60,7 @@ libNetworkManagerBase = static_library(
     libnm_core_public_dep,
     libsystemd_dep,
     libudev_dep,
+    libnm_systemd_shared_dep_inc,
   ],
 )
 

@@ -100,6 +100,8 @@ libnm_core_public_dep = declare_dependency(
   ],
 )
 
+if enable_docs
+
 docbooks = [
   ['nm-dbus-types',     'nm-dbus-interface.h',     'NetworkManager D-Bus API Types'],
   ['nm-vpn-dbus-types', 'nm-vpn-dbus-interface.h', 'VPN Plugin D-Bus API Types'],
@@ -127,3 +129,5 @@ foreach docbook: docbooks
 
   content_files += xml.full_path()
 endforeach
+
+endif
