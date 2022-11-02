@@ -85,9 +85,6 @@ intltool_xml_cmd = [intltool_merge, '-x', '-u', '-c', intltool_cache, po_dir, '@
 
 top_inc = include_directories('.')
 
-perl = find_program('perl')
-xsltproc = find_program('xsltproc')
-
 check_exports = find_program(join_paths(source_root, 'tools', 'check-exports.sh'))
 
 cc = meson.get_compiler('c')
@@ -923,6 +920,9 @@ if test -n "$INTROSPECTION_MAKEFILE"; then
     if ! "$PYTHON" -c 'from gi.repository import GObject' >& /dev/null; then
       AC_MSG_ERROR(["--enable-introspection aims to build the settings documentation. This requires GObject introspection for python (pygobject)])
     fi
+
+    perl = find_program('perl')
+    xsltproc = find_program('xsltproc')
 
     AC_PATH_PROG(PERL, perl)
     if test -z "$PERL"; then
