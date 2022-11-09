@@ -780,7 +780,7 @@ nm_wifi_ap_new_fake_from_connection(NMConnection *connection)
     const char                *mode, *band, *key_mgmt;
     guint32                    channel;
     NM80211ApSecurityFlags     flags;
-    gboolean                   adhoc = FALSE, cckm = FALSE;
+    gboolean                   adhoc = FALSE;
 
     g_return_val_if_fail(connection != NULL, NULL);
 

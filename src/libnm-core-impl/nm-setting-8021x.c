@@ -1657,7 +1657,7 @@ nm_setting_802_1x_get_num_phase2_autheaps(NMSetting8021x *setting)
  * @setting: the #NMSettingConnection
  * @i: the zero-based index of the array of "phase 2" autheap
  *
- * Returns: the "phase 2" EAP (ex tls) allowed authentication method as
+ * Returns: the "phase 2" EAP-based (ex TLS) allowed authentication method as
  *   specified by the #NMSetting8021x:phase2-autheap property.
  **/
 const char *
@@ -3128,7 +3128,7 @@ need_secrets_phase2(NMSetting8021x *self, GPtrArray *secrets, gboolean phase2)
         return;
     }
 
-    for (iter; iter && !auth_method_found; iter = g_slist_next(iter)) {
+    while (iter && !auth_method_found) {
         const char *method = (const char *) iter->data;
 
         /* Ask the configured phase2 method if it needs secrets */
@@ -3142,6 +3142,8 @@ need_secrets_phase2(NMSetting8021x *self, GPtrArray *secrets, gboolean phase2)
                 break;
             }
         }
+
+        iter = g_slist_next(iter);
     }
 }
 

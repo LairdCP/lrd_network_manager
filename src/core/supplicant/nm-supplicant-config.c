@@ -1819,7 +1819,6 @@ nm_supplicant_config_add_setting_8021x(NMSupplicantConfig *self,
                                        GError            **error)
 {
     NMSupplicantConfigPrivate    *priv;
-    char                         *tmp;
     const char                   *peapver, *value, *path;
     gboolean                      added;
     GString                      *phase1, *phase2;

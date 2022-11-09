@@ -1426,10 +1426,11 @@ eap_method_config_to_iwd_config(GKeyFile       *file,
     } else if (nm_streq0(method, "ttls") && !phase2) {
         // Laird:  Handle single-phase2-authentication method only.
         //         todo:  expand - see bug 10820
+        const char *noneap_method = nm_setting_802_1x_get_phase2_auth(s_8021x, 0);
+
         nm_log_info(LOGD_WIFI,
                     "Laird - handling single phase2-authentication-eap method only, %s\n",
                     nm_setting_802_1x_get_phase2_autheap(s_8021x, 0));
-        const char *noneap_method = nm_setting_802_1x_get_phase2_auth(s_8021x, 0);
 
         eap_method_name_to_iwd_config(file, iwd_prefix, "TTLS");
         eap_phase1_identity_to_iwd_config(file, iwd_prefix, s_8021x);

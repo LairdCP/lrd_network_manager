@@ -958,11 +958,11 @@ deactivate(NMDevice *device)
      * (usually older ones) don't scan well in adhoc mode.
      */
     /* BZ14067: 60: stop NM from changing AP interface to managed */
-    if (nm_platform_wifi_get_mode(nm_device_get_platform(device), ifindex) == NM_802_11_MODE_AP
+    if (nm_platform_wifi_get_mode(nm_device_get_platform(device), ifindex) == _NM_802_11_MODE_AP
         && nm_platform_wifi_get_can_apscan(nm_device_get_platform(device), ifindex)) {
         ; /* leave in AP mode if can_apscan */
     } else if (nm_platform_wifi_get_mode(nm_device_get_platform(device), ifindex)
-               != NM_802_11_MODE_INFRA) {
+               != _NM_802_11_MODE_INFRA) {
         nm_device_take_down(NM_DEVICE(self), TRUE);
         nm_platform_wifi_set_mode(nm_device_get_platform(device), ifindex, _NM_802_11_MODE_INFRA);
         nm_device_bring_up(NM_DEVICE(self), TRUE, NULL);
@@ -2939,7 +2939,7 @@ supplicant_iface_state(NMDeviceWifi              *self,
                becomes NM_DEVICE_STATE_ACTIVATED, NM also has to invalidate the current ap before updating
                the device state - so just leave this case to be handled by the link_timeout_cb function.
             */
-            if ((devstate != NM_DEVICE_STATE_ACTIVATED) && (priv->mode == NM_802_11_MODE_AP)) {
+            if ((devstate != NM_DEVICE_STATE_ACTIVATED) && (priv->mode == _NM_802_11_MODE_AP)) {
                 _LOGW(LOGD_DEVICE | LOGD_WIFI, "Disconnected by supplicant");
                 nm_device_state_changed(device,
                                         NM_DEVICE_STATE_DISCONNECTED,
