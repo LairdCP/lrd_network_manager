@@ -253,9 +253,11 @@ const char *nm_setting_802_1x_get_phase1_fast_provisioning(NMSetting8021x *setti
 const char *nm_setting_802_1x_get_phase2_auth(NMSetting8021x *setting, guint32 i);
 guint32     nm_setting_802_1x_get_num_phase2_auths(NMSetting8021x *setting);
 gboolean    nm_setting_802_1x_add_phase2_auth(NMSetting8021x *setting, const char *phase2_auth);
+void        nm_setting_802_1x_clear_phase2_auth(NMSetting8021x *setting);
 const char *nm_setting_802_1x_get_phase2_autheap(NMSetting8021x *setting, guint32 i);
 guint32     nm_setting_802_1x_get_num_phase2_autheaps(NMSetting8021x *setting);
 gboolean    nm_setting_802_1x_add_phase2_autheap(NMSetting8021x *setting, const char *phase2_auth);
+void        nm_setting_802_1x_clear_phase2_autheap(NMSetting8021x *setting);
 NMSetting8021xCKScheme nm_setting_802_1x_get_phase2_ca_cert_scheme(NMSetting8021x *setting);
 GBytes                *nm_setting_802_1x_get_phase2_ca_cert_blob(NMSetting8021x *setting);
 const char            *nm_setting_802_1x_get_phase2_ca_cert_path(NMSetting8021x *setting);

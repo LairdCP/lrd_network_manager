@@ -2517,13 +2517,11 @@ static void
 laird_set_global_cb(GVariant *ret, GError *error, gpointer user_data, const char *key)
 {
     NMSupplicantInterface        *self;
-    NMSupplicantInterfacePrivate *priv;
 
     if (nm_utils_error_is_cancelled(error))
         return;
 
     self = NM_SUPPLICANT_INTERFACE(user_data);
-    priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE(self);
 
     if (error) {
         if (_nm_dbus_error_has_name(error, "org.freedesktop.DBus.Error.InvalidArgs")) {
@@ -2704,6 +2702,9 @@ nm_supplicant_interface_assoc(NMSupplicantInterface       *self,
     g_snprintf(ccx, 2, "%d", nm_supplicant_config_get_ccx(priv->assoc_data->cfg));
 
     if (_get_capability_laird(self)) {
+        guint32          value;
+        LairdScanGlobals g;
+
         nm_dbus_connection_call_set(priv->dbus_connection,
                                     priv->name_owner->str,
                                     priv->object_path->str,
@@ -2715,8 +2716,6 @@ nm_supplicant_interface_assoc(NMSupplicantInterface       *self,
                                     set_ccx_cb,
                                     self);
 
-        guint32          value;
-        LairdScanGlobals g;
         memset(&g, 0, sizeof(g));
         g.scan_delay         = nm_supplicant_config_get_scan_delay(cfg);
         g.scan_dwell         = nm_supplicant_config_get_scan_dwell(cfg);
@@ -2911,8 +2910,7 @@ nm_supplicant_interface_request_scan_laird(NMSupplicantInterface                
 
         if (lss->freqs.count) {
             GVariantBuilder channel_builder;
-            guint32        *f = lss->freqs.ptr;
-            int             i;
+            gint32        *f = lss->freqs.ptr;
             g_variant_builder_init(&channel_builder, G_VARIANT_TYPE_ARRAY);
             for (i = 0; i < lss->freqs.count; i++) {
                 g_variant_builder_add(&channel_builder, "(uu)", *f++, 20);

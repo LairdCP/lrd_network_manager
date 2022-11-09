@@ -1504,7 +1504,6 @@ set_property(GObject *object, guint prop_id, const GValue *value, GParamSpec *ps
 {
     NMSettingWirelessSecurity        *setting = NM_SETTING_WIRELESS_SECURITY(object);
     NMSettingWirelessSecurityPrivate *priv    = NM_SETTING_WIRELESS_SECURITY_GET_PRIVATE(setting);
-    const char                       *str;
 
     switch (prop_id) {
     case PROP_PROTO:

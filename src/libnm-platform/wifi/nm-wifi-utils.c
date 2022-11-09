@@ -117,8 +117,6 @@ nm_wifi_utils_set_wake_on_wlan(NMWifiUtils *data, _NMSettingWirelessWakeOnWLan w
 gboolean
 nm_wifi_utils_get_can_apscan(NMWifiUtils *data)
 {
-    NMWifiUtilsClass *klass;
-
     g_return_val_if_fail(data != NULL, FALSE);
 
     return NM_WIFI_UTILS_GET_CLASS(data)->get_can_apscan(data);
