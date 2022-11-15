@@ -1,7 +1,6 @@
 AC_PREREQ([2.63])
 
-dnl The Laird build number
-m4_define([LRD_BUILD_NUMBER], [10.0.0.107])
+m4_define([SUMMIT_BUILD_NUMBER], [10.0.0.107])
 
 dnl The NM version number
 dnl
@@ -13,7 +12,7 @@ m4_define([nm_major_version], [1])
 m4_define([nm_minor_version], [36])
 m4_define([nm_micro_version], [8])
 m4_define([nm_version],
-          [LRD_BUILD_NUMBER-nm_major_version.nm_minor_version.nm_micro_version])
+          [nm_major_version.nm_minor_version.nm_micro_version])
 
 AC_INIT([NetworkManager], [nm_version],
         [http://bugzilla.gnome.org/enter_bug.cgi?product=NetworkManager],
@@ -217,7 +216,7 @@ dnl
 AC_ARG_WITH(dist-version,
             AS_HELP_STRING([--with-dist-version=<NM-distribution-version>],
                            [Define the NM''s distribution version string]),
-            ac_distver=$withval, ac_distver=$NM_VERSION)
+            ac_distver=$withval, ac_distver=SUMMIT_BUILD_NUMBER-$NM_VERSION)
 AC_DEFINE_UNQUOTED(NM_DIST_VERSION, "$ac_distver", [Define the distribution version string])
 AC_SUBST(NM_DIST_VERSION, "$ac_distver")
 

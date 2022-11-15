@@ -15,6 +15,8 @@ project(
   meson_version: '>= 0.47.2',
 )
 
+SUMMIT_BUILD_NUMBER = '10.0.0.106'
+
 nm_name = meson.project_name()
 
 nm_version = meson.project_version()
@@ -30,7 +32,7 @@ nm_gir_version = '1.0'
 # Distribution version string
 dist_version = get_option('dist_version')
 if dist_version == ''
-  dist_version = nm_version
+  dist_version = SUMMIT_BUILD_NUMBER + '-' + nm_version
 endif
 
 nm_prefix = get_option('prefix')
