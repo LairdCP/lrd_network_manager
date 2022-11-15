@@ -134,7 +134,7 @@ create_dm_cmd_line(const char           *iface,
 
     nm_strv_ptrarray_add_string_dup(cmd, "--no-hosts");
     nm_strv_ptrarray_add_string_dup(cmd, "--keep-in-foreground");
-    nm_strv_ptrarray_add_string_dup(cmd, "--bind-interfaces");
+    nm_strv_ptrarray_add_string_dup(cmd, "--bind-dynamic");
     nm_strv_ptrarray_add_string_dup(cmd, "--except-interface=lo");
     nm_strv_ptrarray_add_string_dup(cmd, "--clear-on-reload");
 

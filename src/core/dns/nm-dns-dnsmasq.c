@@ -520,7 +520,7 @@ _gl_pid_spawn_next_step(void)
     argv[argv_idx++] = "--no-resolv"; /* Use only commandline */
     argv[argv_idx++] = "--keep-in-foreground";
     argv[argv_idx++] = "--no-hosts"; /* don't use /etc/hosts to resolve */
-    argv[argv_idx++] = "--bind-interfaces";
+    argv[argv_idx++] = "--bind-dynamic";
     argv[argv_idx++] = "--pid-file=" PIDFILE;
     argv[argv_idx++] = "--listen-address=127.0.0.1"; /* Should work for both 4 and 6 */
     argv[argv_idx++] = "--cache-size=400";
