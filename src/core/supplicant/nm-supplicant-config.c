@@ -1976,6 +1976,8 @@ nm_supplicant_config_add_setting_8021x(NMSupplicantConfig *self,
         g_string_append_printf(phase1, "%stls_disable_tlsv1_2=1", (phase1->len ? " " : ""));
     if (NM_FLAGS_HAS(phase1_auth_flags, NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_3_ENABLE))
         g_string_append_printf(phase1, "%stls_disable_tlsv1_3=0", (phase1->len ? " " : ""));
+    if (NM_FLAGS_HAS(phase1_auth_flags, NM_SETTING_802_1X_AUTH_FLAGS_SAFE_RENEGOTIATION))
+        g_string_append_printf(phase1, "%sallow_unsafe_renegotiation=0", (phase1->len ? " " : ""));
 
     tls_disable = nm_setting_802_1x_get_tls_disable_time_checks(setting);
     if (tls_disable) {
