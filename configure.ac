@@ -1,6 +1,6 @@
 AC_PREREQ([2.63])
 
-m4_define([SUMMIT_BUILD_NUMBER], [10.0.0.166])
+m4_define([SUMMIT_BUILD_NUMBER], [10.0.0.167])
 
 dnl The NM version number
 dnl
