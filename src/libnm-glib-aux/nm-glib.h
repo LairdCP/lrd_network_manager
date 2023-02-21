@@ -45,27 +45,39 @@ __g_type_ensure(GType type)
 
 /*****************************************************************************/
 
-#if !GLIB_CHECK_VERSION(2, 34, 0)
+/* glib 2.58+ defines an improved, type-safe variant of g_clear_pointer(). Reimplement
+ * that.
+ *
+ * Note that we also have nm_clear_pointer() which is similar to g_clear_pointer()
+ * and also preferred throughout. However, we do use g_clear_object(), which is
+ * implemented via g_clear_pointer(). So while there are no immediate users of
+ * g_clear_pointer() (use nm_clear_pointer() instead), there are indirect users
+ * via g_clear_object().
+ *
+ * Anyway. So the glib 2.58+ version of g_clear_pointer() is only used if GLIB_VERSION_MAX_ALLOWED
+ * is set, which we don't do.
+ *
+ * To get the type-safe variant, reimplement g_clear_pointer() below. This aims to
+ * be identical to the version of the macro in glib 2.58.
+ *
+ * Still, don't use g_clear_pointer() directly (use nm_clear_pointer()). This compat
+ * implementation exists only for g_clear_object().
+ */
+#undef g_clear_pointer
 
-#define g_clear_pointer(pp, destroy)                           \
-    G_STMT_START                                               \
-    {                                                          \
-        G_STATIC_ASSERT(sizeof *(pp) == sizeof(gpointer));     \
-        /* Only one access, please */                          \
-        gpointer *_pp = (gpointer *) (pp);                     \
-        gpointer  _p;                                          \
-        /* This assignment is needed to avoid a gcc warning */ \
-        GDestroyNotify _destroy = (GDestroyNotify) (destroy);  \
-                                                               \
-        _p = *_pp;                                             \
-        if (_p) {                                              \
-            *_pp = NULL;                                       \
-            _destroy(_p);                                      \
-        }                                                      \
-    }                                                          \
+#define g_clear_pointer(pp, destroy)                       \
+    G_STMT_START                                           \
+    {                                                      \
+        typeof((pp)) _pp  = (pp);                          \
+        typeof(*_pp) _ptr = *_pp;                          \
+                                                           \
+        G_STATIC_ASSERT(sizeof *(pp) == sizeof(gpointer)); \
+                                                           \
+        *_pp = NULL;                                       \
+        if (_ptr)                                          \
+            (destroy)(_ptr);                               \
+    }                                                      \
     G_STMT_END
-
-#endif
 
 /*****************************************************************************/
 
@@ -303,6 +315,33 @@ _nm_g_ptr_array_insert(GPtrArray *array, int index_, gpointer data)
         G_GNUC_END_IGNORE_DEPRECATIONS          \
     }                                           \
     G_STMT_END
+#endif
+
+/*****************************************************************************/
+
+#if !GLIB_CHECK_VERSION(2, 54, 0)
+static inline gboolean
+g_ptr_array_find(GPtrArray *haystack, gconstpointer needle, guint *index_)
+{
+    guint i;
+    g_return_val_if_fail(haystack, FALSE);
+
+    for (i = 0; i < haystack->len; i++) {
+        if (haystack->pdata[i] == needle) {
+            if (index_)
+                *index_ = i;
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+#else
+#define g_ptr_array_find(haystack, needle, index_)  \
+    ({                                              \
+        G_GNUC_BEGIN_IGNORE_DEPRECATIONS            \
+        g_ptr_array_find(haystack, needle, index_); \
+        G_GNUC_END_IGNORE_DEPRECATIONS              \
+    })
 #endif
 
 /*****************************************************************************/
@@ -714,6 +753,16 @@ _nm_deprecated("Don't use this API") void _nm_forbidden_glib_api_n(gconstpointer
         g_strchomp(_str);         \
         _str;                     \
     })
+
+/*****************************************************************************/
+
+/* g_alloca0() evaluates the "size" argument multiple times. That seems an error
+ * prone API (as it's not function-like).
+ *
+ * We could fix it by using an expression statement. But it doesn't seem
+ * worth it, so hide it to prevent its use. */
+#undef g_alloca0
+#undef g_newa0
 
 /*****************************************************************************/
 

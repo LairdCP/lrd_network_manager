@@ -2,35 +2,6 @@
 
 libnm_core_impl_inc = include_directories('.')
 
-if crypto_nss_dep.found()
-  libnm_crypto_nss = static_library(
-    'nm-crypto-nss',
-    sources: 'nm-crypto-nss.c',
-    dependencies: [
-      libnm_core_public_dep,
-      crypto_nss_dep,
-    ],
-  )
-endif
-
-if crypto_gnutls_dep.found()
-  libnm_crypto_gnutls = static_library(
-    'nm-crypto-gnutls',
-    sources: 'nm-crypto-gnutls.c',
-    dependencies: [
-      libnm_core_public_dep,
-      crypto_gnutls_dep,
-    ],
-  )
-endif
-
-if crypto == 'nss'
-  libnm_crypto = libnm_crypto_nss
-else
-  assert(crypto == 'gnutls', 'Unexpected setting "crypto=' + crypto + '"')
-  libnm_crypto = libnm_crypto_gnutls
-endif
-
 libnm_core_settings_sources = files(
   'nm-setting-6lowpan.c',
   'nm-setting-8021x.c',
@@ -53,6 +24,7 @@ libnm_core_settings_sources = files(
   'nm-setting-ip-tunnel.c',
   'nm-setting-ip4-config.c',
   'nm-setting-ip6-config.c',
+  'nm-setting-loopback.c',
   'nm-setting-macsec.c',
   'nm-setting-macvlan.c',
   'nm-setting-match.c',
@@ -61,6 +33,7 @@ libnm_core_settings_sources = files(
   'nm-setting-ovs-dpdk.c',
   'nm-setting-ovs-external-ids.c',
   'nm-setting-ovs-interface.c',
+  'nm-setting-ovs-other-config.c',
   'nm-setting-ovs-patch.c',
   'nm-setting-ovs-port.c',
   'nm-setting-ppp.c',
@@ -89,8 +62,6 @@ libnm_core_settings_sources = files(
 
 libnm_core_impl_sources = files(
   'nm-connection.c',
-  'nm-crypto.c',
-  'nm-dbus-utils.c',
   'nm-errors.c',
   'nm-keyfile-utils.c',
   'nm-keyfile.c',
@@ -118,3 +89,52 @@ libnm_core_impl = static_library(
     uuid_dep,
   ],
 )
+
+###############################################################################
+
+gen_metadata_nm_settings_libnm_core = executable(
+  'gen-metadata-nm-settings-libnm-core',
+  files(
+    'gen-metadata-nm-settings-libnm-core.c',
+  ),
+  dependencies: [
+    libnm_core_public_dep,
+  ],
+  link_with: [
+    libnm_core_aux_intern,
+    libnm_core_impl,
+    libnm_crypto,
+    libnm_base,
+    libnm_systemd_shared,
+    libnm_log_null,
+    libnm_glib_aux,
+    libnm_std_aux,
+    libc_siphash,
+  ],
+  link_args: ldflags_linker_script_binary,
+  link_depends: linker_script_binary,
+)
+
+if enable_docs
+  gen_metadata_nm_settings_libnm_core_xml = custom_target(
+    'gen-metadata-nm-settings-libnm-core.xml',
+    output: 'gen-metadata-nm-settings-libnm-core.xml',
+    command: [ gen_metadata_nm_settings_libnm_core ],
+    capture: true,
+  )
+
+  test(
+    'check-local-gen-metadata-nm-settings-libnm-core',
+    find_program(join_paths(source_root, 'tools', 'check-compare-generated.sh')),
+    args: [
+      source_root + '/src/libnm-core-impl/gen-metadata-nm-settings-libnm-core.xml.in',
+      gen_metadata_nm_settings_libnm_core_xml,
+    ],
+  )
+else
+  gen_metadata_nm_settings_libnm_core_xml = configure_file(
+    input: 'gen-metadata-nm-settings-libnm-core.xml.in',
+    output: '@BASENAME@',
+    configuration: configuration_data(),
+  )
+endif

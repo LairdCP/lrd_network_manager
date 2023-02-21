@@ -1,3 +1,11 @@
+# This is the symbol version script of libnm for the linker.
+#
+# Note that once a stable release is done, all version nodes so
+# far must not change anymore. E.g. after 1.36.0 release, libnm_1_36_0
+# node (and all other version nodes) are frozen.
+#
+# Only add/remove symbols in the section for the current development
+# version, at the bottom of the file.
 libnm_1_0_0 {
 global:
 	nm_802_11_ap_flags_get_type;
@@ -847,7 +855,6 @@ global:
 	nm_setting_wireless_get_dms;
 	nm_setting_wireless_get_acs;
 	nm_setting_802_1x_get_pac_file_password;
-	nm_setting_802_1x_get_tls_disable_time_checks;
 local:
 	*;
 };
@@ -1855,3 +1862,93 @@ libnm_1_36_0 {
 global:
 	nm_setting_ovs_dpdk_get_n_rxq;
 } libnm_1_34_0;
+
+libnm_1_38_0 {
+global:
+	nm_client_get_radio_flags;
+	nm_radio_flags_get_type;
+} libnm_1_36_0;
+
+libnm_1_40_0 {
+global:
+	nm_conn_wireguard_import;
+	nm_mptcp_flags_get_type;
+	nm_setting_connection_get_wait_activation_delay;
+	nm_setting_ip4_link_local_get_type;
+	nm_setting_ip6_config_get_mtu;
+} libnm_1_38_0;
+
+libnm_1_40_4 {
+global:
+	nm_device_6lowpan_get_parent;
+	nm_device_macsec_get_parent;
+	nm_device_veth_get_peer;
+	nm_device_vxlan_get_carrier;
+	nm_device_vxlan_get_rsc;
+	nm_device_wifi_p2p_get_peer_by_path;
+	nm_setting_6lowpan_get_parent;
+	nm_setting_6lowpan_new;
+	nm_setting_connection_get_mptcp_flags;
+	nm_setting_hostname_new;
+	nm_setting_ip4_config_get_link_local;
+	nm_setting_ip_config_get_dhcp_iaid;
+	nm_setting_ip_tunnel_get_encapsulation_limit;
+	nm_setting_ip_tunnel_get_flow_label;
+	nm_setting_ovs_bridge_get_datapath_type;
+	nm_setting_vpn_get_persistent;
+	nm_setting_wpan_get_channel;
+	nm_setting_wpan_get_mac_address;
+	nm_setting_wpan_get_page;
+	nm_setting_wpan_get_pan_id;
+	nm_setting_wpan_get_short_address;
+	nm_setting_wpan_new;
+	nm_sriov_vf_attribute_validate;
+	nm_tc_tfilter_get_action;
+	nm_tc_tfilter_set_action;
+	nm_utils_ip_addresses_from_variant;
+	nm_utils_ip_addresses_to_variant;
+	nm_utils_ip_routes_from_variant;
+	nm_utils_ip_routes_to_variant;
+	nm_vpn_plugin_info_supports_multiple;
+} libnm_1_40_0;
+
+libnm_1_42_0 {
+global:
+	nm_client_get_version_info;
+	nm_client_wait_shutdown;
+	nm_client_wait_shutdown_finish;
+	nm_device_loopback_get_type;
+	nm_device_reapply_flags_get_type;
+	nm_range_cmp;
+	nm_range_from_str;
+	nm_range_get_range;
+	nm_range_get_type;
+	nm_range_new;
+	nm_range_ref;
+	nm_range_to_str;
+	nm_range_unref;
+	nm_setting_ip_config_get_auto_route_ext_gw;
+	nm_setting_ip_config_get_dhcp_iaid;
+	nm_setting_ip_config_get_dhcp_iaid;
+	nm_setting_ip_tunnel_get_fwmark;
+	nm_setting_loopback_get_mtu;
+	nm_setting_loopback_get_type;
+	nm_setting_loopback_new;
+	nm_setting_ovs_dpdk_get_n_rxq_desc;
+	nm_setting_ovs_dpdk_get_n_txq_desc;
+	nm_setting_ovs_interface_get_ofport_request;
+	nm_setting_ovs_other_config_get_data;
+	nm_setting_ovs_other_config_get_data_keys;
+	nm_setting_ovs_other_config_get_type;
+	nm_setting_ovs_other_config_new;
+	nm_setting_ovs_other_config_set_data;
+	nm_setting_ovs_port_add_trunk;
+	nm_setting_ovs_port_clear_trunks;
+	nm_setting_ovs_port_get_num_trunks;
+	nm_setting_ovs_port_get_trunk;
+	nm_setting_ovs_port_remove_trunk;
+	nm_setting_ovs_port_remove_trunk_by_value;
+	nm_setting_vlan_get_protocol;
+	nm_utils_ensure_gtypes;
+	nm_version_info_capability_get_type;
+} libnm_1_40_0;

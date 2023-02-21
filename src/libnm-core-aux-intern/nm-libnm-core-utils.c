@@ -41,6 +41,121 @@ _nm_setting_bond_remove_options_arp_interval(NMSettingBond *s_bond)
 /*****************************************************************************/
 
 NM_UTILS_STRING_TABLE_LOOKUP_DEFINE(
+    _nm_setting_bond_ad_select_from_string,
+    NMBondAdSelect,
+    {
+        G_STATIC_ASSERT_EXPR(_NM_BOND_AD_SELECT_NUM <= 3);
+
+        if (name && name[0] < '0' + _NM_BOND_AD_SELECT_NUM && name[0] >= '0' && name[1] == '\0') {
+            return name[0] - '0';
+        }
+    },
+    { return NM_BOND_AD_SELECT_STABLE; },
+    {"bandwidth", NM_BOND_AD_SELECT_BANDWIDTH},
+    {"count", NM_BOND_AD_SELECT_COUNT},
+    {"stable", NM_BOND_AD_SELECT_STABLE}, );
+
+NM_UTILS_STRING_TABLE_LOOKUP_DEFINE(
+    _nm_setting_bond_arp_all_targets_from_string,
+    NMBondArpAllTargets,
+    {
+        G_STATIC_ASSERT_EXPR(_NM_BOND_ARP_ALL_TARGETS_NUM <= 2);
+
+        if (name && name[0] < '0' + _NM_BOND_ARP_ALL_TARGETS_NUM && name[0] >= '0'
+            && name[1] == '\0') {
+            return name[0] - '0';
+        }
+    },
+    { return NM_BOND_ARP_ALL_TARGETS_ANY; },
+    {"all", NM_BOND_ARP_ALL_TARGETS_ALL},
+    {"any", NM_BOND_ARP_ALL_TARGETS_ANY}, );
+
+NM_UTILS_STRING_TABLE_LOOKUP_DEFINE(
+    _nm_setting_bond_fail_over_mac_from_string,
+    NMBondFailOverMac,
+    {
+        G_STATIC_ASSERT_EXPR(_NM_BOND_FAIL_OVER_MAC_NUM <= 3);
+
+        if (name && name[0] < '0' + _NM_BOND_FAIL_OVER_MAC_NUM && name[0] >= '0'
+            && name[1] == '\0') {
+            return name[0] - '0';
+        }
+    },
+    { return NM_BOND_FAIL_OVER_MAC_NONE; },
+    {"active", NM_BOND_FAIL_OVER_MAC_ACTIVE},
+    {"follow", NM_BOND_FAIL_OVER_MAC_FOLLOW},
+    {"none", NM_BOND_FAIL_OVER_MAC_NONE}, );
+
+NM_UTILS_STRING_TABLE_LOOKUP_DEFINE(
+    _nm_setting_bond_lacp_rate_from_string,
+    NMBondLacpRate,
+    {
+        G_STATIC_ASSERT_EXPR(_NM_BOND_LACP_RATE_NUM <= 2);
+
+        if (name && name[0] < '0' + _NM_BOND_LACP_RATE_NUM && name[0] >= '0' && name[1] == '\0') {
+            return name[0] - '0';
+        }
+    },
+    { return NM_BOND_LACP_RATE_SLOW; },
+    {"fast", NM_BOND_LACP_RATE_FAST},
+    {"slow", NM_BOND_LACP_RATE_SLOW}, );
+
+NM_UTILS_STRING_TABLE_LOOKUP_DEFINE(
+    _nm_setting_bond_arp_validate_from_string,
+    NMBondArpValidate,
+    {
+        G_STATIC_ASSERT_EXPR(_NM_BOND_ARP_VALIDATE_NUM <= 7);
+
+        if (name && name[0] < '0' + _NM_BOND_ARP_VALIDATE_NUM && name[0] >= '0'
+            && name[1] == '\0') {
+            return name[0] - '0';
+        }
+    },
+    { return NM_BOND_ARP_VALIDATE_NONE; },
+    {"active", NM_BOND_ARP_VALIDATE_ACTIVE},
+    {"all", NM_BOND_ARP_VALIDATE_ALL},
+    {"backup", NM_BOND_ARP_VALIDATE_BACKUP},
+    {"filter", NM_BOND_ARP_VALIDATE_FILTER},
+    {"filter_active", NM_BOND_ARP_VALIDATE_FILTER_ACTIVE},
+    {"filter_backup", NM_BOND_ARP_VALIDATE_FILTER_BACKUP},
+    {"none", NM_BOND_ARP_VALIDATE_NONE}, );
+
+NM_UTILS_STRING_TABLE_LOOKUP_DEFINE(
+    _nm_setting_bond_primary_reselect_from_string,
+    NMBondPrimaryReselect,
+    {
+        G_STATIC_ASSERT_EXPR(_NM_BOND_PRIMARY_RESELECT_NUM <= 3);
+
+        if (name && name[0] < '0' + _NM_BOND_PRIMARY_RESELECT_NUM && name[0] >= '0'
+            && name[1] == '\0') {
+            return name[0] - '0';
+        }
+    },
+    { return NM_BOND_PRIMARY_RESELECT_ALWAYS; },
+    {"always", NM_BOND_PRIMARY_RESELECT_ALWAYS},
+    {"better", NM_BOND_PRIMARY_RESELECT_BETTER},
+    {"failure", NM_BOND_PRIMARY_RESELECT_FAILURE}, );
+
+NM_UTILS_STRING_TABLE_LOOKUP_DEFINE(
+    _nm_setting_bond_xmit_hash_policy_from_string,
+    NMBondXmitHashPolicy,
+    {
+        G_STATIC_ASSERT_EXPR(_NM_BOND_XMIT_HASH_POLICY_NUM <= 6);
+
+        if (name && name[0] < '0' + _NM_BOND_XMIT_HASH_POLICY_NUM && name[0] >= '0'
+            && name[1] == '\0') {
+            return name[0] - '0';
+        }
+    },
+    { return NM_BOND_XMIT_HASH_POLICY_LAYER2; },
+    {"encap2+3", NM_BOND_XMIT_HASH_POLICY_ENCAP2_3},
+    {"encap3+4", NM_BOND_XMIT_HASH_POLICY_ENCAP3_4},
+    {"layer2", NM_BOND_XMIT_HASH_POLICY_LAYER2},
+    {"layer2+3", NM_BOND_XMIT_HASH_POLICY_LAYER2_3},
+    {"layer3+4", NM_BOND_XMIT_HASH_POLICY_LAYER3_4},
+    {"vlan+srcmac", NM_BOND_XMIT_HASH_POLICY_VLAN_SRCMAC}, );
+
+NM_UTILS_STRING_TABLE_LOOKUP_DEFINE(
     _nm_setting_bond_mode_from_string,
     NMBondMode,
     {
@@ -234,12 +349,12 @@ nm_auth_permission_from_string(const char *str)
 
     if (!NM_STR_HAS_PREFIX(str, AUTH_PERMISSION_PREFIX))
         return NM_CLIENT_PERMISSION_NONE;
-    idx = nm_utils_array_find_binary_search(nm_auth_permission_sorted,
-                                            sizeof(nm_auth_permission_sorted[0]),
-                                            G_N_ELEMENTS(nm_auth_permission_sorted),
-                                            &str[NM_STRLEN(AUTH_PERMISSION_PREFIX)],
-                                            _nm_auth_permission_from_string_cmp,
-                                            NULL);
+    idx = nm_array_find_bsearch(nm_auth_permission_sorted,
+                                G_N_ELEMENTS(nm_auth_permission_sorted),
+                                sizeof(nm_auth_permission_sorted[0]),
+                                &str[NM_STRLEN(AUTH_PERMISSION_PREFIX)],
+                                _nm_auth_permission_from_string_cmp,
+                                NULL);
     if (idx < 0)
         return NM_CLIENT_PERMISSION_NONE;
     return nm_auth_permission_sorted[idx];
@@ -377,4 +492,242 @@ _nm_connection_new_setting(NMConnection *connection, GType gtype)
     setting = g_object_new(gtype, NULL);
     nm_connection_add_setting(connection, setting);
     return setting;
+}
+
+/*****************************************************************************/
+
+NMMptcpFlags
+nm_mptcp_flags_normalize(NMMptcpFlags flags)
+{
+    /* Certain combinations of flags are incompatible. Normalize them.
+     *
+     * This function never returns 0x0 (NONE). If the flags are neither
+     * disabled,enabled-on-global-iface,enabled, then we default to "enabled". */
+
+    if (NM_FLAGS_HAS(flags, NM_MPTCP_FLAGS_DISABLED)) {
+        /* If the disabled flag is set, then that's the end of it. */
+        return NM_MPTCP_FLAGS_DISABLED;
+    }
+
+    /* Clear all unknown flags. */
+    flags &= _NM_MPTCP_FLAGS_ALL;
+
+    /* Not disabled means enabled. */
+    flags |= NM_MPTCP_FLAGS_ENABLED;
+
+    if (NM_FLAGS_ALL(flags, NM_MPTCP_FLAGS_SIGNAL | NM_MPTCP_FLAGS_FULLMESH))
+        flags = NM_FLAGS_UNSET(flags, NM_MPTCP_FLAGS_FULLMESH);
+
+    return flags;
+}
+
+/*****************************************************************************/
+
+gboolean
+nm_utils_dnsname_parse(int                          addr_family,
+                       const char                  *dns,
+                       int                         *out_addr_family,
+                       gpointer /* (NMIPAddr **) */ out_addr,
+                       const char                 **out_servername)
+{
+    gs_free char *dns_heap = NULL;
+    const char   *s;
+    NMIPAddr      addr;
+
+    nm_assert_addr_family_or_unspec(addr_family);
+    nm_assert(!out_addr || out_addr_family || NM_IN_SET(addr_family, AF_INET, AF_INET6));
+
+    if (!dns)
+        return FALSE;
+
+    s = strchr(dns, '#');
+
+    if (s) {
+        dns = nm_strndup_a(200, dns, s - dns, &dns_heap);
+        s++;
+    }
+
+    if (s && s[0] == '\0') {
+        /* "ADDR#" empty DoT SNI name is not allowed. */
+        return FALSE;
+    }
+
+    if (!nm_inet_parse_bin(addr_family, dns, &addr_family, out_addr ? &addr : NULL))
+        return FALSE;
+
+    NM_SET_OUT(out_addr_family, addr_family);
+    if (out_addr)
+        nm_ip_addr_set(addr_family, out_addr, &addr);
+    NM_SET_OUT(out_servername, s);
+    return TRUE;
+}
+
+const char *
+nm_utils_dnsname_construct(int                                    addr_family,
+                           gconstpointer /* (const NMIPAddr *) */ addr,
+                           const char                            *server_name,
+                           char                                  *result,
+                           gsize                                  result_len)
+{
+    char  sbuf[NM_INET_ADDRSTRLEN];
+    gsize l;
+    int   d;
+
+    nm_assert_addr_family(addr_family);
+    nm_assert(addr);
+    nm_assert(!server_name || !nm_str_is_empty(server_name));
+
+    nm_inet_ntop(addr_family, addr, sbuf);
+
+    if (!server_name) {
+        l = g_strlcpy(result, sbuf, result_len);
+    } else {
+        d = g_snprintf(result, result_len, "%s#%s", sbuf, server_name);
+        nm_assert(d >= 0);
+        l = (gsize) d;
+    }
+
+    return l < result_len ? result : NULL;
+}
+
+const char *
+nm_utils_dnsname_normalize(int addr_family, const char *dns, char **out_free)
+{
+    char        sbuf[NM_INET_ADDRSTRLEN];
+    const char *server_name;
+    char       *s;
+    NMIPAddr    a;
+    gsize       l;
+
+    nm_assert_addr_family_or_unspec(addr_family);
+    nm_assert(dns);
+    nm_assert(out_free && !*out_free);
+
+    if (!nm_utils_dnsname_parse(addr_family, dns, &addr_family, &a, &server_name))
+        return NULL;
+
+    nm_inet_ntop(addr_family, &a, sbuf);
+
+    l = strlen(sbuf);
+
+    /* In the vast majority of cases, the name is in fact normalized. Check
+     * whether it is, and don't duplicate the string. */
+    if (strncmp(dns, sbuf, l) == 0) {
+        if (server_name) {
+            if (dns[l] == '#' && nm_streq(&dns[l + 1], server_name))
+                return dns;
+        } else {
+            if (dns[l] == '\0')
+                return dns;
+        }
+    }
+
+    if (!server_name)
+        s = g_strdup(sbuf);
+    else
+        s = g_strconcat(sbuf, "#", server_name, NULL);
+
+    *out_free = s;
+    return s;
+}
+
+/*****************************************************************************/
+
+/**
+ * nm_setting_ovs_other_config_check_key:
+ * @key: (allow-none): the key to check
+ * @error: a #GError, %NULL to ignore.
+ *
+ * Checks whether @key is a valid key for OVS' other-config.
+ * This means, the key cannot be %NULL, not too large and valid ASCII.
+ * Also, only digits and numbers are allowed with a few special
+ * characters.
+ *
+ * Returns: %TRUE if @key is a valid user data key.
+ */
+gboolean
+nm_setting_ovs_other_config_check_key(const char *key, GError **error)
+{
+    gsize len;
+
+    g_return_val_if_fail(!error || !*error, FALSE);
+
+    if (!key || !key[0]) {
+        g_set_error_literal(error,
+                            NM_CONNECTION_ERROR,
+                            NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                            _("missing key"));
+        return FALSE;
+    }
+    len = strlen(key);
+    if (len > 255u) {
+        g_set_error_literal(error,
+                            NM_CONNECTION_ERROR,
+                            NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                            _("key is too long"));
+        return FALSE;
+    }
+    if (!g_utf8_validate(key, len, NULL)) {
+        g_set_error_literal(error,
+                            NM_CONNECTION_ERROR,
+                            NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                            _("key must be UTF8"));
+        return FALSE;
+    }
+    if (!NM_STRCHAR_ALL(key, ch, nm_ascii_is_regular_char(ch))) {
+        /* Probably OVS is more forgiving about what makes a valid key for
+         * an other-key. However, we are strict (at least, for now). */
+        g_set_error_literal(error,
+                            NM_CONNECTION_ERROR,
+                            NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                            _("key contains invalid characters"));
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
+/**
+ * nm_setting_ovs_other_config_check_val:
+ * @val: (allow-none): the value to check
+ * @error: a #GError, %NULL to ignore.
+ *
+ * Checks whether @val is a valid user data value. This means,
+ * value is not %NULL, not too large and valid UTF-8.
+ *
+ * Returns: %TRUE if @val is a valid user data value.
+ */
+gboolean
+nm_setting_ovs_other_config_check_val(const char *val, GError **error)
+{
+    gsize len;
+
+    g_return_val_if_fail(!error || !*error, FALSE);
+
+    if (!val) {
+        g_set_error_literal(error,
+                            NM_CONNECTION_ERROR,
+                            NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                            _("value is missing"));
+        return FALSE;
+    }
+
+    len = strlen(val);
+    if (len > (2u * 1024u)) {
+        g_set_error_literal(error,
+                            NM_CONNECTION_ERROR,
+                            NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                            _("value is too large"));
+        return FALSE;
+    }
+
+    if (!g_utf8_validate(val, len, NULL)) {
+        g_set_error_literal(error,
+                            NM_CONNECTION_ERROR,
+                            NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                            _("value is not valid UTF8"));
+        return FALSE;
+    }
+
+    return TRUE;
 }

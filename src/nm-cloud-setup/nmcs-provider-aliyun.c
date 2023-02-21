@@ -123,29 +123,26 @@ detect(NMCSProvider *provider, GTask *task)
 typedef enum {
     GET_CONFIG_FETCH_DONE_TYPE_SUBNET_VPC_CIDR_BLOCK,
     GET_CONFIG_FETCH_DONE_TYPE_PRIVATE_IPV4S,
+    GET_CONFIG_FETCH_DONE_TYPE_PRIMARY_IP_ADDRESS,
     GET_CONFIG_FETCH_DONE_TYPE_NETMASK,
     GET_CONFIG_FETCH_DONE_TYPE_GATEWAY,
 } GetConfigFetchDoneType;
 
 static void
-_get_config_fetch_done_cb(NMHttpClient          *http_client,
-                          GAsyncResult          *result,
-                          gpointer               user_data,
-                          GetConfigFetchDoneType fetch_type)
+_get_config_fetch_done_cb(NMHttpClient                   *http_client,
+                          GAsyncResult                   *result,
+                          NMCSProviderGetConfigIfaceData *config_iface_data,
+                          GetConfigFetchDoneType          fetch_type)
 {
-    NMCSProviderGetConfigTaskData  *get_config_data;
-    gs_unref_bytes GBytes          *response = NULL;
-    gs_free_error GError           *error    = NULL;
-    NMCSProviderGetConfigIfaceData *config_iface_data;
-    in_addr_t                       tmp_addr;
-    int                             tmp_prefix;
-    in_addr_t                       netmask_bin;
-    in_addr_t                       gateway_bin;
-    gs_free const char            **s_addrs = NULL;
-    gsize                           i;
-    gsize                           len;
-
-    nm_utils_user_data_unpack(user_data, &get_config_data, &config_iface_data);
+    gs_unref_bytes GBytes *response = NULL;
+    gs_free_error GError  *error    = NULL;
+    in_addr_t              tmp_addr;
+    int                    tmp_prefix;
+    in_addr_t              netmask_bin;
+    in_addr_t              gateway_bin;
+    gs_free const char   **s_addrs = NULL;
+    gsize                  i;
+    gsize                  len;
 
     nm_http_client_poll_get_finish(http_client, result, NULL, &response, &error);
 
@@ -170,20 +167,30 @@ _get_config_fetch_done_cb(NMHttpClient          *http_client,
             config_iface_data->ipv4s_arr = g_new(in_addr_t, len);
             for (i = 0; i < len; i++) {
                 filter_chars((char *) s_addrs[i], "[]\"");
-                if (nm_utils_parse_inaddr_bin(AF_INET, s_addrs[i], NULL, &tmp_addr)) {
+                if (nm_inet_parse_bin(AF_INET, s_addrs[i], NULL, &tmp_addr)) {
                     config_iface_data->ipv4s_arr[config_iface_data->ipv4s_len++] = tmp_addr;
                 }
             }
         }
         break;
 
+    case GET_CONFIG_FETCH_DONE_TYPE_PRIMARY_IP_ADDRESS:
+
+        if (nm_inet_parse_bin(AF_INET, g_bytes_get_data(response, NULL), NULL, &tmp_addr)) {
+            nm_assert(config_iface_data->priv.aliyun.primary_ip_address == 0);
+            nm_assert(!config_iface_data->priv.aliyun.has_primary_ip_address);
+            config_iface_data->priv.aliyun.primary_ip_address     = tmp_addr;
+            config_iface_data->priv.aliyun.has_primary_ip_address = TRUE;
+        }
+        break;
+
     case GET_CONFIG_FETCH_DONE_TYPE_SUBNET_VPC_CIDR_BLOCK:
 
-        if (nm_utils_parse_inaddr_prefix_bin(AF_INET,
-                                             g_bytes_get_data(response, NULL),
-                                             NULL,
-                                             &tmp_addr,
-                                             &tmp_prefix)) {
+        if (nm_inet_parse_with_prefix_bin(AF_INET,
+                                          g_bytes_get_data(response, NULL),
+                                          NULL,
+                                          &tmp_addr,
+                                          &tmp_prefix)) {
             nm_assert(!config_iface_data->has_cidr);
             config_iface_data->has_cidr  = TRUE;
             config_iface_data->cidr_addr = tmp_addr;
@@ -192,29 +199,44 @@ _get_config_fetch_done_cb(NMHttpClient          *http_client,
 
     case GET_CONFIG_FETCH_DONE_TYPE_NETMASK:
 
-        if (nm_utils_parse_inaddr_bin(AF_INET,
-                                      g_bytes_get_data(response, NULL),
-                                      NULL,
-                                      &netmask_bin)) {
-            config_iface_data->cidr_prefix = nm_utils_ip4_netmask_to_prefix(netmask_bin);
+        if (nm_inet_parse_bin(AF_INET, g_bytes_get_data(response, NULL), NULL, &netmask_bin)) {
+            config_iface_data->cidr_prefix = nm_ip4_addr_netmask_to_prefix(netmask_bin);
         };
         break;
 
     case GET_CONFIG_FETCH_DONE_TYPE_GATEWAY:
 
-        if (nm_utils_parse_inaddr_bin(AF_INET,
-                                      g_bytes_get_data(response, NULL),
-                                      NULL,
-                                      &gateway_bin)) {
+        if (nm_inet_parse_bin(AF_INET, g_bytes_get_data(response, NULL), NULL, &gateway_bin)) {
             config_iface_data->has_gateway = TRUE;
             config_iface_data->gateway     = gateway_bin;
         };
         break;
     }
 
+    if (!config_iface_data->priv.aliyun.ipv4s_arr_ordered
+        && config_iface_data->priv.aliyun.has_primary_ip_address
+        && config_iface_data->ipv4s_len > 0) {
+        for (i = 0; i < config_iface_data->ipv4s_len; i++) {
+            if (config_iface_data->ipv4s_arr[i]
+                != config_iface_data->priv.aliyun.primary_ip_address)
+                continue;
+            if (i > 0) {
+                /* OK, at position [i] we found the primary address.
+                 * Move the elements from [0..(i-1)] to [1..i] and then set [0]. */
+                memmove(&config_iface_data->ipv4s_arr[1],
+                        &config_iface_data->ipv4s_arr[0],
+                        i * sizeof(in_addr_t));
+                config_iface_data->ipv4s_arr[0] = config_iface_data->priv.aliyun.primary_ip_address;
+            }
+            break;
+        }
+        config_iface_data->priv.aliyun.ipv4s_arr_ordered = TRUE;
+    }
+
 out:
-    get_config_data->n_pending--;
-    _nmcs_provider_get_config_task_maybe_return(get_config_data, g_steal_pointer(&error));
+    config_iface_data->get_config_data->n_pending--;
+    _nmcs_provider_get_config_task_maybe_return(config_iface_data->get_config_data,
+                                                g_steal_pointer(&error));
 }
 
 static void
@@ -233,6 +255,17 @@ _get_config_fetch_done_cb_private_ipv4s(GObject *source, GAsyncResult *result, g
                               result,
                               user_data,
                               GET_CONFIG_FETCH_DONE_TYPE_PRIVATE_IPV4S);
+}
+
+static void
+_get_config_fetch_done_cb_primary_ip_address(GObject      *source,
+                                             GAsyncResult *result,
+                                             gpointer      user_data)
+{
+    _get_config_fetch_done_cb(NM_HTTP_CLIENT(source),
+                              result,
+                              user_data,
+                              GET_CONFIG_FETCH_DONE_TYPE_PRIMARY_IP_ADDRESS);
 }
 
 static void
@@ -297,6 +330,7 @@ _get_config_metadata_ready_cb(GObject *source, GAsyncResult *result, gpointer us
         gs_free char                   *uri2 = NULL;
         gs_free char                   *uri3 = NULL;
         gs_free char                   *uri4 = NULL;
+        gs_free char                   *uri5 = NULL;
 
         config_iface_data = g_hash_table_lookup(get_config_data->result_dict, v_hwaddr);
 
@@ -309,9 +343,7 @@ _get_config_metadata_ready_cb(GObject *source, GAsyncResult *result, gpointer us
             }
 
             config_iface_data =
-                nmcs_provider_get_config_iface_data_create(get_config_data->result_dict,
-                                                           FALSE,
-                                                           v_hwaddr);
+                nmcs_provider_get_config_iface_data_create(get_config_data, FALSE, v_hwaddr);
         }
 
         nm_assert(config_iface_data->iface_idx == -1);
@@ -338,7 +370,7 @@ _get_config_metadata_ready_cb(GObject *source, GAsyncResult *result, gpointer us
             NULL,
             NULL,
             _get_config_fetch_done_cb_vpc_cidr_block,
-            nm_utils_user_data_pack(get_config_data, config_iface_data));
+            config_iface_data);
 
         get_config_data->n_pending++;
         nm_http_client_poll_get(
@@ -355,12 +387,29 @@ _get_config_metadata_ready_cb(GObject *source, GAsyncResult *result, gpointer us
             NULL,
             NULL,
             _get_config_fetch_done_cb_private_ipv4s,
-            nm_utils_user_data_pack(get_config_data, config_iface_data));
+            config_iface_data);
 
         get_config_data->n_pending++;
         nm_http_client_poll_get(
             http_client,
             (uri3 = _aliyun_uri_interfaces(v_mac_data->path,
+                                           NM_STR_HAS_SUFFIX(v_mac_data->path, "/") ? "" : "/",
+                                           "primary-ip-address")),
+            HTTP_TIMEOUT_MS,
+            512 * 1024,
+            10000,
+            1000,
+            NULL,
+            get_config_data->intern_cancellable,
+            NULL,
+            NULL,
+            _get_config_fetch_done_cb_primary_ip_address,
+            config_iface_data);
+
+        get_config_data->n_pending++;
+        nm_http_client_poll_get(
+            http_client,
+            (uri4 = _aliyun_uri_interfaces(v_mac_data->path,
                                            NM_STR_HAS_SUFFIX(v_mac_data->path, "/") ? "" : "/",
                                            "netmask")),
             HTTP_TIMEOUT_MS,
@@ -372,12 +421,12 @@ _get_config_metadata_ready_cb(GObject *source, GAsyncResult *result, gpointer us
             NULL,
             NULL,
             _get_config_fetch_done_cb_netmask,
-            nm_utils_user_data_pack(get_config_data, config_iface_data));
+            config_iface_data);
 
         get_config_data->n_pending++;
         nm_http_client_poll_get(
             http_client,
-            (uri4 = _aliyun_uri_interfaces(v_mac_data->path,
+            (uri5 = _aliyun_uri_interfaces(v_mac_data->path,
                                            NM_STR_HAS_SUFFIX(v_mac_data->path, "/") ? "" : "/",
                                            "gateway")),
             HTTP_TIMEOUT_MS,
@@ -389,7 +438,7 @@ _get_config_metadata_ready_cb(GObject *source, GAsyncResult *result, gpointer us
             NULL,
             NULL,
             _get_config_fetch_done_cb_gateway,
-            nm_utils_user_data_pack(get_config_data, config_iface_data));
+            config_iface_data);
     }
 
     _nmcs_provider_get_config_task_maybe_return(get_config_data, NULL);

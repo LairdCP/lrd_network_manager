@@ -1010,8 +1010,9 @@ _network_server_get_bluez_manager(const NMBtVTableNetworkServer *vtable_network_
 {
     NMBluezManager *self;
 
-    self = (NMBluezManager *) (((char *) vtable_network_server)
-                               - G_STRUCT_OFFSET(NMBluezManager, _priv.vtable_network_server));
+    self = NM_CAST_ALIGN(NMBluezManager,
+                         (((char *) vtable_network_server)
+                          - G_STRUCT_OFFSET(NMBluezManager, _priv.vtable_network_server)));
 
     g_return_val_if_fail(NM_IS_BLUEZ_MANAGER(self), NULL);
 
@@ -1352,6 +1353,7 @@ _conn_create_panu_connection(NMBluezManager *self, BzDBusObj *bzobj)
           bzobj->d_device.address);
 
     nm_settings_add_connection(priv->settings,
+                               NULL,
                                connection,
                                NM_SETTINGS_CONNECTION_PERSIST_MODE_IN_MEMORY_ONLY,
                                NM_SETTINGS_CONNECTION_ADD_REASON_NONE,

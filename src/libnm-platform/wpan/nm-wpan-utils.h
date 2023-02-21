@@ -6,14 +6,12 @@
 #ifndef __WPAN_UTILS_H__
 #define __WPAN_UTILS_H__
 
-#include <net/ethernet.h>
-
 #include "libnm-platform/nm-netlink.h"
 
 typedef struct NMWpanUtils NMWpanUtils;
 
 #define NM_TYPE_WPAN_UTILS (nm_wpan_utils_get_type())
-#define NM_WPAN_UTILS(obj) (G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_WPAN_UTILS, NMWpanUtils))
+#define NM_WPAN_UTILS(obj) (_NM_G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_WPAN_UTILS, NMWpanUtils))
 #define NM_WPAN_UTILS_CLASS(klass) \
     (G_TYPE_CHECK_CLASS_CAST((klass), NM_TYPE_WPAN_UTILS, NMWpanUtilsClass))
 #define NM_IS_WPAN_UTILS(obj)         (G_TYPE_CHECK_INSTANCE_TYPE((obj), NM_TYPE_WPAN_UTILS))
@@ -23,7 +21,8 @@ typedef struct NMWpanUtils NMWpanUtils;
 
 GType nm_wpan_utils_get_type(void);
 
-NMWpanUtils *nm_wpan_utils_new(int ifindex, struct nl_sock *genl, gboolean check_scan);
+NMWpanUtils *
+nm_wpan_utils_new(struct nl_sock *genl, guint16 genl_family_id, int ifindex, gboolean check_scan);
 
 guint16  nm_wpan_utils_get_pan_id(NMWpanUtils *self);
 gboolean nm_wpan_utils_set_pan_id(NMWpanUtils *self, guint16 pan_id);

@@ -5,6 +5,7 @@ libnm_client_impl_sources = files(
   'nm-active-connection.c',
   'nm-checkpoint.c',
   'nm-client.c',
+  'nm-conn-utils.c',
   'nm-dbus-helpers.c',
   'nm-device-6lowpan.c',
   'nm-device-adsl.c',
@@ -16,6 +17,7 @@ libnm_client_impl_sources = files(
   'nm-device-generic.c',
   'nm-device-infiniband.c',
   'nm-device-ip-tunnel.c',
+  'nm-device-loopback.c',
   'nm-device-macsec.c',
   'nm-device-macvlan.c',
   'nm-device-modem.c',
@@ -140,6 +142,14 @@ if enable_introspection
       src_inc,
       top_inc,
     ],
+    dependencies: [
+      declare_dependency(
+        compile_args: [
+          '-UGLIB_VERSION_MIN_REQUIRED',
+          '-UGLIB_VERSION_MAX_ALLOWED',
+        ],
+      ),
+    ],
     nsversion: nm_gir_version,
     namespace: 'NM',
     identifier_prefix: nm_id_prefix,
@@ -227,5 +237,4 @@ if enable_introspection
     ],
     depends: libnm_gir,
   )
-
 endif

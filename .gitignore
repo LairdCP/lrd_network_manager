@@ -55,7 +55,6 @@ test-*.trs
 /config.*
 /config-extra.h
 /configure
-/intltool-*
 
 /confdefs.h
 /conftest.[ch]
@@ -135,6 +134,8 @@ test-*.trs
 
 /introspection/org.freedesktop.NetworkManager*.[ch]
 
+/po/.Makefile.patched
+
 /src/libnm-core-public/nm-version-macros.h
 /src/libnm-core-public/nm-dbus-types.xml
 /src/libnm-core-public/nm-vpn-dbus-types.xml
@@ -146,6 +147,8 @@ test-*.trs
 /src/libnm-core-impl/tests/test-need-secrets
 /src/libnm-core-impl/tests/test-secrets
 /src/libnm-core-impl/tests/test-setting
+/src/libnm-core-impl/gen-metadata-nm-settings-libnm-core
+/src/libnm-core-impl/gen-metadata-nm-settings-libnm-core.xml
 /src/libnm-glib-aux/tests/test-json-aux
 /src/libnm-glib-aux/tests/test-shared-general
 /src/libnm-platform/tests/test-nm-platform
@@ -177,8 +180,8 @@ test-*.trs
 /src/nm-cloud-setup/tests/test-cloud-setup-general
 
 /src/nmcli/nmcli
-/src/nmcli/generate-docs-nm-settings-nmcli
-/src/nmcli/generate-docs-nm-settings-nmcli.xml
+/src/nmcli/gen-metadata-nm-settings-nmcli
+/src/nmcli/gen-metadata-nm-settings-nmcli.xml
 
 /src/nm-online/nm-online
 
@@ -187,12 +190,12 @@ test-*.trs
 /m4/glibc2.m4
 /m4/glibc21.m4
 /m4/gtk-doc.m4
+/m4/host-cpu-c-abi.m4
 /m4/iconv.m4
 /m4/intdiv0.m4
 /m4/intl.m4
 /m4/intldir.m4
 /m4/intlmacosx.m4
-/m4/intltool.m4
 /m4/intmax.m4
 /m4/inttypes-pri.m4
 /m4/inttypes_h.m4
@@ -226,15 +229,15 @@ test-*.trs
 /man/common.ent
 
 /po/*.gmo
-/po/.intltool-merge-cache
-/po/NetworkManager.pot
 /po/Makevars.template
+/po/NetworkManager.pot
 /po/Rules-quot
 /po/boldquot.sed
 /po/en@boldquot.header
 /po/en@quot.header
 /po/insert-header.sin
 /po/quot.sed
+/po/remove-potcdate.sed
 /po/remove-potcdate.sin
 
 /src/core/NetworkManager
@@ -342,6 +345,7 @@ test-*.trs
 /include/
 /initscript/*/[Nn]etwork[Mm]anager
 /initscript/Slackware/rc.networkmanager
+/intltool-*
 /introspection/nmdbus-*.c
 /introspection/nmdbus-*.h
 /introspection/nmdbus-*.xml
@@ -394,7 +398,9 @@ test-*.trs
 /libnm/tests/test-nm-client
 /libnm/tests/test-remote-settings-client
 /libnm/tests/test-secret-agent
+/m4/intltool.m4
 /man/nm-settings.xml
+/po/.intltool-merge-cache
 /policy/org.freedesktop.NetworkManager.policy
 /policy/org.freedesktop.NetworkManager.policy.in
 /shared/nm-glib-aux/tests/test-json-aux
@@ -440,6 +446,8 @@ test-*.trs
 /src/nm-priv-helper/org.freedesktop.nm-priv-helper.service
 /src/nm-sudo/nm-sudo
 /src/nm-sudo/org.freedesktop.nm.sudo.service
+/src/nmcli/generate-docs-nm-settings-nmcli
+/src/nmcli/generate-docs-nm-settings-nmcli.xml
 /src/platform/tests/dump
 /src/platform/tests/monitor
 /src/platform/tests/platform

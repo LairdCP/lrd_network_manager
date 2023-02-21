@@ -112,7 +112,7 @@ nm_hash_update_in6addr_prefix(NMHashState *h, const struct in6_addr *addr, guint
 
     nm_assert(addr);
 
-    nm_utils_ip6_address_clear_host_address(&a, addr, plen);
+    nm_ip6_addr_clear_host_address(&a, addr, plen);
     /* we don't hash plen itself. The caller may want to do that.*/
     nm_hash_update_in6addr(h, &a);
 }
@@ -154,7 +154,7 @@ nm_utils_ip_route_metric_penalize(guint32 metric, guint32 penalty)
 void nm_utils_kill_process_sync(pid_t       pid,
                                 guint64     start_time,
                                 int         sig,
-                                guint64     log_domain,
+                                NMLogDomain log_domain,
                                 const char *log_name,
                                 guint32     wait_before_kill_msec,
                                 guint32     sleep_duration_msec,
@@ -166,14 +166,14 @@ typedef void (*NMUtilsKillChildAsyncCb)(pid_t    pid,
                                         void    *user_data);
 void     nm_utils_kill_child_async(pid_t                   pid,
                                    int                     sig,
-                                   guint64                 log_domain,
+                                   NMLogDomain             log_domain,
                                    const char             *log_name,
                                    guint32                 wait_before_kill_msec,
                                    NMUtilsKillChildAsyncCb callback,
                                    void                   *user_data);
 gboolean nm_utils_kill_child_sync(pid_t       pid,
                                   int         sig,
-                                  guint64     log_domain,
+                                  NMLogDomain log_domain,
                                   const char *log_name,
                                   int        *child_status,
                                   guint32     wait_before_kill_msec,
@@ -233,6 +233,7 @@ void nm_utils_log_connection_diff(NMConnection *connection,
                                   const char   *dbus_path);
 
 gboolean nm_utils_is_specific_hostname(const char *name);
+gboolean nm_utils_shorten_hostname(const char *hostname, char **shortened);
 
 struct _NMUuid;
 
@@ -246,7 +247,7 @@ const char           *nm_utils_proc_cmdline(void);
 const char *const    *nm_utils_proc_cmdline_split(void);
 
 gboolean nm_utils_host_id_get(const guint8 **out_host_id, gsize *out_host_id_len);
-gint64   nm_utils_host_id_get_timestamp_ns(void);
+gint64   nm_utils_host_id_get_timestamp_nsec(void);
 
 void nmtst_utils_host_id_push(const guint8 *host_id,
                               gssize        host_id_len,

@@ -585,7 +585,7 @@ _merge_keyfiles(GKeyFile *keyfile_user, GKeyFile *keyfile_intern)
         if (!keys)
             continue;
 
-        is_intern = g_str_has_prefix(group, NM_CONFIG_KEYFILE_GROUPPREFIX_INTERN);
+        is_intern = NM_STR_HAS_PREFIX(group, NM_CONFIG_KEYFILE_GROUPPREFIX_INTERN);
         if (!is_intern
             && g_key_file_has_key(keyfile_intern,
                                   group,
@@ -634,9 +634,11 @@ _nm_config_data_log_sort(const char **pa, const char **pb, gpointer dummy)
     const char *a = *pa;
     const char *b = *pb;
 
+    nm_assert(a && b && !nm_streq(a, b));
+
     /* we sort intern groups to the end. */
-    a_is_intern = g_str_has_prefix(a, NM_CONFIG_KEYFILE_GROUPPREFIX_INTERN);
-    b_is_intern = g_str_has_prefix(b, NM_CONFIG_KEYFILE_GROUPPREFIX_INTERN);
+    a_is_intern = NM_STR_HAS_PREFIX(a, NM_CONFIG_KEYFILE_GROUPPREFIX_INTERN);
+    b_is_intern = NM_STR_HAS_PREFIX(b, NM_CONFIG_KEYFILE_GROUPPREFIX_INTERN);
 
     if (a_is_intern && b_is_intern)
         return 0;
@@ -646,8 +648,8 @@ _nm_config_data_log_sort(const char **pa, const char **pb, gpointer dummy)
         return -1;
 
     /* we sort connection groups before intern groups (to the end). */
-    a_is_connection = a && g_str_has_prefix(a, NM_CONFIG_KEYFILE_GROUPPREFIX_CONNECTION);
-    b_is_connection = b && g_str_has_prefix(b, NM_CONFIG_KEYFILE_GROUPPREFIX_CONNECTION);
+    a_is_connection = NM_STR_HAS_PREFIX(a, NM_CONFIG_KEYFILE_GROUPPREFIX_CONNECTION);
+    b_is_connection = NM_STR_HAS_PREFIX(b, NM_CONFIG_KEYFILE_GROUPPREFIX_CONNECTION);
 
     if (a_is_connection && b_is_connection) {
         /* if both are connection groups, we want the explicit [connection] group first. */
@@ -668,8 +670,8 @@ _nm_config_data_log_sort(const char **pa, const char **pb, gpointer dummy)
         return -1;
 
     /* we sort device groups before connection groups (to the end). */
-    a_is_device = a && g_str_has_prefix(a, NM_CONFIG_KEYFILE_GROUPPREFIX_DEVICE);
-    b_is_device = b && g_str_has_prefix(b, NM_CONFIG_KEYFILE_GROUPPREFIX_DEVICE);
+    a_is_device = NM_STR_HAS_PREFIX(a, NM_CONFIG_KEYFILE_GROUPPREFIX_DEVICE);
+    b_is_device = NM_STR_HAS_PREFIX(b, NM_CONFIG_KEYFILE_GROUPPREFIX_DEVICE);
 
     if (a_is_device && b_is_device) {
         /* if both are device groups, we want the explicit [device] group first. */
@@ -770,26 +772,47 @@ nm_config_data_log(const NMConfigData  *self,
     groups_full = g_ptr_array_sized_new(ngroups + 5);
 
     if (ngroups) {
+        /* g_key_file_get_groups() can return duplicates ( :( ), but the
+         * keyfile that we constructed should not have any. Assert for that. */
+        nm_assert(!nm_strv_has_duplicate((const char *const *) groups, ngroups, FALSE));
+
         g_ptr_array_set_size(groups_full, ngroups);
         memcpy(groups_full->pdata, groups, sizeof(groups[0]) * ngroups);
-        g_ptr_array_sort_with_data(groups_full, (GCompareDataFunc) _nm_config_data_log_sort, NULL);
     }
 
     if (print_default) {
         for (g = 0; g < G_N_ELEMENTS(default_values); g++) {
             const char *group = default_values[g].group;
-            gssize      idx;
+            guint       g2;
 
-            idx = nm_utils_array_find_binary_search((gconstpointer *) groups_full->pdata,
-                                                    sizeof(char *),
-                                                    groups_full->len,
-                                                    &group,
-                                                    (GCompareDataFunc) _nm_config_data_log_sort,
-                                                    NULL);
-            if (idx < 0)
-                g_ptr_array_insert(groups_full, (~idx), (gpointer) group);
+            if (g > 0) {
+                if (nm_streq(group, default_values[g - 1].group)) {
+                    /* Repeated values. We already added this one. Skip */
+                    continue;
+                }
+                if (NM_MORE_ASSERT_ONCE(20)) {
+                    /* We require that the default values are grouped by their "group".
+                     * That is, all default values for a certain "group" are close to
+                     * each other in the list. Assert for that. */
+                    for (g2 = g + 1; g2 < groups_full->len; g2++) {
+                        nm_assert(!nm_streq(default_values[g - 1].group, default_values[g2].group));
+                    }
+                }
+            }
+
+            for (g2 = 0; g2 < groups_full->len; g2++) {
+                if (nm_streq(group, groups_full->pdata[g2]))
+                    goto next;
+            }
+
+            g_ptr_array_add(groups_full, (gpointer) group);
+
+next:
+            (void) 0;
         }
     }
+
+    g_ptr_array_sort_with_data(groups_full, (GCompareDataFunc) _nm_config_data_log_sort, NULL);
 
     if (!stream)
         _LOG(stream, prefix, "config-data[%p]: %u groups", self, groups_full->len);
@@ -837,6 +860,13 @@ nm_config_data_log(const NMConfigData  *self,
         msg = nm_utils_g_slist_strlist_join(priv->no_auto_default.specs, ",");
         if (msg)
             _LOG(stream, prefix, "# no-auto-default specs \"%s\"", msg);
+    }
+
+    if (nm_config_kernel_command_line_nm_debug()) {
+        _LOG(stream,
+             prefix,
+             "# /proc/cmdline contains \"" NM_CONFIG_KERNEL_CMDLINE_NM_DEBUG
+             "\". Debug log enabled");
     }
 
 #undef _LOG
@@ -1095,10 +1125,13 @@ load_global_dns(GKeyFile *keyfile, gboolean internal)
     gboolean           default_found = FALSE;
     char             **strv;
 
-    group =
-        internal ? NM_CONFIG_KEYFILE_GROUP_INTERN_GLOBAL_DNS : NM_CONFIG_KEYFILE_GROUP_GLOBAL_DNS;
-    domain_prefix     = internal ? NM_CONFIG_KEYFILE_GROUPPREFIX_INTERN_GLOBAL_DNS_DOMAIN
-                                 : NM_CONFIG_KEYFILE_GROUPPREFIX_GLOBAL_DNS_DOMAIN;
+    if (internal) {
+        group         = NM_CONFIG_KEYFILE_GROUP_INTERN_GLOBAL_DNS;
+        domain_prefix = NM_CONFIG_KEYFILE_GROUPPREFIX_INTERN_GLOBAL_DNS_DOMAIN;
+    } else {
+        group         = NM_CONFIG_KEYFILE_GROUP_GLOBAL_DNS;
+        domain_prefix = NM_CONFIG_KEYFILE_GROUPPREFIX_GLOBAL_DNS_DOMAIN;
+    }
     domain_prefix_len = strlen(domain_prefix);
 
     if (!nm_config_keyfile_has_global_dns_config(keyfile, internal))
@@ -1161,8 +1194,7 @@ load_global_dns(GKeyFile *keyfile, gboolean internal)
         if (strv) {
             nm_strv_cleanup(strv, TRUE, TRUE, TRUE);
             for (i = 0, j = 0; strv[i]; i++) {
-                if (nm_utils_ipaddr_is_valid(AF_INET, strv[i])
-                    || nm_utils_ipaddr_is_valid(AF_INET6, strv[i]))
+                if (nm_inet_is_valid(AF_INET, strv[i]) || nm_inet_is_valid(AF_INET6, strv[i]))
                     strv[j++] = strv[i];
                 else
                     g_free(strv[i]);
@@ -1201,7 +1233,7 @@ load_global_dns(GKeyFile *keyfile, gboolean internal)
             default_found = TRUE;
     }
 
-    if (!default_found) {
+    if (!default_found && g_hash_table_size(dns_config->domains)) {
         nm_log_dbg(LOGD_CORE,
                    "%s global DNS configuration is missing default domain, ignore it",
                    internal ? "internal" : "user");
@@ -1298,8 +1330,7 @@ global_dns_domain_from_dbus(char *name, GVariant *variant)
             strv = g_variant_dup_strv(val, NULL);
             nm_strv_cleanup(strv, TRUE, TRUE, TRUE);
             for (i = 0, j = 0; strv && strv[i]; i++) {
-                if (nm_utils_ipaddr_is_valid(AF_INET, strv[i])
-                    || nm_utils_ipaddr_is_valid(AF_INET6, strv[i]))
+                if (nm_inet_is_valid(AF_INET, strv[i]) || nm_inet_is_valid(AF_INET6, strv[i]))
                     strv[j++] = strv[i];
                 else
                     g_free(strv[i]);
@@ -1681,7 +1712,7 @@ nm_config_data_get_connection_default_int64(const NMConfigData *self,
     const char *value;
 
     value = nm_config_data_get_connection_default(self, property, device);
-    return _nm_utils_ascii_str_to_int64(value, 10, min, max, fallback);
+    return _nm_utils_ascii_str_to_int64(value, 0, min, max, fallback);
 }
 
 static const char *

@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# coding: utf-8
 
 from __future__ import print_function
 
@@ -16,7 +17,7 @@ from __future__ import print_function
 # When adjusting the tests, or when making changes to nmcli that intentionally
 # change the output, the expected output must be regenerated.
 #
-# For that, you'd setup your system correctly (see below) and then simply:
+# For that, you'd setup your system correctly (see SETUP below) and then simply:
 #
 #  $ NM_TEST_REGENERATE=1 make check-local-tests-client
 #    # Or `NM_TEST_REGENERATE=1 make check -j 10`
@@ -24,7 +25,17 @@ from __future__ import print_function
 #    # The previous step regenerated the expected output. Review the changes
 #    # and consider whether they are correct. Then commit the changes to git.
 #
-# Setup: For regenerating the output, the translations must work. First:
+#   With meson, you can do
+#     $ meson -Ddocs=true --prefix=/tmp/nm1 build
+#     $ ninja -C build
+#     $ ninja -C build install
+#     $ NM_TEST_REGENERATE=1 ninja -C build test
+#
+# Beware that you need to install the sources, and beware to choose a prefix that doesn't
+# mess up your system (see SETUP below).
+#
+# SETUP: For regenerating the output, the translations must work. First
+# test whether the following works:
 #
 #  1) LANG=pl_PL.UTF-8 /usr/bin/nmcli --version
 #    # Ensure that Polish output works for the system-installed nmcli.
@@ -35,6 +46,7 @@ from __future__ import print_function
 #    # On Debian, you might do:
 #    #   sed -i 's/^# \(pl_PL.UTF-8 .*\)$/\1/p' /etc/locale.gen
 #    #   locale-gen pl_PL.UTF-8
+#    # On Fedora, you might install `glibc-langpack-pl` package.
 #
 #  2) LANG=pl_PL.UTF-8 ./src/nmcli/nmcli --version
 #    # Ensure that the built nmcli has Polish locale working. If not,
@@ -78,36 +90,56 @@ ENV_NM_TEST_ASAN_OPTIONS = "NM_TEST_ASAN_OPTIONS"
 ENV_NM_TEST_LSAN_OPTIONS = "NM_TEST_LSAN_OPTIONS"
 ENV_NM_TEST_UBSAN_OPTIONS = "NM_TEST_UBSAN_OPTIONS"
 
-#
+# Run nmcli under valgrind. If unset, we honor NMTST_USE_VALGRIND instead.
+# Valgrind is always disabled, if NM_TEST_REGENERATE is enabled.
+ENV_NM_TEST_VALGRIND = "NM_TEST_VALGRIND"
+
+ENV_LIBTOOL = "LIBTOOL"
+
 ###############################################################################
 
+import collections
+import dbus
+import dbus.mainloop.glib
+import dbus.service
+import errno
+import fcntl
+import io
+import itertools
+import os
+import random
+import re
+import shlex
+import signal
+import socket
+import subprocess
 import sys
+import tempfile
+import time
+import unittest
+
+import gi
 
 try:
-    import gi
     from gi.repository import GLib
-
-    gi.require_version("NM", "1.0")
-    from gi.repository import NM
-except Exception as e:
+except ImportError:
     GLib = None
-    NM = None
 
-import os
-import errno
-import unittest
-import socket
-import itertools
-import subprocess
-import shlex
-import re
-import fcntl
-import dbus
-import time
-import random
-import dbus.service
-import dbus.mainloop.glib
-import io
+try:
+    gi.require_version("NM", "1.0")
+except ValueError:
+    NM = None
+else:
+    try:
+        from gi.repository import NM
+    except ImportError:
+        NM = None
+
+try:
+    import pexpect
+except ImportError:
+    pexpect = None
+
 
 ###############################################################################
 
@@ -182,10 +214,10 @@ class Util:
     }
 
     @classmethod
-    def signal_no_to_str(cls, signal):
-        s = cls._signal_no_lookup.get(signal, None)
+    def signal_no_to_str(cls, sig):
+        s = cls._signal_no_lookup.get(sig, None)
         if s is None:
-            return "<unknown %d>" % (signal)
+            return "<unknown %d>" % (sig)
         return s
 
     @staticmethod
@@ -203,6 +235,26 @@ class Util:
         return isinstance(s, t)
 
     @staticmethod
+    def is_bool(s, defval=False):
+        if s is None:
+            return defval
+        if isinstance(s, int):
+            return s != 0
+        if isinstance(s, str):
+            if s.lower() in ["1", "y", "yes", "true", "on"]:
+                return True
+            if s.lower() in ["0", "n", "no", "false", "off"]:
+                return False
+        raise ValueError('Argument "%s" is not a boolean' % (s,))
+
+    @staticmethod
+    def as_bytes(s):
+        if Util.is_string(s):
+            return s.encode("utf-8")
+        assert isinstance(s, bytes)
+        return s
+
+    @staticmethod
     def memoize_nullary(nullary_func):
         result = []
 
@@ -218,7 +270,8 @@ class Util:
     ).search
 
     @staticmethod
-    def quote(s):
+    def shlex_quote(s):
+        # Reimplement shlex.quote().
         if Util.python_has_version(3, 3):
             return shlex.quote(s)
         if not s:
@@ -226,6 +279,11 @@ class Util:
         if Util._find_unsafe(s) is None:
             return s
         return "'" + s.replace("'", "'\"'\"'") + "'"
+
+    @staticmethod
+    def shlex_join(args):
+        # Reimplement shlex.join()
+        return " ".join(Util.shlex_quote(s) for s in args)
 
     @staticmethod
     def popen_wait(p, timeout=0):
@@ -335,6 +393,48 @@ class Util:
             return None
 
     @staticmethod
+    def _replace_text_match_join(split_arr, replacement):
+        yield split_arr[0]
+        for t in split_arr[1:]:
+            yield (replacement,)
+            yield t
+
+    @staticmethod
+    def ReplaceTextSimple(search, replacement):
+        # This gives a function that can be used by Util.replace_text().
+        # The function replaces an input bytes string @t. It must either return
+        # a bytes string, a list containing bytes strings and/or 1-tuples (the
+        # latter containing one bytes string).
+        # The 1-tuple acts as a placeholder for atomic text, that cannot be replaced
+        # a second time.
+        #
+        # Search for replace_text_fcn in Util.replace_text() where this is called.
+        replacement = Util.as_bytes(replacement)
+
+        if callable(search):
+            search_fcn = search
+        else:
+            search_fcn = lambda: search
+
+        def replace_fcn(t):
+            assert isinstance(t, bytes)
+            search_txt = search_fcn()
+            if search_txt is None:
+                return t
+            search_txt = Util.as_bytes(search_txt)
+            return Util._replace_text_match_join(t.split(search_txt), replacement)
+
+        return replace_fcn
+
+    @staticmethod
+    def ReplaceTextRegex(pattern, replacement):
+        # See ReplaceTextSimple.
+        pattern = Util.as_bytes(pattern)
+        replacement = Util.as_bytes(replacement)
+        p = re.compile(pattern)
+        return lambda t: Util._replace_text_match_join(p.split(t), replacement)
+
+    @staticmethod
     def replace_text(text, replace_arr):
         if not replace_arr:
             return text
@@ -342,27 +442,17 @@ class Util:
         if needs_encode:
             text = text.encode("utf-8")
         text = [text]
-        for replace in replace_arr:
-            try:
-                v_search = replace[0]()
-            except TypeError:
-                v_search = replace[0]
-            assert v_search is None or Util.is_string(v_search)
-            if not v_search:
-                continue
-            v_replace = replace[1]
-            v_search = v_search.encode("utf-8")
-            v_replace = v_replace.encode("utf-8")
+        for replace_text_fcn in replace_arr:
             text2 = []
             for t in text:
-                if isinstance(t, tuple):
+                # tuples are markers for atomic strings. They won't be replaced a second
+                # time.
+                if not isinstance(t, tuple):
+                    t = replace_text_fcn(t)
+                if isinstance(t, bytes) or isinstance(t, tuple):
                     text2.append(t)
-                    continue
-                t2 = t.split(v_search)
-                text2.append(t2[0])
-                for t3 in t2[1:]:
-                    text2.append((v_replace,))
-                    text2.append(t3)
+                else:
+                    text2.extend(t)
             text = text2
         bb = b"".join([(t[0] if isinstance(t, tuple) else t) for t in text])
         if needs_encode:
@@ -389,6 +479,48 @@ class Util:
             for fmt in [[], ["--pretty"], ["--terse"]]:
                 for color in [[], ["--color", "yes"]]:
                     yield mode + fmt + color
+
+    @staticmethod
+    def valgrind_check_log(valgrind_log, logname):
+        if valgrind_log is None:
+            return
+
+        fd, name = valgrind_log
+
+        os.close(fd)
+
+        if not os.path.isfile(name):
+            raise Exception("valgrind log %s unexpectedly does not exist" % (name,))
+
+        if os.path.getsize(name) != 0:
+            out = subprocess.run(
+                [
+                    "sed",
+                    "-e",
+                    "/^--[0-9]\+-- WARNING: unhandled .* syscall: /,/^--[0-9]\+-- it at http.*\.$/d",
+                    name,
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            if out.returncode != 0:
+                raise Exception('Calling "sed" to search valgrind log failed')
+            if out.stdout:
+                print("valgrind log %s for %s is not empty:" % (name, logname))
+                print("\n%s\n" % (out.stdout.decode("utf-8", errors="replace"),))
+                raise Exception("valgrind log %s unexpectedly is not empty" % (name,))
+
+        os.remove(name)
+
+    @staticmethod
+    def pexpect_expect_all(pexp, *pattern_list):
+        # This will call "pexpect.expect()" on pattern_list,
+        # expecting all entries to match exactly once, in any
+        # order.
+        pattern_list = list(pattern_list)
+        while pattern_list:
+            idx = pexp.expect(pattern_list)
+            del pattern_list[idx]
 
 
 ###############################################################################
@@ -428,14 +560,23 @@ class Configuration:
             #
             # Only by setting NM_TEST_CLIENT_CHECK_L10N=1, these tests are included
             # as well.
-            v = os.environ.get(ENV_NM_TEST_CLIENT_CHECK_L10N, "0") == "1"
+            v = Util.is_bool(os.environ.get(ENV_NM_TEST_CLIENT_CHECK_L10N, None))
         elif name == ENV_NM_TEST_REGENERATE:
             # in the "regenerate" mode, the tests will rewrite the files on disk against
             # which we assert. That is useful, if there are intentional changes and
             # we want to regenerate the expected output.
-            v = os.environ.get(ENV_NM_TEST_REGENERATE, "0") == "1"
+            v = Util.is_bool(os.environ.get(ENV_NM_TEST_REGENERATE, None))
         elif name == ENV_NM_TEST_WITH_LINENO:
-            v = os.environ.get(ENV_NM_TEST_WITH_LINENO, "0") == "1"
+            v = Util.is_bool(os.environ.get(ENV_NM_TEST_WITH_LINENO, None))
+        elif name == ENV_NM_TEST_VALGRIND:
+            if self.get(ENV_NM_TEST_REGENERATE):
+                v = False
+            else:
+                v = os.environ.get(ENV_NM_TEST_VALGRIND, None)
+                if v:
+                    v = Util.is_bool(v)
+                else:
+                    v = Util.is_bool(os.environ.get("NMTST_USE_VALGRIND", None))
         elif name in [
             ENV_NM_TEST_ASAN_OPTIONS,
             ENV_NM_TEST_LSAN_OPTIONS,
@@ -452,6 +593,21 @@ class Configuration:
                     v = "print_stacktrace=1:halt_on_error=1"
                 else:
                     assert False
+        elif name == ENV_LIBTOOL:
+            v = os.environ.get(name, None)
+            if v is None:
+                v = os.path.abspath(
+                    os.path.dirname(self.get(ENV_NM_TEST_CLIENT_NMCLI_PATH))
+                    + "/../../libtool"
+                )
+                if not os.path.isfile(v):
+                    v = None
+                else:
+                    v = [v]
+            elif not v:
+                v = None
+            else:
+                v = shlex.split(v)
         else:
             raise Exception()
         self._values[name] = v
@@ -510,17 +666,37 @@ class NMStubServer:
         )
         self._p = p
 
-    def shutdown(self):
+    def shutdown(self, kill_mode="random"):
         conn = self._conn
         p = self._p
         self._nmobj = None
         self._nmiface = None
         self._conn = None
         self._p = None
-        p.stdin.close()
-        p.kill()
+
+        # The test stub service watches stdin and will do a proper
+        # shutdown when it closes. That means, to send signals about
+        # going away.
+        # On the other hand, just killing it will cause the process
+        # from dropping off the bus.
+        if kill_mode == "kill":
+            p.kill()
+        elif kill_mode == "stdin-close":
+            p.stdin.close()
+        else:
+            assert kill_mode == "random"
+            ops = [p.stdin.close, p.kill]
+            random.shuffle(ops)
+            ops[0]()
+            r = random.random()
+            if r < 0.75:
+                if r < 0.5:
+                    time.sleep(r * 0.2)
+                ops[1]()
+
         if Util.popen_wait(p, 1) is None:
             raise Exception("Stub service did not exit in time")
+        p.stdin.close()
         if self._conn_get_main_object(conn) is not None:
             raise Exception(
                 "Stub service is not still here although it should shut down"
@@ -656,14 +832,34 @@ class AsyncProcess:
 ###############################################################################
 
 
-class NmTestBase(unittest.TestCase):
-    pass
-
-
 MAX_JOBS = 15
 
 
-class TestNmcli(NmTestBase):
+class TestNmcli(unittest.TestCase):
+    def __init__(self, *args, **kwargs):
+        self._calling_num = {}
+        self._skip_test_for_l10n_diff = []
+        self._async_jobs = []
+        self._results = []
+        self.srv = None
+        unittest.TestCase.__init__(self, *args, **kwargs)
+
+    def srv_start(self):
+        self.srv_shutdown()
+        self.srv = NMStubServer(self._testMethodName)
+
+    def srv_shutdown(self):
+        if self.srv is not None:
+            srv = self.srv
+            self.srv = None
+            srv.shutdown()
+
+    def ReplaceTextConUuid(self, con_name, replacement):
+        return Util.ReplaceTextSimple(
+            Util.memoize_nullary(lambda: self.srv.findConnectionUuid(con_name)),
+            replacement,
+        )
+
     @staticmethod
     def _read_expected(filename):
         results_expect = []
@@ -691,6 +887,39 @@ class TestNmcli(NmTestBase):
             results_expect = None
 
         return content_expect, results_expect
+
+    def nmcli_construct_argv(self, args, with_valgrind=None):
+
+        if with_valgrind is None:
+            with_valgrind = conf.get(ENV_NM_TEST_VALGRIND)
+
+        valgrind_log = None
+        cmd = conf.get(ENV_NM_TEST_CLIENT_NMCLI_PATH)
+        if with_valgrind:
+            valgrind_log = tempfile.mkstemp(prefix="nm-test-client-valgrind.")
+            argv = [
+                "valgrind",
+                "--quiet",
+                "--error-exitcode=37",
+                "--leak-check=full",
+                "--gen-suppressions=all",
+                (
+                    "--suppressions="
+                    + PathConfiguration.top_srcdir()
+                    + "/valgrind.suppressions"
+                ),
+                "--num-callers=100",
+                "--log-file=" + valgrind_log[1],
+                cmd,
+            ]
+            libtool = conf.get(ENV_LIBTOOL)
+            if libtool:
+                argv = list(libtool) + ["--mode=execute"] + argv
+        else:
+            argv = [cmd]
+
+        argv.extend(args)
+        return argv, valgrind_log
 
     def call_nmcli_l(
         self,
@@ -774,6 +1003,56 @@ class TestNmcli(NmTestBase):
                 frame,
             )
 
+    def call_nmcli_pexpect(self, args):
+
+        env = self._env(extra_env={"NO_COLOR": "1"})
+        argv, valgrind_log = self.nmcli_construct_argv(args)
+
+        pexp = pexpect.spawn(argv[0], argv[1:], timeout=10, env=env)
+
+        typ = collections.namedtuple("CallNmcliPexpect", ["pexp", "valgrind_log"])
+        return typ(pexp, valgrind_log)
+
+    def _env(
+        self, lang="C", calling_num=None, fatal_warnings=_DEFAULT_ARG, extra_env=None
+    ):
+        if lang == "C":
+            language = ""
+        elif lang == "de_DE.utf8":
+            language = "de"
+        elif lang == "pl_PL.UTF-8":
+            language = "pl"
+        else:
+            self.fail("invalid language %s" % (lang))
+
+        env = {}
+        for k in [
+            "LD_LIBRARY_PATH",
+            "DBUS_SESSION_BUS_ADDRESS",
+            "LIBNM_CLIENT_DEBUG",
+            "LIBNM_CLIENT_DEBUG_FILE",
+        ]:
+            val = os.environ.get(k, None)
+            if val is not None:
+                env[k] = val
+        env["LANG"] = lang
+        env["LANGUAGE"] = language
+        env["LIBNM_USE_SESSION_BUS"] = "1"
+        env["LIBNM_USE_NO_UDEV"] = "1"
+        env["TERM"] = "linux"
+        env["ASAN_OPTIONS"] = conf.get(ENV_NM_TEST_ASAN_OPTIONS)
+        env["LSAN_OPTIONS"] = conf.get(ENV_NM_TEST_LSAN_OPTIONS)
+        env["LBSAN_OPTIONS"] = conf.get(ENV_NM_TEST_UBSAN_OPTIONS)
+        env["XDG_CONFIG_HOME"] = PathConfiguration.srcdir()
+        if calling_num is not None:
+            env["NM_TEST_CALLING_NUM"] = str(calling_num)
+        if fatal_warnings is _DEFAULT_ARG or fatal_warnings:
+            env["G_DEBUG"] = "fatal-warnings"
+        if extra_env is not None:
+            for k, v in extra_env.items():
+                env[k] = v
+        return env
+
     def _call_nmcli(
         self,
         args,
@@ -826,38 +1105,17 @@ class TestNmcli(NmTestBase):
 
         if lang is None or lang == "C":
             lang = "C"
-            language = ""
         elif lang == "de":
             lang = "de_DE.utf8"
-            language = "de"
         elif lang == "pl":
             lang = "pl_PL.UTF-8"
-            language = "pl"
         else:
             self.fail("invalid language %s" % (lang))
 
-        env = {}
-        if extra_env is not None:
-            for k, v in extra_env.items():
-                env[k] = v
-        for k in ["LD_LIBRARY_PATH", "DBUS_SESSION_BUS_ADDRESS"]:
-            val = os.environ.get(k, None)
-            if val is not None:
-                env[k] = val
-        env["LANG"] = lang
-        env["LANGUAGE"] = language
-        env["LIBNM_USE_SESSION_BUS"] = "1"
-        env["LIBNM_USE_NO_UDEV"] = "1"
-        env["TERM"] = "linux"
-        env["ASAN_OPTIONS"] = conf.get(ENV_NM_TEST_ASAN_OPTIONS)
-        env["LSAN_OPTIONS"] = conf.get(ENV_NM_TEST_LSAN_OPTIONS)
-        env["LBSAN_OPTIONS"] = conf.get(ENV_NM_TEST_UBSAN_OPTIONS)
-        env["XDG_CONFIG_HOME"] = PathConfiguration.srcdir()
-        env["NM_TEST_CALLING_NUM"] = str(calling_num)
-        if fatal_warnings is _DEFAULT_ARG or fatal_warnings:
-            env["G_DEBUG"] = "fatal-warnings"
+        # Running under valgrind is not yet supported for those tests.
+        args, valgrind_log = self.nmcli_construct_argv(args, with_valgrind=False)
 
-        args = [conf.get(ENV_NM_TEST_CLIENT_NMCLI_PATH)] + list(args)
+        assert valgrind_log is None
 
         if replace_stdout is not None:
             replace_stdout = list(replace_stdout)
@@ -930,7 +1188,7 @@ class TestNmcli(NmTestBase):
                     self.assertEqual(returncode, -5)
 
             if check_on_disk:
-                cmd = "$NMCLI %s" % (" ".join([Util.quote(a) for a in args[1:]]))
+                cmd = "$NMCLI %s" % (Util.shlex_join(args[1:]),)
                 cmd = Util.replace_text(cmd, replace_cmd)
 
                 if returncode < 0:
@@ -967,6 +1225,7 @@ class TestNmcli(NmTestBase):
                     "content": content,
                 }
 
+        env = self._env(lang, calling_num, fatal_warnings, extra_env)
         async_job = AsyncProcess(args=args, env=env, complete_cb=complete_cb)
 
         self._async_jobs.append(async_job)
@@ -1012,25 +1271,19 @@ class TestNmcli(NmTestBase):
     def async_wait(self):
         return self.async_start(wait_all=True)
 
-    def _nm_test_pre(self):
-        self._calling_num = {}
-        self._skip_test_for_l10n_diff = []
-        self._async_jobs = []
-        self._results = []
-
-        self.srv = NMStubServer(self._testMethodName)
-
     def _nm_test_post(self):
 
         self.async_wait()
 
-        self.srv.shutdown()
-        self.srv = None
+        self.srv_shutdown()
 
         self._calling_num = None
 
         results = self._results
         self._results = None
+
+        if len(results) == 0:
+            return
 
         skip_test_for_l10n_diff = self._skip_test_for_l10n_diff
         self._skip_test_for_l10n_diff = None
@@ -1128,9 +1381,24 @@ class TestNmcli(NmTestBase):
                 % (",".join(skip_test_for_l10n_diff))
             )
 
+    def skip_without_pexpect(func):
+        def f(self):
+            if pexpect is None:
+                raise unittest.SkipTest("pexpect not available")
+            func(self)
+
+        return f
+
     def nm_test(func):
         def f(self):
-            self._nm_test_pre()
+            self.srv_start()
+            func(self)
+            self._nm_test_post()
+
+        return f
+
+    def nm_test_no_dbus(func):
+        def f(self):
             func(self)
             self._nm_test_post()
 
@@ -1229,10 +1497,7 @@ class TestNmcli(NmTestBase):
         replace_uuids = []
 
         replace_uuids.append(
-            (
-                Util.memoize_nullary(lambda: self.srv.findConnectionUuid("con-xx1")),
-                "UUID-con-xx1-REPLACED-REPLACED-REPLA",
-            )
+            self.ReplaceTextConUuid("con-xx1", "UUID-con-xx1-REPLACED-REPLACED-REPLA")
         )
 
         self.call_nmcli(
@@ -1245,9 +1510,8 @@ class TestNmcli(NmTestBase):
         for con_name, apn in con_gsm_list:
 
             replace_uuids.append(
-                (
-                    Util.memoize_nullary(lambda: self.srv.findConnectionUuid(con_name)),
-                    "UUID-" + con_name + "-REPLACED-REPLACED-REPL",
+                self.ReplaceTextConUuid(
+                    con_name, "UUID-" + con_name + "-REPLACED-REPLACED-REPL"
                 )
             )
 
@@ -1278,10 +1542,7 @@ class TestNmcli(NmTestBase):
             )
 
         replace_uuids.append(
-            (
-                Util.memoize_nullary(lambda: self.srv.findConnectionUuid("ethernet")),
-                "UUID-ethernet-REPLACED-REPLACED-REPL",
-            )
+            self.ReplaceTextConUuid("ethernet", "UUID-ethernet-REPLACED-REPLACED-REPL")
         )
 
         self.call_nmcli(
@@ -1410,10 +1671,7 @@ class TestNmcli(NmTestBase):
         replace_uuids = []
 
         replace_uuids.append(
-            (
-                Util.memoize_nullary(lambda: self.srv.findConnectionUuid("con-xx1")),
-                "UUID-con-xx1-REPLACED-REPLACED-REPLA",
-            )
+            self.ReplaceTextConUuid("con-xx1", "UUID-con-xx1-REPLACED-REPLACED-REPLA")
         )
 
         self.call_nmcli(
@@ -1459,10 +1717,7 @@ class TestNmcli(NmTestBase):
         self.async_wait()
 
         replace_uuids.append(
-            (
-                Util.memoize_nullary(lambda: self.srv.findConnectionUuid("con-vpn-1")),
-                "UUID-con-vpn-1-REPLACED-REPLACED-REP",
-            )
+            self.ReplaceTextConUuid("con-vpn-1", "UUID-con-vpn-1-REPLACED-REPLACED-REP")
         )
 
         self.call_nmcli(
@@ -1672,6 +1927,163 @@ class TestNmcli(NmTestBase):
                 replace_cmd=replace_uuids,
             )
 
+    @nm_test_no_dbus
+    def test_offline(self):
+
+        # Make sure we're not using D-Bus
+        no_dbus_env = {
+            "DBUS_SYSTEM_BUS_ADDRESS": "very:invalid",
+            "DBUS_SESSION_BUS_ADDRESS": "very:invalid",
+        }
+
+        # This check just makes sure the above works and the
+        # "nmcli g" command indeed fails talking to D-Bus
+        self.call_nmcli(
+            ["g"],
+            extra_env=no_dbus_env,
+            replace_stderr=[
+                Util.ReplaceTextRegex(
+                    # depending on glib version, it prints `%s', '%s', or “%s”.
+                    # depending on libc version, it converts unicode to ? or *.
+                    r"Key/Value pair 0, [`*?']invalid[*?'], in address element [`*?']very:invalid[*?'] does not contain an equal sign",
+                    "Key/Value pair 0, 'invalid', in address element 'very:invalid' does not contain an equal sign",
+                )
+            ],
+        )
+
+        replace_uuids = [
+            Util.ReplaceTextRegex(
+                r"\buuid=[-a-f0-9]+\b", "uuid=UUID-WAS-HERE-BUT-IS-NO-MORE-SADLY"
+            )
+        ]
+
+        self.call_nmcli(
+            ["--offline", "c", "add", "type", "ethernet"],
+            extra_env=no_dbus_env,
+            replace_stdout=replace_uuids,
+        )
+
+        self.call_nmcli(
+            ["--offline", "c", "show"],
+            extra_env=no_dbus_env,
+        )
+
+        self.call_nmcli(
+            ["--offline", "g"],
+            extra_env=no_dbus_env,
+        )
+
+        self.call_nmcli(
+            ["--offline"],
+            extra_env=no_dbus_env,
+        )
+
+        self.call_nmcli(
+            [
+                "--offline",
+                "c",
+                "add",
+                "type",
+                "wifi",
+                "ssid",
+                "lala",
+                "802-1x.eap",
+                "pwd",
+                "802-1x.identity",
+                "foo",
+                "802-1x.password",
+                "bar",
+            ],
+            extra_env=no_dbus_env,
+            replace_stdout=replace_uuids,
+        )
+
+        self.call_nmcli(
+            [
+                "--offline",
+                "c",
+                "add",
+                "type",
+                "wifi",
+                "ssid",
+                "lala",
+                "802-1x.eap",
+                "pwd",
+                "802-1x.identity",
+                "foo",
+                "802-1x.password",
+                "bar",
+                "802-1x.password-flags",
+                "agent-owned",
+            ],
+            extra_env=no_dbus_env,
+            replace_stdout=replace_uuids,
+        )
+
+        self.call_nmcli(
+            ["--complete-args", "--offline", "conn", "modify", "ipv6.ad"],
+            extra_env=no_dbus_env,
+        )
+
+    @skip_without_pexpect
+    @nm_test
+    def test_ask_mode(self):
+        nmc = self.call_nmcli_pexpect(["--ask", "c", "add"])
+        nmc.pexp.expect("Connection type:")
+        nmc.pexp.sendline("ethernet")
+        nmc.pexp.expect("Interface name:")
+        nmc.pexp.sendline("eth0")
+        nmc.pexp.expect("There are 3 optional settings for Wired Ethernet.")
+        nmc.pexp.expect("Do you want to provide them\? \(yes/no\) \[yes]")
+        nmc.pexp.sendline("no")
+        nmc.pexp.expect("There are 2 optional settings for IPv4 protocol.")
+        nmc.pexp.expect("Do you want to provide them\? \(yes/no\) \[yes]")
+        nmc.pexp.sendline("no")
+        nmc.pexp.expect("There are 2 optional settings for IPv6 protocol.")
+        nmc.pexp.expect("Do you want to provide them\? \(yes/no\) \[yes]")
+        nmc.pexp.sendline("no")
+        nmc.pexp.expect("There are 4 optional settings for Proxy.")
+        nmc.pexp.expect("Do you want to provide them\? \(yes/no\) \[yes]")
+        nmc.pexp.sendline("no")
+        nmc.pexp.expect("Connection 'ethernet' \(.*\) successfully added.")
+        nmc.pexp.expect(pexpect.EOF)
+        Util.valgrind_check_log(nmc.valgrind_log, "test_ask_mode")
+
+    @skip_without_pexpect
+    @nm_test
+    def test_monitor(self):
+        def start_mon(self):
+            nmc = self.call_nmcli_pexpect(["monitor"])
+            nmc.pexp.expect("NetworkManager is running")
+            return nmc
+
+        def end_mon(self, nmc):
+            nmc.pexp.kill(signal.SIGINT)
+            nmc.pexp.expect(pexpect.EOF)
+            Util.valgrind_check_log(nmc.valgrind_log, "test_monitor")
+
+        nmc = start_mon(self)
+
+        self.srv.op_AddObj("WiredDevice", iface="eth0")
+        nmc.pexp.expect("eth0: device created\r\n")
+
+        self.srv.addConnection(
+            {"connection": {"type": "802-3-ethernet", "id": "con-1"}}
+        )
+        nmc.pexp.expect("con-1: connection profile created\r\n")
+
+        end_mon(self, nmc)
+
+        nmc = start_mon(self)
+        self.srv_shutdown()
+        Util.pexpect_expect_all(
+            nmc.pexp,
+            "con-1: connection profile removed",
+            "eth0: device removed",
+        )
+        nmc.pexp.expect("NetworkManager is stopped")
+        end_mon(self, nmc)
+
 
 ###############################################################################
 
@@ -1720,16 +2132,13 @@ def main():
                     "eval `dbus-launch --sh-syntax`;\n"
                     + 'trap "kill $DBUS_SESSION_BUS_PID" EXIT;\n'
                     + "\n"
-                    + " ".join(
+                    + Util.shlex_join(
                         [
-                            Util.quote(a)
-                            for a in [
-                                sys.executable,
-                                __file__,
-                                "--started-with-dbus-session",
-                            ]
-                            + sys.argv[1:]
+                            sys.executable,
+                            __file__,
+                            "--started-with-dbus-session",
                         ]
+                        + sys.argv[1:]
                     )
                     + " \n"
                     + "",

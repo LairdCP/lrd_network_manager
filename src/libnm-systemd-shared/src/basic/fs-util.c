@@ -123,7 +123,6 @@ int readlinkat_malloc(int fd, const char *p, char **ret) {
         size_t l = PATH_MAX;
 
         assert(p);
-        assert(ret);
 
         for (;;) {
                 _cleanup_free_ char *c = NULL;
@@ -139,7 +138,10 @@ int readlinkat_malloc(int fd, const char *p, char **ret) {
 
                 if ((size_t) n < l) {
                         c[n] = 0;
-                        *ret = TAKE_PTR(c);
+
+                        if (ret)
+                                *ret = TAKE_PTR(c);
+
                         return 0;
                 }
 
@@ -158,24 +160,23 @@ int readlink_malloc(const char *p, char **ret) {
 
 #if 0 /* NM_IGNORED */
 int readlink_value(const char *p, char **ret) {
-        _cleanup_free_ char *link = NULL;
-        char *value;
+        _cleanup_free_ char *link = NULL, *name = NULL;
         int r;
+
+        assert(p);
+        assert(ret);
 
         r = readlink_malloc(p, &link);
         if (r < 0)
                 return r;
 
-        value = basename(link);
-        if (!value)
-                return -ENOENT;
+        r = path_extract_filename(link, &name);
+        if (r < 0)
+                return r;
+        if (r == O_DIRECTORY)
+                return -EINVAL;
 
-        value = strdup(value);
-        if (!value)
-                return -ENOMEM;
-
-        *ret = value;
-
+        *ret = TAKE_PTR(name);
         return 0;
 }
 
@@ -402,10 +403,6 @@ int touch_file(const char *path, bool parents, usec_t stamp, uid_t uid, gid_t gi
         return ret;
 }
 
-int touch(const char *path) {
-        return touch_file(path, false, USEC_INFINITY, UID_INVALID, GID_INVALID, MODE_INVALID);
-}
-
 int symlink_idempotent(const char *from, const char *to, bool make_relative) {
         _cleanup_free_ char *relpath = NULL;
         int r;
@@ -414,13 +411,7 @@ int symlink_idempotent(const char *from, const char *to, bool make_relative) {
         assert(to);
 
         if (make_relative) {
-                _cleanup_free_ char *parent = NULL;
-
-                r = path_extract_directory(to, &parent);
-                if (r < 0)
-                        return r;
-
-                r = path_make_relative(parent, from, &relpath);
+                r = path_make_relative_parent(to, from, &relpath);
                 if (r < 0)
                         return r;
 
@@ -446,29 +437,38 @@ int symlink_idempotent(const char *from, const char *to, bool make_relative) {
         return 0;
 }
 
-int symlink_atomic(const char *from, const char *to) {
-        _cleanup_free_ char *t = NULL;
+int symlinkat_atomic_full(const char *from, int atfd, const char *to, bool make_relative) {
+        _cleanup_free_ char *relpath = NULL, *t = NULL;
         int r;
 
         assert(from);
         assert(to);
 
+        if (make_relative) {
+                r = path_make_relative_parent(to, from, &relpath);
+                if (r < 0)
+                        return r;
+
+                from = relpath;
+        }
+
         r = tempfn_random(to, NULL, &t);
         if (r < 0)
                 return r;
 
-        if (symlink(from, t) < 0)
+        if (symlinkat(from, atfd, t) < 0)
                 return -errno;
 
-        if (rename(t, to) < 0) {
-                unlink_noerrno(t);
-                return -errno;
+        r = RET_NERRNO(renameat(atfd, t, atfd, to));
+        if (r < 0) {
+                (void) unlinkat(atfd, t, 0);
+                return r;
         }
 
         return 0;
 }
 
-int mknod_atomic(const char *path, mode_t mode, dev_t dev) {
+int mknodat_atomic(int atfd, const char *path, mode_t mode, dev_t dev) {
         _cleanup_free_ char *t = NULL;
         int r;
 
@@ -478,58 +478,36 @@ int mknod_atomic(const char *path, mode_t mode, dev_t dev) {
         if (r < 0)
                 return r;
 
-        if (mknod(t, mode, dev) < 0)
+        if (mknodat(atfd, t, mode, dev) < 0)
                 return -errno;
 
-        if (rename(t, path) < 0) {
-                unlink_noerrno(t);
-                return -errno;
-        }
-
-        return 0;
-}
-
-int mkfifo_atomic(const char *path, mode_t mode) {
-        _cleanup_free_ char *t = NULL;
-        int r;
-
-        assert(path);
-
-        r = tempfn_random(path, NULL, &t);
-        if (r < 0)
+        r = RET_NERRNO(renameat(atfd, t, atfd, path));
+        if (r < 0) {
+                (void) unlinkat(atfd, t, 0);
                 return r;
-
-        if (mkfifo(t, mode) < 0)
-                return -errno;
-
-        if (rename(t, path) < 0) {
-                unlink_noerrno(t);
-                return -errno;
         }
 
         return 0;
 }
 
-int mkfifoat_atomic(int dirfd, const char *path, mode_t mode) {
+int mkfifoat_atomic(int atfd, const char *path, mode_t mode) {
         _cleanup_free_ char *t = NULL;
         int r;
 
         assert(path);
-
-        if (path_is_absolute(path))
-                return mkfifo_atomic(path, mode);
 
         /* We're only interested in the (random) filename.  */
-        r = tempfn_random_child("", NULL, &t);
+        r = tempfn_random(path, NULL, &t);
         if (r < 0)
                 return r;
 
-        if (mkfifoat(dirfd, t, mode) < 0)
+        if (mkfifoat(atfd, t, mode) < 0)
                 return -errno;
 
-        if (renameat(dirfd, t, dirfd, path) < 0) {
-                unlink_noerrno(t);
-                return -errno;
+        r = RET_NERRNO(renameat(atfd, t, atfd, path));
+        if (r < 0) {
+                (void) unlinkat(atfd, t, 0);
+                return r;
         }
 
         return 0;
@@ -576,7 +554,6 @@ int get_files_in_directory(const char *path, char ***list) {
 #endif /* NM_IGNORED */
 
 static int getenv_tmp_dir(const char **ret_path) {
-        const char *n;
         int r, ret = 0;
 
         assert(ret_path);
@@ -866,8 +843,7 @@ int conservative_renameat(
         if (fstat(new_fd, &new_stat) < 0)
                 goto do_rename;
 
-        if (new_stat.st_ino == old_stat.st_ino &&
-            new_stat.st_dev == old_stat.st_dev)
+        if (stat_inode_same(&new_stat, &old_stat))
                 goto is_same;
 
         if (old_stat.st_mode != new_stat.st_mode ||
@@ -1093,4 +1069,51 @@ int open_mkdir_at(int dirfd, const char *path, int flags, mode_t mode) {
         }
 
         return TAKE_FD(fd);
+}
+
+int openat_report_new(int dirfd, const char *pathname, int flags, mode_t mode, bool *ret_newly_created) {
+        unsigned attempts = 7;
+        int fd;
+
+        /* Just like openat(), but adds one thing: optionally returns whether we created the file anew or if
+         * it already existed before. This is only relevant if O_CREAT is set without O_EXCL, and thus will
+         * shortcut to openat() otherwise */
+
+        if (!ret_newly_created)
+                return RET_NERRNO(openat(dirfd, pathname, flags, mode));
+
+        if (!FLAGS_SET(flags, O_CREAT) || FLAGS_SET(flags, O_EXCL)) {
+                fd = openat(dirfd, pathname, flags, mode);
+                if (fd < 0)
+                        return -errno;
+
+                *ret_newly_created = FLAGS_SET(flags, O_CREAT);
+                return fd;
+        }
+
+        for (;;) {
+                /* First, attempt to open without O_CREAT/O_EXCL, i.e. open existing file */
+                fd = openat(dirfd, pathname, flags & ~(O_CREAT | O_EXCL), mode);
+                if (fd >= 0) {
+                        *ret_newly_created = false;
+                        return fd;
+                }
+                if (errno != ENOENT)
+                        return -errno;
+
+                /* So the file didn't exist yet, hence create it with O_CREAT/O_EXCL. */
+                fd = openat(dirfd, pathname, flags | O_CREAT | O_EXCL, mode);
+                if (fd >= 0) {
+                        *ret_newly_created = true;
+                        return fd;
+                }
+                if (errno != EEXIST)
+                        return -errno;
+
+                /* Hmm, so now we got EEXIST? So it apparently exists now? If so, let's try to open again
+                 * without the two flags. But let's not spin forever, hence put a limit on things */
+
+                if (--attempts == 0) /* Give up eventually, somebody is playing with us */
+                        return -EEXIST;
+        }
 }

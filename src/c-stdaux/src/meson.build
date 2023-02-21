@@ -4,19 +4,31 @@
 #  future, if we add more complex helpers.)
 #
 
+libcstdaux_vars = {
+        'cflags': ' '.join(cflags),
+        'version-scripts': use_version_scripts,
+}
+
 libcstdaux_dep = declare_dependency(
         include_directories: include_directories('.'),
+        variables: libcstdaux_vars,
         version: meson.project_version(),
 )
 
 if not meson.is_subproject()
-        install_headers('c-stdaux.h')
+        install_headers(
+                'c-stdaux.h',
+                'c-stdaux-generic.h',
+                'c-stdaux-gnuc.h',
+                'c-stdaux-unix.h',
+        )
 
         mod_pkgconfig.generate(
-                version: meson.project_version(),
-                name: 'libcstdaux',
-                filebase: 'libcstdaux',
                 description: project_description,
+                filebase: 'libcstdaux-'+major,
+                name: 'libcstdaux',
+                unescaped_variables: libcstdaux_vars,
+                version: meson.project_version(),
         )
 endif
 

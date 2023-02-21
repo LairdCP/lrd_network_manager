@@ -96,7 +96,7 @@ str_addr(const char *str, int *family)
 {
     NMIPAddr addr_bin;
 
-    if (!nm_utils_parse_inaddr_bin_full(*family, TRUE, str, family, &addr_bin)) {
+    if (!nm_inet_parse_bin_full(*family, TRUE, str, family, &addr_bin)) {
         _LOGW(LOGD_CORE, "Malformed IP address: '%s'", str);
         return NULL;
     }
@@ -248,6 +248,8 @@ nmi_dt_reader_parse(const char *sysfs_dir)
                                            NM_SETTING_WIRED_SETTING_NAME,
                                            NM_SETTING_CONNECTION_ID,
                                            "OpenFirmware Connection",
+                                           NM_SETTING_CONNECTION_AUTOCONNECT_PRIORITY,
+                                           NMI_AUTOCONNECT_PRIORITY_FIRMWARE,
                                            NULL));
 
     s_ip4 = nm_setting_ip4_config_new();
@@ -258,7 +260,7 @@ nmi_dt_reader_parse(const char *sysfs_dir)
 
     g_object_set(s_ip6,
                  NM_SETTING_IP6_CONFIG_ADDR_GEN_MODE,
-                 (int) NM_SETTING_IP6_CONFIG_ADDR_GEN_MODE_EUI64,
+                 (int) NM_SETTING_IP6_CONFIG_ADDR_GEN_MODE_DEFAULT_OR_EUI64,
                  NULL);
 
     if (!bootp && dt_get_property(base, "chosen", "bootp-response", NULL, NULL))
@@ -288,7 +290,7 @@ nmi_dt_reader_parse(const char *sysfs_dir)
             guint32 netmask_v4;
 
             nm_ip_address_get_address_binary(netmask, &netmask_v4);
-            prefix = nm_utils_ip4_netmask_to_prefix(netmask_v4);
+            prefix = nm_ip4_addr_netmask_to_prefix(netmask_v4);
         }
 
         if (prefix == -1)

@@ -1,7 +1,5 @@
 /* Laird additions to generated clients/common/settings-docs.c */
 
-#define DESCRIBE_DOC_NM_SETTING_802_1X_TLS_DISABLE_TIME_CHECKS \
-	N_("Disable checking of the server certificates date.")
 #define DESCRIBE_DOC_NM_SETTING_802_1X_PAC_FILE_PASSWORD \
 	N_("Password for decrypting manually generated PAC files.")
 

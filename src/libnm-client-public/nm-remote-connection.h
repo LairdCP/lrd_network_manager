@@ -37,6 +37,7 @@ G_BEGIN_DECLS
 /**
  * NMRemoteConnection:
  */
+typedef struct _NMRemoteConnection      NMRemoteConnection;
 typedef struct _NMRemoteConnectionClass NMRemoteConnectionClass;
 
 GType nm_remote_connection_get_type(void);
@@ -95,7 +96,6 @@ gboolean nm_remote_connection_delete_finish(NMRemoteConnection *connection,
                                             GAsyncResult       *result,
                                             GError            **error);
 
-_NM_DEPRECATED_SYNC_METHOD
 GVariant *nm_remote_connection_get_secrets(NMRemoteConnection *connection,
                                            const char         *setting_name,
                                            GCancellable       *cancellable,

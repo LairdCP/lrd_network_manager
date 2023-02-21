@@ -3,16 +3,11 @@
 #include "nm-sd-adapt-shared.h"
 
 #include <errno.h>
+#include <fnmatch.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-
-/* When we include libgen.h because we need dirname() we immediately
- * undefine basename() since libgen.h defines it as a macro to the
- * POSIX version which is really broken. We prefer GNU basename(). */
-#include <libgen.h>
-#undef basename
 
 #include "alloc-util.h"
 #include "chase-symlinks.h"
@@ -22,14 +17,11 @@
 #include "glob-util.h"
 #include "log.h"
 #include "macro.h"
-#include "nulstr-util.h"
-#include "parse-util.h"
 #include "path-util.h"
 #include "stat-util.h"
 #include "string-util.h"
 #include "strv.h"
 #include "time-util.h"
-#include "utf8.h"
 
 #if 0 /* NM_IGNORED */
 int path_split_and_make_absolute(const char *p, char ***ret) {
@@ -66,7 +58,7 @@ char *path_make_absolute(const char *p, const char *prefix) {
 }
 
 int safe_getcwd(char **ret) {
-        char *cwd;
+        _cleanup_free_ char *cwd = NULL;
 
         cwd = get_current_dir_name();
         if (!cwd)
@@ -74,12 +66,12 @@ int safe_getcwd(char **ret) {
 
         /* Let's make sure the directory is really absolute, to protect us from the logic behind
          * CVE-2018-1000001 */
-        if (cwd[0] != '/') {
-                free(cwd);
+        if (cwd[0] != '/')
                 return -ENOMEDIUM;
-        }
 
-        *ret = cwd;
+        if (ret)
+                *ret = TAKE_PTR(cwd);
+
         return 0;
 }
 
@@ -204,10 +196,38 @@ int path_make_relative(const char *from, const char *to, char **ret) {
         return 0;
 }
 
-char* path_startswith_strv(const char *p, char **set) {
-        char **s, *t;
+int path_make_relative_parent(const char *from_child, const char *to, char **ret) {
+        _cleanup_free_ char *from = NULL;
+        int r;
 
+        assert(from_child);
+        assert(to);
+        assert(ret);
+
+        /* Similar to path_make_relative(), but provides the relative path from the parent directory of
+         * 'from_child'. This may be useful when creating relative symlink.
+         *
+         * E.g.
+         * - from = "/path/to/aaa", to = "/path/to/bbb"
+         *      path_make_relative(from, to) = "../bbb"
+         *      path_make_relative_parent(from, to) = "bbb"
+         *
+         * - from = "/path/to/aaa/bbb", to = "/path/to/ccc/ddd"
+         *      path_make_relative(from, to) = "../../ccc/ddd"
+         *      path_make_relative_parent(from, to) = "../ccc/ddd"
+         */
+
+        r = path_extract_directory(from_child, &from);
+        if (r < 0)
+                return r;
+
+        return path_make_relative(from, to, ret);
+}
+
+char* path_startswith_strv(const char *p, char **set) {
         STRV_FOREACH(s, set) {
+                char *t;
+
                 t = path_startswith(p, *s);
                 if (t)
                         return t;
@@ -217,7 +237,6 @@ char* path_startswith_strv(const char *p, char **set) {
 }
 
 int path_strv_make_absolute_cwd(char **l) {
-        char **s;
         int r;
 
         /* Goes through every item in the string list and makes it
@@ -239,7 +258,6 @@ int path_strv_make_absolute_cwd(char **l) {
 }
 
 char **path_strv_resolve(char **l, const char *root) {
-        char **s;
         unsigned k = 0;
         bool enomem = false;
         int r;
@@ -334,10 +352,8 @@ char **path_strv_resolve_uniq(char **l, const char *root) {
 
 char *path_simplify(char *path) {
         bool add_slash = false;
-        char *f = path;
+        char *f = ASSERT_PTR(path);
         int r;
-
-        assert(path);
 
         /* Removes redundant inner and trailing slashes. Also removes unnecessary dots.
          * Modifies the passed string in-place.
@@ -381,54 +397,6 @@ char *path_simplify(char *path) {
         *f = '\0';
         return path;
 }
-
-#if 0 /* NM_IGNORED */
-int path_simplify_and_warn(
-                char *path,
-                unsigned flag,
-                const char *unit,
-                const char *filename,
-                unsigned line,
-                const char *lvalue) {
-
-        bool fatal = flag & PATH_CHECK_FATAL;
-
-        assert(!FLAGS_SET(flag, PATH_CHECK_ABSOLUTE | PATH_CHECK_RELATIVE));
-
-        if (!utf8_is_valid(path))
-                return log_syntax_invalid_utf8(unit, LOG_ERR, filename, line, path);
-
-        if (flag & (PATH_CHECK_ABSOLUTE | PATH_CHECK_RELATIVE)) {
-                bool absolute;
-
-                absolute = path_is_absolute(path);
-
-                if (!absolute && (flag & PATH_CHECK_ABSOLUTE))
-                        return log_syntax(unit, LOG_ERR, filename, line, SYNTHETIC_ERRNO(EINVAL),
-                                          "%s= path is not absolute%s: %s",
-                                          lvalue, fatal ? "" : ", ignoring", path);
-
-                if (absolute && (flag & PATH_CHECK_RELATIVE))
-                        return log_syntax(unit, LOG_ERR, filename, line, SYNTHETIC_ERRNO(EINVAL),
-                                          "%s= path is absolute%s: %s",
-                                          lvalue, fatal ? "" : ", ignoring", path);
-        }
-
-        path_simplify(path);
-
-        if (!path_is_valid(path))
-                return log_syntax(unit, LOG_ERR, filename, line, SYNTHETIC_ERRNO(EINVAL),
-                                  "%s= path has invalid length (%zu bytes)%s.",
-                                  lvalue, strlen(path), fatal ? "" : ", ignoring");
-
-        if (!path_is_normalized(path))
-                return log_syntax(unit, LOG_ERR, filename, line, SYNTHETIC_ERRNO(EINVAL),
-                                  "%s= path is not normalized%s: %s",
-                                  lvalue, fatal ? "" : ", ignoring", path);
-
-        return 0;
-}
-#endif /* NM_IGNORED */
 
 char *path_startswith_full(const char *path, const char *prefix, bool accept_dot_dot) {
         assert(path);
@@ -707,12 +675,12 @@ int find_executable_full(const char *name, const char *root, char **exec_search_
                 p = DEFAULT_PATH;
 
         if (exec_search_path) {
-                char **element;
-
                 STRV_FOREACH(element, exec_search_path) {
                         _cleanup_free_ char *full_path = NULL;
+
                         if (!path_is_absolute(*element))
                                 continue;
+
                         full_path = path_join(*element, name);
                         if (!full_path)
                                 return -ENOMEM;
@@ -761,7 +729,6 @@ int find_executable_full(const char *name, const char *root, char **exec_search_
 
 bool paths_check_timestamp(const char* const* paths, usec_t *timestamp, bool update) {
         bool changed = false, originally_unset;
-        const char* const* i;
 
         assert(timestamp);
 
@@ -820,37 +787,25 @@ static int executable_is_good(const char *executable) {
                                "/dev/null");
 }
 
-int fsck_exists(const char *fstype) {
+int fsck_exists(void) {
+        return executable_is_good("fsck");
+}
+
+int fsck_exists_for_fstype(const char *fstype) {
         const char *checker;
+        int r;
 
         assert(fstype);
 
         if (streq(fstype, "auto"))
                 return -EINVAL;
 
+        r = fsck_exists();
+        if (r <= 0)
+                return r;
+
         checker = strjoina("fsck.", fstype);
         return executable_is_good(checker);
-}
-
-char* dirname_malloc(const char *path) {
-        char *d, *dir, *dir2;
-
-        assert(path);
-
-        d = strdup(path);
-        if (!d)
-                return NULL;
-
-        dir = dirname(d);
-        assert(dir);
-
-        if (dir == d)
-                return d;
-
-        dir2 = strdup(dir);
-        free(d);
-
-        return dir2;
 }
 #endif /* NM_IGNORED */
 
@@ -940,8 +895,9 @@ int path_find_first_component(const char **p, bool accept_dot_dot, const char **
 
 static const char *skip_slash_or_dot_backward(const char *path, const char *q) {
         assert(path);
+        assert(!q || q >= path);
 
-        for (; q >= path; q--) {
+        for (; q; q = PTR_SUB1(q, path)) {
                 if (*q == '/')
                         continue;
                 if (q > path && strneq(q - 1, "/.", 2))
@@ -1006,7 +962,7 @@ int path_find_last_component(const char *path, bool accept_dot_dot, const char *
                 q = path + strlen(path) - 1;
 
         q = skip_slash_or_dot_backward(path, q);
-        if ((q < path) || /* the root directory */
+        if (!q || /* the root directory */
             (q == path && *q == '.')) { /* path is "." or "./" */
                 if (next)
                         *next = path;
@@ -1017,10 +973,10 @@ int path_find_last_component(const char *path, bool accept_dot_dot, const char *
 
         last_end = q + 1;
 
-        while (q >= path && *q != '/')
-                q--;
+        while (q && *q != '/')
+                q = PTR_SUB1(q, path);
 
-        last_begin = q + 1;
+        last_begin = q ? q + 1 : path;
         len = last_end - last_begin;
 
         if (len > NAME_MAX)
@@ -1030,10 +986,7 @@ int path_find_last_component(const char *path, bool accept_dot_dot, const char *
 
         if (next) {
                 q = skip_slash_or_dot_backward(path, q);
-                if (q < path)
-                        *next = path;
-                else
-                        *next = q + 1;
+                *next = q ? q + 1 : path;
         }
 
         if (ret)
@@ -1118,7 +1071,7 @@ int path_extract_filename(const char *path, char **ret) {
                 return -ENOMEM;
 
         *ret = TAKE_PTR(a);
-        return strlen(c) > (size_t)r ? O_DIRECTORY : 0;
+        return strlen(c) > (size_t) r ? O_DIRECTORY : 0;
 }
 
 int path_extract_directory(const char *path, char **ret) {
@@ -1172,7 +1125,7 @@ bool filename_is_valid(const char *p) {
         if (isempty(p))
                 return false;
 
-        if (dot_or_dot_dot(p))
+        if (dot_or_dot_dot(p)) /* Yes, in this context we consider "." and ".." invalid */
                 return false;
 
         e = strchrnul(p, '/');
@@ -1249,9 +1202,10 @@ bool hidden_or_backup_file(const char *filename) {
         assert(filename);
 
         if (filename[0] == '.' ||
-            streq(filename, "lost+found") ||
-            streq(filename, "aquota.user") ||
-            streq(filename, "aquota.group") ||
+            STR_IN_SET(filename,
+                       "lost+found",
+                       "aquota.user",
+                       "aquota.group") ||
             endswith(filename, "~"))
                 return true;
 
@@ -1326,74 +1280,6 @@ bool valid_device_allow_pattern(const char *path) {
 
         return valid_device_node_path(path);
 }
-
-int systemd_installation_has_version(const char *root, unsigned minimal_version) {
-        const char *pattern;
-        int r;
-
-        /* Try to guess if systemd installation is later than the specified version. This
-         * is hacky and likely to yield false negatives, particularly if the installation
-         * is non-standard. False positives should be relatively rare.
-         */
-
-        NULSTR_FOREACH(pattern,
-                       /* /lib works for systems without usr-merge, and for systems with a sane
-                        * usr-merge, where /lib is a symlink to /usr/lib. /usr/lib is necessary
-                        * for Gentoo which does a merge without making /lib a symlink.
-                        */
-                       "lib/systemd/libsystemd-shared-*.so\0"
-                       "lib64/systemd/libsystemd-shared-*.so\0"
-                       "usr/lib/systemd/libsystemd-shared-*.so\0"
-                       "usr/lib64/systemd/libsystemd-shared-*.so\0") {
-
-                _cleanup_strv_free_ char **names = NULL;
-                _cleanup_free_ char *path = NULL;
-                char *c, **name;
-
-                path = path_join(root, pattern);
-                if (!path)
-                        return -ENOMEM;
-
-                r = glob_extend(&names, path, 0);
-                if (r == -ENOENT)
-                        continue;
-                if (r < 0)
-                        return r;
-
-                assert_se(c = endswith(path, "*.so"));
-                *c = '\0'; /* truncate the glob part */
-
-                STRV_FOREACH(name, names) {
-                        /* This is most likely to run only once, hence let's not optimize anything. */
-                        char *t, *t2;
-                        unsigned version;
-
-                        t = startswith(*name, path);
-                        if (!t)
-                                continue;
-
-                        t2 = endswith(t, ".so");
-                        if (!t2)
-                                continue;
-
-                        t2[0] = '\0'; /* truncate the suffix */
-
-                        r = safe_atou(t, &version);
-                        if (r < 0) {
-                                log_debug_errno(r, "Found libsystemd shared at \"%s.so\", but failed to parse version: %m", *name);
-                                continue;
-                        }
-
-                        log_debug("Found libsystemd shared at \"%s.so\", version %u (%s).",
-                                  *name, version,
-                                  version >= minimal_version ? "OK" : "too old");
-                        if (version >= minimal_version)
-                                return true;
-                }
-        }
-
-        return false;
-}
 #endif /* NM_IGNORED */
 
 bool dot_or_dot_dot(const char *path) {
@@ -1422,8 +1308,6 @@ bool empty_or_root(const char *path) {
 }
 
 bool path_strv_contains(char **l, const char *path) {
-        char **i;
-
         STRV_FOREACH(i, l)
                 if (path_equal(*i, path))
                         return true;
@@ -1432,10 +1316,9 @@ bool path_strv_contains(char **l, const char *path) {
 }
 
 bool prefixed_path_strv_contains(char **l, const char *path) {
-        char **i, *j;
-
         STRV_FOREACH(i, l) {
-                j = *i;
+                const char *j = *i;
+
                 if (*j == '-')
                         j++;
                 if (*j == '+')
@@ -1444,6 +1327,69 @@ bool prefixed_path_strv_contains(char **l, const char *path) {
                         return true;
         }
 
+        return false;
+}
+
+int path_glob_can_match(const char *pattern, const char *prefix, char **ret) {
+        assert(pattern);
+        assert(prefix);
+
+        for (const char *a = pattern, *b = prefix;;) {
+                _cleanup_free_ char *g = NULL, *h = NULL;
+                const char *p, *q;
+                int r, s;
+
+                r = path_find_first_component(&a, /* accept_dot_dot = */ false, &p);
+                if (r < 0)
+                        return r;
+
+                s = path_find_first_component(&b, /* accept_dot_dot = */ false, &q);
+                if (s < 0)
+                        return s;
+
+                if (s == 0) {
+                        /* The pattern matches the prefix. */
+                        if (ret) {
+                                char *t;
+
+                                t = path_join(prefix, p);
+                                if (!t)
+                                        return -ENOMEM;
+
+                                *ret = t;
+                        }
+                        return true;
+                }
+
+                if (r == 0)
+                        break;
+
+                if (r == s && strneq(p, q, r))
+                        continue; /* common component. Check next. */
+
+                g = strndup(p, r);
+                if (!g)
+                        return -ENOMEM;
+
+                if (!string_is_glob(g))
+                        break;
+
+                /* We found a glob component. Check if the glob pattern matches the prefix component. */
+
+                h = strndup(q, s);
+                if (!h)
+                        return -ENOMEM;
+
+                r = fnmatch(g, h, 0);
+                if (r == FNM_NOMATCH)
+                        break;
+                if (r != 0) /* Failure to process pattern? */
+                        return -EINVAL;
+        }
+
+        /* The pattern does not match the prefix. */
+        if (ret)
+                *ret = NULL;
         return false;
 }
 #endif /* NM_IGNORED */

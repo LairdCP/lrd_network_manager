@@ -66,7 +66,8 @@ static NM_CACHED_QUARK_FCN("ppp-manager-secret-tries", ppp_manager_secret_tries_
 /*****************************************************************************/
 
 #define NM_TYPE_PPP_MANAGER (nm_ppp_manager_get_type())
-#define NM_PPP_MANAGER(obj) (G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_PPP_MANAGER, NMPPPManager))
+#define NM_PPP_MANAGER(obj) \
+    (_NM_G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_PPP_MANAGER, NMPPPManager))
 #define NM_PPP_MANAGER_CLASS(klass) \
     (G_TYPE_CHECK_CLASS_CAST((klass), NM_TYPE_PPP_MANAGER, NMPPPManagerClass))
 #define NM_IS_PPP_MANAGER(obj)         (G_TYPE_CHECK_INSTANCE_TYPE((obj), NM_TYPE_PPP_MANAGER))
@@ -582,7 +583,7 @@ impl_ppp_manager_set_ip4_config(NMDBusObject                      *obj,
 
     if (g_variant_lookup(config_dict, NM_PPP_IP4_CONFIG_DNS, "au", &iter)) {
         while (g_variant_iter_next(iter, "u", &u32))
-            nm_l3_config_data_add_nameserver(l3cd, AF_INET, &u32);
+            nm_l3_config_data_add_nameserver_detail(l3cd, AF_INET, &u32, NULL);
         g_variant_iter_free(iter);
     }
 
@@ -641,6 +642,7 @@ impl_ppp_manager_set_ip6_config(NMDBusObject                      *obj,
     nm_auto_unref_l3cd_init NML3ConfigData *l3cd = NULL;
     NMPlatformIP6Address                    address;
     struct in6_addr                         a;
+    guint32                                 mtu;
     NMUtilsIPv6IfaceId                      iid         = NM_UTILS_IPV6_IFACE_ID_INIT;
     gboolean                                has_peer    = FALSE;
     gs_unref_variant GVariant              *config_dict = NULL;
@@ -651,12 +653,14 @@ impl_ppp_manager_set_ip6_config(NMDBusObject                      *obj,
 
     nm_clear_g_source(&priv->ppp_timeout_handler);
 
-    if (!set_ip_config_common(self, config_dict, NULL))
+    if (!set_ip_config_common(self, config_dict, &mtu))
         goto out;
 
     l3cd = nm_l3_config_data_new(nm_platform_get_multi_idx(NM_PLATFORM_GET),
                                  priv->ifindex,
                                  NM_IP_CONFIG_SOURCE_PPP);
+
+    nm_l3_config_data_set_mtu(l3cd, mtu);
 
     address = (NMPlatformIP6Address){
         .plen        = 64,
@@ -1246,7 +1250,7 @@ _ppp_manager_stop(NMPPPManager            *self,
                               SIGTERM,
                               LOGD_PPP,
                               "pppd",
-                              5000,
+                              NM_SHUTDOWN_TIMEOUT_5000_MSEC,
                               _stop_child_cb,
                               handle);
 

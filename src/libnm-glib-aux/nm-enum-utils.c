@@ -136,16 +136,20 @@ _nm_utils_enum_to_str_full(GType                       type,
         else
             return g_strdup(enum_value->value_nick);
     } else if (G_IS_FLAGS_CLASS(klass)) {
-        unsigned     uvalue = (unsigned) value;
+        unsigned     uvalue          = (unsigned) value;
+        gboolean     uvalue_was_zero = (uvalue == 0);
         GFlagsValue *flags_value;
         NMStrBuf     strbuf;
 
         flags_separator = flags_separator ?: " ";
 
-        nm_str_buf_init(&strbuf, 16, FALSE);
+        strbuf = NM_STR_BUF_INIT(16, FALSE);
 
         for (; value_infos && value_infos->nick; value_infos++) {
             nm_assert(_enum_is_valid_flags_nick(value_infos->nick));
+
+            if (value_infos->value == 0 && !uvalue_was_zero)
+                continue;
 
             if (uvalue == 0) {
                 if (value_infos->value != 0)

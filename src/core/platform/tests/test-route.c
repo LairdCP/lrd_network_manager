@@ -10,7 +10,7 @@
 
 #include "nm-core-utils.h"
 #include "libnm-platform/nm-platform-utils.h"
-#include "libnm-platform/nmp-route-manager.h"
+#include "libnm-platform/nmp-global-tracker.h"
 
 #include "test-common.h"
 
@@ -27,7 +27,7 @@ _wait_for_ipv4_addr_device_route(NMPlatform *platform,
     /* Wait that the addresses gets a device-route. After adding a address,
      * the device route is not added immediately. It takes a moment... */
 
-    addr = nm_utils_ip4_address_clear_host_address(addr, plen);
+    addr = nm_ip4_addr_clear_host_address(addr, plen);
     NMTST_WAIT_ASSERT(400, {
         NMDedupMultiIter iter;
         NMPLookup        lookup;
@@ -35,12 +35,13 @@ _wait_for_ipv4_addr_device_route(NMPlatform *platform,
 
         nmp_cache_iter_for_each (
             &iter,
-            nm_platform_lookup(platform,
-                               nmp_lookup_init_object(&lookup, NMP_OBJECT_TYPE_IP4_ROUTE, ifindex)),
+            nm_platform_lookup(
+                platform,
+                nmp_lookup_init_object_by_ifindex(&lookup, NMP_OBJECT_TYPE_IP4_ROUTE, ifindex)),
             &o) {
             const NMPlatformIP4Route *r = NMP_OBJECT_CAST_IP4_ROUTE(o);
 
-            if (r->plen == plen && addr == nm_utils_ip4_address_clear_host_address(r->network, plen)
+            if (r->plen == plen && addr == nm_ip4_addr_clear_host_address(r->network, plen)
                 && r->metric == 0 && r->scope_inv == nm_platform_route_scope_inv(RT_SCOPE_LINK)
                 && r->rt_source == NM_IP_CONFIG_SOURCE_RTPROT_KERNEL)
                 return;
@@ -332,30 +333,33 @@ test_ip4_route(void)
     /* Test route listing */
     routes = nmtstp_ip4_route_get_all(NM_PLATFORM_GET, ifindex);
     memset(rts, 0, sizeof(rts));
-    rts[0].rt_source = nmp_utils_ip_config_source_round_trip_rtprot(NM_IP_CONFIG_SOURCE_USER);
-    rts[0].network   = gateway;
-    rts[0].plen      = 32;
-    rts[0].ifindex   = ifindex;
-    rts[0].gateway   = INADDR_ANY;
-    rts[0].metric    = metric;
-    rts[0].mss       = mss;
-    rts[0].scope_inv = nm_platform_route_scope_inv(RT_SCOPE_LINK);
-    rts[1].rt_source = nmp_utils_ip_config_source_round_trip_rtprot(NM_IP_CONFIG_SOURCE_USER);
-    rts[1].network   = network;
-    rts[1].plen      = plen;
-    rts[1].ifindex   = ifindex;
-    rts[1].gateway   = gateway;
-    rts[1].metric    = metric;
-    rts[1].mss       = mss;
-    rts[1].scope_inv = nm_platform_route_scope_inv(RT_SCOPE_UNIVERSE);
-    rts[2].rt_source = nmp_utils_ip_config_source_round_trip_rtprot(NM_IP_CONFIG_SOURCE_USER);
-    rts[2].network   = 0;
-    rts[2].plen      = 0;
-    rts[2].ifindex   = ifindex;
-    rts[2].gateway   = gateway;
-    rts[2].metric    = metric;
-    rts[2].mss       = mss;
-    rts[2].scope_inv = nm_platform_route_scope_inv(RT_SCOPE_UNIVERSE);
+    rts[0].rt_source  = nmp_utils_ip_config_source_round_trip_rtprot(NM_IP_CONFIG_SOURCE_USER);
+    rts[0].network    = gateway;
+    rts[0].plen       = 32;
+    rts[0].ifindex    = ifindex;
+    rts[0].gateway    = INADDR_ANY;
+    rts[0].metric     = metric;
+    rts[0].mss        = mss;
+    rts[0].scope_inv  = nm_platform_route_scope_inv(RT_SCOPE_LINK);
+    rts[0].n_nexthops = 1;
+    rts[1].rt_source  = nmp_utils_ip_config_source_round_trip_rtprot(NM_IP_CONFIG_SOURCE_USER);
+    rts[1].network    = network;
+    rts[1].plen       = plen;
+    rts[1].ifindex    = ifindex;
+    rts[1].gateway    = gateway;
+    rts[1].metric     = metric;
+    rts[1].mss        = mss;
+    rts[1].scope_inv  = nm_platform_route_scope_inv(RT_SCOPE_UNIVERSE);
+    rts[1].n_nexthops = 1;
+    rts[2].rt_source  = nmp_utils_ip_config_source_round_trip_rtprot(NM_IP_CONFIG_SOURCE_USER);
+    rts[2].network    = 0;
+    rts[2].plen       = 0;
+    rts[2].ifindex    = ifindex;
+    rts[2].gateway    = gateway;
+    rts[2].metric     = metric;
+    rts[2].mss        = mss;
+    rts[2].scope_inv  = nm_platform_route_scope_inv(RT_SCOPE_UNIVERSE);
+    rts[2].n_nexthops = 1;
     g_assert_cmpint(routes->len, ==, 3);
     nmtst_platform_ip4_routes_equal_aptr((const NMPObject *const *) routes->pdata,
                                          rts,
@@ -634,18 +638,22 @@ test_ip4_route_options(gconstpointer test_data)
     switch (TEST_IDX) {
     case 1:
         rts_add[rts_n++] = ((NMPlatformIP4Route){
-            .ifindex   = IFINDEX,
-            .rt_source = NM_IP_CONFIG_SOURCE_USER,
-            .network   = nmtst_inet4_from_string("172.16.1.0"),
-            .plen      = 24,
-            .metric    = 20,
-            .tos       = 0x28,
-            .window    = 10000,
-            .cwnd      = 16,
-            .initcwnd  = 30,
-            .initrwnd  = 50,
-            .mtu       = 1350,
-            .lock_cwnd = TRUE,
+            .ifindex    = IFINDEX,
+            .rt_source  = NM_IP_CONFIG_SOURCE_USER,
+            .network    = nmtst_inet4_from_string("172.16.1.0"),
+            .plen       = 24,
+            .metric     = 20,
+            .tos        = 0x28,
+            .window     = 10000,
+            .cwnd       = 16,
+            .initcwnd   = 30,
+            .initrwnd   = 50,
+            .mtu        = 1350,
+            .lock_cwnd  = TRUE,
+            .mss        = 1300,
+            .quickack   = TRUE,
+            .rto_min    = 1000,
+            .n_nexthops = 1,
         });
         break;
     case 2:
@@ -659,12 +667,13 @@ test_ip4_route_options(gconstpointer test_data)
               .n_ifa_flags  = 0,
         });
         rts_add[rts_n++] = ((NMPlatformIP4Route){
-            .ifindex   = IFINDEX,
-            .rt_source = NM_IP_CONFIG_SOURCE_USER,
-            .network   = nmtst_inet4_from_string("172.17.1.0"),
-            .gateway   = nmtst_inet4_from_string("172.16.1.1"),
-            .plen      = 24,
-            .metric    = 20,
+            .ifindex    = IFINDEX,
+            .rt_source  = NM_IP_CONFIG_SOURCE_USER,
+            .network    = nmtst_inet4_from_string("172.17.1.0"),
+            .gateway    = nmtst_inet4_from_string("172.16.1.1"),
+            .plen       = 24,
+            .metric     = 20,
+            .n_nexthops = 1,
         });
         rts_add[rts_n++] = ((NMPlatformIP4Route){
             .ifindex     = IFINDEX,
@@ -674,6 +683,7 @@ test_ip4_route_options(gconstpointer test_data)
             .r_rtm_flags = RTNH_F_ONLINK,
             .plen        = 24,
             .metric      = 20,
+            .n_nexthops  = 1,
         });
         break;
     default:
@@ -687,24 +697,23 @@ test_ip4_route_options(gconstpointer test_data)
         const NMPlatformIP4Address *a = &addr[i];
 
         g_assert(a->ifindex == IFINDEX);
-        g_assert(nm_platform_ip4_address_add(
-            NM_PLATFORM_GET,
-            a->ifindex,
-            a->address,
-            a->plen,
-            a->peer_address,
-            nm_platform_ip4_broadcast_address_create(a->address, a->plen),
-            a->lifetime,
-            a->preferred,
-            a->n_ifa_flags,
-            a->label));
+        g_assert(nm_platform_ip4_address_add(NM_PLATFORM_GET,
+                                             a->ifindex,
+                                             a->address,
+                                             a->plen,
+                                             a->peer_address,
+                                             nm_ip4_addr_get_broadcast_address(a->address, a->plen),
+                                             a->lifetime,
+                                             a->preferred,
+                                             a->n_ifa_flags,
+                                             a->label));
         if (a->peer_address == a->address)
             _wait_for_ipv4_addr_device_route(NM_PLATFORM_GET, 200, a->ifindex, a->address, a->plen);
     }
 
     for (i = 0; i < rts_n; i++)
         g_assert(NMTST_NM_ERR_SUCCESS(
-            nm_platform_ip4_route_add(NM_PLATFORM_GET, NMP_NLM_FLAG_REPLACE, &rts_add[i])));
+            nm_platform_ip4_route_add(NM_PLATFORM_GET, NMP_NLM_FLAG_REPLACE, &rts_add[i], NULL)));
 
     for (i = 0; i < rts_n; i++) {
         rts_cmp[i] = rts_add[i];
@@ -743,7 +752,7 @@ test_ip6_route_get(void)
         nmtstp_wait_for_signal(NM_PLATFORM_GET, 10);
         if (nmtstp_ip6_route_get(NM_PLATFORM_GET,
                                  ifindex,
-                                 nmtst_inet6_from_string("fd01:abcd::"),
+                                 nmtst_inet6_from_string_p("fd01:abcd::"),
                                  64,
                                  NM_PLATFORM_ROUTE_METRIC_DEFAULT_IP6,
                                  NULL,
@@ -751,7 +760,7 @@ test_ip6_route_get(void)
             break;
     });
 
-    a      = nmtst_inet6_from_string("fd01:abcd::42");
+    a      = nmtst_inet6_from_string_p("fd01:abcd::42");
     result = nm_platform_ip_route_get(NM_PLATFORM_GET,
                                       AF_INET6,
                                       a,
@@ -793,7 +802,7 @@ test_ip6_route_options(gconstpointer test_data)
         rts_add[rts_n++] = ((NMPlatformIP6Route){
             .ifindex   = IFINDEX,
             .rt_source = NM_IP_CONFIG_SOURCE_USER,
-            .network   = *nmtst_inet6_from_string("2001:db8:a:b:0:0:0:0"),
+            .network   = nmtst_inet6_from_string("2001:db8:a:b:0:0:0:0"),
             .plen      = 64,
             .gateway   = in6addr_any,
             .metric    = 1024,
@@ -808,7 +817,7 @@ test_ip6_route_options(gconstpointer test_data)
     case 2:
         addr[addr_n++]   = ((NMPlatformIP6Address){
               .ifindex      = IFINDEX,
-              .address      = *nmtst_inet6_from_string("2000::2"),
+              .address      = nmtst_inet6_from_string("2000::2"),
               .plen         = 128,
               .peer_address = in6addr_any,
               .lifetime     = NM_PLATFORM_LIFETIME_PERMANENT,
@@ -818,17 +827,17 @@ test_ip6_route_options(gconstpointer test_data)
         rts_add[rts_n++] = ((NMPlatformIP6Route){
             .ifindex   = IFINDEX,
             .rt_source = NM_IP_CONFIG_SOURCE_USER,
-            .network   = *nmtst_inet6_from_string("1010::1"),
+            .network   = nmtst_inet6_from_string("1010::1"),
             .plen      = 128,
             .gateway   = in6addr_any,
             .metric    = 256,
-            .pref_src  = *nmtst_inet6_from_string("2000::2"),
+            .pref_src  = nmtst_inet6_from_string("2000::2"),
         });
         break;
     case 3:
         addr[addr_n++]   = ((NMPlatformIP6Address){
               .ifindex      = IFINDEX,
-              .address      = *nmtst_inet6_from_string("2001:db8:8086::5"),
+              .address      = nmtst_inet6_from_string("2001:db8:8086::5"),
               .plen         = 128,
               .peer_address = in6addr_any,
               .lifetime     = NM_PLATFORM_LIFETIME_PERMANENT,
@@ -838,7 +847,7 @@ test_ip6_route_options(gconstpointer test_data)
         rts_add[rts_n++] = ((NMPlatformIP6Route){
             .ifindex   = IFINDEX,
             .rt_source = nmp_utils_ip_config_source_round_trip_rtprot(NM_IP_CONFIG_SOURCE_USER),
-            .network   = *nmtst_inet6_from_string("2001:db8:8086::"),
+            .network   = nmtst_inet6_from_string("2001:db8:8086::"),
             .plen      = 110,
             .metric    = 10021,
             .mss       = 0,
@@ -846,9 +855,9 @@ test_ip6_route_options(gconstpointer test_data)
         rts_add[rts_n++] = ((NMPlatformIP6Route){
             .ifindex   = IFINDEX,
             .rt_source = nmp_utils_ip_config_source_round_trip_rtprot(NM_IP_CONFIG_SOURCE_USER),
-            .network   = *nmtst_inet6_from_string("2001:db8:abad:c0de::"),
+            .network   = nmtst_inet6_from_string("2001:db8:abad:c0de::"),
             .plen      = 64,
-            .gateway   = *nmtst_inet6_from_string("2001:db8:8086::1"),
+            .gateway   = nmtst_inet6_from_string("2001:db8:8086::1"),
             .metric    = 21,
             .mss       = 0,
         });
@@ -914,7 +923,7 @@ test_ip(gconstpointer test_data)
     const NMPlatformLink *l;
     char                  ifname[IFNAMSIZ];
     char                  ifname2[IFNAMSIZ];
-    char                  s1[NM_UTILS_INET_ADDRSTRLEN];
+    char                  s1[NM_INET_ADDRSTRLEN];
     NMPlatform           *platform = NM_PLATFORM_GET;
     const int             EX_      = -1;
     struct {
@@ -979,8 +988,8 @@ again_find_idx:
             order_idx[order_len++] = idx;
 
             r->ifindex = iface_data[idx].ifindex;
-            g_assert(
-                NMTST_NM_ERR_SUCCESS(nm_platform_ip4_route_add(platform, NMP_NLM_FLAG_APPEND, r)));
+            g_assert(NMTST_NM_ERR_SUCCESS(
+                nm_platform_ip4_route_add(platform, NMP_NLM_FLAG_APPEND, r, NULL)));
         } else {
             i   = nmtst_get_rand_uint32() % order_len;
             idx = order_idx[i];
@@ -1274,7 +1283,7 @@ _rule_create_random(NMPlatform *platform)
     guint32                p;
     int                    addr_size;
     guint                  i;
-    char                   saddr[NM_UTILS_INET_ADDRSTRLEN];
+    char                   saddr[NM_INET_ADDRSTRLEN];
     static struct {
         guint32 uid;
         guint32 euid;
@@ -1327,7 +1336,7 @@ _rule_create_random(NMPlatform *platform)
                     p_addr->addr4 =
                         nmtst_inet4_from_string(nm_sprintf_buf(saddr, "192.192.5.%u", (~p) % 256u));
                 else
-                    p_addr->addr6 = *nmtst_inet6_from_string(
+                    p_addr->addr6 = nmtst_inet6_from_string(
                         nm_sprintf_buf(saddr, "1:2:3:4::f:%02x", (~p) % 256u));
             } else if ((p % 3u) == 1)
                 nmtst_rand_buf(NULL, p_addr, addr_size);
@@ -1390,10 +1399,15 @@ again_table:
         rr->protocol = _rr_rand_choose_u8(nmtst_get_rand_uint32());
 
 #define IPTOS_TOS_MASK 0x1E
+#define INET_DSCP_MASK 0xFC
 
 again_tos:
     rr->tos = _rr_rand_choose_u8(nmtst_get_rand_uint32());
+
     if (rr->addr_family == AF_INET && rr->tos & ~IPTOS_TOS_MASK)
+        goto again_tos;
+
+    if (rr->tos & ~INET_DSCP_MASK)
         goto again_tos;
 
     if (_rule_check_kernel_support(platform, FRA_IP_PROTO))
@@ -1535,6 +1549,7 @@ _rule_fuzzy_equal(const NMPObject *obj, const NMPObject *obj_comp, int op_type)
 static void
 test_rule(gconstpointer test_data)
 {
+    char                         sbuf1[NM_UTILS_TO_STRING_BUFFER_SIZE];
     const int                    TEST_IDX     = GPOINTER_TO_INT(test_data);
     const gboolean               TEST_SYNC    = (TEST_IDX == 4);
     gs_unref_ptrarray GPtrArray *objs         = NULL;
@@ -1637,8 +1652,8 @@ again:
 
     if (TEST_SYNC) {
         gs_unref_hashtable GHashTable *unique_priorities = g_hash_table_new(NULL, NULL);
-        nm_auto_unref_route_manager NMPRouteManager *route_manager =
-            nmp_route_manager_new(platform);
+        nm_auto_unref_global_tracker NMPGlobalTracker *global_tracker =
+            nmp_global_tracker_new(platform);
         gs_unref_ptrarray GPtrArray *objs_sync  = NULL;
         gconstpointer                USER_TAG_1 = &platform;
         gconstpointer                USER_TAG_2 = &unique_priorities;
@@ -1660,29 +1675,29 @@ again:
         }
 
         for (i = 0; i < objs_sync->len; i++) {
-            nmp_route_manager_track_rule(route_manager,
-                                         NMP_OBJECT_CAST_ROUTING_RULE(objs_sync->pdata[i]),
-                                         1,
-                                         USER_TAG_1,
-                                         NULL);
+            nmp_global_tracker_track_rule(global_tracker,
+                                          NMP_OBJECT_CAST_ROUTING_RULE(objs_sync->pdata[i]),
+                                          1,
+                                          USER_TAG_1,
+                                          NULL);
             if (nmtst_get_rand_bool()) {
                 /* this has no effect, because a negative priority (of same absolute value)
                  * has lower priority than the positive priority above. */
-                nmp_route_manager_track_rule(route_manager,
-                                             NMP_OBJECT_CAST_ROUTING_RULE(objs_sync->pdata[i]),
-                                             -1,
-                                             USER_TAG_2,
-                                             NULL);
+                nmp_global_tracker_track_rule(global_tracker,
+                                              NMP_OBJECT_CAST_ROUTING_RULE(objs_sync->pdata[i]),
+                                              -1,
+                                              USER_TAG_2,
+                                              NULL);
             }
             if (nmtst_get_rand_uint32() % objs_sync->len == 0) {
-                nmp_route_manager_sync(route_manager, NMP_OBJECT_TYPE_ROUTING_RULE, FALSE);
+                nmp_global_tracker_sync(global_tracker, NMP_OBJECT_TYPE_ROUTING_RULE, FALSE);
                 g_assert_cmpint(nmtstp_platform_routing_rules_get_count(platform, AF_UNSPEC),
                                 ==,
                                 i + 1);
             }
         }
 
-        nmp_route_manager_sync(route_manager, NMP_OBJECT_TYPE_ROUTING_RULE, FALSE);
+        nmp_global_tracker_sync(global_tracker, NMP_OBJECT_TYPE_ROUTING_RULE, FALSE);
         g_assert_cmpint(nmtstp_platform_routing_rules_get_count(platform, AF_UNSPEC),
                         ==,
                         objs_sync->len);
@@ -1690,37 +1705,37 @@ again:
         for (i = 0; i < objs_sync->len; i++) {
             switch (nmtst_get_rand_uint32() % 3) {
             case 0:
-                nmp_route_manager_untrack_rule(route_manager,
-                                               NMP_OBJECT_CAST_ROUTING_RULE(objs_sync->pdata[i]),
-                                               USER_TAG_1);
-                nmp_route_manager_untrack_rule(route_manager,
-                                               NMP_OBJECT_CAST_ROUTING_RULE(objs_sync->pdata[i]),
-                                               USER_TAG_1);
+                nmp_global_tracker_untrack_rule(global_tracker,
+                                                NMP_OBJECT_CAST_ROUTING_RULE(objs_sync->pdata[i]),
+                                                USER_TAG_1);
+                nmp_global_tracker_untrack_rule(global_tracker,
+                                                NMP_OBJECT_CAST_ROUTING_RULE(objs_sync->pdata[i]),
+                                                USER_TAG_1);
                 break;
             case 1:
-                nmp_route_manager_track_rule(route_manager,
-                                             NMP_OBJECT_CAST_ROUTING_RULE(objs_sync->pdata[i]),
-                                             -1,
-                                             USER_TAG_1,
-                                             NULL);
+                nmp_global_tracker_track_rule(global_tracker,
+                                              NMP_OBJECT_CAST_ROUTING_RULE(objs_sync->pdata[i]),
+                                              -1,
+                                              USER_TAG_1,
+                                              NULL);
                 break;
             case 2:
-                nmp_route_manager_track_rule(route_manager,
-                                             NMP_OBJECT_CAST_ROUTING_RULE(objs_sync->pdata[i]),
-                                             -2,
-                                             USER_TAG_2,
-                                             NULL);
+                nmp_global_tracker_track_rule(global_tracker,
+                                              NMP_OBJECT_CAST_ROUTING_RULE(objs_sync->pdata[i]),
+                                              -2,
+                                              USER_TAG_2,
+                                              NULL);
                 break;
             }
             if (nmtst_get_rand_uint32() % objs_sync->len == 0) {
-                nmp_route_manager_sync(route_manager, NMP_OBJECT_TYPE_ROUTING_RULE, FALSE);
+                nmp_global_tracker_sync(global_tracker, NMP_OBJECT_TYPE_ROUTING_RULE, FALSE);
                 g_assert_cmpint(nmtstp_platform_routing_rules_get_count(platform, AF_UNSPEC),
                                 ==,
                                 objs_sync->len - i - 1);
             }
         }
 
-        nmp_route_manager_sync(route_manager, NMP_OBJECT_TYPE_ROUTING_RULE, FALSE);
+        nmp_global_tracker_sync(global_tracker, NMP_OBJECT_TYPE_ROUTING_RULE, FALSE);
 
     } else {
         for (i = 0; i < objs->len;) {
@@ -1763,7 +1778,7 @@ again:
 
                 g_print(">>> failing... errno=%d, rule=%s\n",
                         r,
-                        nmp_object_to_string(obj, NMP_OBJECT_TO_STRING_ALL, NULL, 0));
+                        nmp_object_to_string(obj, NMP_OBJECT_TO_STRING_ALL, sbuf1, sizeof(sbuf1)));
 
                 nmp_lookup_init_obj_type(&lookup, NMP_OBJECT_TYPE_ROUTING_RULE);
                 head_entry = nm_platform_lookup(platform, &lookup);
@@ -1775,9 +1790,10 @@ again:
                         && NMP_OBJECT_CAST_ROUTING_RULE(o)->priority
                                == NMP_OBJECT_CAST_ROUTING_RULE(obj)->priority)
                         ch = '*';
-                    g_print(">>> existing rule: %c %s\n",
-                            ch,
-                            nmp_object_to_string(o, NMP_OBJECT_TO_STRING_ALL, NULL, 0));
+                    g_print(
+                        ">>> existing rule: %c %s\n",
+                        ch,
+                        nmp_object_to_string(o, NMP_OBJECT_TO_STRING_ALL, sbuf1, sizeof(sbuf1)));
                 }
 
                 nmtstp_run_command_check("ip rule");
@@ -1836,11 +1852,14 @@ again:
 
                 if (!_rule_fuzzy_equal(obj, objs->pdata[k], RTM_DELRULE)) {
                     g_print(">>> failing...\n");
-                    g_print(">>> no fuzzy match between: %s\n",
-                            nmp_object_to_string(obj, NMP_OBJECT_TO_STRING_ALL, NULL, 0));
                     g_print(
-                        ">>>                    and: %s\n",
-                        nmp_object_to_string(objs->pdata[k], NMP_OBJECT_TO_STRING_ALL, NULL, 0));
+                        ">>> no fuzzy match between: %s\n",
+                        nmp_object_to_string(obj, NMP_OBJECT_TO_STRING_ALL, sbuf1, sizeof(sbuf1)));
+                    g_print(">>>                    and: %s\n",
+                            nmp_object_to_string(objs->pdata[k],
+                                                 NMP_OBJECT_TO_STRING_ALL,
+                                                 sbuf1,
+                                                 sizeof(sbuf1)));
                     g_assert_not_reached();
                 }
 
@@ -1899,14 +1918,17 @@ test_blackhole(gconstpointer test_data)
     NMPlatformIPXRoute           rr = {};
     int                          r  = -1;
     int                          i;
+    guint8                       rtn_type;
+
+    rtn_type = nmtst_rand_select(RTN_BLACKHOLE, RTN_UNREACHABLE, RTN_PROHIBIT, RTN_THROW);
 
     if (IS_IPv4) {
         rr.r4 = (const NMPlatformIP4Route){
-            .type_coerced = nmtst_rand_select(RTN_BLACKHOLE, RTN_UNREACHABLE, RTN_PROHIBIT),
+            .type_coerced = nm_platform_route_type_coerce(rtn_type),
         };
     } else {
         rr.r6 = (const NMPlatformIP6Route){
-            .type_coerced = nmtst_rand_select(RTN_BLACKHOLE, RTN_UNREACHABLE, RTN_PROHIBIT),
+            .type_coerced = nm_platform_route_type_coerce(rtn_type),
             .metric       = 1000,
         };
     }
@@ -1914,7 +1936,7 @@ test_blackhole(gconstpointer test_data)
     nm_platform_ip_route_normalize(addr_family, &rr.rx);
 
     if (IS_IPv4)
-        r = nm_platform_ip4_route_add(NM_PLATFORM_GET, NMP_NLM_FLAG_APPEND, &rr.r4);
+        r = nm_platform_ip4_route_add(NM_PLATFORM_GET, NMP_NLM_FLAG_APPEND, &rr.r4, NULL);
     else
         r = nm_platform_ip6_route_add(NM_PLATFORM_GET, NMP_NLM_FLAG_APPEND, &rr.r6);
 
@@ -1944,6 +1966,423 @@ test_blackhole(gconstpointer test_data)
 
 /*****************************************************************************/
 
+static gboolean
+_mptcp_has_permissions(void)
+{
+    static int has_permissions = -1;
+    int        p;
+
+    /* We create a new netns for testing, where we also have CAP_NET_ADMIN.
+     * However, that is not enough for configuring MPTCP endpoints. Probably
+     * you can only create them, by running the test as root. Detect the
+     * inability, to skip the test.
+     *
+     * See https://lore.kernel.org/mptcp/20220805115020.525181-1-thaller@redhat.com/T/#u */
+
+again:
+    p = g_atomic_int_get(&has_permissions);
+
+    if (p == -1) {
+        static gsize              lock;
+        const NMPlatformMptcpAddr mptcp_addr = (NMPlatformMptcpAddr){
+            .id          = 1,
+            .addr_family = AF_INET,
+            .addr.addr4  = nmtst_inet4_from_string("1.2.3.4"),
+        };
+        int r;
+
+        if (!g_once_init_enter(&lock))
+            goto again;
+
+        if (nmtst_get_rand_one_case_in(3)) {
+            gs_unref_ptrarray GPtrArray *arr = NULL;
+
+            arr = nm_platform_mptcp_addrs_dump(NM_PLATFORM_GET);
+            g_assert_cmpint(nm_g_ptr_array_len(arr), ==, 0);
+        }
+
+        r = nm_platform_mptcp_addr_update(NM_PLATFORM_GET, TRUE, &mptcp_addr);
+        if (r == 0)
+            p = TRUE;
+        else if (r == -EPERM)
+            p = FALSE;
+        else
+            g_assert_cmpint(r, ==, 0);
+
+        if (p) {
+            if (nmtst_get_rand_one_case_in(3)) {
+                gs_unref_ptrarray GPtrArray *arr = NULL;
+
+                arr = nm_platform_mptcp_addrs_dump(NM_PLATFORM_GET);
+                g_assert_cmpint(nm_g_ptr_array_len(arr), ==, 1);
+            }
+
+            r = nm_platform_mptcp_addr_update(NM_PLATFORM_GET, FALSE, &mptcp_addr);
+            g_assert_cmpint(r, ==, 0);
+        }
+
+        if (nmtst_get_rand_one_case_in(3)) {
+            gs_unref_ptrarray GPtrArray *arr = NULL;
+
+            arr = nm_platform_mptcp_addrs_dump(NM_PLATFORM_GET);
+            g_assert_cmpint(nm_g_ptr_array_len(arr), ==, 0);
+        }
+
+        g_atomic_int_set(&has_permissions, p);
+        g_once_init_leave(&lock, 1);
+    }
+
+    return p;
+}
+
+static gboolean
+_mptcp_skip_test(void)
+{
+    if (nm_platform_genl_get_family_id(NM_PLATFORM_GET, NMP_GENL_FAMILY_TYPE_MPTCP_PM) == 0) {
+        g_test_skip("mptcp not available");
+        return TRUE;
+    }
+
+    if (!_mptcp_has_permissions()) {
+        g_test_skip("No permissions to create MPTCP endpoints");
+        return TRUE;
+    }
+
+    return FALSE;
+}
+
+static void
+test_mptcp(gconstpointer test_data)
+{
+    const int                                      TEST_IDX = GPOINTER_TO_INT(test_data);
+    gs_unref_object NMPlatform                    *platform = g_object_ref(NM_PLATFORM_GET);
+    nm_auto_unref_global_tracker NMPGlobalTracker *global_tracker =
+        nmp_global_tracker_new(platform);
+    gconstpointer const          USER_TAG = &TEST_IDX;
+    const int                    IFINDEX  = nm_platform_link_get_ifindex(platform, DEVICE_NAME);
+    guint                        i;
+    guint                        j;
+    int                          r;
+    gs_unref_ptrarray GPtrArray *arr_external =
+        g_ptr_array_new_with_free_func((GDestroyNotify) nmp_object_unref);
+    gs_unref_ptrarray GPtrArray *arr_tracked =
+        g_ptr_array_new_with_free_func((GDestroyNotify) nmp_object_unref);
+    const NMPObject *obj;
+    gboolean         delete_extra;
+
+    g_assert_cmpint(IFINDEX, >, 0);
+
+    if (_mptcp_skip_test())
+        return;
+
+    j = nmtst_get_rand_uint32() % 5;
+    for (i = 0; i < j; i++) {
+        obj = nmtst_object_new_mptcp_addr(.id          = i + 1,
+                                          .ifindex     = IFINDEX,
+                                          .addr_family = AF_INET,
+                                          .addr.addr4  = htonl(0xC0A80001u + i));
+        g_ptr_array_add(arr_external, (gpointer) obj);
+        r = nm_platform_mptcp_addr_update(platform, TRUE, NMP_OBJECT_CAST_MPTCP_ADDR(obj));
+        g_assert_cmpint(r, ==, 0);
+    }
+
+    j = nmtst_get_rand_uint32() % 10;
+    for (i = 0; i < j; i++) {
+        obj = nmtst_object_new_mptcp_addr(.ifindex     = IFINDEX,
+                                          .addr_family = AF_INET,
+                                          .addr.addr4  = htonl(0xC0A80001u + i));
+        g_ptr_array_add(arr_tracked, (gpointer) obj);
+        nmp_global_tracker_track(global_tracker,
+                                 NMP_OBJECT_TYPE_MPTCP_ADDR,
+                                 NMP_OBJECT_CAST_MPTCP_ADDR(obj),
+                                 20 - i,
+                                 USER_TAG,
+                                 NULL);
+    }
+    for (i = 0; i < arr_tracked->len;) {
+        if (nmtst_get_rand_bool()) {
+            nmp_global_tracker_untrack(global_tracker,
+                                       NMP_OBJECT_TYPE_MPTCP_ADDR,
+                                       NMP_OBJECT_CAST_MPTCP_ADDR(arr_tracked->pdata[i]),
+                                       USER_TAG);
+            g_ptr_array_remove_index(arr_tracked, i);
+        } else
+            i++;
+    }
+
+    if (arr_tracked->len == 0 || nmtst_get_rand_bool()) {
+        NMPlatformMptcpAddr a;
+
+        /* Track a dummy object that marks the ifindex as managed. */
+        nmp_global_tracker_track(global_tracker,
+                                 NMP_OBJECT_TYPE_MPTCP_ADDR,
+                                 nmp_global_tracker_mptcp_addr_init_for_ifindex(&a, IFINDEX),
+                                 10,
+                                 USER_TAG,
+                                 NULL);
+    }
+
+    nmp_global_tracker_sync_mptcp_addrs(global_tracker, FALSE);
+
+    if (nmtst_get_rand_bool()) {
+        gboolean reapply;
+
+        nmp_global_tracker_untrack_all(global_tracker, USER_TAG, TRUE, FALSE);
+        reapply = nmtst_get_rand_bool();
+        nmp_global_tracker_sync_mptcp_addrs(global_tracker, reapply);
+
+        delete_extra = !reapply;
+    } else
+        delete_extra = TRUE;
+
+    if (delete_extra) {
+        gs_unref_ptrarray GPtrArray *arr = NULL;
+
+        /* We need to delete all MPTCP address again, because the next test uses the
+         * same netns (this test setup doesn't create a netns per test). */
+        arr = nm_platform_mptcp_addrs_dump(platform);
+        for (i = 0; i < nm_g_ptr_array_len(arr); i++) {
+            r = nm_platform_mptcp_addr_update(platform,
+                                              FALSE,
+                                              NMP_OBJECT_CAST_MPTCP_ADDR(arr->pdata[i]));
+            g_assert(NMTST_NM_ERR_SUCCESS(r));
+        }
+    }
+
+    {
+        gs_unref_ptrarray GPtrArray *arr = NULL;
+
+        arr = nm_platform_mptcp_addrs_dump(platform);
+        g_assert(arr);
+        g_assert_cmpint(arr->len, ==, 0);
+    }
+}
+
+/*****************************************************************************/
+
+static void
+_ensure_onlink_routes(void)
+{
+    int i;
+
+    for (i = 0; i < G_N_ELEMENTS(NMTSTP_ENV1_DEVICE_NAME) && NMTSTP_ENV1_DEVICE_NAME[i]; i++) {
+        nmtstp_run_command("ip route append 7.7.7.0/24 dev %s%s",
+                           NMTSTP_ENV1_DEVICE_NAME[i],
+                           nmtst_is_debug() ? "" : " &>/dev/null");
+        nmtstp_run_command("ip route append 7:7:7::/64 dev %s%s",
+                           NMTSTP_ENV1_DEVICE_NAME[i],
+                           nmtst_is_debug() ? "" : " &>/dev/null");
+    }
+}
+
+static void
+test_cache_consistency_routes(gconstpointer test_data)
+{
+    const int                    TEST_IDX      = GPOINTER_TO_INT(test_data);
+    NMPlatform                  *platform      = NM_PLATFORM_GET;
+    gboolean                     is_test_quick = nmtst_test_quick();
+    const int                    N_RUN         = is_test_quick ? 50 : 500;
+    int                          i_run;
+    gs_unref_ptrarray GPtrArray *keeper = g_ptr_array_new_with_free_func(g_free);
+
+    _ensure_onlink_routes();
+
+    for (i_run = 0; i_run < N_RUN; i_run++) {
+        const char   *extra_options[100];
+        gsize         n_extra_options   = 0;
+        gs_free char *extra_options_str = NULL;
+        int           i_if;
+        int           ifindex;
+        const char   *ifname;
+        int           IS_IPv4;
+        const char   *op;
+        const char   *prefix;
+        const char   *s;
+        const char   *route_type;
+        int           i;
+        int           n;
+        char          addr_family_char[2] = {'6', '4'};
+
+        g_ptr_array_set_size(keeper, 0);
+
+        switch (TEST_IDX) {
+        case 1:
+            IS_IPv4 = TRUE;
+            break;
+        case 2:
+            IS_IPv4 = FALSE;
+            break;
+        default:
+            IS_IPv4 = nmtst_get_rand_bool();
+            break;
+        }
+
+        i_if = nmtst_get_rand_uint32() % 2;
+        op   = nmtst_rand_select_str("flush", "add", "change", "append", "prepend", "replace");
+
+        ifindex = NMTSTP_ENV1_IFINDEXES[i_if];
+        ifname  = NMTSTP_ENV1_DEVICE_NAME[i_if];
+
+        g_assert_cmpint(ifindex, ==, nm_platform_link_get_ifindex(platform, ifname));
+
+        if (nm_streq(op, "flush")) {
+            if (!nmtst_get_rand_one_case_in(10)) {
+                /* flush more seldom. */
+                continue;
+            }
+            nmtstp_run_command("ip -%c route flush dev %s"
+                               " table %s" /* table */
+                               "%s"        /* redirect */
+                               "",
+                               addr_family_char[IS_IPv4],
+                               ifname,
+                               nmtst_rand_select_str("main", "10222", "10223", "all"),
+                               nmtst_is_debug() ? "" : " &>/dev/null");
+            _ensure_onlink_routes();
+            goto done;
+        }
+
+        route_type = nmtst_get_rand_one_case_in(4)
+                         ? nmtst_rand_select_str("unicast", "blackhole", "local", "broadcast")
+                         : NULL;
+
+        if (NM_IN_STRSET(route_type, "blackhole")) {
+            ifindex = 0;
+            ifname  = NULL;
+        }
+
+        if (IS_IPv4) {
+            prefix = nmtst_rand_select_str("192.168.4.0/24",
+                                           "192.168.5.0/24",
+                                           "192.168.5.5/32",
+                                           "default");
+        } else {
+            prefix =
+                nmtst_rand_select_str("a:b:c:d::/64", "a:b:c:e::/64", "a:b:c:f::/64", "default");
+        }
+
+        s = nmtst_rand_select_str(NULL, "kernel", "bird");
+        if (s) {
+            if (nmtst_get_rand_bool()) {
+                s = nm_streq(s, "kernel") ? nmtst_rand_select_str("boot", "static", "ra")
+                                          : nmtst_rand_select_str("zebra", "bird");
+            }
+            extra_options[n_extra_options++] = "proto";
+            extra_options[n_extra_options++] = s;
+        }
+
+        s = nmtst_rand_select_str(NULL, "10", "20");
+        if (s) {
+            extra_options[n_extra_options++] = "metric";
+            extra_options[n_extra_options++] = s;
+        }
+
+        s = nmtst_rand_select_str(NULL, "10222", "10223");
+        if (s) {
+            extra_options[n_extra_options++] = "table";
+            extra_options[n_extra_options++] = s;
+        }
+
+        if (!IS_IPv4 && NM_IN_STRSET(op, "add", "change", "append", "prepend", "replace")) {
+            /* kernel has a bug with append/prepend of IPv6 routes with next-hops.
+             * This leads to wrong notification messages, wrong merging of multi-hop
+             * routes and cache inconsistency in NMPlatform.
+             *
+             * https://bugzilla.redhat.com/show_bug.cgi?id=2161994
+             *
+             * For now, disable the test case to make the unit test not fail.
+             *
+             * While being a kernel bug, it leads to cache inconsistency in NMPlatform,
+             * which is a problem for NetworkManager. I don't see how we can detect
+             * this problem to trigger a refresh. */
+        } else if (ifname && nmtst_get_rand_one_case_in(3)) {
+            n = (nmtst_get_rand_uint32() % 4) + 1;
+            for (i = 0; i < n; i++) {
+                extra_options[n_extra_options++] = "nexthop";
+                extra_options[n_extra_options++] = "via";
+                if (IS_IPv4) {
+                    extra_options[n_extra_options++] =
+                        nmtst_keeper_printf(&keeper, "7.7.7.%d", i + 1);
+                } else {
+                    extra_options[n_extra_options++] =
+                        nmtst_keeper_printf(&keeper, "7:7:7:7::%d", i + 1);
+                }
+                extra_options[n_extra_options++] = "dev";
+                extra_options[n_extra_options++] = NMTSTP_ENV1_DEVICE_NAME[nmtst_get_rand_bool()];
+                if (IS_IPv4 && i == 0) {
+                    /* For IPv4, there is a problem if we configure a route with
+                     * only one next-hop and a weight. In that case, kernel allows
+                     * to add duplicates (that only differ by weight), but on netlink
+                     * the weight is not exposed, so the routes look identical and
+                     * are deduplicated by the hash.
+                     * See https://bugzilla.redhat.com/show_bug.cgi?id=2162315
+                     *
+                     * This needs a kernel fix. Workaround that issue here, otherwise the test
+                     * will randomly fail. */
+                } else if (nmtst_get_rand_one_case_in(3)) {
+                    extra_options[n_extra_options++] = "weight";
+                    extra_options[n_extra_options++] = "5";
+                }
+            }
+
+            ifname  = NULL;
+            ifindex = 0;
+        }
+
+        g_assert_cmpint(n_extra_options, <, G_N_ELEMENTS(extra_options));
+        extra_options[n_extra_options] = NULL;
+
+        if (nmtst_is_debug())
+            nmtstp_run_command("ip -%c -d route show table all", addr_family_char[IS_IPv4]);
+
+        /* We ignore errors. The reason is that operations like "change" might fail if
+         * the route doesn't exist. That's fine for our test. We just do randomly things
+         * and some of them will stick. */
+        nmtstp_run_command(
+            "ip -%c route "
+            "%s"   /* op */
+            "%s%s" /* route_type */
+            " %s"  /* prefix */
+            "%s%s" /* ifname */
+            "%s%s" /* extra_options */
+            "%s"   /* redirect */
+            "",
+            addr_family_char[IS_IPv4],
+            op,
+            NM_PRINT_FMT_QUOTED2(route_type, " ", route_type, ""),
+            prefix,
+            NM_PRINT_FMT_QUOTED2(ifname, " dev ", ifname, ""),
+            NM_PRINT_FMT_QUOTED2(extra_options[0],
+                                 " ",
+                                 (extra_options_str = g_strjoinv(" ", (char **) extra_options)),
+                                 ""),
+            nmtst_is_debug() ? "" : " &>/dev/null");
+
+        if (nmtst_is_debug())
+            nmtstp_run_command("ip -%c -d route show table all", addr_family_char[IS_IPv4]);
+done:
+        nm_platform_process_events(platform);
+
+        if (!is_test_quick || (i_run + 1 == N_RUN) || nmtst_get_rand_one_case_in(5)) {
+            nmtstp_check_platform(
+                platform,
+                nmtst_get_rand_one_case_in(5)
+                    ? 0u
+                    : nmp_object_type_to_flags(NMP_OBJECT_TYPE_IP_ROUTE(IS_IPv4)));
+        }
+    }
+
+    if (is_test_quick) {
+        gs_free char *msg = NULL;
+
+        msg = g_strdup_printf("Ran a quick version of test %s (try NMTST_DEBUG=slow)",
+                              nmtst_test_get_path());
+        g_test_skip(msg);
+    }
+}
+
+/*****************************************************************************/
+
 NMTstpSetupFunc const _nmtstp_setup_platform_func = SETUP;
 
 void
@@ -1955,9 +2394,12 @@ _nmtstp_init_tests(int *argc, char ***argv)
 void
 _nmtstp_setup_tests(void)
 {
-#define add_test_func(testpath, test_func) nmtstp_env1_add_test_func(testpath, test_func, TRUE)
+#define add_test_func(testpath, test_func) nmtstp_env1_add_test_func(testpath, test_func, 1, TRUE)
 #define add_test_func_data(testpath, test_func, arg) \
-    nmtstp_env1_add_test_func_data(testpath, test_func, arg, TRUE)
+    nmtstp_env1_add_test_func_data(testpath, test_func, arg, 1, TRUE)
+#define add_test_func_data_with_if2(testpath, test_func, arg) \
+    nmtstp_env1_add_test_func_data(testpath, test_func, arg, 2, TRUE)
+
     add_test_func("/route/ip4", test_ip4_route);
     add_test_func("/route/ip6", test_ip6_route);
     add_test_func("/route/ip4_metric0", test_ip4_route_metric0);
@@ -1984,5 +2426,20 @@ _nmtstp_setup_tests(void)
     if (nmtstp_is_root_test()) {
         add_test_func_data("/route/blackhole/1", test_blackhole, GINT_TO_POINTER(1));
         add_test_func_data("/route/blackhole/2", test_blackhole, GINT_TO_POINTER(2));
+    }
+    if (nmtstp_is_root_test()) {
+        add_test_func_data("/route/mptcp/1", test_mptcp, GINT_TO_POINTER(1));
+        add_test_func_data("/route/mptcp/2", test_mptcp, GINT_TO_POINTER(2));
+    }
+    if (nmtstp_is_root_test()) {
+        add_test_func_data_with_if2("/route/test_cache_consistency_routes/1",
+                                    test_cache_consistency_routes,
+                                    GINT_TO_POINTER(1));
+        add_test_func_data_with_if2("/route/test_cache_consistency_routes/2",
+                                    test_cache_consistency_routes,
+                                    GINT_TO_POINTER(2));
+        add_test_func_data_with_if2("/route/test_cache_consistency_routes/3",
+                                    test_cache_consistency_routes,
+                                    GINT_TO_POINTER(3));
     }
 }

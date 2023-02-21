@@ -43,7 +43,7 @@ _addr_family_to_path_part(int addr_family)
 
 #define NM_TYPE_DHCP_DHCLIENT (nm_dhcp_dhclient_get_type())
 #define NM_DHCP_DHCLIENT(obj) \
-    (G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_DHCP_DHCLIENT, NMDhcpDhclient))
+    (_NM_G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_DHCP_DHCLIENT, NMDhcpDhclient))
 #define NM_DHCP_DHCLIENT_CLASS(klass) \
     (G_TYPE_CHECK_CLASS_CAST((klass), NM_TYPE_DHCP_DHCLIENT, NMDhcpDhclientClass))
 #define NM_IS_DHCP_DHCLIENT(obj)         (G_TYPE_CHECK_INSTANCE_TYPE((obj), NM_TYPE_DHCP_DHCLIENT))
@@ -79,6 +79,10 @@ G_DEFINE_TYPE(NMDhcpDhclient, nm_dhcp_dhclient, NM_TYPE_DHCP_CLIENT)
 
 #define NM_DHCP_DHCLIENT_GET_PRIVATE(self) \
     _NM_GET_PRIVATE(self, NMDhcpDhclient, NM_IS_DHCP_DHCLIENT)
+
+/*****************************************************************************/
+
+static GBytes *read_duid_from_lease(NMDhcpDhclient *self);
 
 /*****************************************************************************/
 
@@ -330,8 +334,9 @@ create_dhclient_config(NMDhcpDhclient     *self,
 
 static gboolean
 dhclient_start(NMDhcpClient *client,
-               const char   *mode_opt,
+               gboolean      set_mode,
                gboolean      release,
+               gboolean      set_duid,
                pid_t        *out_pid,
                GError      **error)
 {
@@ -410,8 +415,11 @@ dhclient_start(NMDhcpClient *client,
     }
 
     /* Save the DUID to the leasefile dhclient will actually use */
-    if (addr_family == AF_INET6) {
-        if (!nm_dhcp_dhclient_save_duid(priv->lease_file, client_config->client_id, &local)) {
+    if (set_duid && addr_family == AF_INET6) {
+        if (!nm_dhcp_dhclient_save_duid(priv->lease_file,
+                                        nm_dhcp_client_get_effective_client_id(client),
+                                        client_config->v6.enforce_duid,
+                                        &local)) {
             nm_utils_error_set(error,
                                NM_UTILS_ERROR_UNKNOWN,
                                "failed to save DUID to '%s': %s",
@@ -439,14 +447,19 @@ dhclient_start(NMDhcpClient *client,
     }
 
     if (addr_family == AF_INET6) {
-        guint prefixes = client_config->v6.needed_prefixes;
+        guint       prefixes = client_config->v6.needed_prefixes;
+        const char *mode_opt;
 
         g_ptr_array_add(argv, (gpointer) "-6");
 
-        if (prefixes > 0 && nm_streq0(mode_opt, "-S")) {
-            /* -S is incompatible with -P, only use the latter */
+        if (!set_mode)
             mode_opt = NULL;
-        }
+        else if (!client_config->v6.info_only)
+            mode_opt = "-N";
+        else if (prefixes == 0)
+            mode_opt = "-S";
+        else
+            mode_opt = NULL;
 
         if (mode_opt)
             g_ptr_array_add(argv, (gpointer) mode_opt);
@@ -542,11 +555,11 @@ ip4_start(NMDhcpClient *client, GError **error)
         return FALSE;
     }
 
-    if (new_client_id) {
-        nm_assert(!client_config->client_id);
-        nm_dhcp_client_set_effective_client_id(client, new_client_id);
-    }
-    return dhclient_start(client, NULL, FALSE, NULL, error);
+    /* Note that the effective-client-id for IPv4 here might be unknown/NULL. */
+    nm_assert(!new_client_id || !client_config->client_id);
+    nm_dhcp_client_set_effective_client_id(client, client_config->client_id ?: new_client_id);
+
+    return dhclient_start(client, FALSE, FALSE, FALSE, NULL, error);
 }
 
 static gboolean
@@ -555,6 +568,7 @@ ip6_start(NMDhcpClient *client, const struct in6_addr *ll_addr, GError **error)
     NMDhcpDhclient           *self = NM_DHCP_DHCLIENT(client);
     NMDhcpDhclientPrivate    *priv = NM_DHCP_DHCLIENT_GET_PRIVATE(self);
     const NMDhcpClientConfig *config;
+    gs_unref_bytes GBytes    *effective_client_id = NULL;
 
     config = nm_dhcp_client_get_config(client);
 
@@ -581,7 +595,12 @@ ip6_start(NMDhcpClient *client, const struct in6_addr *ll_addr, GError **error)
         return FALSE;
     }
 
-    return dhclient_start(client, config->v6.needed_prefixes ? "-S" : "-N", FALSE, NULL, error);
+    nm_assert(config->client_id);
+    if (!config->v6.enforce_duid)
+        effective_client_id = read_duid_from_lease(self);
+    nm_dhcp_client_set_effective_client_id(client, effective_client_id ?: config->client_id);
+
+    return dhclient_start(client, TRUE, FALSE, TRUE, NULL, error);
 }
 
 static void
@@ -615,7 +634,7 @@ stop(NMDhcpClient *client, gboolean release)
     if (release) {
         pid_t rpid = -1;
 
-        if (dhclient_start(client, NULL, TRUE, &rpid, NULL)) {
+        if (dhclient_start(client, FALSE, TRUE, FALSE, &rpid, NULL)) {
             /* Wait a few seconds for the release to happen */
             nm_dhcp_client_stop_pid(rpid, nm_dhcp_client_get_iface(client));
         }
@@ -623,10 +642,10 @@ stop(NMDhcpClient *client, gboolean release)
 }
 
 static GBytes *
-get_duid(NMDhcpClient *client)
+read_duid_from_lease(NMDhcpDhclient *self)
 {
-    NMDhcpDhclient           *self = NM_DHCP_DHCLIENT(client);
-    NMDhcpDhclientPrivate    *priv = NM_DHCP_DHCLIENT_GET_PRIVATE(self);
+    NMDhcpClient             *client = NM_DHCP_CLIENT(self);
+    NMDhcpDhclientPrivate    *priv   = NM_DHCP_DHCLIENT_GET_PRIVATE(self);
     const NMDhcpClientConfig *client_config;
     GBytes                   *duid      = NULL;
     gs_free char             *leasefile = NULL;
@@ -719,7 +738,6 @@ nm_dhcp_dhclient_class_init(NMDhcpDhclientClass *dhclient_class)
     client_class->ip4_start = ip4_start;
     client_class->ip6_start = ip6_start;
     client_class->stop      = stop;
-    client_class->get_duid  = get_duid;
 }
 
 const NMDhcpClientFactory _nm_dhcp_client_factory_dhclient = {

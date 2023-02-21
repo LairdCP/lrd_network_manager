@@ -8,9 +8,10 @@
 
 #include "libnm-platform/nmp-base.h"
 #include "libnm-base/nm-base.h"
+#include "nmp-plobj.h"
 
 #define NM_TYPE_PLATFORM (nm_platform_get_type())
-#define NM_PLATFORM(obj) (G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_PLATFORM, NMPlatform))
+#define NM_PLATFORM(obj) (_NM_G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_PLATFORM, NMPlatform))
 #define NM_PLATFORM_CLASS(klass) \
     (G_TYPE_CHECK_CLASS_CAST((klass), NM_TYPE_PLATFORM, NMPlatformClass))
 #define NM_IS_PLATFORM(obj)         (G_TYPE_CHECK_INSTANCE_TYPE((obj), NM_TYPE_PLATFORM))
@@ -22,16 +23,11 @@
 
 /*****************************************************************************/
 
+#define NM_PLATFORM_CACHE_TC      "cache-tc"
+#define NM_PLATFORM_LOG_WITH_PTR  "log-with-ptr"
+#define NM_PLATFORM_MULTI_IDX     "multi-idx"
 #define NM_PLATFORM_NETNS_SUPPORT "netns-support"
 #define NM_PLATFORM_USE_UDEV      "use-udev"
-#define NM_PLATFORM_LOG_WITH_PTR  "log-with-ptr"
-#define NM_PLATFORM_CACHE_TC      "cache-tc"
-
-/*****************************************************************************/
-
-/* IFNAMSIZ is both defined in <linux/if.h> and <net/if.h>. In the past, these
- * headers conflicted, so we cannot simply include either of them in a header-file.*/
-#define NMP_IFNAMSIZ 16
 
 /*****************************************************************************/
 
@@ -41,25 +37,15 @@ struct udev_device;
 
 typedef gboolean (*NMPObjectPredicateFunc)(const NMPObject *obj, gpointer user_data);
 
-/* workaround for older libnl version, that does not define these flags. */
-#ifndef IFA_F_MANAGETEMPADDR
-#define IFA_F_MANAGETEMPADDR 0x100
-#endif
-#ifndef IFA_F_NOPREFIXROUTE
-#define IFA_F_NOPREFIXROUTE 0x200
-#endif
-
 #define NM_RT_SCOPE_LINK 253 /* RT_SCOPE_LINK */
 
-/* Define of the IN6_ADDR_GEN_MODE_* values to workaround old kernel headers
- * that don't define it. */
-#define NM_IN6_ADDR_GEN_MODE_UNKNOWN        255 /* no corresponding value.  */
-#define NM_IN6_ADDR_GEN_MODE_EUI64          0   /* IN6_ADDR_GEN_MODE_EUI64 */
-#define NM_IN6_ADDR_GEN_MODE_NONE           1   /* IN6_ADDR_GEN_MODE_NONE */
-#define NM_IN6_ADDR_GEN_MODE_STABLE_PRIVACY 2   /* IN6_ADDR_GEN_MODE_STABLE_PRIVACY */
-#define NM_IN6_ADDR_GEN_MODE_RANDOM         3   /* IN6_ADDR_GEN_MODE_RANDOM */
-
 #define NM_IFF_MULTI_QUEUE 0x0100 /* IFF_MULTI_QUEUE */
+
+#define NM_MPTCP_PM_ADDR_FLAG_SIGNAL   ((guint32) (1 << 0))
+#define NM_MPTCP_PM_ADDR_FLAG_SUBFLOW  ((guint32) (1 << 1))
+#define NM_MPTCP_PM_ADDR_FLAG_BACKUP   ((guint32) (1 << 2))
+#define NM_MPTCP_PM_ADDR_FLAG_FULLMESH ((guint32) (1 << 3))
+#define NM_MPTCP_PM_ADDR_FLAG_IMPLICIT ((guint32) (1 << 4))
 
 /* Redefine this in host's endianness */
 #define NM_GRE_KEY 0x2000
@@ -117,6 +103,11 @@ typedef enum {
      */
     NM_PLATFORM_IP_ROUTE_CMP_TYPE_ID,
 
+    /* IPv4 route can have multiple hops. This is the ID, by which multiple
+     * routes are merged according to the next hop. This is basically NM_PLATFORM_IP_ROUTE_CMP_TYPE_ID
+     * which ignores the next hops. */
+    NM_PLATFORM_IP_ROUTE_CMP_TYPE_ECMP_ID,
+
     /* compare all fields as they make sense for kernel. For example,
      * a route destination 192.168.1.5/24 is not accepted by kernel and
      * we treat it identical to 192.168.1.0/24. Semantically these
@@ -157,50 +148,11 @@ G_STATIC_ASSERT(_nm_alignof(NMPLinkAddress) == 1);
 gconstpointer nmp_link_address_get(const NMPLinkAddress *addr, size_t *length);
 GBytes       *nmp_link_address_get_as_bytes(const NMPLinkAddress *addr);
 
-typedef enum {
-
-    /* match-flags are strictly inclusive. That means,
-     * by default nothing is matched, but if you enable a particular
-     * flag, a candidate that matches passes the check.
-     *
-     * In other words: adding more flags can only extend the result
-     * set of matching objects.
-     *
-     * Also, the flags form partitions. Like, an address can be either of
-     * ADDRTYPE_NORMAL or ADDRTYPE_LINKLOCAL, but never both. Same for
-     * the ADDRSTATE match types.
-     */
-    NM_PLATFORM_MATCH_WITH_NONE = 0,
-
-    NM_PLATFORM_MATCH_WITH_ADDRTYPE_NORMAL    = (1LL << 0),
-    NM_PLATFORM_MATCH_WITH_ADDRTYPE_LINKLOCAL = (1LL << 1),
-    NM_PLATFORM_MATCH_WITH_ADDRTYPE__ANY =
-        NM_PLATFORM_MATCH_WITH_ADDRTYPE_NORMAL | NM_PLATFORM_MATCH_WITH_ADDRTYPE_LINKLOCAL,
-
-    NM_PLATFORM_MATCH_WITH_ADDRSTATE_NORMAL     = (1LL << 2),
-    NM_PLATFORM_MATCH_WITH_ADDRSTATE_TENTATIVE  = (1LL << 3),
-    NM_PLATFORM_MATCH_WITH_ADDRSTATE_DADFAILED  = (1LL << 4),
-    NM_PLATFORM_MATCH_WITH_ADDRSTATE_DEPRECATED = (1LL << 5),
-    NM_PLATFORM_MATCH_WITH_ADDRSTATE__ANY =
-        NM_PLATFORM_MATCH_WITH_ADDRSTATE_NORMAL | NM_PLATFORM_MATCH_WITH_ADDRSTATE_TENTATIVE
-        | NM_PLATFORM_MATCH_WITH_ADDRSTATE_DADFAILED | NM_PLATFORM_MATCH_WITH_ADDRSTATE_DEPRECATED,
-} NMPlatformMatchFlags;
-
 #define NM_PLATFORM_LINK_OTHER_NETNS (-1)
-
-struct _NMPlatformObject {
-    /* the object type has no fields of its own, it is only used to having
-     * a special pointer type that can be used to indicate "any" type. */
-    char _dummy_don_t_use_me;
-};
-
-#define __NMPlatformObjWithIfindex_COMMON \
-    int ifindex;                          \
-    ;
 
 struct _NMPlatformObjWithIfindex {
     __NMPlatformObjWithIfindex_COMMON;
-};
+} _nm_alignas(NMPlatformObject);
 
 struct _NMPlatformLink {
     __NMPlatformObjWithIfindex_COMMON;
@@ -257,19 +209,19 @@ struct _NMPlatformLink {
     bool connected : 1;
 
     bool initialized : 1;
-};
+} _nm_alignas(NMPlatformObject);
 
-typedef enum { /*< skip >*/
-               NM_PLATFORM_SIGNAL_ID_NONE,
-               NM_PLATFORM_SIGNAL_ID_LINK,
-               NM_PLATFORM_SIGNAL_ID_IP4_ADDRESS,
-               NM_PLATFORM_SIGNAL_ID_IP6_ADDRESS,
-               NM_PLATFORM_SIGNAL_ID_IP4_ROUTE,
-               NM_PLATFORM_SIGNAL_ID_IP6_ROUTE,
-               NM_PLATFORM_SIGNAL_ID_ROUTING_RULE,
-               NM_PLATFORM_SIGNAL_ID_QDISC,
-               NM_PLATFORM_SIGNAL_ID_TFILTER,
-               _NM_PLATFORM_SIGNAL_ID_LAST,
+typedef enum {
+    NM_PLATFORM_SIGNAL_ID_NONE,
+    NM_PLATFORM_SIGNAL_ID_LINK,
+    NM_PLATFORM_SIGNAL_ID_IP4_ADDRESS,
+    NM_PLATFORM_SIGNAL_ID_IP6_ADDRESS,
+    NM_PLATFORM_SIGNAL_ID_IP4_ROUTE,
+    NM_PLATFORM_SIGNAL_ID_IP6_ROUTE,
+    NM_PLATFORM_SIGNAL_ID_ROUTING_RULE,
+    NM_PLATFORM_SIGNAL_ID_QDISC,
+    NM_PLATFORM_SIGNAL_ID_TFILTER,
+    _NM_PLATFORM_SIGNAL_ID_LAST,
 } NMPlatformSignalIdType;
 
 guint _nm_platform_signal_id_get(NMPlatformSignalIdType signal_type);
@@ -280,125 +232,6 @@ typedef enum {
     NM_PLATFORM_SIGNAL_CHANGED,
     NM_PLATFORM_SIGNAL_REMOVED,
 } NMPlatformSignalChangeType;
-
-#define NM_PLATFORM_IP_ADDRESS_CAST(address) \
-    NM_CONSTCAST(NMPlatformIPAddress,        \
-                 (address),                  \
-                 NMPlatformIPXAddress,       \
-                 NMPlatformIP4Address,       \
-                 NMPlatformIP6Address)
-
-#define __NMPlatformIPAddress_COMMON                                                         \
-    __NMPlatformObjWithIfindex_COMMON;                                                       \
-    NMIPConfigSource addr_source;                                                            \
-                                                                                             \
-    /* Timestamp in seconds in the reference system of nm_utils_get_monotonic_timestamp_*().
-     *
-     * The rules are:
-     * 1 @lifetime==0: @timestamp and @preferred is irrelevant (but mostly set to 0 too). Such addresses
-     *   are permanent. This rule is so that unset addresses (calloc) are permanent by default.
-     * 2 @lifetime==@preferred==NM_PLATFORM_LIFETIME_PERMANENT: @timestamp is irrelevant (but mostly
-     *   set to 0). Such addresses are permanent.
-     * 3 Non permanent addresses should (almost) always have @timestamp > 0. 0 is not a valid timestamp
-     *   and never returned by nm_utils_get_monotonic_timestamp_sec(). In this case @valid/@preferred
-     *   is anchored at @timestamp.
-     * 4 Non permanent addresses with @timestamp == 0 are implicitly anchored at *now*, thus the time
-     *   moves as time goes by. This is usually not useful, except e.g. nm_platform_ip[46]_address_add().
-     *
-     * Non permanent addresses from DHCP/RA might have the @timestamp set to the moment of when the
-     * lease was received. Addresses from kernel might have the @timestamp based on the last modification
-     * time of the addresses. But don't rely on this behaviour, the @timestamp is only defined for anchoring
-     * @lifetime and @preferred.
-     */ \
-    guint32 timestamp;                                                                       \
-    guint32 lifetime;  /* seconds since timestamp */                                         \
-    guint32 preferred; /* seconds since timestamp */                                         \
-                                                                                             \
-    /* ifa_flags in 'struct ifaddrmsg' from <linux/if_addr.h>, extended to 32 bit by
-     * IFA_FLAGS attribute. */         \
-    guint32 n_ifa_flags;                                                                     \
-                                                                                             \
-    bool use_ip4_broadcast_address : 1;                                                      \
-                                                                                             \
-    /* Meta flags not honored by NMPlatform (netlink code). Instead, they can be
-     * used by the upper layers which use NMPlatformIPRoute to track addresses that
-     * should be configured. */             \
-    /* Whether the address is should be configured once during assume. */                    \
-    bool a_assume_config_once : 1;                                                           \
-    bool a_force_commit : 1;                                                                 \
-                                                                                             \
-    guint8 plen;                                                                             \
-    ;
-
-/**
- * NMPlatformIPAddress:
- *
- * Common parts of NMPlatformIP4Address and NMPlatformIP6Address.
- **/
-typedef struct {
-    __NMPlatformIPAddress_COMMON;
-    union {
-        guint8  address_ptr[1];
-        guint32 __dummy_for_32bit_alignment;
-    };
-} NMPlatformIPAddress;
-
-/**
- * NMPlatformIP4Address:
- * @timestamp: timestamp as returned by nm_utils_get_monotonic_timestamp_sec()
- **/
-struct _NMPlatformIP4Address {
-    __NMPlatformIPAddress_COMMON;
-
-    /* Whether the address is ready to be configured. By default, an address is, but this
-     * flag may indicate that the address is just for tracking purpose only, but the ACD
-     * state is not yet ready for the address to be configured. */
-    bool a_acd_not_ready : 1;
-
-    /* The local address IFA_LOCAL. */
-    in_addr_t address;
-
-    /* The IFA_ADDRESS PTP peer address. This field is rather important, because
-     * it constitutes the identifier for the IPv4 address (e.g. you can add two
-     * addresses that only differ by their peer's network-part.
-     *
-     * Beware that for most cases, NetworkManager doesn't want to set an explicit
-     * peer-address. However, that corresponds to setting the peer address to @address
-     * itself. Leaving peer-address unset/zero, means explicitly setting the peer
-     * address to 0.0.0.0, which you probably don't want.
-     * */
-    in_addr_t peer_address; /* PTP peer address */
-
-    /* IFA_BROADCAST.
-     *
-     * This parameter is ignored unless use_ip4_broadcast_address is TRUE.
-     * See nm_platform_ip4_broadcast_address_from_addr(). */
-    in_addr_t broadcast_address;
-
-    char label[NMP_IFNAMSIZ];
-};
-
-/**
- * NMPlatformIP6Address:
- * @timestamp: timestamp as returned by nm_utils_get_monotonic_timestamp_sec()
- **/
-struct _NMPlatformIP6Address {
-    __NMPlatformIPAddress_COMMON;
-    struct in6_addr address;
-    struct in6_addr peer_address;
-};
-
-typedef union {
-    NMPlatformIPAddress  ax;
-    NMPlatformIP4Address a4;
-    NMPlatformIP6Address a6;
-} NMPlatformIPXAddress;
-
-#undef __NMPlatformIPAddress_COMMON
-
-#define NM_PLATFORM_IP4_ADDRESS_INIT(...) (&((const NMPlatformIP4Address){__VA_ARGS__}))
-
-#define NM_PLATFORM_IP6_ADDRESS_INIT(...) (&((const NMPlatformIP6Address){__VA_ARGS__}))
 
 /* Default value for adding an IPv4 route. This is also what iproute2 does.
  * Note that contrary to IPv6, you can add routes with metric 0 and it is even
@@ -419,63 +252,6 @@ typedef union {
 
 #define __NMPlatformIPRoute_COMMON                                                        \
     __NMPlatformObjWithIfindex_COMMON;                                                    \
-                                                                                          \
-    /* The NMIPConfigSource. For routes that we receive from cache this corresponds
-     * to the rtm_protocol field (and is one of the NM_IP_CONFIG_SOURCE_RTPROT_* values).
-     * When adding a route, the source will be coerced to the protocol using
-     * nmp_utils_ip_config_source_coerce_to_rtprot().
-     *
-     * rtm_protocol is part of the primary key of an IPv4 route (meaning, you can add
-     * two IPv4 routes that only differ in their rtm_protocol. For IPv6, that is not
-     * the case.
-     *
-     * When deleting an IPv4/IPv6 route, the rtm_protocol field must match (even
-     * if it is not part of the primary key for IPv6) -- unless rtm_protocol is set
-     * to zero, in which case the first matching route (with proto ignored) is deleted. */       \
-    NMIPConfigSource rt_source;                                                           \
-                                                                                          \
-    guint8 plen;                                                                          \
-                                                                                          \
-    /* RTA_METRICS:
-     *
-     * For IPv4 routes, these properties are part of their
-     * ID (meaning: you can add otherwise identical IPv4 routes that
-     * only differ by the metric property).
-     * On the other hand, for IPv6 you cannot add two IPv6 routes that only differ
-     * by an RTA_METRICS property.
-     *
-     * When deleting a route, kernel seems to ignore the RTA_METRICS properties.
-     * That is a problem/bug for IPv4 because you cannot explicitly select which
-     * route to delete. Kernel just picks the first. See rh#1475642. */                                                                       \
-                                                                                          \
-    /* RTA_METRICS.RTAX_LOCK (iproute2: "lock" arguments) */                              \
-    bool lock_window : 1;                                                                 \
-    bool lock_cwnd : 1;                                                                   \
-    bool lock_initcwnd : 1;                                                               \
-    bool lock_initrwnd : 1;                                                               \
-    bool lock_mtu : 1;                                                                    \
-                                                                                          \
-    /* if TRUE, the "metric" field is interpreted as an offset that is added to a default
-     * metric. For example, form a DHCP lease we don't know the actually used metric, because
-     * that is determined by upper layers (the configuration). However, we have a default
-     * metric that should be used. So we set "metric_any" to %TRUE, which means to use
-     * the default metric. However, we still treat the "metric" field as an offset that
-     * will be added to the default metric. In most case, you want that "metric" is zero
-     * when setting "metric_any". */ \
-    bool metric_any : 1;                                                                  \
-                                                                                          \
-    /* like "metric_any", the table is determined by other layers of the code.
-     * This field overrides "table_coerced" field. If "table_any" is true, then
-     * the "table_coerced" field is ignored (unlike for the metric). */            \
-    bool table_any : 1;                                                                   \
-                                                                                          \
-    /* Meta flags not honored by NMPlatform (netlink code). Instead, they can be
-     * used by the upper layers which use NMPlatformIPRoute to track routes that
-     * should be configured. */          \
-    /* Whether the route is should be configured once during assume. */                   \
-    bool r_assume_config_once : 1;                                                        \
-    /* Whether the route should be committed even if it was removed externally. */        \
-    bool r_force_commit : 1;                                                              \
                                                                                           \
     /* rtnh_flags
      *
@@ -504,6 +280,9 @@ typedef union {
     /* RTA_METRICS.RTAX_INITRWND (iproute2: initrwnd) */                                  \
     guint32 initrwnd;                                                                     \
                                                                                           \
+    /* RTA_METRICS.RTAX_RTO_MIN (iproute2: rto_min) */                                    \
+    guint32 rto_min;                                                                      \
+                                                                                          \
     /* RTA_METRICS.RTAX_MTU (iproute2: mtu) */                                            \
     guint32 mtu;                                                                          \
                                                                                           \
@@ -518,22 +297,79 @@ typedef union {
      * zero (RT_TABLE_UNSPEC) are swapped, so that the default is the main
      * table. Use nm_platform_route_table_coerce()/nm_platform_route_table_uncoerce(). */                                                              \
     guint32 table_coerced;                                                                \
+    /* The NMIPConfigSource. For routes that we receive from cache this corresponds
+     * to the rtm_protocol field (and is one of the NM_IP_CONFIG_SOURCE_RTPROT_* values).
+     * When adding a route, the source will be coerced to the protocol using
+     * nmp_utils_ip_config_source_coerce_to_rtprot().
+     *
+     * rtm_protocol is part of the primary key of an IPv4 route (meaning, you can add
+     * two IPv4 routes that only differ in their rtm_protocol. For IPv6, that is not
+     * the case.
+     *
+     * When deleting an IPv4/IPv6 route, the rtm_protocol field must match (even
+     * if it is not part of the primary key for IPv6) -- unless rtm_protocol is set
+     * to zero, in which case the first matching route (with proto ignored) is deleted. */       \
+    NMIPConfigSource rt_source;                                                           \
+                                                                                          \
+    /* RTA_METRICS:
+     *
+     * For IPv4 routes, these properties are part of their
+     * ID (meaning: you can add otherwise identical IPv4 routes that
+     * only differ by the metric property).
+     * On the other hand, for IPv6 you cannot add two IPv6 routes that only differ
+     * by an RTA_METRICS property.
+     *
+     * When deleting a route, kernel seems to ignore the RTA_METRICS properties.
+     * That is a problem/bug for IPv4 because you cannot explicitly select which
+     * route to delete. Kernel just picks the first. See rh#1475642. */                                                                       \
+                                                                                          \
+    /* RTA_METRICS.RTAX_LOCK (iproute2: "lock" arguments) */                              \
+    bool lock_window : 1;                                                                 \
+    bool lock_cwnd : 1;                                                                   \
+    bool lock_initcwnd : 1;                                                               \
+    bool lock_initrwnd : 1;                                                               \
+    bool lock_mtu : 1;                                                                    \
+    bool lock_mss : 1;                                                                    \
+                                                                                          \
+    /* RTA_METRICS.RTAX_QUICKACK (iproute2: quickack) */                                  \
+    bool quickack : 1;                                                                    \
+                                                                                          \
+    /* if TRUE, the "metric" field is interpreted as an offset that is added to a default
+     * metric. For example, form a DHCP lease we don't know the actually used metric, because
+     * that is determined by upper layers (the configuration). However, we have a default
+     * metric that should be used. So we set "metric_any" to %TRUE, which means to use
+     * the default metric. However, we still treat the "metric" field as an offset that
+     * will be added to the default metric. In most case, you want that "metric" is zero
+     * when setting "metric_any". */ \
+    bool metric_any : 1;                                                                  \
+                                                                                          \
+    /* like "metric_any", the table is determined by other layers of the code.
+     * This field overrides "table_coerced" field. If "table_any" is true, then
+     * the "table_coerced" field is ignored (unlike for the metric). */            \
+    bool table_any : 1;                                                                   \
+    /* Meta flags not honored by NMPlatform (netlink code). Instead, they can be
+     * used by the upper layers which use NMPlatformIPRoute to track routes that
+     * should be configured. */          \
+    /* Whether the route should be committed even if it was removed externally. */        \
+    bool r_force_commit : 1;                                                              \
                                                                                           \
     /* rtm_type.
      *
      * This is not the original type, if type_coerced is 0 then
      * it means RTN_UNSPEC otherwise the type value is preserved.
-     * */                                                                          \
+     */                                                                          \
     guint8 type_coerced;                                                                  \
+                                                                                          \
+    /* Don't have a bitfield as last field in __NMPlatformIPRoute_COMMON. It would then
+     * be unclear how the following fields get merged. We could also use a zero bitfield,
+     * but instead we just have there the uint8 field. */   \
+    guint8 plen;                                                                          \
     ;
 
 typedef struct {
     __NMPlatformIPRoute_COMMON;
-    union {
-        guint8  network_ptr[1];
-        guint32 __dummy_for_32bit_alignment;
-    };
-} NMPlatformIPRoute;
+    _nm_alignas(NMIPAddr) guint8 network_ptr[];
+} _nm_alignas(NMPlatformObject) NMPlatformIPRoute;
 
 #define NM_PLATFORM_IP_ROUTE_CAST(route) \
     NM_CONSTCAST(NMPlatformIPRoute,      \
@@ -546,9 +382,27 @@ typedef struct {
 
 struct _NMPlatformIP4Route {
     __NMPlatformIPRoute_COMMON;
+
     in_addr_t network;
 
-    /* RTA_GATEWAY. The gateway is part of the primary key for a route */
+    /* If n_nexthops is zero, the the address has no next hops. That applies
+     *    to certain route types like blackhole.
+     * If n_nexthops is 1, then the fields "ifindex", "gateway" and "weight"
+     *   are the first next-hop. There are no further nexthops.
+     * If n_nexthops is greater than 1, the first next hop is in the fields
+     *   "ifindex", "gateway", "weight", and the (n_nexthops-1) hops are in
+     *   NMPObjectIP4Route.extra_nexthops field (outside the NMPlatformIP4Route
+     *   struct).
+     *
+     * For convenience, if ifindex > 0 and n_nexthops == 0, we assume that n_nexthops
+     * is in fact 1. If ifindex is <= 0, n_nexthops must be zero.
+     * See nm_platform_ip4_route_get_n_nexthops(). */
+    guint n_nexthops;
+
+    /* RTA_GATEWAY. The gateway is part of the primary key for a route.
+     * If n_nexthops is zero, this value is undefined (should be zero).
+     * If n_nexthops is greater or equal to one, this is the gateway of
+     * the first hop. */
     in_addr_t gateway;
 
     /* RTA_PREFSRC (called "src" by iproute2).
@@ -556,6 +410,20 @@ struct _NMPlatformIP4Route {
      * pref_src is part of the ID of an IPv4 route. When deleting a route,
      * pref_src must match, unless set to 0.0.0.0 to match any. */
     in_addr_t pref_src;
+
+    /* This is the weight of for the first next-hop, in case of n_nexthops > 1.
+     *
+     * If n_nexthops is zero, this value is undefined (should be zero).
+     * If n_nexthops is 1, this also doesn't matter, but it's usually set to
+     * zero.
+     * If n_nexthops is greater or equal to one, this is the weight of
+     * the first hop.
+     *
+     * Note that upper layers (nm_utils_ip_route_attribute_to_platform()) use this flag to indicate
+     * whether this is a multihop route. Single-hop, non-ECMP routes will have a weight of zero.
+     *
+     * The valid range for weight in kernel is 1-256. */
+    guint16 weight;
 
     /* rtm_tos (iproute2: tos)
      *
@@ -576,7 +444,7 @@ struct _NMPlatformIP4Route {
      * For IPv6 routes, the scope is ignored and kernel always assumes global scope.
      * Hence, this field is only in NMPlatformIP4Route. */
     guint8 scope_inv;
-};
+} _nm_alignas(NMPlatformObject);
 
 struct _NMPlatformIP6Route {
     __NMPlatformIPRoute_COMMON;
@@ -609,7 +477,7 @@ struct _NMPlatformIP6Route {
      * The type is guint8 to keep the struct size small. But the values are compatible with
      * the NMIcmpv6RouterPref enum. */
     guint8 rt_pref;
-};
+} _nm_alignas(NMPlatformObject);
 
 typedef union {
     NMPlatformIPRoute  rx;
@@ -663,7 +531,7 @@ typedef struct {
     guint8             ip_proto;                   /* FRA_IP_PROTO */
 
     bool uid_range_has : 1; /* has(FRA_UID_RANGE) */
-} NMPlatformRoutingRule;
+} _nm_alignas(NMPlatformObject) NMPlatformRoutingRule;
 
 #define NM_PLATFORM_FQ_CODEL_MEMORY_LIMIT_UNSET (~((guint32) 0))
 
@@ -731,7 +599,7 @@ typedef struct {
         NMPlatformQdiscSfq     sfq;
         NMPlatformQdiscTbf     tbf;
     };
-} NMPlatformQdisc;
+} _nm_alignas(NMPlatformObject) NMPlatformQdisc;
 
 typedef struct {
     char sdata[32];
@@ -771,15 +639,13 @@ typedef struct {
     guint32          parent;
     guint32          info;
     NMPlatformAction action;
-} NMPlatformTfilter;
-
-#undef __NMPlatformObjWithIfindex_COMMON
+} _nm_alignas(NMPlatformObject) NMPlatformTfilter;
 
 typedef struct {
-    gboolean      is_ip4;
+    bool          is_ip4;
+    gint8         addr_family;
+    guint8        sizeof_route;
     NMPObjectType obj_type;
-    int           addr_family;
-    gsize         sizeof_route;
     int (*route_cmp)(const NMPlatformIPXRoute *a,
                      const NMPlatformIPXRoute *b,
                      NMPlatformIPRouteCmpType  cmp_type);
@@ -803,10 +669,29 @@ typedef struct {
 } NMPlatformVFVlan;
 
 typedef struct {
+    int       ifindex;
+    in_addr_t gateway;
+    /* The valid range for weight is 1-256. Single hop routes in kernel
+     * don't have a weight, we assign them weight zero (to indicate the
+     * weight is missing).
+     *
+     * Upper layers (nm_utils_ip_route_attribute_to_platform()) care about
+     * the distinction of unset weight (no-ECMP). They express no-ECMP as
+     * zero.
+     */
+    guint16 weight;
+
+    /* FIXME: each next hop in kernel also has a rtnh_flags (for example to
+     * set RTNH_F_ONLINK). As the next hop is part of the identifier of an
+     * IPv4 route, so is their flags. We must also track the flag, otherwise
+     * two routes that look different for kernel, get merged by platform cache. */
+} NMPlatformIP4RtNextHop;
+
+typedef struct {
+    guint             num_vlans;
     guint32           index;
     guint32           min_tx_rate;
     guint32           max_tx_rate;
-    guint             num_vlans;
     NMPlatformVFVlan *vlans;
     struct {
         guint8 data[20]; /* _NM_UTILS_HWADDR_LEN_MAX */
@@ -824,62 +709,102 @@ typedef struct {
 } NMPlatformBridgeVlan;
 
 typedef struct {
-    NMEtherAddr group_addr;
-    bool        mcast_querier : 1;
-    bool        mcast_query_use_ifaddr : 1;
-    bool        mcast_snooping : 1;
-    bool        stp_state : 1;
-    bool        vlan_stats_enabled : 1;
-    guint16     group_fwd_mask;
-    guint16     priority;
-    guint16     vlan_protocol;
-    guint32     ageing_time;
-    guint32     forward_delay;
-    guint32     hello_time;
-    guint32     max_age;
-    guint32     mcast_last_member_count;
-    guint32     mcast_startup_query_count;
-    guint32     mcast_hash_max;
     guint64     mcast_last_member_interval;
     guint64     mcast_membership_interval;
     guint64     mcast_querier_interval;
     guint64     mcast_query_interval;
     guint64     mcast_query_response_interval;
     guint64     mcast_startup_query_interval;
+    guint32     ageing_time;
+    guint32     forward_delay;
+    guint32     hello_time;
+    guint32     max_age;
+    guint32     mcast_hash_max;
+    guint32     mcast_last_member_count;
+    guint32     mcast_startup_query_count;
+    guint16     group_fwd_mask;
+    guint16     priority;
+    guint16     vlan_protocol;
+    NMEtherAddr group_addr;
     guint8      mcast_router;
-} NMPlatformLnkBridge;
+    bool        mcast_querier : 1;
+    bool        mcast_query_use_ifaddr : 1;
+    bool        mcast_snooping : 1;
+    bool        stp_state : 1;
+    bool        vlan_stats_enabled : 1;
+} _nm_alignas(NMPlatformObject) NMPlatformLnkBridge;
 
 extern const NMPlatformLnkBridge nm_platform_lnk_bridge_default;
 
+/* Defined in net/bonding.h. */
+#define NM_BOND_MAX_ARP_TARGETS 16
+
 typedef struct {
+    int         primary;
+    in_addr_t   arp_ip_target[NM_BOND_MAX_ARP_TARGETS];
+    guint32     arp_all_targets;
+    guint32     arp_interval;
+    guint32     arp_validate;
+    guint32     downdelay;
+    guint32     lp_interval;
+    guint32     miimon;
+    guint32     min_links;
+    guint32     packets_per_port;
+    guint32     peer_notif_delay;
+    guint32     resend_igmp;
+    guint32     updelay;
+    guint16     ad_actor_sys_prio;
+    guint16     ad_user_port_key;
+    NMEtherAddr ad_actor_system;
+    guint8      ad_select;
+    guint8      all_ports_active;
+    guint8      arp_ip_targets_num;
+    guint8      fail_over_mac;
+    guint8      lacp_rate;
+    guint8      num_grat_arp;
+    guint8      mode;
+    guint8      primary_reselect;
+    guint8      xmit_hash_policy;
+    bool        downdelay_has : 1;
+    bool        lp_interval_has : 1;
+    bool        miimon_has : 1;
+    bool        peer_notif_delay_has : 1;
+    bool        resend_igmp_has : 1;
+    bool        tlb_dynamic_lb : 1;
+    bool        tlb_dynamic_lb_has : 1;
+    bool        updelay_has : 1;
+    bool        use_carrier : 1;
+} _nm_alignas(NMPlatformObject) NMPlatformLnkBond;
+
+typedef struct {
+    int       parent_ifindex;
     in_addr_t local;
     in_addr_t remote;
-    int       parent_ifindex;
-    guint16   input_flags;
-    guint16   output_flags;
     guint32   input_key;
     guint32   output_key;
+    guint16   input_flags;
+    guint16   output_flags;
     guint8    ttl;
     guint8    tos;
     bool      path_mtu_discovery : 1;
     bool      is_tap : 1;
-} NMPlatformLnkGre;
+} _nm_alignas(NMPlatformObject) NMPlatformLnkGre;
 
 typedef struct {
     int         p_key;
     const char *mode;
-} NMPlatformLnkInfiniband;
+} _nm_alignas(NMPlatformObject) NMPlatformLnkInfiniband;
 
 typedef struct {
     struct in6_addr local;
     struct in6_addr remote;
     int             parent_ifindex;
+    guint           flow_label;
+    guint32         flags;
     guint8          ttl;
     guint8          tclass;
     guint8          encap_limit;
     guint8          proto;
-    guint           flow_label;
-    guint32         flags;
 
     /* IP6GRE only */
     guint32 input_key;
@@ -888,16 +813,34 @@ typedef struct {
     guint16 output_flags;
     bool    is_tap : 1;
     bool    is_gre : 1;
-} NMPlatformLnkIp6Tnl;
+} _nm_alignas(NMPlatformObject) NMPlatformLnkIp6Tnl;
 
 typedef struct {
+    int       parent_ifindex;
     in_addr_t local;
     in_addr_t remote;
-    int       parent_ifindex;
     guint8    ttl;
     guint8    tos;
     bool      path_mtu_discovery : 1;
-} NMPlatformLnkIpIp;
+} _nm_alignas(NMPlatformObject) NMPlatformLnkIpIp;
+
+typedef struct {
+    int       parent_ifindex;
+    in_addr_t local;
+    in_addr_t remote;
+    guint32   ikey;
+    guint32   okey;
+    guint32   fwmark;
+} _nm_alignas(NMPlatformObject) NMPlatformLnkVti;
+
+typedef struct {
+    int             parent_ifindex;
+    struct in6_addr local;
+    struct in6_addr remote;
+    guint32         ikey;
+    guint32         okey;
+    guint32         fwmark;
+} _nm_alignas(NMPlatformObject) NMPlatformLnkVti6;
 
 typedef struct {
     int     parent_ifindex;
@@ -913,24 +856,24 @@ typedef struct {
     bool    es : 1;
     bool    scb : 1;
     bool    replay_protect : 1;
-} NMPlatformLnkMacsec;
+} _nm_alignas(NMPlatformObject) NMPlatformLnkMacsec;
 
 typedef struct {
     guint mode;
     bool  no_promisc : 1;
     bool  tap : 1;
-} NMPlatformLnkMacvlan;
+} _nm_alignas(NMPlatformObject) NMPlatformLnkMacvlan;
 
 typedef struct {
+    int       parent_ifindex;
     in_addr_t local;
     in_addr_t remote;
-    int       parent_ifindex;
     guint16   flags;
     guint8    ttl;
     guint8    tos;
     guint8    proto;
     bool      path_mtu_discovery : 1;
-} NMPlatformLnkSit;
+} _nm_alignas(NMPlatformObject) NMPlatformLnkSit;
 
 typedef struct {
     guint32 owner;
@@ -945,24 +888,24 @@ typedef struct {
     bool vnet_hdr : 1;
     bool multi_queue : 1;
     bool persist : 1;
-} NMPlatformLnkTun;
+} _nm_alignas(NMPlatformObject) NMPlatformLnkTun;
 
 typedef struct {
-    /* rtnl_link_vlan_get_id(), IFLA_VLAN_ID */
     guint16      id;
+    guint16      protocol;
     _NMVlanFlags flags;
-} NMPlatformLnkVlan;
+} _nm_alignas(NMPlatformObject) NMPlatformLnkVlan;
 
 typedef struct {
     guint32 table;
-} NMPlatformLnkVrf;
+} _nm_alignas(NMPlatformObject) NMPlatformLnkVrf;
 
 typedef struct {
     struct in6_addr group6;
     struct in6_addr local6;
+    int             parent_ifindex;
     in_addr_t       group;
     in_addr_t       local;
-    int             parent_ifindex;
     guint32         id;
     guint32         ageing;
     guint32         limit;
@@ -976,7 +919,7 @@ typedef struct {
     bool            rsc : 1;
     bool            l2miss : 1;
     bool            l3miss : 1;
-} NMPlatformLnkVxlan;
+} _nm_alignas(NMPlatformObject) NMPlatformLnkVxlan;
 
 #define NMP_WIREGUARD_PUBLIC_KEY_LEN    32
 #define NMP_WIREGUARD_SYMMETRIC_KEY_LEN 32
@@ -986,7 +929,7 @@ typedef struct {
     guint16 listen_port;
     guint8  private_key[NMP_WIREGUARD_PUBLIC_KEY_LEN];
     guint8  public_key[NMP_WIREGUARD_PUBLIC_KEY_LEN];
-} NMPlatformLnkWireGuard;
+} _nm_alignas(NMPlatformObject) NMPlatformLnkWireGuard;
 
 typedef enum {
     NM_PLATFORM_WIREGUARD_CHANGE_FLAG_NONE            = 0,
@@ -1015,7 +958,26 @@ typedef enum {
 
 typedef void (*NMPlatformAsyncCallback)(GError *error, gpointer user_data);
 
+typedef struct {
+    __NMPlatformObjWithIfindex_COMMON;
+    guint32  id;
+    guint32  flags;
+    guint16  port;
+    NMIPAddr addr;
+    gint8    addr_family;
+} NMPlatformMptcpAddr;
+
+#undef __NMPlatformObjWithIfindex_COMMON
+
 /*****************************************************************************/
+
+typedef struct _NMPlatformCsmeConnInfo {
+    guint8      ssid[32];
+    guint32     channel;
+    NMEtherAddr addr;
+    guint8      sta_cipher;
+    guint8      auth_mode;
+} NMPlatformCsmeConnInfo;
 
 typedef enum {
     NM_PLATFORM_KERNEL_SUPPORT_TYPE_FRA_L3MDEV,
@@ -1065,6 +1027,25 @@ nm_platform_kernel_support_get(NMPlatformKernelSupportType type)
     return nm_platform_kernel_support_get_full(type, TRUE) != NM_OPTION_BOOL_FALSE;
 }
 
+typedef enum {
+    NMP_GENL_FAMILY_TYPE_ETHTOOL,
+    NMP_GENL_FAMILY_TYPE_MPTCP_PM,
+    NMP_GENL_FAMILY_TYPE_NL80211,
+    NMP_GENL_FAMILY_TYPE_NL802154,
+    NMP_GENL_FAMILY_TYPE_WIREGUARD,
+
+    _NMP_GENL_FAMILY_TYPE_NUM,
+    _NMP_GENL_FAMILY_TYPE_NONE = _NMP_GENL_FAMILY_TYPE_NUM,
+} NMPGenlFamilyType;
+
+typedef struct {
+    const char *name;
+} NMPGenlFamilyInfo;
+
+extern const NMPGenlFamilyInfo nmp_genl_family_infos[_NMP_GENL_FAMILY_TYPE_NUM];
+
+NMPGenlFamilyType nmp_genl_family_type_from_name(const char *name);
+
 /*****************************************************************************/
 
 struct _NMPlatformPrivate;
@@ -1105,6 +1086,9 @@ typedef struct {
                     guint32                mtu,
                     gconstpointer          extra_data,
                     const NMPlatformLink **out_link);
+
+    int (*link_change)(NMPlatform *self, NMLinkType type, int ifindex, gconstpointer extra_data);
+
     gboolean (*link_delete)(NMPlatform *self, int ifindex);
     gboolean (*link_refresh)(NMPlatform *self, int ifindex);
     gboolean (*link_set_netns)(NMPlatform *self, int ifindex, int netns_fd);
@@ -1171,6 +1155,7 @@ typedef struct {
                                  gboolean                egress_reset_all,
                                  const NMVlanQosMapping *egress_map,
                                  gsize                   n_egress_map);
+
     gboolean (*link_tun_add)(NMPlatform             *self,
                              const char             *name,
                              const NMPlatformLnkTun *props,
@@ -1204,6 +1189,10 @@ typedef struct {
     gboolean (*wifi_set_wake_on_wlan)(NMPlatform                  *self,
                                       int                          ifindex,
                                       _NMSettingWirelessWakeOnWLan wowl);
+    gboolean (*wifi_get_csme_conn_info)(NMPlatform             *self,
+                                        int                     ifindex,
+                                        NMPlatformCsmeConnInfo *out_conn_info);
+    gboolean (*wifi_get_device_from_csme)(NMPlatform *self, int ifindex);
 
     gboolean (*wifi_get_can_apscan)(NMPlatform *, int ifindex);
 
@@ -1247,10 +1236,7 @@ typedef struct {
                                    struct in6_addr address,
                                    guint8          plen);
 
-    int (*ip_route_add)(NMPlatform              *self,
-                        NMPNlmFlags              flags,
-                        int                      addr_family,
-                        const NMPlatformIPRoute *route);
+    int (*ip_route_add)(NMPlatform *self, NMPNlmFlags flags, NMPObject *obj_stack);
     int (*ip_route_get)(NMPlatform   *self,
                         int           addr_family,
                         gconstpointer address,
@@ -1266,6 +1252,13 @@ typedef struct {
 
     int (*tfilter_add)(NMPlatform *self, NMPNlmFlags flags, const NMPlatformTfilter *tfilter);
     int (*tfilter_delete)(NMPlatform *self, int ifindex, guint32 parent, gboolean log_error);
+
+    guint16 (*genl_get_family_id)(NMPlatform *platform, NMPGenlFamilyType family_type);
+
+    int (*mptcp_addr_update)(NMPlatform *self, NMOptionBool add, const NMPlatformMptcpAddr *addr);
+
+    GPtrArray *(*mptcp_addrs_dump)(NMPlatform *self);
+
 } NMPlatformClass;
 
 /* NMPlatform signals
@@ -1293,29 +1286,6 @@ const char *nm_platform_signal_change_type_to_string(NMPlatformSignalChangeType 
 /*****************************************************************************/
 
 GType nm_platform_get_type(void);
-
-/*****************************************************************************/
-
-static inline in_addr_t
-nm_platform_ip4_broadcast_address_create(in_addr_t address, guint8 plen)
-{
-    return address | ~_nm_utils_ip4_prefix_to_netmask(plen);
-}
-
-static inline in_addr_t
-nm_platform_ip4_broadcast_address_from_addr(const NMPlatformIP4Address *addr)
-{
-    nm_assert(addr);
-
-    if (addr->use_ip4_broadcast_address)
-        return addr->broadcast_address;
-
-    /* the set broadcast-address gets ignored, and we determine a default brd base
-     * on the peer IFA_ADDRESS. */
-    if (addr->peer_address != 0u && addr->plen < 31 /* RFC3021 */)
-        return nm_platform_ip4_broadcast_address_create(addr->peer_address, addr->plen);
-    return 0u;
-}
 
 /*****************************************************************************/
 
@@ -1413,7 +1383,11 @@ _nm_platform_link_get_inet6_addr_gen_mode(const NMPlatformLink *pllink)
 static inline gboolean
 nm_platform_route_type_is_nodev(guint8 type)
 {
-    return NM_IN_SET(type, 6 /* RTN_BLACKHOLE */, 7 /* RTN_UNREACHABLE */, 8 /* RTN_PROHIBIT */);
+    return NM_IN_SET(type,
+                     6 /* RTN_BLACKHOLE */,
+                     7 /* RTN_UNREACHABLE */,
+                     8 /* RTN_PROHIBIT */,
+                     9 /* RTN_THROW */);
 }
 
 /**
@@ -1447,6 +1421,49 @@ static inline guint8
 nm_platform_route_type_uncoerce(guint8 type_coerced)
 {
     return nm_platform_route_type_coerce(type_coerced);
+}
+
+static inline guint8
+nm_platform_ip4_address_get_scope(in_addr_t addr)
+{
+    /* For IPv4 addresses, we can set any scope we want (for any address).
+     * However, there are scopes that make sense based on the address,
+     * so choose those. */
+    return nm_ip4_addr_is_loopback(addr)     ? (254 /* RT_SCOPE_HOST */)
+           : nm_ip4_addr_is_link_local(addr) ? (253 /* RT_SCOPE_LINK */)
+                                             : (0 /* RT_SCOPE_UNIVERSE */);
+}
+
+static inline guint8
+nm_platform_ip6_address_get_scope(const struct in6_addr *addr)
+{
+    /* For IPv6, kernel does not allow userspace to configure the address scope.
+     * Instead, it is calculated based on the address. See rt_scope() and
+     * ipv6_addr_scope(). We do the same here. */
+    return IN6_IS_ADDR_LOOPBACK(addr)    ? (254 /* RT_SCOPE_HOST */)
+           : IN6_IS_ADDR_LINKLOCAL(addr) ? (253 /* RT_SCOPE_LINK */)
+           : IN6_IS_ADDR_SITELOCAL(addr) ? (200 /* RT_SCOPE_SITE */)
+                                         : (0 /* RT_SCOPE_UNIVERSE */);
+}
+
+static inline guint8
+nm_platform_ip_address_get_scope(int addr_family, gconstpointer addr)
+{
+    /* Note that this function returns the scope as we configure
+     * it in kernel (for IPv4) or as kernel chooses it (for IPv6).
+     *
+     * That means, rfc1918 private addresses nm_ip_addr_is_site_local() are
+     * considered RT_SCOPE_UNIVERSE.
+     *
+     * Also, the deprecated IN6_IS_ADDR_SITELOCAL() addresses (fec0::/10)
+     * are considered RT_SCOPE_SITE, while unique local addresses (ULA, fc00::/7)
+     * are considered RT_SCOPE_UNIVERSE.
+     *
+     * You may not want to use this function when reasoning about
+     * site-local addresses (RFC1918, ULA). */
+    if (NM_IS_IPv4(addr_family))
+        return nm_platform_ip4_address_get_scope(*((in_addr_t *) addr));
+    return nm_platform_ip6_address_get_scope(addr);
 }
 
 gboolean nm_platform_get_use_udev(NMPlatform *self);
@@ -1572,6 +1589,9 @@ int nm_platform_link_add(NMPlatform            *self,
                          gconstpointer          extra_data,
                          const NMPlatformLink **out_link);
 
+int
+nm_platform_link_change(NMPlatform *self, NMLinkType type, int ifindex, gconstpointer extra_data);
+
 static inline int
 nm_platform_link_veth_add(NMPlatform            *self,
                           const char            *name,
@@ -1608,9 +1628,24 @@ nm_platform_link_bridge_add(NMPlatform                *self,
 }
 
 static inline int
-nm_platform_link_bond_add(NMPlatform *self, const char *name, const NMPlatformLink **out_link)
+nm_platform_link_bridge_change(NMPlatform *self, int ifindex, const NMPlatformLnkBridge *props)
 {
-    return nm_platform_link_add(self, NM_LINK_TYPE_BOND, name, 0, NULL, 0, 0, NULL, out_link);
+    return nm_platform_link_change(self, NM_LINK_TYPE_BRIDGE, ifindex, props);
+}
+
+static inline int
+nm_platform_link_bond_change(NMPlatform *self, int ifindex, const NMPlatformLnkBond *props)
+{
+    return nm_platform_link_change(self, NM_LINK_TYPE_BOND, ifindex, props);
+}
+
+static inline int
+nm_platform_link_bond_add(NMPlatform              *self,
+                          const char              *name,
+                          const NMPlatformLnkBond *props,
+                          const NMPlatformLink   **out_link)
+{
+    return nm_platform_link_add(self, NM_LINK_TYPE_BOND, name, 0, NULL, 0, 0, props, out_link);
 }
 
 static inline int
@@ -1656,28 +1691,13 @@ nm_platform_link_sit_add(NMPlatform             *self,
 }
 
 static inline int
-nm_platform_link_vlan_add(NMPlatform            *self,
-                          const char            *name,
-                          int                    parent,
-                          int                    vlanid,
-                          guint32                vlanflags,
-                          const NMPlatformLink **out_link)
+nm_platform_link_vlan_add(NMPlatform              *self,
+                          const char              *name,
+                          int                      parent,
+                          const NMPlatformLnkVlan *props,
+                          const NMPlatformLink   **out_link)
 {
-    g_return_val_if_fail(parent >= 0, -NME_BUG);
-    g_return_val_if_fail(vlanid >= 0, -NME_BUG);
-
-    return nm_platform_link_add(self,
-                                NM_LINK_TYPE_VLAN,
-                                name,
-                                parent,
-                                NULL,
-                                0,
-                                0,
-                                &((NMPlatformLnkVlan){
-                                    .id    = vlanid,
-                                    .flags = vlanflags,
-                                }),
-                                out_link);
+    return nm_platform_link_add(self, NM_LINK_TYPE_VLAN, name, parent, NULL, 0, 0, props, out_link);
 }
 
 static inline int
@@ -1687,6 +1707,24 @@ nm_platform_link_vrf_add(NMPlatform             *self,
                          const NMPlatformLink  **out_link)
 {
     return nm_platform_link_add(self, NM_LINK_TYPE_VRF, name, 0, NULL, 0, 0, props, out_link);
+}
+
+static inline int
+nm_platform_link_vti_add(NMPlatform             *self,
+                         const char             *name,
+                         const NMPlatformLnkVti *props,
+                         const NMPlatformLink  **out_link)
+{
+    return nm_platform_link_add(self, NM_LINK_TYPE_VTI, name, 0, NULL, 0, 0, props, out_link);
+}
+
+static inline int
+nm_platform_link_vti6_add(NMPlatform              *self,
+                          const char              *name,
+                          const NMPlatformLnkVti6 *props,
+                          const NMPlatformLink   **out_link)
+{
+    return nm_platform_link_add(self, NM_LINK_TYPE_VTI6, name, 0, NULL, 0, 0, props, out_link);
 }
 
 static inline int
@@ -1944,6 +1982,8 @@ const NMPObject *nm_platform_link_get_lnk(NMPlatform            *self,
                                           int                    ifindex,
                                           NMLinkType             link_type,
                                           const NMPlatformLink **out_link);
+const NMPlatformLnkBond *
+nm_platform_link_get_lnk_bond(NMPlatform *self, int ifindex, const NMPlatformLink **out_link);
 const NMPlatformLnkBridge *
 nm_platform_link_get_lnk_bridge(NMPlatform *self, int ifindex, const NMPlatformLink **out_link);
 const NMPlatformLnkGre *
@@ -1976,6 +2016,10 @@ const NMPlatformLnkVlan *
 nm_platform_link_get_lnk_vlan(NMPlatform *self, int ifindex, const NMPlatformLink **out_link);
 const NMPlatformLnkVrf *
 nm_platform_link_get_lnk_vrf(NMPlatform *self, int ifindex, const NMPlatformLink **out_link);
+const NMPlatformLnkVti *
+nm_platform_link_get_lnk_vti(NMPlatform *self, int ifindex, const NMPlatformLink **out_link);
+const NMPlatformLnkVti6 *
+nm_platform_link_get_lnk_vti6(NMPlatform *self, int ifindex, const NMPlatformLink **out_link);
 const NMPlatformLnkVxlan *
 nm_platform_link_get_lnk_vxlan(NMPlatform *self, int ifindex, const NMPlatformLink **out_link);
 const NMPlatformLnkWireGuard *
@@ -2026,6 +2070,10 @@ void nm_platform_wifi_indicate_addressing_running(NMPlatform *self, int ifindex,
 _NMSettingWirelessWakeOnWLan nm_platform_wifi_get_wake_on_wlan(NMPlatform *self, int ifindex);
 gboolean
 nm_platform_wifi_set_wake_on_wlan(NMPlatform *self, int ifindex, _NMSettingWirelessWakeOnWLan wowl);
+gboolean nm_platform_wifi_get_csme_conn_info(NMPlatform             *self,
+                                             int                     ifindex,
+                                             NMPlatformCsmeConnInfo *out_conn_info);
+gboolean nm_platform_wifi_get_device_from_csme(NMPlatform *self, int ifindex);
 
 gboolean nm_platform_wifi_get_can_apscan(NMPlatform *self, int ifindex);
 
@@ -2039,14 +2087,19 @@ guint16  nm_platform_wpan_get_short_addr(NMPlatform *self, int ifindex);
 gboolean nm_platform_wpan_set_short_addr(NMPlatform *self, int ifindex, guint16 short_addr);
 gboolean nm_platform_wpan_set_channel(NMPlatform *self, int ifindex, guint8 page, guint8 channel);
 
-void nm_platform_ip4_address_set_addr(NMPlatformIP4Address *addr, in_addr_t address, guint8 plen);
-const struct in6_addr *nm_platform_ip6_address_get_peer(const NMPlatformIP6Address *addr);
+const NMPObject *nm_platform_ip_address_get(NMPlatform                                 *self,
+                                            int                                         addr_family,
+                                            int                                         ifindex,
+                                            gconstpointer /* (NMPlatformIPAddress *) */ needle);
 
 const NMPlatformIP4Address *nm_platform_ip4_address_get(NMPlatform *self,
                                                         int         ifindex,
                                                         in_addr_t   address,
                                                         guint8      plen,
                                                         in_addr_t   peer_address);
+
+const NMPlatformIP6Address *
+nm_platform_ip6_address_get(NMPlatform *self, int ifindex, const struct in6_addr *address);
 
 int      nm_platform_link_sit_add(NMPlatform             *self,
                                   const char             *name,
@@ -2069,9 +2122,6 @@ int nm_platform_link_wireguard_change(NMPlatform                               *
                                       const NMPlatformWireGuardChangePeerFlags *peer_flags,
                                       guint                                     peers_len,
                                       NMPlatformWireGuardChangeFlags            change_flags);
-
-const NMPlatformIP6Address *
-nm_platform_ip6_address_get(NMPlatform *self, int ifindex, const struct in6_addr *address);
 
 gboolean nm_platform_object_delete(NMPlatform *self, const NMPObject *route);
 
@@ -2101,61 +2151,49 @@ gboolean nm_platform_ip4_address_delete(NMPlatform *self,
 gboolean
 nm_platform_ip6_address_delete(NMPlatform *self, int ifindex, struct in6_addr address, guint8 plen);
 
-gboolean nm_platform_ip_address_sync(NMPlatform *self,
-                                     int         addr_family,
-                                     int         ifindex,
-                                     GPtrArray  *known_addresses,
-                                     GPtrArray  *addresses_prune);
-
-GPtrArray *nm_platform_ip_address_get_prune_list(NMPlatform *self,
-                                                 int         addr_family,
-                                                 int         ifindex,
-                                                 gboolean    exclude_ipv6_temporary_addrs);
-
 static inline gboolean
-_nm_platform_ip_address_sync(NMPlatform *self,
-                             int         addr_family,
-                             int         ifindex,
-                             GPtrArray  *known_addresses,
-                             gboolean    full_sync)
+nm_platform_ip_address_delete(NMPlatform                                       *self,
+                              int                                               addr_family,
+                              int                                               ifindex,
+                              gconstpointer /* (const NMPlatformIPAddress *) */ addr)
 {
-    gs_unref_ptrarray GPtrArray *addresses_prune = NULL;
+    if (NM_IS_IPv4(addr_family)) {
+        const NMPlatformIP4Address *a = addr;
 
-    addresses_prune = nm_platform_ip_address_get_prune_list(self, addr_family, ifindex, !full_sync);
-    return nm_platform_ip_address_sync(self,
-                                       addr_family,
-                                       ifindex,
-                                       known_addresses,
-                                       addresses_prune);
+        if (ifindex <= 0)
+            ifindex = a->ifindex;
+
+        return nm_platform_ip4_address_delete(self, ifindex, a->address, a->plen, a->peer_address);
+    } else {
+        const NMPlatformIP6Address *a = addr;
+
+        if (ifindex <= 0)
+            ifindex = a->ifindex;
+
+        return nm_platform_ip6_address_delete(self, ifindex, a->address, a->plen);
+    }
 }
 
-static inline gboolean
-nm_platform_ip4_address_sync(NMPlatform *self, int ifindex, GPtrArray *known_addresses)
-{
-    return _nm_platform_ip_address_sync(self, AF_INET, ifindex, known_addresses, TRUE);
-}
+typedef enum {
+    NMP_IP_ADDRESS_SYNC_FLAGS_NONE               = 0,
+    NMP_IP_ADDRESS_SYNC_FLAGS_WITH_NOPREFIXROUTE = (1 << 0),
+} NMPIPAddressSyncFlags;
 
-static inline gboolean
-nm_platform_ip6_address_sync(NMPlatform *self,
-                             int         ifindex,
-                             GPtrArray  *known_addresses,
-                             gboolean    full_sync)
-{
-    return _nm_platform_ip_address_sync(self, AF_INET6, ifindex, known_addresses, full_sync);
-}
+gboolean nm_platform_ip_address_sync(NMPlatform           *self,
+                                     int                   addr_family,
+                                     int                   ifindex,
+                                     GPtrArray            *known_addresses,
+                                     GPtrArray            *addresses_prune,
+                                     NMPIPAddressSyncFlags flags);
+
+GPtrArray *
+nm_platform_ip_address_get_prune_list(NMPlatform            *self,
+                                      int                    addr_family,
+                                      int                    ifindex,
+                                      const struct in6_addr *ipv6_temporary_addr_prefixes_keep,
+                                      guint                  ipv6_temporary_addr_prefixes_keep_len);
 
 gboolean nm_platform_ip_address_flush(NMPlatform *self, int addr_family, int ifindex);
-
-static inline gpointer
-nm_platform_ip_address_get_peer_address(int addr_family, const NMPlatformIPAddress *addr)
-{
-    nm_assert_addr_family(addr_family);
-    nm_assert(addr);
-
-    if (NM_IS_IPv4(addr_family))
-        return &((NMPlatformIP4Address *) addr)->peer_address;
-    return &((NMPlatformIP6Address *) addr)->peer_address;
-}
 
 void nm_platform_ip_route_normalize(int addr_family, NMPlatformIPRoute *route);
 
@@ -2166,6 +2204,23 @@ nm_platform_ip4_route_get_effective_metric(const NMPlatformIP4Route *r)
 
     return r->metric_any ? nm_add_clamped_u32(NM_PLATFORM_ROUTE_METRIC_DEFAULT_IP4, r->metric)
                          : r->metric;
+}
+
+static inline guint
+nm_platform_ip4_route_get_n_nexthops(const NMPlatformIP4Route *r)
+{
+    /* The first hop of the "n_nexthops" is in NMPlatformIP4Route
+     * itself. Thus, if the caller only sets ifindex and leaves
+     * n_nexthops at zero, the number of next hops is still 1
+     * (for convenience of the user who wants to initialize a
+     * single hop route). */
+    if (r->n_nexthops >= 1) {
+        nm_assert(r->ifindex > 0);
+        return r->n_nexthops;
+    }
+    if (r->ifindex > 0)
+        return 1;
+    return 0;
 }
 
 static inline guint32
@@ -2201,7 +2256,10 @@ nm_platform_ip_route_get_gateway(int addr_family, const NMPlatformIPRoute *route
 }
 
 int nm_platform_ip_route_add(NMPlatform *self, NMPNlmFlags flags, const NMPObject *route);
-int nm_platform_ip4_route_add(NMPlatform *self, NMPNlmFlags flags, const NMPlatformIP4Route *route);
+int nm_platform_ip4_route_add(NMPlatform                   *self,
+                              NMPNlmFlags                   flags,
+                              const NMPlatformIP4Route     *route,
+                              const NMPlatformIP4RtNextHop *extra_nexthops);
 int nm_platform_ip6_route_add(NMPlatform *self, NMPNlmFlags flags, const NMPlatformIP6Route *route);
 
 GPtrArray *nm_platform_ip_route_get_prune_list(NMPlatform            *self,
@@ -2238,6 +2296,7 @@ gboolean nm_platform_tc_sync(NMPlatform *self,
                              GPtrArray  *known_tfilters);
 
 const char *nm_platform_link_to_string(const NMPlatformLink *link, char *buf, gsize len);
+const char *nm_platform_lnk_bond_to_string(const NMPlatformLnkBond *lnk, char *buf, gsize len);
 const char *nm_platform_lnk_bridge_to_string(const NMPlatformLnkBridge *lnk, char *buf, gsize len);
 const char *nm_platform_lnk_gre_to_string(const NMPlatformLnkGre *lnk, char *buf, gsize len);
 const char *
@@ -2251,14 +2310,23 @@ const char *nm_platform_lnk_sit_to_string(const NMPlatformLnkSit *lnk, char *buf
 const char *nm_platform_lnk_tun_to_string(const NMPlatformLnkTun *lnk, char *buf, gsize len);
 const char *nm_platform_lnk_vlan_to_string(const NMPlatformLnkVlan *lnk, char *buf, gsize len);
 const char *nm_platform_lnk_vrf_to_string(const NMPlatformLnkVrf *lnk, char *buf, gsize len);
+const char *nm_platform_lnk_vti_to_string(const NMPlatformLnkVti *lnk, char *buf, gsize len);
+const char *nm_platform_lnk_vti6_to_string(const NMPlatformLnkVti6 *lnk, char *buf, gsize len);
 const char *nm_platform_lnk_vxlan_to_string(const NMPlatformLnkVxlan *lnk, char *buf, gsize len);
 const char *
 nm_platform_lnk_wireguard_to_string(const NMPlatformLnkWireGuard *lnk, char *buf, gsize len);
-const char *
-nm_platform_ip4_address_to_string(const NMPlatformIP4Address *address, char *buf, gsize len);
-const char *
-nm_platform_ip6_address_to_string(const NMPlatformIP6Address *address, char *buf, gsize len);
-const char *nm_platform_ip4_route_to_string(const NMPlatformIP4Route *route, char *buf, gsize len);
+
+const char *nm_platform_ip4_route_to_string_full(const NMPlatformIP4Route     *route,
+                                                 const NMPlatformIP4RtNextHop *extra_nexthops,
+                                                 char                         *buf,
+                                                 gsize                         len);
+
+static inline const char *
+nm_platform_ip4_route_to_string(const NMPlatformIP4Route *route, char *buf, gsize len)
+{
+    return nm_platform_ip4_route_to_string_full(route, NULL, buf, len);
+}
+
 const char *nm_platform_ip6_route_to_string(const NMPlatformIP6Route *route, char *buf, gsize len);
 const char *
 nm_platform_routing_rule_to_string(const NMPlatformRoutingRule *routing_rule, char *buf, gsize len);
@@ -2277,7 +2345,11 @@ const char *nm_platform_vlan_qos_mapping_to_string(const char             *name,
 const char *
 nm_platform_wireguard_peer_to_string(const struct _NMPWireGuardPeer *peer, char *buf, gsize len);
 
+const char *
+nm_platform_mptcp_addr_to_string(const NMPlatformMptcpAddr *mptcp_addr, char *buf, gsize len);
+
 int nm_platform_link_cmp(const NMPlatformLink *a, const NMPlatformLink *b);
+int nm_platform_lnk_bond_cmp(const NMPlatformLnkBond *a, const NMPlatformLnkBond *b);
 int nm_platform_lnk_bridge_cmp(const NMPlatformLnkBridge *a, const NMPlatformLnkBridge *b);
 int nm_platform_lnk_gre_cmp(const NMPlatformLnkGre *a, const NMPlatformLnkGre *b);
 int nm_platform_lnk_infiniband_cmp(const NMPlatformLnkInfiniband *a,
@@ -2290,67 +2362,59 @@ int nm_platform_lnk_sit_cmp(const NMPlatformLnkSit *a, const NMPlatformLnkSit *b
 int nm_platform_lnk_tun_cmp(const NMPlatformLnkTun *a, const NMPlatformLnkTun *b);
 int nm_platform_lnk_vlan_cmp(const NMPlatformLnkVlan *a, const NMPlatformLnkVlan *b);
 int nm_platform_lnk_vrf_cmp(const NMPlatformLnkVrf *a, const NMPlatformLnkVrf *b);
+int nm_platform_lnk_vti_cmp(const NMPlatformLnkVti *a, const NMPlatformLnkVti *b);
+int nm_platform_lnk_vti6_cmp(const NMPlatformLnkVti6 *a, const NMPlatformLnkVti6 *b);
 int nm_platform_lnk_vxlan_cmp(const NMPlatformLnkVxlan *a, const NMPlatformLnkVxlan *b);
 int nm_platform_lnk_wireguard_cmp(const NMPlatformLnkWireGuard *a, const NMPlatformLnkWireGuard *b);
-int nm_platform_ip4_address_cmp(const NMPlatformIP4Address *a, const NMPlatformIP4Address *b);
-int nm_platform_ip6_address_cmp(const NMPlatformIP6Address *a, const NMPlatformIP6Address *b);
-
-int nm_platform_ip4_address_pretty_sort_cmp(const NMPlatformIP4Address *a1,
-                                            const NMPlatformIP4Address *a2);
-
-int nm_platform_ip6_address_pretty_sort_cmp(const NMPlatformIP6Address *a1,
-                                            const NMPlatformIP6Address *a2,
-                                            gboolean                    prefer_temp);
 
 GHashTable *nm_platform_ip4_address_addr_to_hash(NMPlatform *self, int ifindex);
 
 int nm_platform_ip4_route_cmp(const NMPlatformIP4Route *a,
                               const NMPlatformIP4Route *b,
                               NMPlatformIPRouteCmpType  cmp_type);
+int nm_platform_ip4_rt_nexthop_cmp(const NMPlatformIP4RtNextHop *a,
+                                   const NMPlatformIP4RtNextHop *b,
+                                   gboolean                      for_id);
 int nm_platform_ip6_route_cmp(const NMPlatformIP6Route *a,
                               const NMPlatformIP6Route *b,
                               NMPlatformIPRouteCmpType  cmp_type);
-
-static inline int
-nm_platform_ip4_route_cmp_full(const NMPlatformIP4Route *a, const NMPlatformIP4Route *b)
-{
-    return nm_platform_ip4_route_cmp(a, b, NM_PLATFORM_IP_ROUTE_CMP_TYPE_FULL);
-}
-
-static inline int
-nm_platform_ip6_route_cmp_full(const NMPlatformIP6Route *a, const NMPlatformIP6Route *b)
-{
-    return nm_platform_ip6_route_cmp(a, b, NM_PLATFORM_IP_ROUTE_CMP_TYPE_FULL);
-}
 
 int nm_platform_routing_rule_cmp(const NMPlatformRoutingRule *a,
                                  const NMPlatformRoutingRule *b,
                                  NMPlatformRoutingRuleCmpType cmp_type);
 
-static inline int
-nm_platform_routing_rule_cmp_full(const NMPlatformRoutingRule *a, const NMPlatformRoutingRule *b)
-{
-    return nm_platform_routing_rule_cmp(a, b, NM_PLATFORM_ROUTING_RULE_CMP_TYPE_FULL);
-}
+int
+nm_platform_qdisc_cmp(const NMPlatformQdisc *a, const NMPlatformQdisc *b, gboolean compare_handle);
 
-int nm_platform_qdisc_cmp(const NMPlatformQdisc *a, const NMPlatformQdisc *b);
-int nm_platform_qdisc_cmp_full(const NMPlatformQdisc *a,
-                               const NMPlatformQdisc *b,
-                               gboolean               compare_handle);
 int nm_platform_tfilter_cmp(const NMPlatformTfilter *a, const NMPlatformTfilter *b);
 
+int nm_platform_mptcp_addr_cmp(const NMPlatformMptcpAddr *a, const NMPlatformMptcpAddr *b);
+
 void nm_platform_link_hash_update(const NMPlatformLink *obj, NMHashState *h);
-void nm_platform_ip4_address_hash_update(const NMPlatformIP4Address *obj, NMHashState *h);
-void nm_platform_ip6_address_hash_update(const NMPlatformIP6Address *obj, NMHashState *h);
 void nm_platform_ip4_route_hash_update(const NMPlatformIP4Route *obj,
                                        NMPlatformIPRouteCmpType  cmp_type,
                                        NMHashState              *h);
+
+static inline guint
+nm_platform_ip4_route_hash(const NMPlatformIP4Route *obj, NMPlatformIPRouteCmpType cmp_type)
+{
+    NMHashState h;
+
+    nm_hash_init(&h, 1118769853u);
+    nm_platform_ip4_route_hash_update(obj, cmp_type, &h);
+    return nm_hash_complete(&h);
+}
+
+void nm_platform_ip4_rt_nexthop_hash_update(const NMPlatformIP4RtNextHop *obj,
+                                            gboolean                      for_id,
+                                            NMHashState                  *h);
 void nm_platform_ip6_route_hash_update(const NMPlatformIP6Route *obj,
                                        NMPlatformIPRouteCmpType  cmp_type,
                                        NMHashState              *h);
 void nm_platform_routing_rule_hash_update(const NMPlatformRoutingRule *obj,
                                           NMPlatformRoutingRuleCmpType cmp_type,
                                           NMHashState                 *h);
+void nm_platform_lnk_bond_hash_update(const NMPlatformLnkBond *obj, NMHashState *h);
 void nm_platform_lnk_bridge_hash_update(const NMPlatformLnkBridge *obj, NMHashState *h);
 void nm_platform_lnk_gre_hash_update(const NMPlatformLnkGre *obj, NMHashState *h);
 void nm_platform_lnk_infiniband_hash_update(const NMPlatformLnkInfiniband *obj, NMHashState *h);
@@ -2362,20 +2426,20 @@ void nm_platform_lnk_sit_hash_update(const NMPlatformLnkSit *obj, NMHashState *h
 void nm_platform_lnk_tun_hash_update(const NMPlatformLnkTun *obj, NMHashState *h);
 void nm_platform_lnk_vlan_hash_update(const NMPlatformLnkVlan *obj, NMHashState *h);
 void nm_platform_lnk_vrf_hash_update(const NMPlatformLnkVrf *obj, NMHashState *h);
+void nm_platform_lnk_vti_hash_update(const NMPlatformLnkVti *obj, NMHashState *h);
+void nm_platform_lnk_vti6_hash_update(const NMPlatformLnkVti6 *obj, NMHashState *h);
 void nm_platform_lnk_vxlan_hash_update(const NMPlatformLnkVxlan *obj, NMHashState *h);
 void nm_platform_lnk_wireguard_hash_update(const NMPlatformLnkWireGuard *obj, NMHashState *h);
 
 void nm_platform_qdisc_hash_update(const NMPlatformQdisc *obj, NMHashState *h);
 void nm_platform_tfilter_hash_update(const NMPlatformTfilter *obj, NMHashState *h);
 
+void nm_platform_mptcp_addr_hash_update(const NMPlatformMptcpAddr *obj, NMHashState *h);
+
+guint    nm_platform_mptcp_addr_index_addr_cmp(gconstpointer data);
+gboolean nm_platform_mptcp_addr_index_addr_equal(gconstpointer data_a, gconstpointer data_b);
+
 #define NM_PLATFORM_LINK_FLAGS2STR_MAX_LEN ((gsize) 162)
-
-const char *nm_platform_link_flags2str(unsigned flags, char *buf, gsize len);
-const char *nm_platform_link_inet6_addrgenmode2str(guint8 mode, char *buf, gsize len);
-const char *nm_platform_addr_flags2str(unsigned flags, char *buf, gsize len);
-const char *nm_platform_route_scope2str(int scope, char *buf, gsize len);
-
-int nm_platform_ip_address_cmp_expiry(const NMPlatformIPAddress *a, const NMPlatformIPAddress *b);
 
 gboolean nm_platform_ethtool_set_wake_on_lan(NMPlatform              *self,
                                              int                      ifindex,
@@ -2427,17 +2491,42 @@ struct _NMDedupMultiIndex *nm_platform_get_multi_idx(NMPlatform *self);
 
 /*****************************************************************************/
 
-NMPlatformIP4Route *nm_platform_ip4_address_generate_device_route(const NMPlatformIP4Address *addr,
-                                                                  int                 ifindex,
-                                                                  guint32             route_table,
-                                                                  guint32             route_metric,
-                                                                  gboolean            force_commit,
-                                                                  NMPlatformIP4Route *dst);
+guint16 nm_platform_genl_get_family_id(NMPlatform *self, NMPGenlFamilyType family_type);
+
+int
+nm_platform_mptcp_addr_update(NMPlatform *self, NMOptionBool add, const NMPlatformMptcpAddr *addr);
+
+GPtrArray *nm_platform_mptcp_addrs_dump(NMPlatform *self);
+
+gboolean nm_platform_ip6_dadfailed_check(NMPlatform *self, int ifindex, const struct in6_addr *ip6);
+void     nm_platform_ip6_dadfailed_set(NMPlatform            *self,
+                                       int                    ifindex,
+                                       const struct in6_addr *ip6,
+                                       gboolean               failed);
 
 /*****************************************************************************/
 
-gboolean nm_platform_ip_address_match(int                        addr_family,
-                                      const NMPlatformIPAddress *addr,
-                                      NMPlatformMatchFlags       match_flag);
+static inline NMPlatformIP4Address *
+nm_platform_ip4_address_init_loopback_addr1(NMPlatformIP4Address *a)
+{
+    *a = ((NMPlatformIP4Address){
+        .address      = NM_IPV4LO_ADDR1,
+        .peer_address = NM_IPV4LO_ADDR1,
+        .ifindex      = NM_LOOPBACK_IFINDEX,
+        .plen         = NM_IPV4LO_PREFIXLEN,
+    });
+    return a;
+}
+
+static inline NMPlatformIP6Address *
+nm_platform_ip6_address_init_loopback(NMPlatformIP6Address *a)
+{
+    *a = ((NMPlatformIP6Address){
+        .address = IN6ADDR_LOOPBACK_INIT,
+        .ifindex = NM_LOOPBACK_IFINDEX,
+        .plen    = 128,
+    });
+    return a;
+}
 
 #endif /* __NETWORKMANAGER_PLATFORM_H__ */

@@ -45,12 +45,16 @@
 #endif
 
 static inline bool is_path(const char *p) {
-        assert(p);
+        if (!p) /* A NULL pointer is definitely not a path */
+                return false;
+
         return strchr(p, '/');
 }
 
 static inline bool path_is_absolute(const char *p) {
-        assert(p);
+        if (!p) /* A NULL pointer is definitely not an absolute path */
+                return false;
+
         return p[0] == '/';
 }
 
@@ -59,6 +63,7 @@ char* path_make_absolute(const char *p, const char *prefix);
 int safe_getcwd(char **ret);
 int path_make_absolute_cwd(const char *p, char **ret);
 int path_make_relative(const char *from, const char *to, char **ret);
+int path_make_relative_parent(const char *from_child, const char *to, char **ret);
 char *path_startswith_full(const char *path, const char *prefix, bool accept_dot_dot) _pure_;
 static inline char* path_startswith(const char *path, const char *prefix) {
         return path_startswith_full(path, prefix, true);
@@ -78,14 +83,6 @@ char* path_extend_internal(char **x, ...);
 #define path_join(...) path_extend_internal(NULL, __VA_ARGS__, POINTER_MAX)
 
 char* path_simplify(char *path);
-
-enum {
-        PATH_CHECK_FATAL    = 1 << 0,  /* If not set, then error message is appended with 'ignoring'. */
-        PATH_CHECK_ABSOLUTE = 1 << 1,
-        PATH_CHECK_RELATIVE = 1 << 2,
-};
-
-int path_simplify_and_warn(char *path, unsigned flag, const char *unit, const char *filename, unsigned line, const char *lvalue);
 
 static inline bool path_equal_ptr(const char *a, const char *b) {
         return !!a == !!b && (!a || path_equal(a, b));
@@ -108,7 +105,8 @@ static inline int find_executable(const char *name, char **ret_filename) {
 
 bool paths_check_timestamp(const char* const* paths, usec_t *paths_ts_usec, bool update);
 
-int fsck_exists(const char *fstype);
+int fsck_exists(void);
+int fsck_exists_for_fstype(const char *fstype);
 
 /* Iterates through the path prefixes of the specified path, going up
  * the tree, to root. Also returns "" (and not "/"!) for the root
@@ -157,7 +155,6 @@ int fsck_exists(const char *fstype);
                 _ret;                                                   \
         })
 
-char* dirname_malloc(const char *path);
 int path_find_first_component(const char **p, bool accept_dot_dot, const char **ret);
 int path_find_last_component(const char *path, bool accept_dot_dot, const char **next, const char **ret);
 const char *last_path_component(const char *path);
@@ -167,10 +164,10 @@ int path_extract_directory(const char *path, char **ret);
 bool filename_is_valid(const char *p) _pure_;
 bool path_is_valid_full(const char *p, bool accept_dot_dot) _pure_;
 static inline bool path_is_valid(const char *p) {
-        return path_is_valid_full(p, true);
+        return path_is_valid_full(p, /* accept_dot_dot= */ true);
 }
 static inline bool path_is_safe(const char *p) {
-        return path_is_valid_full(p, false);
+        return path_is_valid_full(p, /* accept_dot_dot= */ false);
 }
 bool path_is_normalized(const char *p) _pure_;
 
@@ -182,8 +179,6 @@ bool is_device_path(const char *path);
 
 bool valid_device_node_path(const char *path);
 bool valid_device_allow_pattern(const char *path);
-
-int systemd_installation_has_version(const char *root, unsigned minimal_version);
 
 bool dot_or_dot_dot(const char *path);
 
@@ -204,3 +199,5 @@ static inline const char *empty_to_root(const char *path) {
 
 bool path_strv_contains(char **l, const char *path);
 bool prefixed_path_strv_contains(char **l, const char *path);
+
+int path_glob_can_match(const char *pattern, const char *prefix, char **ret);

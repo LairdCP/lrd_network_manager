@@ -8,8 +8,8 @@ libcrbtree_deps = [
         dep_cstdaux,
 ]
 
-libcrbtree_private = static_library(
-        'crbtree-private',
+libcrbtree_both = both_libraries(
+        'crbtree-'+major,
         [
                 'c-rbtree.c',
         ],
@@ -18,26 +18,18 @@ libcrbtree_private = static_library(
                 '-fno-common',
         ],
         dependencies: libcrbtree_deps,
-        pic: true,
-)
-
-libcrbtree_shared = shared_library(
-        'crbtree',
-        objects: libcrbtree_private.extract_all_objects(),
-        dependencies: libcrbtree_deps,
         install: not meson.is_subproject(),
-        soversion: 0,
-        link_depends: libcrbtree_symfile,
-        link_args: [
-                '-Wl,--no-undefined',
+        link_args: dep_cstdaux.get_variable('version-scripts') == 'yes' ? [
                 '-Wl,--version-script=@0@'.format(libcrbtree_symfile),
-        ],
+        ] : [],
+        link_depends: libcrbtree_symfile,
+        soversion: 0,
 )
 
 libcrbtree_dep = declare_dependency(
-        include_directories: include_directories('.'),
-        link_with: libcrbtree_private,
         dependencies: libcrbtree_deps,
+        include_directories: include_directories('.'),
+        link_with: libcrbtree_both.get_static_lib(),
         version: meson.project_version(),
 )
 
@@ -45,11 +37,11 @@ if not meson.is_subproject()
         install_headers('c-rbtree.h')
 
         mod_pkgconfig.generate(
-                libraries: libcrbtree_shared,
-                version: meson.project_version(),
-                name: 'libcrbtree',
-                filebase: 'libcrbtree',
                 description: project_description,
+                filebase: 'libcrbtree-'+major,
+                libraries: libcrbtree_both.get_shared_lib(),
+                name: 'libcrbtree',
+                version: meson.project_version(),
         )
 endif
 
@@ -57,7 +49,7 @@ endif
 # target: test-*
 #
 
-test_api = executable('test-api', ['test-api.c'], link_with: libcrbtree_shared)
+test_api = executable('test-api', ['test-api.c'], link_with: libcrbtree_both.get_shared_lib())
 test('API Symbol Visibility', test_api)
 
 test_basic = executable('test-basic', ['test-basic.c'], dependencies: libcrbtree_dep)
@@ -69,8 +61,10 @@ test('Generic Map', test_map)
 test_misc = executable('test-misc', ['test-misc.c'], dependencies: libcrbtree_dep)
 test('Miscellaneous', test_misc)
 
-test_parallel = executable('test-parallel', ['test-parallel.c'], dependencies: libcrbtree_dep)
-test('Lockless Parallel Readers', test_parallel)
+if use_ptrace
+        test_parallel = executable('test-parallel', ['test-parallel.c'], dependencies: libcrbtree_dep)
+        test('Lockless Parallel Readers', test_parallel)
 
-test_posix = executable('test-posix', ['test-posix.c'], dependencies: libcrbtree_dep)
-test('Posix tsearch(3p) Comparison', test_posix)
+        test_posix = executable('test-posix', ['test-posix.c'], dependencies: libcrbtree_dep)
+        test('Posix tsearch(3p) Comparison', test_posix)
+endif

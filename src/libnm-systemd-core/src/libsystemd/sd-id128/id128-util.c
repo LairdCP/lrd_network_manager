@@ -15,29 +15,6 @@
 #include "sync-util.h"
 
 #if 0 /* NM_IGNORED */
-char *id128_to_uuid_string(sd_id128_t id, char s[static ID128_UUID_STRING_MAX]) {
-        unsigned n, k = 0;
-
-        assert(s);
-
-        /* Similar to sd_id128_to_string() but formats the result as UUID instead of plain hex chars */
-
-        for (n = 0; n < 16; n++) {
-
-                if (IN_SET(n, 4, 6, 8, 10))
-                        s[k++] = '-';
-
-                s[k++] = hexchar(id.bytes[n] >> 4);
-                s[k++] = hexchar(id.bytes[n] & 0xF);
-        }
-
-        assert(k == 36);
-
-        s[k] = 0;
-
-        return s;
-}
-
 bool id128_is_valid(const char *s) {
         size_t i, l;
 
@@ -51,9 +28,9 @@ bool id128_is_valid(const char *s) {
                 for (i = 0; i < l; i++) {
                         char c = s[i];
 
-                        if (!(c >= '0' && c <= '9') &&
-                            !(c >= 'a' && c <= 'z') &&
-                            !(c >= 'A' && c <= 'Z'))
+                        if (!ascii_isdigit(c) &&
+                            !(c >= 'a' && c <= 'f') &&
+                            !(c >= 'A' && c <= 'F'))
                                 return false;
                 }
 
@@ -68,9 +45,9 @@ bool id128_is_valid(const char *s) {
                                 if (c != '-')
                                         return false;
                         } else {
-                                if (!(c >= '0' && c <= '9') &&
-                                    !(c >= 'a' && c <= 'z') &&
-                                    !(c >= 'A' && c <= 'Z'))
+                                if (!ascii_isdigit(c) &&
+                                    !(c >= 'a' && c <= 'f') &&
+                                    !(c >= 'A' && c <= 'F'))
                                         return false;
                         }
                 }
@@ -158,13 +135,13 @@ int id128_write_fd(int fd, Id128Format f, sd_id128_t id, bool do_sync) {
         assert(f < _ID128_FORMAT_MAX);
 
         if (f != ID128_UUID) {
-                sd_id128_to_string(id, buffer);
-                buffer[32] = '\n';
-                sz = 33;
+                assert_se(sd_id128_to_string(id, buffer));
+                buffer[SD_ID128_STRING_MAX - 1] = '\n';
+                sz = SD_ID128_STRING_MAX;
         } else {
-                id128_to_uuid_string(id, buffer);
-                buffer[36] = '\n';
-                sz = 37;
+                assert_se(sd_id128_to_uuid_string(id, buffer));
+                buffer[SD_ID128_UUID_STRING_MAX - 1] = '\n';
+                sz = SD_ID128_UUID_STRING_MAX;
         }
 
         r = loop_write(fd, buffer, sz, false);

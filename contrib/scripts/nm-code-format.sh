@@ -47,27 +47,42 @@ FILES=()
 HAS_EXPLICIT_FILES=0
 SHOW_FILENAMES=0
 TEST_ONLY=0
+CHECK_UPSTREAM=
 
 usage() {
     printf "Usage: %s [OPTION]... [FILE]...\n" "$(basename "$0")"
     printf "Reformat source files using NetworkManager's code-style.\n\n"
     printf "If no file is given the script runs on the whole codebase.\n"
-    printf "If no flag is given no file is touch but errors are reported.\n\n"
     printf "OPTIONS:\n"
-    printf "    -i                 Reformat files (this is the default)\n"
-    printf "    -n|--dry-run       Only check the files (contrary to \"-i\")\n"
-    printf "    -h                 Print this help message\n"
+    printf "    -h                 Print this help message.\n"
+    printf "    -i                 Reformat files (the default).\n"
+    printf "    -n|--dry-run       Only check the files (contrary to \"-i\").\n"
+    printf "    -a|--all           Check all files (the default).\n"
+    printf "    -u|--upstream COMMIT Check only files from \`git diff --name-only COMMIT\` (contrary to \"-a\").\n"
+    printf "                       This also affects directories given in the [FILE] list, but not files.\n"
+    printf "                       If this is the last parameter and COMMIT is unspecified/empty, it defaults to \"main\".\n"
+    printf "    -F|--fast          Same as \`-u HEAD^\`.\n"
     printf "    --show-filenames   Only print the filenames that would be checked/formatted\n"
     printf "    --                 Separate options from filenames/directories\n"
 }
 
-g_ls_files() {
+ls_files_exist() {
     local OLD_IFS="$IFS"
-    local pattern="$1"
-    shift
+    local f
 
     IFS=$'\n'
-    for f in $(git ls-files -- "$pattern") ; do
+    for f in $(cat) ; do
+        test -f "$f" && printf '%s\n' "$f"
+    done
+    IFS="$OLD_IFS"
+}
+
+ls_files_filter() {
+    local OLD_IFS="$IFS"
+    local f
+
+    IFS=$'\n'
+    for f in $(cat) ; do
         local found=1
         local p
         for p; do
@@ -77,6 +92,18 @@ g_ls_files() {
         test -n "$found" && printf '%s\n' "$f"
     done
     IFS="$OLD_IFS"
+}
+
+g_ls_files() {
+    local pattern="$1"
+    shift
+
+    if [ -z "$CHECK_UPSTREAM" ]; then
+        git ls-files -- "$pattern"
+    else
+        git diff --no-renames --name-only "$CHECK_UPSTREAM" -- "$pattern" \
+            | ls_files_exist
+    fi | ls_files_filter "$@"
 }
 
 HAD_DASHDASH=0
@@ -89,6 +116,23 @@ while (( $# )); do
                 ;;
             --show-filenames)
                 SHOW_FILENAMES=1
+                shift
+                continue
+                ;;
+            -a|--all)
+                CHECK_UPSTREAM=
+                shift
+                continue
+                ;;
+            -u|--upstream)
+                shift
+                CHECK_UPSTREAM="$1"
+                test -n "$CHECK_UPSTREAM" || CHECK_UPSTREAM=main
+                shift || :
+                continue
+                ;;
+            -F|--fast)
+                CHECK_UPSTREAM='HEAD^'
                 shift
                 continue
                 ;;
@@ -112,7 +156,7 @@ while (( $# )); do
     if [ -d "$1" ]; then
         while IFS='' read -r line;
             do FILES+=("$line")
-        done < <(g_ls_files "${1}/*.[hc]" "${EXCLUDE_PATHS[@]}")
+        done < <(CHECK_UPSTREAM="$CHECK_UPSTREAM" g_ls_files "${1}/*.[hc]" "${EXCLUDE_PATHS[@]}")
     elif [ -f "$1" ]; then
         FILES+=("$1")
     else
@@ -127,16 +171,21 @@ done
 if [ $HAS_EXPLICIT_FILES = 0 ]; then
     while IFS='' read -r line; do
         FILES+=("$line")
-    done < <(g_ls_files '*.[ch]' "${EXCLUDE_PATHS[@]}")
+    done < <(CHECK_UPSTREAM="$CHECK_UPSTREAM" g_ls_files '*.[ch]' "${EXCLUDE_PATHS[@]}")
 fi
 
 if [ $SHOW_FILENAMES = 1 ]; then
-    printf '%s\n' "${FILES[@]}"
+    for f in "${FILES[@]}" ; do
+        printf '%s\n' "$f"
+    done
     exit 0
 fi
 
 if [ "${#FILES[@]}" = 0 ]; then
-    die "Error: no files to check"
+    if [ -z "$CHECK_UPSTREAM" ]; then
+        die "Error: no files to check"
+    fi
+    exit 0
 fi
 
 FLAGS_TEST=( --Werror -n --ferror-limit=1 )

@@ -3,11 +3,17 @@
 ########################################
 #                                      #
 # THIS FILE IS GENERATED, DO NOT EDIT  #
+# Edit .gitlab-ci/ci.template instead  #
 #                                      #
+# Regenerate with:
+#   TEMPLATE_SHA="$(sed -n 's/^.templates_sha: *\&template_sha *\([0-9a-f]\+\) .*/\1/p' ./.gitlab-ci/ci.template)"
+#   pip3 install "git+http://gitlab.freedesktop.org/freedesktop/ci-templates@$TEMPLATE_SHA"
+#   ci-fairy generate-template
+#
 ########################################
 
 
-.templates_sha: &template_sha 14731f78c23c7b523a85a26a068ade9ac1ecd2f3 # see https://docs.gitlab.com/ee/ci/yaml/#includefile
+.templates_sha: &template_sha ffe4d1b10aab7534489f0c4bbc4c5899df17d3f2 # see https://docs.gitlab.com/ee/ci/yaml/#includefile
 
 include:
   # Alpine container builder template
@@ -45,13 +51,13 @@ variables:
   # changing these will force rebuilding the associated image
   # Note: these tags have no meaning and are not tied to a particular NM version
   #
-  # This is done by running `ci-fairy generate-template` and possibly bump
+  # This is done by running `ci-fairy generate-template` and possibly bumping
   # ".default_tag".
-  FEDORA_TAG:  '2021-11-09.0-9dd1e1db773a'
-  UBUNTU_TAG:  '2021-11-09.0-577176f5eb6c'
-  DEBIAN_TAG:  '2021-11-09.0-577176f5eb6c'
-  CENTOS_TAG:  '2021-11-09.0-9dd1e1db773a'
-  ALPINE_TAG:  '2021-11-09.0-a28badea28eb'
+  FEDORA_TAG:  '2023-01-18.0-503dba0518ae'
+  UBUNTU_TAG:  '2023-01-18.0-1218be1cbc9d'
+  DEBIAN_TAG:  '2023-01-18.0-1218be1cbc9d'
+  CENTOS_TAG:  '2023-01-18.0-503dba0518ae'
+  ALPINE_TAG:  '2023-01-18.0-14c807942fa4'
 
   FEDORA_EXEC: 'bash .gitlab-ci/fedora-install.sh'
   UBUNTU_EXEC: 'bash .gitlab-ci/debian-install.sh'
@@ -63,17 +69,20 @@ variables:
   variables:
     NM_BUILD_TARBALL: 1
   artifacts:
-    expire_in: 2 days
+    expire_in: 5 days
+    when: always
     paths:
       - docs-html
       - NetworkManager-1*.tar.xz
       - NetworkManager-1*.src.rpm
+      - nm-test.log
 
-.nm_artifacts_undo:
-  variables:
-    NM_BUILD_TARBALL: 0
+.nm_artifacts_debug:
   artifacts:
-    paths: []
+    expire_in: 5 days
+    when: always
+    paths:
+      - nm-test.log
 
 #################################################################
 #                                                               #
@@ -154,15 +163,25 @@ fedora:36@container-prep:
     FDO_DISTRIBUTION_TAG: $FEDORA_TAG
     FDO_DISTRIBUTION_EXEC: $FEDORA_EXEC
 
-ubuntu:16.04@container-prep:
+fedora:37@container-prep:
   extends:
-    - .fdo.container-build@ubuntu
+    - .fdo.container-build@fedora
   stage: prep
   variables:
     GIT_STRATEGY: none
-    FDO_DISTRIBUTION_VERSION: '16.04'
-    FDO_DISTRIBUTION_TAG: $UBUNTU_TAG
-    FDO_DISTRIBUTION_EXEC: $UBUNTU_EXEC
+    FDO_DISTRIBUTION_VERSION: '37'
+    FDO_DISTRIBUTION_TAG: $FEDORA_TAG
+    FDO_DISTRIBUTION_EXEC: $FEDORA_EXEC
+
+fedora:38@container-prep:
+  extends:
+    - .fdo.container-build@fedora
+  stage: prep
+  variables:
+    GIT_STRATEGY: none
+    FDO_DISTRIBUTION_VERSION: '38'
+    FDO_DISTRIBUTION_TAG: $FEDORA_TAG
+    FDO_DISTRIBUTION_EXEC: $FEDORA_EXEC
 
 ubuntu:18.04@container-prep:
   extends:
@@ -181,6 +200,16 @@ ubuntu:20.04@container-prep:
   variables:
     GIT_STRATEGY: none
     FDO_DISTRIBUTION_VERSION: '20.04'
+    FDO_DISTRIBUTION_TAG: $UBUNTU_TAG
+    FDO_DISTRIBUTION_EXEC: $UBUNTU_EXEC
+
+ubuntu:22.04@container-prep:
+  extends:
+    - .fdo.container-build@ubuntu
+  stage: prep
+  variables:
+    GIT_STRATEGY: none
+    FDO_DISTRIBUTION_VERSION: '22.04'
     FDO_DISTRIBUTION_TAG: $UBUNTU_TAG
     FDO_DISTRIBUTION_EXEC: $UBUNTU_EXEC
 
@@ -441,14 +470,23 @@ fedora:36@container-clean:
     FDO_DISTRIBUTION_VERSION: '36'
     FDO_DISTRIBUTION_TAG: $FEDORA_TAG
 
-ubuntu:16.04@container-clean:
+fedora:37@container-clean:
   extends:
     - .container-clean
   variables:
     GIT_STRATEGY: none
-    CURRENT_CONTAINER_IMAGE: $CI_REGISTRY_IMAGE/ubuntu/$FDO_DISTRIBUTION_VERSION:$FDO_DISTRIBUTION_TAG
-    FDO_DISTRIBUTION_VERSION: '16.04'
-    FDO_DISTRIBUTION_TAG: $UBUNTU_TAG
+    CURRENT_CONTAINER_IMAGE: $CI_REGISTRY_IMAGE/fedora/$FDO_DISTRIBUTION_VERSION:$FDO_DISTRIBUTION_TAG
+    FDO_DISTRIBUTION_VERSION: '37'
+    FDO_DISTRIBUTION_TAG: $FEDORA_TAG
+
+fedora:38@container-clean:
+  extends:
+    - .container-clean
+  variables:
+    GIT_STRATEGY: none
+    CURRENT_CONTAINER_IMAGE: $CI_REGISTRY_IMAGE/fedora/$FDO_DISTRIBUTION_VERSION:$FDO_DISTRIBUTION_TAG
+    FDO_DISTRIBUTION_VERSION: '38'
+    FDO_DISTRIBUTION_TAG: $FEDORA_TAG
 
 ubuntu:18.04@container-clean:
   extends:
@@ -466,6 +504,15 @@ ubuntu:20.04@container-clean:
     GIT_STRATEGY: none
     CURRENT_CONTAINER_IMAGE: $CI_REGISTRY_IMAGE/ubuntu/$FDO_DISTRIBUTION_VERSION:$FDO_DISTRIBUTION_TAG
     FDO_DISTRIBUTION_VERSION: '20.04'
+    FDO_DISTRIBUTION_TAG: $UBUNTU_TAG
+
+ubuntu:22.04@container-clean:
+  extends:
+    - .container-clean
+  variables:
+    GIT_STRATEGY: none
+    CURRENT_CONTAINER_IMAGE: $CI_REGISTRY_IMAGE/ubuntu/$FDO_DISTRIBUTION_VERSION:$FDO_DISTRIBUTION_TAG
+    FDO_DISTRIBUTION_VERSION: '22.04'
     FDO_DISTRIBUTION_TAG: $UBUNTU_TAG
 
 ubuntu:devel@container-clean:
@@ -622,8 +669,13 @@ alpine:latest@container-clean:
 .build@template:
   stage: test
   script:
-    - .gitlab-ci/build.sh
+    - env
+    - r=0
+    - .gitlab-ci/run-test.sh 2>&1 | tee /tmp/nm-test.log || r=$?
+    - mv /tmp/nm-test.log .
+    - exit $r
   dependencies: []
+
 
 #################################################################
 #                                                               #
@@ -636,6 +688,7 @@ t_fedora:30:
   extends:
     - .build@template
     - .fdo.distribution-image@fedora
+    - .nm_artifacts_debug
   variables:
     FDO_DISTRIBUTION_VERSION: '30'
     FDO_DISTRIBUTION_TAG: $FEDORA_TAG
@@ -647,6 +700,7 @@ t_fedora:31:
   extends:
     - .build@template
     - .fdo.distribution-image@fedora
+    - .nm_artifacts_debug
   variables:
     FDO_DISTRIBUTION_VERSION: '31'
     FDO_DISTRIBUTION_TAG: $FEDORA_TAG
@@ -658,6 +712,7 @@ t_fedora:32:
   extends:
     - .build@template
     - .fdo.distribution-image@fedora
+    - .nm_artifacts_debug
   variables:
     FDO_DISTRIBUTION_VERSION: '32'
     FDO_DISTRIBUTION_TAG: $FEDORA_TAG
@@ -669,6 +724,7 @@ t_fedora:33:
   extends:
     - .build@template
     - .fdo.distribution-image@fedora
+    - .nm_artifacts_debug
   variables:
     FDO_DISTRIBUTION_VERSION: '33'
     FDO_DISTRIBUTION_TAG: $FEDORA_TAG
@@ -680,6 +736,7 @@ t_fedora:34:
   extends:
     - .build@template
     - .fdo.distribution-image@fedora
+    - .nm_artifacts_debug
   variables:
     FDO_DISTRIBUTION_VERSION: '34'
     FDO_DISTRIBUTION_TAG: $FEDORA_TAG
@@ -691,17 +748,19 @@ t_fedora:35:
   extends:
     - .build@template
     - .fdo.distribution-image@fedora
-    - .nm_artifacts
+    - .nm_artifacts_debug
   variables:
     FDO_DISTRIBUTION_VERSION: '35'
     FDO_DISTRIBUTION_TAG: $FEDORA_TAG
   needs:
     - "fedora:35@container-prep"
+  when: manual
 
 t_fedora:36:
   extends:
     - .build@template
     - .fdo.distribution-image@fedora
+    - .nm_artifacts_debug
   variables:
     FDO_DISTRIBUTION_VERSION: '36'
     FDO_DISTRIBUTION_TAG: $FEDORA_TAG
@@ -709,21 +768,34 @@ t_fedora:36:
     - "fedora:36@container-prep"
   when: manual
 
-t_ubuntu:16.04:
+t_fedora:37:
   extends:
     - .build@template
-    - .fdo.distribution-image@ubuntu
+    - .fdo.distribution-image@fedora
+    - .nm_artifacts
   variables:
-    FDO_DISTRIBUTION_VERSION: '16.04'
-    FDO_DISTRIBUTION_TAG: $UBUNTU_TAG
+    FDO_DISTRIBUTION_VERSION: '37'
+    FDO_DISTRIBUTION_TAG: $FEDORA_TAG
   needs:
-    - "ubuntu:16.04@container-prep"
+    - "fedora:37@container-prep"
+
+t_fedora:38:
+  extends:
+    - .build@template
+    - .fdo.distribution-image@fedora
+    - .nm_artifacts_debug
+  variables:
+    FDO_DISTRIBUTION_VERSION: '38'
+    FDO_DISTRIBUTION_TAG: $FEDORA_TAG
+  needs:
+    - "fedora:38@container-prep"
   when: manual
 
 t_ubuntu:18.04:
   extends:
     - .build@template
     - .fdo.distribution-image@ubuntu
+    - .nm_artifacts_debug
   variables:
     FDO_DISTRIBUTION_VERSION: '18.04'
     FDO_DISTRIBUTION_TAG: $UBUNTU_TAG
@@ -735,6 +807,7 @@ t_ubuntu:20.04:
   extends:
     - .build@template
     - .fdo.distribution-image@ubuntu
+    - .nm_artifacts_debug
   variables:
     FDO_DISTRIBUTION_VERSION: '20.04'
     FDO_DISTRIBUTION_TAG: $UBUNTU_TAG
@@ -742,10 +815,23 @@ t_ubuntu:20.04:
     - "ubuntu:20.04@container-prep"
   when: manual
 
+t_ubuntu:22.04:
+  extends:
+    - .build@template
+    - .fdo.distribution-image@ubuntu
+    - .nm_artifacts_debug
+  variables:
+    FDO_DISTRIBUTION_VERSION: '22.04'
+    FDO_DISTRIBUTION_TAG: $UBUNTU_TAG
+  needs:
+    - "ubuntu:22.04@container-prep"
+  when: manual
+
 t_ubuntu:devel:
   extends:
     - .build@template
     - .fdo.distribution-image@ubuntu
+    - .nm_artifacts_debug
   variables:
     FDO_DISTRIBUTION_VERSION: 'devel'
     FDO_DISTRIBUTION_TAG: $UBUNTU_TAG
@@ -757,6 +843,7 @@ t_ubuntu:rolling:
   extends:
     - .build@template
     - .fdo.distribution-image@ubuntu
+    - .nm_artifacts_debug
   variables:
     FDO_DISTRIBUTION_VERSION: 'rolling'
     FDO_DISTRIBUTION_TAG: $UBUNTU_TAG
@@ -768,6 +855,7 @@ t_debian:9:
   extends:
     - .build@template
     - .fdo.distribution-image@debian
+    - .nm_artifacts_debug
   variables:
     FDO_DISTRIBUTION_VERSION: '9'
     FDO_DISTRIBUTION_TAG: $DEBIAN_TAG
@@ -779,6 +867,7 @@ t_debian:10:
   extends:
     - .build@template
     - .fdo.distribution-image@debian
+    - .nm_artifacts_debug
   variables:
     FDO_DISTRIBUTION_VERSION: '10'
     FDO_DISTRIBUTION_TAG: $DEBIAN_TAG
@@ -790,6 +879,7 @@ t_debian:11:
   extends:
     - .build@template
     - .fdo.distribution-image@debian
+    - .nm_artifacts_debug
   variables:
     FDO_DISTRIBUTION_VERSION: '11'
     FDO_DISTRIBUTION_TAG: $DEBIAN_TAG
@@ -801,6 +891,7 @@ t_debian:testing:
   extends:
     - .build@template
     - .fdo.distribution-image@debian
+    - .nm_artifacts_debug
   variables:
     FDO_DISTRIBUTION_VERSION: 'testing'
     FDO_DISTRIBUTION_TAG: $DEBIAN_TAG
@@ -812,6 +903,7 @@ t_debian:sid:
   extends:
     - .build@template
     - .fdo.distribution-image@debian
+    - .nm_artifacts_debug
   variables:
     FDO_DISTRIBUTION_VERSION: 'sid'
     FDO_DISTRIBUTION_TAG: $DEBIAN_TAG
@@ -823,6 +915,7 @@ t_centos:7.5.1804:
   extends:
     - .build@template
     - .fdo.distribution-image@centos
+    - .nm_artifacts_debug
   variables:
     FDO_DISTRIBUTION_VERSION: '7.5.1804'
     FDO_DISTRIBUTION_TAG: $CENTOS_TAG
@@ -834,6 +927,7 @@ t_centos:7.6.1810:
   extends:
     - .build@template
     - .fdo.distribution-image@centos
+    - .nm_artifacts_debug
   variables:
     FDO_DISTRIBUTION_VERSION: '7.6.1810'
     FDO_DISTRIBUTION_TAG: $CENTOS_TAG
@@ -845,6 +939,7 @@ t_centos:7.7.1908:
   extends:
     - .build@template
     - .fdo.distribution-image@centos
+    - .nm_artifacts_debug
   variables:
     FDO_DISTRIBUTION_VERSION: '7.7.1908'
     FDO_DISTRIBUTION_TAG: $CENTOS_TAG
@@ -856,6 +951,7 @@ t_centos:7.8.2003:
   extends:
     - .build@template
     - .fdo.distribution-image@centos
+    - .nm_artifacts_debug
   variables:
     FDO_DISTRIBUTION_VERSION: '7.8.2003'
     FDO_DISTRIBUTION_TAG: $CENTOS_TAG
@@ -867,6 +963,7 @@ t_centos:7.9.2009:
   extends:
     - .build@template
     - .fdo.distribution-image@centos
+    - .nm_artifacts_debug
   variables:
     FDO_DISTRIBUTION_VERSION: '7.9.2009'
     FDO_DISTRIBUTION_TAG: $CENTOS_TAG
@@ -878,6 +975,7 @@ t_centos:8.1.1911:
   extends:
     - .build@template
     - .fdo.distribution-image@centos
+    - .nm_artifacts_debug
   variables:
     FDO_DISTRIBUTION_VERSION: '8.1.1911'
     FDO_DISTRIBUTION_TAG: $CENTOS_TAG
@@ -889,6 +987,7 @@ t_centos:8.2.2004:
   extends:
     - .build@template
     - .fdo.distribution-image@centos
+    - .nm_artifacts_debug
   variables:
     FDO_DISTRIBUTION_VERSION: '8.2.2004'
     FDO_DISTRIBUTION_TAG: $CENTOS_TAG
@@ -900,6 +999,7 @@ t_centos:8.3.2011:
   extends:
     - .build@template
     - .fdo.distribution-image@centos
+    - .nm_artifacts_debug
   variables:
     FDO_DISTRIBUTION_VERSION: '8.3.2011'
     FDO_DISTRIBUTION_TAG: $CENTOS_TAG
@@ -911,6 +1011,7 @@ t_alpine:latest:
   extends:
     - .build@template
     - .fdo.distribution-image@alpine
+    - .nm_artifacts_debug
   variables:
     FDO_DISTRIBUTION_VERSION: 'latest'
     FDO_DISTRIBUTION_TAG: $ALPINE_TAG
@@ -926,8 +1027,12 @@ t_alpine:latest:
 
 check-patch:
   extends:
-   - t_fedora:35
-   - .nm_artifacts_undo
+    - .fdo.distribution-image@fedora
+  variables:
+    FDO_DISTRIBUTION_VERSION: '37'
+    FDO_DISTRIBUTION_TAG: $FEDORA_TAG
+  needs:
+    - "fedora:37@container-prep"
   stage: test
   script:
     - date '+%Y%m%d-%H%M%S'; NM_CHECKPATCH_FETCH_UPSTREAM=1 contrib/scripts/checkpatch-feature-branch.sh
@@ -935,11 +1040,15 @@ check-patch:
 
 check-tree:
   extends:
-   - t_fedora:35
-   - .nm_artifacts_undo
+    - .fdo.distribution-image@fedora
+  variables:
+    FDO_DISTRIBUTION_VERSION: '37'
+    FDO_DISTRIBUTION_TAG: $FEDORA_TAG
+  needs:
+    - "fedora:37@container-prep"
   stage: test
   script:
-    - date '+%Y%m%d-%H%M%S'; black --check . examples/python/gi/nm-wg-set
+    - date '+%Y%m%d-%H%M%S'; contrib/scripts/nm-python-black-format.sh --check
     - date '+%Y%m%d-%H%M%S'; git ls-files -z -- 'po/*.po' | xargs -0 -n1 msgfmt -vc
     - date '+%Y%m%d-%H%M%S'; contrib/scripts/nm-code-format.sh -n
     - date '+%Y%m%d-%H%M%S'; ci-fairy generate-template && git diff --exit-code
@@ -955,9 +1064,9 @@ pages:
   only:
     - main
   dependencies:
-    - t_fedora:35
+    - t_fedora:37
   needs:
-    - t_fedora:35
+    - t_fedora:37
 
 triage:issues:
   stage: triage

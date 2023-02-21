@@ -58,7 +58,7 @@ G_STATIC_ASSERT(sizeof(NMUtilsTestFlags) <= sizeof(int));
 static int _nm_utils_testing = 0;
 
 gboolean
-nm_utils_get_testing_initialized()
+nm_utils_get_testing_initialized(void)
 {
     NMUtilsTestFlags flags;
 
@@ -69,7 +69,7 @@ nm_utils_get_testing_initialized()
 }
 
 NMUtilsTestFlags
-nm_utils_get_testing()
+nm_utils_get_testing(void)
 {
     NMUtilsTestFlags flags;
 
@@ -2333,14 +2333,14 @@ nm_utils_log_connection_diff(NMConnection *connection,
 
     for (i = 0; i < sorted_hashes->len; i++) {
         LogConnectionSettingData *setting_data =
-            &g_array_index(sorted_hashes, LogConnectionSettingData, i);
+            &nm_g_array_index(sorted_hashes, LogConnectionSettingData, i);
 
         _log_connection_sort_names(setting_data, sorted_names);
         print_setting_header = TRUE;
         for (j = 0; j < sorted_names->len; j++) {
             char                     *str_conn, *str_diff;
             LogConnectionSettingItem *item =
-                &g_array_index(sorted_names, LogConnectionSettingItem, j);
+                &nm_g_array_index(sorted_names, LogConnectionSettingItem, j);
 
             str_conn = (item->diff_result & NM_SETTING_DIFF_RESULT_IN_A)
                            ? _log_connection_get_property(setting_data->setting, item->item_name)
@@ -2692,8 +2692,9 @@ _host_id_read_timestamp(gboolean      use_secret_key_file,
      * timestamp. It is wrong to worry about using a fake timestamp (which is tied to
      * the secret_key) if we are unable to access the secret_key file in the first place.
      *
-     * Pick a random timestamp from the past two years. Yes, this timestamp
-     * is not stable across restarts, but apparently neither is the host-id
+     * Pick a timestamp from the past two years, by using a generated timespan
+     * by hashing the host-id. Yes, this timestamp counts back from @now, and is
+     * thus not stable across restarts. But apparently neither is the host-id
      * nor the secret_key itself. */
 
 #define EPOCH_TWO_YEARS (G_GINT64_CONSTANT(2 * 365 * 24 * 3600) * NM_UTILS_NSEC_PER_SEC)
@@ -2716,11 +2717,17 @@ _host_id_hash_v2(const guint8 *seed_arr,
     const UuidData                  *machine_id_data;
     char                             slen[100];
 
-    /*
-        (stat -c '%s' /var/lib/NetworkManager/secret_key;
-         echo -n ' ';
-         cat /var/lib/NetworkManager/secret_key;
-         cat /etc/machine-id | tr -d '\n' | sed -n 's/[a-f0-9-]/\0/pg') | sha256sum
+    /* The following snippet generates the same (binary) host-id:
+
+        (
+          stat -c '%s' /var/lib/NetworkManager/secret_key | tr -d '\n';
+          echo -n ' ';
+          cat /var/lib/NetworkManager/secret_key;
+          cat /etc/machine-id | tr -d '\n' | sed -n 's/[a-f0-9-]/\0/pg'
+        ) \
+        | sha256sum \
+        | awk '{print $1}' \
+        | xxd -r -p
     */
 
     nm_sprintf_buf(slen, "%" G_GSIZE_FORMAT " ", seed_len);
@@ -2813,7 +2820,10 @@ _host_id_read(guint8 **out_host_id, gsize *out_host_id_len)
         int    base64_save  = 0;
         gsize  len;
 
-        success = nm_utils_random_bytes(rnd_buf, sizeof(rnd_buf));
+        if (nm_random_get_crypto_bytes(rnd_buf, sizeof(rnd_buf)) < 0)
+            nm_random_get_bytes_full(rnd_buf, sizeof(rnd_buf), &success);
+        else
+            success = TRUE;
 
         /* Our key is really binary data. But since we anyway generate a random seed
          * (with 32 random bytes), don't write it in binary, but instead create
@@ -2874,9 +2884,15 @@ out:
 typedef struct {
     guint8 *host_id;
     gsize   host_id_len;
-    gint64  timestamp_ns;
-    bool    is_good : 1;
-    bool    timestamp_is_good : 1;
+
+    /* The timestamp (in nsec since the Epoch) returned by nm_utils_host_id_get_timestamp_nsec().
+     * It is associated with the host (and the host-id). We currently use this for the LLT DUID
+     * generation for IPv6. Instead of persisting the timestamp separately to disk, we re-use the
+     * file timestamp of the secret_key file. */
+    gint64 timestamp_nsec;
+
+    bool is_good : 1;
+    bool timestamp_is_good : 1;
 } HostIdData;
 
 static const HostIdData *volatile host_id_static;
@@ -2900,7 +2916,7 @@ again:
         host_id_data.timestamp_is_good = _host_id_read_timestamp(host_id_data.is_good,
                                                                  host_id_data.host_id,
                                                                  host_id_data.host_id_len,
-                                                                 &host_id_data.timestamp_ns);
+                                                                 &host_id_data.timestamp_nsec);
         if (!host_id_data.timestamp_is_good && host_id_data.is_good)
             nm_log_warn(LOGD_CORE, "secret-key: failure reading host timestamp (use fake one)");
 
@@ -2939,9 +2955,9 @@ nm_utils_host_id_get(const guint8 **out_host_id, gsize *out_host_id_len)
 }
 
 gint64
-nm_utils_host_id_get_timestamp_ns(void)
+nm_utils_host_id_get_timestamp_nsec(void)
 {
-    return _host_id_get()->timestamp_ns;
+    return _host_id_get()->timestamp_nsec;
 }
 
 static GArray    *nmtst_host_id_stack = NULL;
@@ -2952,7 +2968,7 @@ void
 nmtst_utils_host_id_push(const guint8 *host_id,
                          gssize        host_id_len,
                          gboolean      is_good,
-                         const gint64 *timestamp_ns)
+                         const gint64 *p_timestamp_nsec)
 {
     NM_G_MUTEX_LOCKED(&nmtst_host_id_lock);
     gs_free char *str1_to_free = NULL;
@@ -2971,8 +2987,8 @@ nmtst_utils_host_id_push(const guint8 *host_id,
                                             &str1_to_free),
                (gsize) host_id_len,
                !!is_good,
-               timestamp_ns ? *timestamp_ns : 0,
-               timestamp_ns ? "" : " (not-good)");
+               p_timestamp_nsec ? *p_timestamp_nsec : 0,
+               p_timestamp_nsec ? "" : " (not-good)");
 
     if (!nmtst_host_id_stack) {
         nmtst_host_id_stack    = g_array_new(FALSE, FALSE, sizeof(HostIdData));
@@ -2984,9 +3000,9 @@ nmtst_utils_host_id_push(const guint8 *host_id,
     *h = (HostIdData){
         .host_id           = nm_memdup(host_id, host_id_len),
         .host_id_len       = host_id_len,
-        .timestamp_ns      = timestamp_ns ? *timestamp_ns : 0,
+        .timestamp_nsec    = p_timestamp_nsec ? *p_timestamp_nsec : 0,
         .is_good           = is_good,
-        .timestamp_is_good = !!timestamp_ns,
+        .timestamp_is_good = !!p_timestamp_nsec,
     };
 
     g_atomic_pointer_set(&host_id_static, h);
@@ -3003,7 +3019,7 @@ nmtst_utils_host_id_pop(void)
 
     nm_log_dbg(LOGD_CORE, "nmtst: host-id pop");
 
-    h = &g_array_index(nmtst_host_id_stack, HostIdData, nmtst_host_id_stack->len - 1);
+    h = &nm_g_array_index(nmtst_host_id_stack, HostIdData, nmtst_host_id_stack->len - 1);
 
     g_free((char *) h->host_id);
     g_array_set_size(nmtst_host_id_stack, nmtst_host_id_stack->len - 1u);
@@ -3012,7 +3028,7 @@ nmtst_utils_host_id_pop(void)
             &host_id_static,
             h,
             nmtst_host_id_stack->len == 0u ? nmtst_host_id_static_0
-                                           : nm_g_array_last(nmtst_host_id_stack, HostIdData)))
+                                           : &nm_g_array_last(nmtst_host_id_stack, HostIdData)))
         g_assert_not_reached();
 }
 
@@ -3083,7 +3099,10 @@ again:
     if (G_UNLIKELY(!proc_cmdline)) {
         gs_free char *str = NULL;
 
-        g_file_get_contents("/proc/cmdline", &str, NULL, NULL);
+        /* /run/NetworkManager/proc-cmdline can be used to overrule /proc/cmdline. */
+        if (!g_file_get_contents(NMRUNDIR "/proc-cmdline", &str, NULL, NULL))
+            g_file_get_contents("/proc/cmdline", &str, NULL, NULL);
+
         str = nm_str_realloc(str);
 
         proc_cmdline = str ?: "";
@@ -3252,25 +3271,32 @@ nm_utils_get_ipv6_interface_identifier(NMLinkType          link_type,
          * making sure to set the 'u' bit to 1.  The GUID is the lower 64 bits
          * of the IPoIB interface's hardware address.
          */
-        g_return_val_if_fail(hwaddr_len == INFINIBAND_ALEN, FALSE);
-        memcpy(out_iid->id_u8, hwaddr + INFINIBAND_ALEN - 8, 8);
-        out_iid->id_u8[0] |= 0x02;
-        return TRUE;
+        if (hwaddr_len == INFINIBAND_ALEN) {
+            memcpy(out_iid->id_u8, hwaddr + INFINIBAND_ALEN - 8, 8);
+            out_iid->id_u8[0] |= 0x02;
+            return TRUE;
+        }
+        break;
     case NM_LINK_TYPE_GRE:
         /* Hardware address is the network-endian IPv4 address */
-        g_return_val_if_fail(hwaddr_len == 4, FALSE);
-        addr              = *(guint32 *) hwaddr;
-        out_iid->id_u8[0] = get_gre_eui64_u_bit(addr);
-        out_iid->id_u8[1] = 0x00;
-        out_iid->id_u8[2] = 0x5E;
-        out_iid->id_u8[3] = 0xFE;
-        memcpy(out_iid->id_u8 + 4, &addr, 4);
-        return TRUE;
+        if (hwaddr_len == 4) {
+            addr              = unaligned_read_ne32(hwaddr);
+            out_iid->id_u8[0] = get_gre_eui64_u_bit(addr);
+            out_iid->id_u8[1] = 0x00;
+            out_iid->id_u8[2] = 0x5E;
+            out_iid->id_u8[3] = 0xFE;
+            memcpy(out_iid->id_u8 + 4, &addr, 4);
+            return TRUE;
+        }
+        break;
     case NM_LINK_TYPE_6LOWPAN:
         /* The hardware address is already 64-bit. This is the case for
          * IEEE 802.15.4 networks. */
-        memcpy(out_iid->id_u8, hwaddr, sizeof(out_iid->id_u8));
-        return TRUE;
+        if (hwaddr_len == sizeof(out_iid->id_u8)) {
+            memcpy(out_iid->id_u8, hwaddr, sizeof(out_iid->id_u8));
+            return TRUE;
+        }
+        break;
     default:
         if (hwaddr_len == ETH_ALEN) {
             /* Translate 48-bit MAC address to a 64-bit Modified EUI-64.  See
@@ -3305,7 +3331,7 @@ nm_utils_stable_id_random(void)
 {
     char buf[15];
 
-    nm_utils_random_bytes(buf, sizeof(buf));
+    nm_random_get_bytes(buf, sizeof(buf));
     return g_base64_encode((guchar *) buf, sizeof(buf));
 }
 
@@ -3342,8 +3368,13 @@ nm_utils_stable_id_generated_complete(const char *stable_id_generated)
 static void
 _stable_id_append(GString *str, const char *substitution)
 {
-    if (!substitution)
+    if (!substitution) {
+        /* Would have been nicer to append "=NIL;" to differentiate between
+         * empty and NULL.
+         *
+         * Can't do that now, as it would change behavior. */
         substitution = "";
+    }
     g_string_append_printf(str, "=%zu{%s}", strlen(substitution), substitution);
 }
 
@@ -3413,7 +3444,7 @@ nm_utils_stable_id_parse(const char *stable_id,
     ({                                                                        \
         gboolean _match = FALSE;                                              \
                                                                               \
-        if (g_str_has_prefix(&stable_id[i], "" prefix "")) {                  \
+        if (NM_STR_HAS_PREFIX(&stable_id[i], "" prefix "")) {                 \
             _match = TRUE;                                                    \
             if (!str)                                                         \
                 str = g_string_sized_new(256);                                \
@@ -3671,7 +3702,7 @@ nm_utils_hw_addr_gen_random_eth(const char *current_mac_address,
 {
     struct ether_addr bin_addr;
 
-    nm_utils_random_bytes(&bin_addr, ETH_ALEN);
+    nm_random_get_bytes(&bin_addr, ETH_ALEN);
     _hw_addr_eth_complete(&bin_addr, current_mac_address, generate_mac_address_mask);
     return nm_utils_hwaddr_ntoa(&bin_addr, ETH_ALEN);
 }
@@ -3839,7 +3870,7 @@ nm_utils_dhcp_client_id_duid(guint32 iaid, const guint8 *duid, gsize duid_len)
         guint8  type;
         guint32 iaid;
         guint8  duid[];
-    } * client_id;
+    }    *client_id;
     gsize total_size;
 
     /* the @duid must include the 16 bit duid-type and the data (of max 128 bytes). */
@@ -3889,7 +3920,7 @@ nm_utils_dhcp_client_id_systemd_node_specific_full(guint32       iaid,
                 } en;
             };
         } duid;
-    } * client_id;
+    }      *client_id;
     guint64 u64;
 
     g_return_val_if_fail(machine_id, NULL);
@@ -4168,7 +4199,7 @@ nm_utils_get_reverse_dns_domains_ip_6(const struct in6_addr *ip, guint8 plen, GP
         return;
 
     memcpy(&addr, ip, sizeof(struct in6_addr));
-    nm_utils_ip6_address_clear_host_address(&addr, NULL, plen);
+    nm_ip6_addr_clear_host_address(&addr, NULL, plen);
 
     /* Number of nibbles to include in domains */
     nibbles = (plen - 1) / 4 + 1;
@@ -4313,7 +4344,7 @@ skip:
 
     result = g_new(char *, paths->len + 1);
     for (i = 0; i < paths->len; i++)
-        result[i] = g_array_index(paths, struct plugin_info, i).path;
+        result[i] = nm_g_array_index(paths, struct plugin_info, i).path;
     result[i] = NULL;
 
     g_array_free(paths, TRUE);
@@ -5101,7 +5132,7 @@ nm_utils_spawn_helper(const char *const  *args,
     fcntl(info->child_stdout, F_SETFL, fd_flags | O_NONBLOCK);
 
     /* Watch process stdin */
-    nm_str_buf_init(&info->out_buffer, 32, TRUE);
+    info->out_buffer = NM_STR_BUF_INIT(32, TRUE);
     for (arg = args; *arg; arg++) {
         nm_str_buf_append(&info->out_buffer, *arg);
         nm_str_buf_append_c(&info->out_buffer, '\0');
@@ -5115,7 +5146,7 @@ nm_utils_spawn_helper(const char *const  *args,
     g_source_attach(info->output_source, g_main_context_get_thread_default());
 
     /* Watch process stdout */
-    nm_str_buf_init(&info->in_buffer, NM_UTILS_GET_NEXT_REALLOC_SIZE_1000, FALSE);
+    info->in_buffer    = NM_STR_BUF_INIT(NM_UTILS_GET_NEXT_REALLOC_SIZE_1000, FALSE);
     info->input_source = nm_g_unix_fd_source_new(info->child_stdout,
                                                  G_IO_IN | G_IO_ERR | G_IO_HUP,
                                                  G_PRIORITY_DEFAULT,
@@ -5200,4 +5231,51 @@ again:
     }
 
     return g;
+}
+
+/*****************************************************************************/
+
+/**
+ * nm_utils_shorten_hostname:
+ * @hostname: the input hostname
+ * @shortened: (out) (transfer full): on return, the shortened hostname
+ *
+ * Checks whether the input hostname is valid. If not, tries to shorten it
+ * to HOST_NAME_MAX (64) or to the first dot, whatever comes earlier.
+ * The new hostname is returned in @shortened.
+ *
+ * Returns: %TRUE if the input hostname was already valid or if was shortened
+ * successfully; %FALSE otherwise
+ */
+gboolean
+nm_utils_shorten_hostname(const char *hostname, char **shortened)
+{
+    gs_free char *s = NULL;
+    const char   *dot;
+    gsize         l;
+
+    nm_assert(hostname);
+    nm_assert(shortened);
+
+    if (nm_hostname_is_valid(hostname, FALSE)) {
+        *shortened = NULL;
+        return TRUE;
+    }
+
+    dot = strchr(hostname, '.');
+    if (dot)
+        l = (dot - hostname);
+    else
+        l = strlen(hostname);
+    l = MIN(l, (gsize) NM_HOST_NAME_MAX);
+
+    s = g_strndup(hostname, l);
+
+    if (!nm_hostname_is_valid(s, FALSE)) {
+        *shortened = NULL;
+        return FALSE;
+    }
+
+    *shortened = g_steal_pointer(&s);
+    return TRUE;
 }

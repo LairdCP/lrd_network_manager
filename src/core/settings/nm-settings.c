@@ -236,12 +236,16 @@ _sett_conn_entry_get_conn(SettConnEntry *sett_conn_entry)
  * update-connection. If this parameter is omitted, then it's about what happens
  * when adding a new profile (add-connection).
  *
+ * @storage_check_ignore is optional, and if given then it skips this particular
+ * storage.
+ *
  * Returns: the conflicting storage or %NULL if there is none.
  */
 static NMSettingsStorage *
 _sett_conn_entry_storage_find_conflicting_storage(SettConnEntry     *sett_conn_entry,
                                                   NMSettingsPlugin  *target_plugin,
                                                   NMSettingsStorage *storage_check_including,
+                                                  NMSettingsStorage *storage_check_ignore,
                                                   const GSList      *plugins)
 {
     StorageData *sd;
@@ -266,6 +270,12 @@ _sett_conn_entry_storage_find_conflicting_storage(SettConnEntry     *sett_conn_e
             /* We only consider storages with connection. In particular,
              * tombstones are not relevant, because we can delete them to
              * resolve the conflict. */
+            continue;
+        }
+
+        if (sd->storage == storage_check_ignore) {
+            /* We ignore this one, because we're in the process of
+             * replacing it. */
             continue;
         }
 
@@ -366,6 +376,8 @@ typedef struct {
 
     GHashTable *sce_idx;
 
+    GCancellable *shutdown_cancellable;
+
     CList sce_dirty_lst_head;
 
     CList connections_lst_head;
@@ -379,14 +391,14 @@ typedef struct {
     gint64      startup_complete_start_timestamp_msec;
     GHashTable *startup_complete_idx;
     CList       startup_complete_scd_lst_head;
-    guint       startup_complete_timeout_id;
+    GSource    *startup_complete_timeout_source;
+
+    GSource *kf_db_flush_idle_source_timestamps;
+    GSource *kf_db_flush_idle_source_seen_bssids;
 
     guint connections_len;
 
     guint connections_generation;
-
-    guint kf_db_flush_idle_id_timestamps;
-    guint kf_db_flush_idle_id_seen_bssids;
 
     bool kf_db_pruned_timestamps;
     bool kf_db_pruned_seen_bssid;
@@ -531,9 +543,9 @@ _startup_complete_timeout_cb(gpointer user_data)
     NMSettings        *self = user_data;
     NMSettingsPrivate *priv = NM_SETTINGS_GET_PRIVATE(self);
 
-    priv->startup_complete_timeout_id = 0;
+    nm_clear_g_source_inst(&priv->startup_complete_timeout_source);
     _startup_complete_check(self, 0);
-    return G_SOURCE_REMOVE;
+    return G_SOURCE_CONTINUE;
 }
 
 static void
@@ -556,6 +568,8 @@ _startup_complete_check(NMSettings *self, gint64 now_msec)
          * we are anyway blocking startup-complete. */
         return;
     }
+
+    nm_clear_g_source_inst(&priv->startup_complete_timeout_source);
 
     if (c_list_is_empty(&priv->startup_complete_scd_lst_head))
         goto ready;
@@ -592,15 +606,15 @@ next_with_ready:
     }
     c_list_splice(&priv->startup_complete_scd_lst_head, &ready_lst);
 
-    nm_clear_g_source(&priv->startup_complete_timeout_id);
-
     if (scd_not_ready) {
         gint64 timeout_msec;
 
         timeout_msec = priv->startup_complete_start_timestamp_msec + scd_not_ready->timeout_msec
                        - nm_utils_get_monotonic_timestamp_msec();
-        priv->startup_complete_timeout_id =
-            g_timeout_add(NM_CLAMP(0, timeout_msec, 60000), _startup_complete_timeout_cb, self);
+        priv->startup_complete_timeout_source =
+            nm_g_timeout_add_source(NM_CLAMP(0, timeout_msec, 60000),
+                                    _startup_complete_timeout_cb,
+                                    self);
         _LOGT("startup-complete: wait for suitable device for connection \"%s\" (%s) which has "
               "\"connection.wait-device-timeout\" set",
               nm_settings_connection_get_id(scd_not_ready->sett_conn),
@@ -627,7 +641,7 @@ ready:
     _LOGT("startup-complete: ready, no more profiles to wait for");
     priv->startup_complete_start_timestamp_msec = 0;
     nm_assert(!priv->startup_complete_idx);
-    nm_assert(priv->startup_complete_timeout_id == 0);
+    nm_assert(!priv->startup_complete_timeout_source);
     _notify(self, PROP_STARTUP_COMPLETE);
 }
 
@@ -1463,6 +1477,7 @@ _plugin_connections_reload(NMSettings *self)
 
 static gboolean
 _add_connection_to_first_plugin(NMSettings                  *self,
+                                const char                  *plugin_name,
                                 SettConnEntry               *sett_conn_entry,
                                 NMConnection                *new_connection,
                                 gboolean                     in_memory,
@@ -1471,12 +1486,14 @@ _add_connection_to_first_plugin(NMSettings                  *self,
                                 gboolean                     shadowed_owned,
                                 NMSettingsStorage          **out_new_storage,
                                 NMConnection               **out_new_connection,
+                                NMSettingsStorage           *drop_storage,
                                 GError                     **error)
 {
     NMSettingsPrivate    *priv        = NM_SETTINGS_GET_PRIVATE(self);
     gs_free_error GError *first_error = NULL;
     GSList               *iter;
     const char           *uuid;
+    gboolean              no_plugin = TRUE;
 
     uuid = nm_connection_get_uuid(new_connection);
 
@@ -1493,12 +1510,18 @@ _add_connection_to_first_plugin(NMSettings                  *self,
         gboolean                           success;
         const char                        *filename;
 
+        if (plugin_name && strcmp(plugin_name, nm_settings_plugin_get_plugin_name(plugin))) {
+            /* Not the plugin we're confined to. Ignore. */
+            continue;
+        }
+
         if (!in_memory) {
             NMSettingsStorage *conflicting_storage;
 
             conflicting_storage = _sett_conn_entry_storage_find_conflicting_storage(sett_conn_entry,
                                                                                     plugin,
                                                                                     NULL,
+                                                                                    drop_storage,
                                                                                     priv->plugins);
             if (conflicting_storage) {
                 /* we have a connection provided by a plugin with higher priority than the one
@@ -1545,6 +1568,8 @@ _add_connection_to_first_plugin(NMSettings                  *self,
                                                         &add_error);
         }
 
+        no_plugin = FALSE;
+
         if (!success) {
             _LOGT("add-connection: failed to add %s/'%s': %s",
                   nm_connection_get_uuid(new_connection),
@@ -1588,8 +1613,18 @@ _add_connection_to_first_plugin(NMSettings                  *self,
         return TRUE;
     }
 
-    nm_assert(first_error);
-    g_propagate_error(error, g_steal_pointer(&first_error));
+    if (no_plugin) {
+        nm_assert(plugin_name);
+        nm_assert(!first_error);
+        g_set_error(error,
+                    NM_SETTINGS_ERROR,
+                    NM_SETTINGS_ERROR_INVALID_ARGUMENTS,
+                    "a plugin by the name of '%s' is not available",
+                    plugin_name);
+    } else {
+        nm_assert(first_error);
+        g_propagate_error(error, g_steal_pointer(&first_error));
+    }
     return FALSE;
 }
 
@@ -1704,6 +1739,7 @@ _set_nmmeta_tombstone(NMSettings *self,
  */
 gboolean
 nm_settings_add_connection(NMSettings                     *self,
+                           const char                     *plugin,
                            NMConnection                   *connection,
                            NMSettingsConnectionPersistMode persist_mode,
                            NMSettingsConnectionAddReason   add_reason,
@@ -1800,6 +1836,7 @@ nm_settings_add_connection(NMSettings                     *self,
             sett_conn_entry,
             nm_settings_storage_get_plugin(shadowed_storage),
             shadowed_storage,
+            NULL,
             priv->plugins);
         if (conflicting_storage) {
             /* We cannot add the profile as @shadowed_storage, because there is another, existing storage
@@ -1824,6 +1861,7 @@ again_add_connection:
 
     if (!update_storage) {
         success = _add_connection_to_first_plugin(self,
+                                                  plugin,
                                                   sett_conn_entry,
                                                   connection,
                                                   new_in_memory,
@@ -1832,6 +1870,7 @@ again_add_connection:
                                                   FALSE,
                                                   &new_storage,
                                                   &new_connection,
+                                                  NULL,
                                                   &local);
     } else {
         success = _update_connection_to_plugin(self,
@@ -1948,6 +1987,7 @@ again_delete_tombstone:
 gboolean
 nm_settings_update_connection(NMSettings                      *self,
                               NMSettingsConnection            *sett_conn,
+                              const char                      *plugin_name,
                               NMConnection                    *connection,
                               NMSettingsConnectionPersistMode  persist_mode,
                               NMSettingsConnectionIntFlags     sett_flags,
@@ -2154,8 +2194,9 @@ nm_settings_update_connection(NMSettings                      *self,
         } else if (nm_settings_storage_is_keyfile_lib(cur_storage)) {
             /* the profile is a keyfile in /usr/lib. It cannot be overwritten, we must migrate it
              * from /usr/lib to /etc. */
-        } else
+        } else {
             update_storage = cur_storage;
+        }
 
         if (new_in_memory) {
             if (persist_mode == NM_SETTINGS_CONNECTION_PERSIST_MODE_IN_MEMORY_ONLY) {
@@ -2174,8 +2215,22 @@ nm_settings_update_connection(NMSettings                      *self,
             }
         }
 
+        if (update_storage && plugin_name) {
+            NMSettingsPlugin *plugin = nm_settings_storage_get_plugin(update_storage);
+
+            if (strcmp(plugin_name, nm_settings_plugin_get_plugin_name(plugin))) {
+                /* We're updating a connection, we're confined to a particular
+                 * plugin, but the connection is currently using a different one.
+                 * We need to migrate. Drop the existing storage and look out for
+                 * a new one. */
+                drop_storage   = update_storage;
+                update_storage = NULL;
+            }
+        }
+
         if (!update_storage) {
             success = _add_connection_to_first_plugin(self,
+                                                      plugin_name,
                                                       sett_conn_entry,
                                                       connection,
                                                       new_in_memory,
@@ -2184,6 +2239,7 @@ nm_settings_update_connection(NMSettings                      *self,
                                                       new_shadowed_owned,
                                                       &new_storage,
                                                       &new_connection,
+                                                      drop_storage,
                                                       &local);
         } else {
             success = _update_connection_to_plugin(self,
@@ -2462,6 +2518,7 @@ pk_add_cb(NMAuthChain *chain, GDBusMethodInvocation *context, gpointer user_data
         nm_assert(NM_IS_CONNECTION(connection));
 
         nm_settings_add_connection(self,
+                                   nm_auth_chain_get_data(chain, "plugin"),
                                    connection,
                                    GPOINTER_TO_UINT(nm_auth_chain_get_data(chain, "persist-mode")),
                                    GPOINTER_TO_UINT(nm_auth_chain_get_data(chain, "add-reason")),
@@ -2489,6 +2546,7 @@ pk_add_cb(NMAuthChain *chain, GDBusMethodInvocation *context, gpointer user_data
 
 void
 nm_settings_add_connection_dbus(NMSettings                     *self,
+                                const char                     *plugin,
                                 NMConnection                   *connection,
                                 NMSettingsConnectionPersistMode persist_mode,
                                 NMSettingsConnectionAddReason   add_reason,
@@ -2549,6 +2607,7 @@ nm_settings_add_connection_dbus(NMSettings                     *self,
     nm_auth_chain_set_data(chain, "persist-mode", GUINT_TO_POINTER(persist_mode), NULL);
     nm_auth_chain_set_data(chain, "add-reason", GUINT_TO_POINTER(add_reason), NULL);
     nm_auth_chain_set_data(chain, "sett-flags", GUINT_TO_POINTER(sett_flags), NULL);
+    nm_auth_chain_set_data(chain, "plugin", g_strdup(plugin), g_free);
     nm_auth_chain_add_call_unsafe(chain, perm, TRUE);
     return;
 
@@ -2601,6 +2660,7 @@ settings_add_connection_helper(NMSettings                   *self,
                                GDBusMethodInvocation        *context,
                                gboolean                      is_add_connection_2,
                                GVariant                     *settings,
+                               const char                   *plugin,
                                NMSettingsAddConnection2Flags flags)
 {
     gs_unref_object NMConnection   *connection = NULL;
@@ -2636,6 +2696,7 @@ settings_add_connection_helper(NMSettings                   *self,
 
     nm_settings_add_connection_dbus(
         self,
+        plugin,
         connection,
         persist_mode,
         NM_FLAGS_HAS(flags, NM_SETTINGS_ADD_CONNECTION2_FLAG_BLOCK_AUTOCONNECT)
@@ -2665,6 +2726,7 @@ impl_settings_add_connection(NMDBusObject                      *obj,
                                    invocation,
                                    FALSE,
                                    settings,
+                                   NULL,
                                    NM_SETTINGS_ADD_CONNECTION2_FLAG_TO_DISK);
 }
 
@@ -2685,6 +2747,7 @@ impl_settings_add_connection_unsaved(NMDBusObject                      *obj,
                                    invocation,
                                    FALSE,
                                    settings,
+                                   NULL,
                                    NM_SETTINGS_ADD_CONNECTION2_FLAG_IN_MEMORY);
 }
 
@@ -2700,8 +2763,10 @@ impl_settings_add_connection2(NMDBusObject                      *obj,
     NMSettings                   *self     = NM_SETTINGS(obj);
     gs_unref_variant GVariant    *settings = NULL;
     gs_unref_variant GVariant    *args     = NULL;
+    gs_free char                 *plugin   = NULL;
     NMSettingsAddConnection2Flags flags;
     const char                   *args_name;
+    GVariant                     *args_value;
     GVariantIter                  iter;
     guint32                       flags_u;
 
@@ -2745,7 +2810,13 @@ impl_settings_add_connection2(NMDBusObject                      *obj,
     nm_assert(g_variant_is_of_type(args, G_VARIANT_TYPE("a{sv}")));
 
     g_variant_iter_init(&iter, args);
-    while (g_variant_iter_next(&iter, "{&sv}", &args_name, NULL)) {
+    while (g_variant_iter_next(&iter, "{&sv}", &args_name, &args_value)) {
+        if (plugin == NULL && nm_streq(args_name, "plugin")
+            && g_variant_is_of_type(args_value, G_VARIANT_TYPE_STRING)) {
+            plugin = g_variant_dup_string(args_value, NULL);
+            continue;
+        }
+
         g_dbus_method_invocation_take_error(invocation,
                                             g_error_new(NM_SETTINGS_ERROR,
                                                         NM_SETTINGS_ERROR_INVALID_ARGUMENTS,
@@ -2754,7 +2825,7 @@ impl_settings_add_connection2(NMDBusObject                      *obj,
         return;
     }
 
-    settings_add_connection_helper(self, invocation, TRUE, settings, flags);
+    settings_add_connection_helper(self, invocation, TRUE, settings, plugin, flags);
 }
 
 /*****************************************************************************/
@@ -3201,8 +3272,10 @@ nm_settings_get_connection_by_path(NMSettings *self, const char *path)
     priv = NM_SETTINGS_GET_PRIVATE(self);
 
     connection =
-        nm_dbus_manager_lookup_object(nm_dbus_object_get_manager(NM_DBUS_OBJECT(self)), path);
-    if (!connection || !NM_IS_SETTINGS_CONNECTION(connection))
+        nm_dbus_manager_lookup_object_with_type(nm_dbus_object_get_manager(NM_DBUS_OBJECT(self)),
+                                                NM_TYPE_SETTINGS_CONNECTION,
+                                                path);
+    if (!connection)
         return NULL;
 
     nm_assert(c_list_contains(&priv->connections_lst_head, &connection->_connections_lst));
@@ -3266,7 +3339,7 @@ add_plugin(NMSettings *self, NMSettingsPlugin *plugin, const char *pname, const 
 }
 
 static gboolean
-add_plugin_load_file(NMSettings *self, const char *pname, GError **error)
+add_plugin_load_file(NMSettings *self, const char *pname, gboolean ignore_not_found, GError **error)
 {
     gs_free char                     *full_name = NULL;
     gs_free char                     *path      = NULL;
@@ -3281,10 +3354,12 @@ add_plugin_load_file(NMSettings *self, const char *pname, GError **error)
 
     if (stat(path, &st) != 0) {
         errsv = errno;
-        _LOGW("could not load plugin '%s' from file '%s': %s",
-              pname,
-              path,
-              nm_strerror_native(errsv));
+        if (!ignore_not_found) {
+            _LOGW("could not load plugin '%s' from file '%s': %s",
+                  pname,
+                  path,
+                  nm_strerror_native(errsv));
+        }
         return TRUE;
     }
     if (!S_ISREG(st.st_mode)) {
@@ -3378,7 +3453,7 @@ load_plugins(NMSettings *self, const char *const *plugins, GError **error)
             continue;
         }
 
-        success = add_plugin_load_file(self, pname, error);
+        success = add_plugin_load_file(self, pname, FALSE, error);
         if (!success)
             break;
     }
@@ -3393,44 +3468,93 @@ load_plugins(NMSettings *self, const char *const *plugins, GError **error)
 /*****************************************************************************/
 
 static void
-pk_hostname_cb(NMAuthChain *chain, GDBusMethodInvocation *context, gpointer user_data)
+_save_hostname_write_cb(GObject *source, GAsyncResult *result, gpointer user_data)
+{
+    NMSettings                    *self;
+    GDBusMethodInvocation         *context;
+    gs_free char                  *hostname     = NULL;
+    gs_unref_object NMAuthSubject *auth_subject = NULL;
+    gs_unref_object GCancellable  *cancellable  = NULL;
+    gs_free_error GError          *error        = NULL;
+
+    nm_utils_user_data_unpack(user_data, &self, &context, &auth_subject, &hostname, &cancellable);
+
+    nm_hostname_manager_set_static_hostname_finish(NM_HOSTNAME_MANAGER(source), result, &error);
+
+    nm_audit_log_control_op(NM_AUDIT_OP_HOSTNAME_SAVE,
+                            hostname ?: "",
+                            !error,
+                            auth_subject,
+                            error ? error->message : NULL);
+
+    if (nm_utils_error_is_cancelled(error)) {
+        g_dbus_method_invocation_return_error_literal(context,
+                                                      NM_SETTINGS_ERROR,
+                                                      NM_SETTINGS_ERROR_FAILED,
+                                                      "NetworkManager is shutting down");
+        return;
+    }
+
+    if (error) {
+        g_dbus_method_invocation_take_error(context,
+                                            g_error_new(NM_SETTINGS_ERROR,
+                                                        NM_SETTINGS_ERROR_FAILED,
+                                                        "Saving the hostname failed: %s",
+                                                        error->message));
+        return;
+    }
+
+    g_dbus_method_invocation_return_value(context, NULL);
+}
+
+static void
+_save_hostname_pk_cb(NMAuthChain *chain, GDBusMethodInvocation *context, gpointer user_data)
 {
     NMSettings        *self = NM_SETTINGS(user_data);
     NMSettingsPrivate *priv = NM_SETTINGS_GET_PRIVATE(self);
     NMAuthCallResult   result;
-    GError            *error = NULL;
-    const char        *hostname;
+    gs_free char      *hostname = NULL;
 
     nm_assert(G_IS_DBUS_METHOD_INVOCATION(context));
 
     c_list_unlink(nm_auth_chain_parent_lst_list(chain));
 
     result   = nm_auth_chain_get_result(chain, NM_AUTH_PERMISSION_SETTINGS_MODIFY_HOSTNAME);
-    hostname = nm_auth_chain_get_data(chain, "hostname");
+    hostname = nm_auth_chain_steal_data(chain, "hostname");
 
-    /* If our NMSettingsConnection is already gone, do nothing */
     if (result != NM_AUTH_CALL_RESULT_YES) {
-        error = g_error_new_literal(NM_SETTINGS_ERROR,
-                                    NM_SETTINGS_ERROR_PERMISSION_DENIED,
-                                    NM_UTILS_ERROR_MSG_INSUFF_PRIV);
-    } else {
-        if (!nm_hostname_manager_write_hostname(priv->hostname_manager, hostname)) {
-            error = g_error_new_literal(NM_SETTINGS_ERROR,
-                                        NM_SETTINGS_ERROR_FAILED,
-                                        "Saving the hostname failed.");
-        }
+        nm_audit_log_control_op(NM_AUDIT_OP_HOSTNAME_SAVE,
+                                hostname ?: "",
+                                FALSE,
+                                nm_auth_chain_get_subject(chain),
+                                NM_UTILS_ERROR_MSG_INSUFF_PRIV);
+        g_dbus_method_invocation_return_error_literal(context,
+                                                      NM_SETTINGS_ERROR,
+                                                      NM_SETTINGS_ERROR_PERMISSION_DENIED,
+                                                      NM_UTILS_ERROR_MSG_INSUFF_PRIV);
+        return;
     }
 
-    nm_audit_log_control_op(NM_AUDIT_OP_HOSTNAME_SAVE,
-                            hostname,
-                            !error,
-                            nm_auth_chain_get_subject(chain),
-                            error ? error->message : NULL);
+    if (!priv->shutdown_cancellable) {
+        /* we only keep a weak pointer on the cancellable, so we can
+         * wrap it up after use. We almost never require this, because
+         * SaveHostname is almost never called. */
+        priv->shutdown_cancellable = g_cancellable_new();
+        g_object_add_weak_pointer(G_OBJECT(priv->shutdown_cancellable),
+                                  (gpointer *) &priv->shutdown_cancellable);
+    }
 
-    if (error)
-        g_dbus_method_invocation_take_error(context, error);
-    else
-        g_dbus_method_invocation_return_value(context, NULL);
+    nm_hostname_manager_set_static_hostname(
+        priv->hostname_manager,
+        hostname,
+        priv->shutdown_cancellable,
+        _save_hostname_write_cb,
+        nm_utils_user_data_pack(self,
+                                context,
+                                g_object_ref(nm_auth_chain_get_subject(chain)),
+                                hostname,
+                                g_object_ref(priv->shutdown_cancellable)));
+    g_steal_pointer(&hostname);
 }
 
 static void
@@ -3452,13 +3576,13 @@ impl_settings_save_hostname(NMDBusObject                      *obj,
     g_variant_get(parameters, "(&s)", &hostname);
 
     /* Minimal validation of the hostname */
-    if (!nm_utils_validate_hostname(hostname)) {
+    if (nm_str_not_empty(hostname) && !nm_utils_validate_hostname(hostname)) {
         error_code   = NM_SETTINGS_ERROR_INVALID_HOSTNAME;
         error_reason = "The hostname was too long or contained invalid characters";
         goto err;
     }
 
-    chain = nm_auth_chain_new_context(invocation, pk_hostname_cb, self);
+    chain = nm_auth_chain_new_context(invocation, _save_hostname_pk_cb, self);
     if (!chain) {
         error_code   = NM_SETTINGS_ERROR_PERMISSION_DENIED;
         error_reason = NM_UTILS_ERROR_MSG_REQ_AUTH_FAILED;
@@ -3467,7 +3591,7 @@ impl_settings_save_hostname(NMDBusObject                      *obj,
 
     c_list_link_tail(&priv->auth_lst_head, nm_auth_chain_parent_lst_list(chain));
     nm_auth_chain_add_call(chain, NM_AUTH_PERMISSION_SETTINGS_MODIFY_HOSTNAME, TRUE);
-    nm_auth_chain_set_data(chain, "hostname", g_strdup(hostname), g_free);
+    nm_auth_chain_set_data(chain, "hostname", nm_strdup_not_empty(hostname), g_free);
     return;
 err:
     nm_audit_log_control_op(NM_AUDIT_OP_HOSTNAME_SAVE, hostname, FALSE, invocation, error_reason);
@@ -3602,6 +3726,7 @@ device_realized(NMDevice *device, GParamSpec *pspec, NMSettings *self)
           nm_device_get_iface(device));
 
     nm_settings_add_connection(self,
+                               NULL,
                                connection,
                                NM_SETTINGS_CONNECTION_PERSIST_MODE_IN_MEMORY_ONLY,
                                NM_SETTINGS_CONNECTION_ADD_REASON_NONE,
@@ -3770,13 +3895,13 @@ _kf_db_got_dirty_flush(NMSettings *self, gboolean is_timestamps)
     NMKeyFileDB       *kf_db;
 
     if (is_timestamps) {
-        prefix                               = "timestamps";
-        kf_db                                = priv->kf_db_timestamps;
-        priv->kf_db_flush_idle_id_timestamps = 0;
+        prefix = "timestamps";
+        kf_db  = priv->kf_db_timestamps;
+        nm_clear_g_source_inst(&priv->kf_db_flush_idle_source_timestamps);
     } else {
-        prefix                                = "seen-bssids";
-        kf_db                                 = priv->kf_db_seen_bssids;
-        priv->kf_db_flush_idle_id_seen_bssids = 0;
+        prefix = "seen-bssids";
+        kf_db  = priv->kf_db_seen_bssids;
+        nm_clear_g_source_inst(&priv->kf_db_flush_idle_source_seen_bssids);
     }
 
     if (nm_key_file_db_is_dirty(kf_db))
@@ -3787,7 +3912,7 @@ _kf_db_got_dirty_flush(NMSettings *self, gboolean is_timestamps)
               nm_key_file_db_get_filename(kf_db));
     }
 
-    return G_SOURCE_REMOVE;
+    return G_SOURCE_CONTINUE;
 }
 
 static gboolean
@@ -3808,26 +3933,27 @@ _kf_db_got_dirty_fcn(NMKeyFileDB *kf_db, gpointer user_data)
     NMSettings        *self = user_data;
     NMSettingsPrivate *priv = NM_SETTINGS_GET_PRIVATE(self);
     GSourceFunc        idle_func;
-    guint             *p_id;
+    GSource          **p_source;
     const char        *prefix;
 
     if (priv->kf_db_timestamps == kf_db) {
         prefix    = "timestamps";
-        p_id      = &priv->kf_db_flush_idle_id_timestamps;
+        p_source  = &priv->kf_db_flush_idle_source_timestamps;
         idle_func = _kf_db_got_dirty_flush_timestamps_cb;
     } else if (priv->kf_db_seen_bssids == kf_db) {
         prefix    = "seen-bssids";
-        p_id      = &priv->kf_db_flush_idle_id_seen_bssids;
+        p_source  = &priv->kf_db_flush_idle_source_seen_bssids;
         idle_func = _kf_db_got_dirty_flush_seen_bssids_cb;
     } else {
         nm_assert_not_reached();
         return;
     }
 
-    if (*p_id != 0)
+    if (*p_source)
         return;
     _LOGT("[%s-keyfile]: schedule flushing changes to disk", prefix);
-    *p_id = g_idle_add_full(G_PRIORITY_LOW, idle_func, self, NULL);
+    *p_source =
+        nm_g_source_attach(nm_g_idle_source_new(G_PRIORITY_LOW, idle_func, self, NULL), NULL);
 }
 
 void
@@ -3872,8 +3998,18 @@ nm_settings_start(NMSettings *self, GError **error)
     /* Load the plugins; fail if a plugin is not found. */
     plugins = nm_config_data_get_plugins(nm_config_get_data_orig(priv->config), TRUE);
 
-    if (!load_plugins(self, (const char *const *) plugins, error))
-        return FALSE;
+    if (plugins && plugins[0]) {
+        if (!load_plugins(self, (const char *const *) plugins, error))
+            return FALSE;
+    } else {
+        add_plugin_keyfile(self);
+#if WITH_CONFIG_PLUGIN_IFCFG_RH
+        add_plugin_load_file(self, "ifcfg-rh", TRUE, NULL);
+#endif
+#if WITH_CONFIG_PLUGIN_IFUPDOWN
+        add_plugin_load_file(self, "ifupdown", TRUE, NULL);
+#endif
+    }
 
     for (iter = priv->plugins; iter; iter = iter->next) {
         NMSettingsPlugin *plugin = NM_SETTINGS_PLUGIN(iter->data);
@@ -4018,7 +4154,7 @@ dispose(GObject *object)
     nm_assert(c_list_is_empty(&priv->sce_dirty_lst_head));
     nm_assert(g_hash_table_size(priv->sce_idx) == 0);
 
-    nm_clear_g_source(&priv->startup_complete_timeout_id);
+    nm_clear_g_source_inst(&priv->startup_complete_timeout_source);
     nm_clear_pointer(&priv->startup_complete_idx, g_hash_table_destroy);
     nm_assert(c_list_is_empty(&priv->startup_complete_scd_lst_head));
 
@@ -4037,6 +4173,12 @@ dispose(GObject *object)
                                              G_CALLBACK(session_monitor_changed_cb),
                                              self);
         g_clear_object(&priv->session_monitor);
+    }
+
+    if (priv->shutdown_cancellable) {
+        g_object_remove_weak_pointer(G_OBJECT(priv->shutdown_cancellable),
+                                     (gpointer *) &priv->shutdown_cancellable);
+        g_cancellable_cancel(g_steal_pointer(&priv->shutdown_cancellable));
     }
 
     G_OBJECT_CLASS(nm_settings_parent_class)->dispose(object);
@@ -4072,8 +4214,8 @@ finalize(GObject *object)
 
     g_clear_object(&priv->agent_mgr);
 
-    nm_clear_g_source(&priv->kf_db_flush_idle_id_timestamps);
-    nm_clear_g_source(&priv->kf_db_flush_idle_id_seen_bssids);
+    nm_clear_g_source_inst(&priv->kf_db_flush_idle_source_timestamps);
+    nm_clear_g_source_inst(&priv->kf_db_flush_idle_source_seen_bssids);
     _kf_db_to_file(self, TRUE, FALSE);
     _kf_db_to_file(self, FALSE, FALSE);
     nm_key_file_db_destroy(priv->kf_db_timestamps);

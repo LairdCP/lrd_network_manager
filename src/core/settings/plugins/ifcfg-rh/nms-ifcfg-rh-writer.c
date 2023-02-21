@@ -397,7 +397,9 @@ write_8021x_setting(NMConnection *connection,
     if (wired)
         svSetValueStr(ifcfg, "KEY_MGMT", "IEEE8021X");
 
-    /* EAP method */
+    /* EAP method
+     *
+     * FIXME(ifcfg-full-cycle): persist all values of eap-method. */
     if (nm_setting_802_1x_get_num_eap_methods(s_8021x)) {
         value = nm_setting_802_1x_get_eap_method(s_8021x, 0);
         if (value)
@@ -455,10 +457,20 @@ write_8021x_setting(NMConnection *connection,
             value = "allow-auth";
         else if (strcmp(value, "3") == 0)
             value = "allow-unauth allow-auth";
-        else
+        else {
+            /* FIXME(ifcfg-full-cycle): does not handle the value "0". */
             value = NULL;
+        }
     }
     svSetValueStr(ifcfg, "IEEE_8021X_FAST_PROVISIONING", value);
+
+    auth_flags = nm_setting_802_1x_get_phase1_auth_flags(s_8021x);
+    if (auth_flags != NM_SETTING_802_1X_AUTH_FLAGS_NONE) {
+        svSetValueEnum(ifcfg,
+                       "IEEE_8021X_PHASE1_AUTH_FLAGS",
+                       nm_setting_802_1x_auth_flags_get_type(),
+                       auth_flags);
+    }
 
     /* Phase2 auth methods */
     phase2_auth = g_string_new(NULL);
@@ -480,14 +492,6 @@ write_8021x_setting(NMConnection *connection,
         g_free(tmp);
     }
 
-    auth_flags = nm_setting_802_1x_get_phase1_auth_flags(s_8021x);
-    if (auth_flags != NM_SETTING_802_1X_AUTH_FLAGS_NONE) {
-        svSetValueEnum(ifcfg,
-                       "IEEE_8021X_PHASE1_AUTH_FLAGS",
-                       nm_setting_802_1x_auth_flags_get_type(),
-                       auth_flags);
-    }
-
     svSetValueStr(ifcfg,
                   "IEEE_8021X_INNER_AUTH_METHODS",
                   phase2_auth->len ? phase2_auth->str : NULL);
@@ -503,6 +507,8 @@ write_8021x_setting(NMConnection *connection,
     str = g_string_new(NULL);
     num = nm_setting_802_1x_get_num_altsubject_matches(s_8021x);
     for (i = 0; i < num; i++) {
+        /* FIXME(ifcfg-full-cycle): this cannot handle values with spaces, which
+         * are not rejected by nm_connection_verify(). */
         if (i > 0)
             g_string_append_c(str, ' ');
         match = nm_setting_802_1x_get_altsubject_match(s_8021x, i);
@@ -515,6 +521,8 @@ write_8021x_setting(NMConnection *connection,
     str = g_string_new(NULL);
     num = nm_setting_802_1x_get_num_phase2_altsubject_matches(s_8021x);
     for (i = 0; i < num; i++) {
+        /* FIXME(ifcfg-full-cycle): this cannot handle values with spaces, which
+         * are not rejected by nm_connection_verify(). */
         if (i > 0)
             g_string_append_c(str, ' ');
         match = nm_setting_802_1x_get_phase2_altsubject_match(s_8021x, i);
@@ -1322,6 +1330,7 @@ write_ethtool_setting(NMConnection *connection, shvarFile *ifcfg, GError **error
         gboolean             is_first;
         guint32              u32;
         gboolean             b;
+        gboolean             any_option = FALSE;
 
         s_con = nm_connection_get_setting_connection(connection);
         if (s_con) {
@@ -1351,6 +1360,7 @@ write_ethtool_setting(NMConnection *connection, shvarFile *ifcfg, GError **error
             g_string_append_c(str, ' ');
             g_string_append(str, nms_ifcfg_rh_utils_get_ethtool_name(ethtool_id));
             g_string_append(str, b ? " on" : " off");
+            any_option = TRUE;
         }
 
         is_first = TRUE;
@@ -1366,6 +1376,7 @@ write_ethtool_setting(NMConnection *connection, shvarFile *ifcfg, GError **error
             g_string_append_c(str, ' ');
             g_string_append(str, nms_ifcfg_rh_utils_get_ethtool_name(ethtool_id));
             g_string_append_printf(str, " %" G_GUINT32_FORMAT, u32);
+            any_option = TRUE;
         }
 
         is_first = TRUE;
@@ -1381,7 +1392,10 @@ write_ethtool_setting(NMConnection *connection, shvarFile *ifcfg, GError **error
             g_string_append_c(str, ' ');
             g_string_append(str, nms_ifcfg_rh_utils_get_ethtool_name(ethtool_id));
             g_string_append_printf(str, " %" G_GUINT32_FORMAT, u32);
+            any_option = TRUE;
         }
+
+        is_first = TRUE;
         for (ethtool_id = _NM_ETHTOOL_ID_PAUSE_FIRST; ethtool_id <= _NM_ETHTOOL_ID_PAUSE_LAST;
              ethtool_id++) {
             nm_assert(nms_ifcfg_rh_utils_get_ethtool_name(ethtool_id));
@@ -1394,9 +1408,10 @@ write_ethtool_setting(NMConnection *connection, shvarFile *ifcfg, GError **error
             g_string_append_c(str, ' ');
             g_string_append(str, nms_ifcfg_rh_utils_get_ethtool_name(ethtool_id));
             g_string_append(str, b ? " on" : " off");
+            any_option = TRUE;
         }
 
-        if (!str) {
+        if (!any_option) {
             /* Write an empty dummy "-A" option without arguments. This is to
              * ensure that the reader will create an (all default) NMSettingEthtool.
              * Also, it seems that `ethtool -A "$IFACE"` is silently accepted. */
@@ -1456,6 +1471,7 @@ write_vlan_setting(NMConnection *connection, shvarFile *ifcfg, gboolean *wired, 
     svSetValueStr(ifcfg, "TYPE", TYPE_VLAN);
     svSetValueStr(ifcfg, "PHYSDEV", nm_setting_vlan_get_parent(s_vlan));
     svSetValueInt64(ifcfg, "VLAN_ID", nm_setting_vlan_get_id(s_vlan));
+    svSetValueStr(ifcfg, "VLAN_PROTOCOL", nm_setting_vlan_get_protocol(s_vlan));
 
     vlan_flags = nm_setting_vlan_get_flags(s_vlan);
     svSetValueBoolean(ifcfg, "REORDER_HDR", NM_FLAGS_HAS(vlan_flags, NM_VLAN_FLAG_REORDER_HEADERS));
@@ -2105,6 +2121,7 @@ write_connection_setting(NMSettingConnection *s_con, shvarFile *ifcfg)
     NMSettingConnectionMdns       mdns;
     NMSettingConnectionLlmnr      llmnr;
     NMSettingConnectionDnsOverTls dns_over_tls;
+    NMMptcpFlags                  mptcp_flags;
     guint32                       vuint32;
     const char                   *tmp, *mud_url;
 
@@ -2268,6 +2285,9 @@ write_connection_setting(NMSettingConnection *s_con, shvarFile *ifcfg)
     vint = nm_setting_connection_get_auth_retries(s_con);
     svSetValueInt64_cond(ifcfg, "AUTH_RETRIES", vint >= 0, vint);
 
+    vint32 = nm_setting_connection_get_wait_activation_delay(s_con);
+    svSetValueInt64_cond(ifcfg, "WAIT_ACTIVATION_DELAY", vint32 >= 0, vint32);
+
     vint32 = nm_setting_connection_get_wait_device_timeout(s_con);
     if (vint32 == -1) {
         /* pass */
@@ -2296,13 +2316,18 @@ write_connection_setting(NMSettingConnection *s_con, shvarFile *ifcfg)
                        nm_setting_connection_dns_over_tls_get_type(),
                        dns_over_tls);
     }
+
+    mptcp_flags = nm_setting_connection_get_mptcp_flags(s_con);
+    if (mptcp_flags != NM_MPTCP_FLAGS_NONE)
+        svSetValueEnum(ifcfg, "MPTCP_FLAGS", nm_mptcp_flags_get_type(), mptcp_flags);
 }
 
 static char *
 get_route_attributes_string(NMIPRoute *route, int family)
 {
     gs_free const char **names = NULL;
-    GVariant            *attr, *lock;
+    GVariant            *attr;
+    GVariant            *lock;
     GString             *str;
     guint                i, len;
 
@@ -2327,6 +2352,7 @@ get_route_attributes_string(NMIPRoute *route, int family)
             continue;
 
         if (NM_IN_STRSET(names[i],
+                         NM_IP_ROUTE_ATTRIBUTE_ADVMSS,
                          NM_IP_ROUTE_ATTRIBUTE_WINDOW,
                          NM_IP_ROUTE_ATTRIBUTE_CWND,
                          NM_IP_ROUTE_ATTRIBUTE_INITCWND,
@@ -2342,22 +2368,27 @@ get_route_attributes_string(NMIPRoute *route, int family)
                                    names[i],
                                    (lock && g_variant_get_boolean(lock)) ? "lock " : "",
                                    g_variant_get_uint32(attr));
-        } else if (strstr(names[i], "lock-")) {
+        } else if (NM_STR_HAS_PREFIX(names[i], "lock-")) {
             const char *n = &(names[i])[NM_STRLEN("lock-")];
 
-            attr = nm_ip_route_get_attribute(route, n);
-            if (!attr) {
-                g_string_append_printf(str, "%s lock 0", n);
+            if (!nm_ip_route_get_attribute(route, n)) {
+                if (g_variant_get_boolean(attr))
+                    g_string_append_printf(str, "%s lock 0", n);
             } else {
                 /* we also have a corresponding attribute with the numeric value. The
                  * lock setting is handled above. */
             }
-        } else if (nm_streq(names[i], NM_IP_ROUTE_ATTRIBUTE_SCOPE)) {
+        } else if (NM_IN_STRSET(names[i], NM_IP_ROUTE_ATTRIBUTE_SCOPE)) {
             g_string_append_printf(str, "%s %u", names[i], (unsigned) g_variant_get_byte(attr));
         } else if (nm_streq(names[i], NM_IP_ROUTE_ATTRIBUTE_TOS)) {
             g_string_append_printf(str, "%s 0x%02x", names[i], (unsigned) g_variant_get_byte(attr));
-        } else if (nm_streq(names[i], NM_IP_ROUTE_ATTRIBUTE_TABLE)) {
+        } else if (NM_IN_STRSET(names[i],
+                                NM_IP_ROUTE_ATTRIBUTE_RTO_MIN,
+                                NM_IP_ROUTE_ATTRIBUTE_TABLE,
+                                NM_IP_ROUTE_ATTRIBUTE_WEIGHT)) {
             g_string_append_printf(str, "%s %u", names[i], (unsigned) g_variant_get_uint32(attr));
+        } else if (nm_streq(names[i], NM_IP_ROUTE_ATTRIBUTE_QUICKACK)) {
+            g_string_append_printf(str, "%s %u", names[i], (unsigned) g_variant_get_boolean(attr));
         } else if (nm_streq(names[i], NM_IP_ROUTE_ATTRIBUTE_ONLINK)) {
             if (g_variant_get_boolean(attr))
                 g_string_append(str, "onlink");
@@ -2405,8 +2436,8 @@ write_route_file_svformat(const char *filename, NMSettingIPConfig *s_ip4)
 
         svSetValueStr(routefile, addr_key, nm_ip_route_get_dest(route));
 
-        netmask = _nm_utils_ip4_prefix_to_netmask(nm_ip_route_get_prefix(route));
-        svSetValueStr(routefile, netmask_key, _nm_utils_inet4_ntop(netmask, buf));
+        netmask = nm_ip4_addr_netmask_from_prefix(nm_ip_route_get_prefix(route));
+        svSetValueStr(routefile, netmask_key, nm_inet4_ntop(netmask, buf));
 
         svSetValueStr(routefile, gw_key, nm_ip_route_get_next_hop(route));
 
@@ -2743,6 +2774,7 @@ write_ip4_setting(NMConnection *connection,
     gboolean                      has_netmask;
     NMDhcpHostnameFlags           flags;
     const char *const            *strv;
+    NMSettingIP4LinkLocal         ipv4_link_local;
 
     NM_SET_OUT(out_route_content_svformat, NULL);
     NM_SET_OUT(out_route_content, NULL);
@@ -2814,9 +2846,7 @@ write_ip4_setting(NMConnection *connection,
         if (has_netmask) {
             char buf[INET_ADDRSTRLEN];
 
-            svSetValueStr(ifcfg,
-                          tag,
-                          _nm_utils_inet4_ntop(_nm_utils_ip4_prefix_to_netmask(prefix), buf));
+            svSetValueStr(ifcfg, tag, nm_inet4_ntop(nm_ip4_addr_netmask_from_prefix(prefix), buf));
         }
 
         n++;
@@ -2848,6 +2878,14 @@ write_ip4_setting(NMConnection *connection,
 
     value = nm_setting_ip_config_get_dhcp_hostname(s_ip4);
     svSetValueStr(ifcfg, "DHCP_HOSTNAME", value);
+
+    ipv4_link_local = nm_setting_ip4_config_get_link_local(NM_SETTING_IP4_CONFIG(s_ip4));
+    if (ipv4_link_local != NM_SETTING_IP4_LL_DEFAULT) {
+        svSetValueEnum(ifcfg,
+                       "IPV4_LINK_LOCAL",
+                       nm_setting_ip4_link_local_get_type(),
+                       ipv4_link_local);
+    }
 
     value = nm_setting_ip4_config_get_dhcp_fqdn(NM_SETTING_IP4_CONFIG(s_ip4));
     svSetValueStr(ifcfg, "DHCP_FQDN", value);
@@ -2917,6 +2955,10 @@ write_ip4_setting(NMConnection *connection,
         }
         svSetValueStr(ifcfg, "DHCP_REJECT_SERVERS", str->str);
     }
+
+    svSetValueTernary(ifcfg,
+                      "IPV4_AUTO_ROUTE_EXT_GW",
+                      nm_setting_ip_config_get_auto_route_ext_gw(s_ip4));
 }
 
 static void
@@ -3159,7 +3201,7 @@ write_ip6_setting(NMConnection *connection, shvarFile *ifcfg, GString **out_rout
 
     /* IPv6 Address generation mode */
     addr_gen_mode = nm_setting_ip6_config_get_addr_gen_mode(NM_SETTING_IP6_CONFIG(s_ip6));
-    if (addr_gen_mode != NM_SETTING_IP6_CONFIG_ADDR_GEN_MODE_EUI64) {
+    if (addr_gen_mode != NM_SETTING_IP6_CONFIG_ADDR_GEN_MODE_DEFAULT_OR_EUI64) {
         svSetValueEnum(ifcfg,
                        "IPV6_ADDR_GEN_MODE",
                        nm_setting_ip6_config_addr_gen_mode_get_type(),
@@ -3177,6 +3219,10 @@ write_ip6_setting(NMConnection *connection, shvarFile *ifcfg, GString **out_rout
     write_res_options(ifcfg, s_ip6, "IPV6_RES_OPTIONS");
 
     NM_SET_OUT(out_route6_content, write_route_file(s_ip6));
+
+    svSetValueTernary(ifcfg,
+                      "IPV6_AUTO_ROUTE_EXT_GW",
+                      nm_setting_ip_config_get_auto_route_ext_gw(s_ip6));
 }
 
 static void

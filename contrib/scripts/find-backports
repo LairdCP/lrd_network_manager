@@ -44,6 +44,15 @@ def _keys_to_dict(itr):
 
 
 @memoize
+def git_ref_exists_plain(ref):
+    try:
+        subprocess.check_output(["git", "show-ref", "-q", "--verify", str(ref)])
+    except subprocess.CalledProcessError:
+        return False
+    return True
+
+
+@memoize
 def git_ref_exists(ref):
     try:
         out = subprocess.check_output(
@@ -156,6 +165,18 @@ def git_ref_commit_body_get_fixes(ref):
         h = git_ref_exists(c)
         if h:
             result.append(h)
+    if result:
+        # The commit that contains a "Fixes:" line, can also contain an "Ignore-Fixes:" line
+        # to disable it. This only makes sense with refs/notes/bugs notes, to fix up a wrong
+        # annotation.
+        for mo in re.finditer(re_bin("\\bIgnore-[fF]ixes: *([0-9a-z]+)\\b"), body):
+            c = mo.group(1).decode("ascii")
+            h = git_ref_exists(c)
+            try:
+                result.remove(h)
+            except ValueError:
+                pass
+
     return result
 
 
@@ -232,6 +253,11 @@ if __name__ == "__main__":
     ref_head = git_ref_exists(ref_head0)
     if not ref_head:
         die('Ref "%s" does not exist' % (ref_head0))
+
+    if not git_ref_exists_plain("refs/notes/bugs"):
+        die(
+            "Notes refs/notes/bugs not found. Read CONTRIBUTING.md file for how to setup the notes"
+        )
 
     ref_upstreams = []
     if len(sys.argv) <= 2:

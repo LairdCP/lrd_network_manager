@@ -76,6 +76,7 @@ static inline int missing_memfd_create(const char *name, unsigned int flags) {
 
 #  define memfd_create missing_memfd_create
 #endif
+#endif /* NM_IGNORED */
 
 /* ======================================================================= */
 
@@ -95,6 +96,7 @@ static inline ssize_t missing_getrandom(void *buffer, size_t count, unsigned fla
 
 /* ======================================================================= */
 
+#if 0 /* NM_IGNORED */
 /* The syscall has been defined since forever, but the glibc wrapper was missing. */
 #if !HAVE_GETTID
 static inline pid_t missing_gettid(void) {
@@ -572,6 +574,10 @@ static inline int missing_open_tree(
 
 #ifndef MOVE_MOUNT_F_EMPTY_PATH
 #define MOVE_MOUNT_F_EMPTY_PATH 0x00000004 /* Empty from path permitted */
+#endif
+
+#ifndef MOVE_MOUNT_T_EMPTY_PATH
+#define MOVE_MOUNT_T_EMPTY_PATH 0x00000040 /* Empty to path permitted */
 #endif
 
 static inline int missing_move_mount(

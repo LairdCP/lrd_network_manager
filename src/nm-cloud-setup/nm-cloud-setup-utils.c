@@ -146,7 +146,7 @@ nmcs_wait_for_objects_iterate_until_done(GMainContext *context, int timeout_msec
         nm_auto_destroy_and_unref_gsource GSource *idle_source = NULL;
 
         idle_source =
-            nm_g_source_attach(nm_g_idle_source_new(G_PRIORITY_DEFAULT,
+            nm_g_source_attach(nm_g_idle_source_new(G_PRIORITY_DEFAULT_IDLE,
                                                     _wait_for_objects_iterate_until_done_idle_cb,
                                                     &data,
                                                     NULL),
@@ -364,7 +364,7 @@ nmcs_utils_poll(int                         poll_timeout_ms,
     }
 
     poll_task_data->source_next_poll = nm_g_source_attach(
-        nm_g_idle_source_new(G_PRIORITY_DEFAULT, _poll_start_cb, poll_task_data, NULL),
+        nm_g_idle_source_new(G_PRIORITY_DEFAULT_IDLE, _poll_start_cb, poll_task_data, NULL),
         poll_task_data->context);
 
     if (cancellable) {
@@ -507,7 +507,7 @@ nmcs_utils_ipaddr_normalize_bin(int         addr_family,
 
     g_strstrip(ad);
 
-    return nm_utils_parse_inaddr_bin(addr_family, ad, out_addr_family, out_addr_bin);
+    return nm_inet_parse_bin(addr_family, ad, out_addr_family, out_addr_bin);
 }
 
 char *
@@ -518,7 +518,7 @@ nmcs_utils_ipaddr_normalize(int addr_family, const char *addr, gssize len)
     if (!nmcs_utils_ipaddr_normalize_bin(addr_family, addr, len, &addr_family, &ipaddr))
         return NULL;
 
-    return nm_utils_inet_ntop_dup(addr_family, &ipaddr);
+    return nm_inet_ntop_dup(addr_family, &ipaddr);
 }
 
 /*****************************************************************************/
@@ -822,6 +822,7 @@ nmcs_device_reapply(NMDevice     *device,
                     GCancellable *sigterm_cancellable,
                     NMConnection *connection,
                     guint64       version_id,
+                    gboolean      maybe_no_preserved_external_ip,
                     gboolean     *out_version_id_changed,
                     GError      **error)
 {
@@ -829,11 +830,13 @@ nmcs_device_reapply(NMDevice     *device,
     DeviceReapplyData                  data      = {
                               .main_loop = main_loop,
     };
+    NMDeviceReapplyFlags reapply_flags = NM_DEVICE_REAPPLY_FLAGS_PRESERVE_EXTERNAL_IP;
 
+again:
     nm_device_reapply_async(device,
                             connection,
                             version_id,
-                            0,
+                            reapply_flags,
                             sigterm_cancellable,
                             _nmcs_device_reapply_cb,
                             &data);
@@ -841,6 +844,17 @@ nmcs_device_reapply(NMDevice     *device,
     g_main_loop_run(main_loop);
 
     if (data.error) {
+        if (maybe_no_preserved_external_ip
+            && reapply_flags == NM_DEVICE_REAPPLY_FLAGS_PRESERVE_EXTERNAL_IP
+            && nm_g_error_matches(data.error, NM_DEVICE_ERROR, NM_DEVICE_ERROR_FAILED)) {
+            /* Hm? Maybe we running against an older version of NetworkManager that
+             * doesn't support "preserve-external-ip" flags? Retry without the flag.
+             *
+             * Note that recent version would reject invalid flags with NM_DEVICE_ERROR_INVALID_ARGUMENT,
+             * but we want to detect old daemon versions here. */
+            reapply_flags = NM_DEVICE_REAPPLY_FLAGS_NONE;
+            goto again;
+        }
         NM_SET_OUT(
             out_version_id_changed,
             g_error_matches(data.error, NM_DEVICE_ERROR, NM_DEVICE_ERROR_VERSION_ID_MISMATCH));

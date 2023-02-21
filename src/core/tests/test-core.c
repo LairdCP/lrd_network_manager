@@ -15,7 +15,6 @@
 #include "NetworkManagerUtils.h"
 #include "libnm-core-intern/nm-core-internal.h"
 #include "nm-core-utils.h"
-#include "libnm-systemd-core/nm-sd-utils-core.h"
 
 #include "dns/nm-dns-manager.h"
 #include "nm-connectivity.h"
@@ -41,7 +40,7 @@ test_config_h(void)
 
 /*****************************************************************************/
 
-/* Reference implementation for nm_utils_ip6_address_clear_host_address.
+/* Reference implementation for nm_ip6_addr_clear_host_address.
  * Taken originally from set_address_masked(), src/ndisc/nm-lndp-ndisc.c
  **/
 static void
@@ -96,14 +95,14 @@ test_nm_utils_ip6_address_clear_host_address(void)
             _randomize_in6_addr(&addr1, r);
             _randomize_in6_addr(&addr2, r);
             addr1 = addr_src;
-            nm_utils_ip6_address_clear_host_address(&addr2, &addr1, plen);
+            nm_ip6_addr_clear_host_address(&addr2, &addr1, plen);
             g_assert_cmpint(memcmp(&addr1, &addr_src, sizeof(struct in6_addr)), ==, 0);
             g_assert_cmpint(memcmp(&addr2, &addr_ref, sizeof(struct in6_addr)), ==, 0);
 
             /* test for self assignment/inplace update. */
             _randomize_in6_addr(&addr1, r);
             addr1 = addr_src;
-            nm_utils_ip6_address_clear_host_address(&addr1, &addr1, plen);
+            nm_ip6_addr_clear_host_address(&addr1, &addr1, plen);
             g_assert_cmpint(memcmp(&addr1, &addr_ref, sizeof(struct in6_addr)), ==, 0);
         }
     }
@@ -153,14 +152,14 @@ test_logging_error(void)
 static void
 _test_same_prefix(const char *a1, const char *a2, guint8 plen)
 {
-    struct in6_addr a = *nmtst_inet6_from_string(a1);
-    struct in6_addr b = *nmtst_inet6_from_string(a2);
+    struct in6_addr a = nmtst_inet6_from_string(a1);
+    struct in6_addr b = nmtst_inet6_from_string(a2);
 
-    g_assert(nm_utils_ip6_address_same_prefix(&a, &b, plen));
+    g_assert(nm_ip6_addr_same_prefix(&a, &b, plen));
 }
 
 static void
-test_nm_utils_ip6_address_same_prefix(void)
+test_nm_ip_addr_same_prefix(void)
 {
     guint       n, i;
     const guint N = 100;
@@ -203,7 +202,7 @@ again_plen:
         } else
             b = a;
 
-        result = nm_utils_ip6_address_same_prefix(&a.val, &b.val, plen);
+        result = nm_ip6_addr_same_prefix(&a.val, &b.val, plen);
         g_assert(result == is_same);
         g_assert(NM_IN_SET(result, TRUE, FALSE));
     }
@@ -215,12 +214,12 @@ again_plen:
         plen = nmtst_get_rand_uint32() % 129;
 
         memset(addrmask.ptr, 0xFF, sizeof(addrmask));
-        nm_utils_ip6_address_clear_host_address(&addrmask.val, &addrmask.val, plen);
+        nm_ip6_addr_clear_host_address(&addrmask.val, &addrmask.val, plen);
 
         for (i = 0; i < sizeof(a); i++)
             b.ptr[i] = (a.ptr[i] & addrmask.ptr[i]) | (b.ptr[i] & ~addrmask.ptr[i]);
 
-        g_assert(nm_utils_ip6_address_same_prefix(&a.val, &b.val, plen) == TRUE);
+        g_assert(nm_ip6_addr_same_prefix(&a.val, &b.val, plen) == TRUE);
     }
 
     /* test#3 */
@@ -235,10 +234,10 @@ again_plen:
             continue;
 
         memset(addrmask.ptr, 0xFF, sizeof(addrmask));
-        nm_utils_ip6_address_clear_host_address(&addrmask.val, &addrmask.val, plen);
+        nm_ip6_addr_clear_host_address(&addrmask.val, &addrmask.val, plen);
 
         memset(addrmask_bit.ptr, 0xFF, sizeof(addrmask_bit));
-        nm_utils_ip6_address_clear_host_address(&addrmask_bit.val, &addrmask_bit.val, plen - 1);
+        nm_ip6_addr_clear_host_address(&addrmask_bit.val, &addrmask_bit.val, plen - 1);
 
         for (i = 0; i < sizeof(a); i++)
             b.ptr[i] = (a.ptr[i] & addrmask.ptr[i]) | (b.ptr[i] & ~addrmask.ptr[i]);
@@ -255,7 +254,7 @@ again_plen:
         }
         g_assert(reached);
 
-        g_assert(nm_utils_ip6_address_same_prefix(&a.val, &b.val, plen) == FALSE);
+        g_assert(nm_ip6_addr_same_prefix(&a.val, &b.val, plen) == FALSE);
     }
 
     /* test#4 */
@@ -2314,15 +2313,29 @@ test_dns_create_resolv_conf(void)
 static void
 test_machine_id_read(void)
 {
-    NMUuid        machine_id_sd;
     const NMUuid *machine_id;
     char          machine_id_str[33];
     gpointer      logstate;
 
+    /* This unit test checks our functions to read /etc/machine-id. As
+     * the path name is not configurable (and the test does not setup
+     * a chroot/mountns), we read the actual file from the system. That
+     * is ugly, as the test depends on the system where it's running.
+     *
+     * Still, better a bad test, than no test. Patch welcome to fix this
+     * shortcoming.
+     *
+     * Also, if you have a sufficiently broken system, the unit test fails.
+     * In particular, if the machine-id file exists but does not contain
+     * a valid ID. Just don't have that. Fix your system. */
+
     logstate = nmtst_logging_disable(FALSE);
     /* If you run this test as root, without a valid /etc/machine-id,
      * the code will try to get the secret-key. That is a bit ugly,
-     * but no real problem. */
+     * but no real problem.
+     *
+     * The real answer is: don't run our unit tests as root. That's
+     * not the way to do it. */
     machine_id = nm_utils_machine_id_bin();
     nmtst_logging_reenable(logstate);
 
@@ -2331,21 +2344,6 @@ test_machine_id_read(void)
              == machine_id_str);
     g_assert(strlen(machine_id_str) == 32);
     g_assert_cmpstr(machine_id_str, ==, nm_utils_machine_id_str());
-
-    /* double check with systemd's implementation... */
-    if (!nm_sd_utils_id128_get_machine(&machine_id_sd)) {
-        /* if systemd failed to read /etc/machine-id, the file likely
-         * is invalid. Our machine-id is fake, and we have nothing to
-         * compare against. */
-
-        /* NOTE: this test will fail, if you don't have /etc/machine-id,
-         * but a valid "LOCALSTATEDIR/lib/dbus/machine-id" file.
-         * Just don't do that. */
-        g_assert(nm_utils_machine_id_is_fake());
-    } else {
-        g_assert(!nm_utils_machine_id_is_fake());
-        g_assert_cmpmem(&machine_id_sd, sizeof(NMUuid), machine_id, 16);
-    }
 }
 
 /*****************************************************************************/
@@ -2355,21 +2353,21 @@ test_nm_utils_dhcp_client_id_systemd_node_specific(gconstpointer test_data)
 {
     const int     TEST_IDX     = GPOINTER_TO_INT(test_data);
     const guint8  HASH_KEY[16] = {0x80,
-                                 0x11,
-                                 0x8c,
-                                 0xc2,
-                                 0xfe,
-                                 0x4a,
-                                 0x03,
-                                 0xee,
-                                 0x3e,
-                                 0xd6,
-                                 0x0c,
-                                 0x6f,
-                                 0x36,
-                                 0x39,
-                                 0x14,
-                                 0x09};
+                                  0x11,
+                                  0x8c,
+                                  0xc2,
+                                  0xfe,
+                                  0x4a,
+                                  0x03,
+                                  0xee,
+                                  0x3e,
+                                  0xd6,
+                                  0x0c,
+                                  0x6f,
+                                  0x36,
+                                  0x39,
+                                  0x14,
+                                  0x09};
     const guint16 duid_type_en = htons(2);
     const guint32 systemd_pen  = htonl(43793);
     const struct {
@@ -2596,10 +2594,9 @@ main(int argc, char **argv)
 
     g_test_add_func("/general/nm_strbuf_append", test_nm_utils_strbuf_append);
 
-    g_test_add_func("/general/nm_utils_ip6_address_clear_host_address",
+    g_test_add_func("/general/nm_ip6_addr_clear_host_address",
                     test_nm_utils_ip6_address_clear_host_address);
-    g_test_add_func("/general/nm_utils_ip6_address_same_prefix",
-                    test_nm_utils_ip6_address_same_prefix);
+    g_test_add_func("/general/nm_ip6_addr_same_prefix", test_nm_ip_addr_same_prefix);
     g_test_add_func("/general/nm_utils_log_connection_diff", test_nm_utils_log_connection_diff);
 
     g_test_add_func("/general/nm_utils_sysctl_ip_conf_path", test_nm_utils_sysctl_ip_conf_path);

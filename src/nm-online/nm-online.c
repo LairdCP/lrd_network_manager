@@ -235,26 +235,27 @@ main(int argc, char *argv[])
     GOptionEntry    options[] = {
         {"quiet", 'q', 0, G_OPTION_ARG_NONE, &data.quiet, N_("Don't print anything"), NULL},
         {"wait-for-startup",
-         's',
-         0,
-         G_OPTION_ARG_NONE,
-         &data.wait_startup,
-         N_("Wait for NetworkManager startup instead of a connection"),
-         NULL},
+            's',
+            0,
+            G_OPTION_ARG_NONE,
+            &data.wait_startup,
+            N_("Wait for NetworkManager startup instead of a connection"),
+            NULL},
         {"timeout",
-         't',
-         0,
-         G_OPTION_ARG_INT,
-         &t_secs,
-         N_("Time to wait for a connection, in seconds (without the option, default value is 30)"),
-         "<timeout>"},
+            't',
+            0,
+            G_OPTION_ARG_INT,
+            &t_secs,
+            N_("Time to wait for a connection, in seconds (without the option, default value is 30). "
+               "Maximum value is 2073600 seconds."),
+            "<timeout>"},
         {"exit",
-         'x',
-         0,
-         G_OPTION_ARG_NONE,
-         &data.exit_no_nm,
-         N_("Exit immediately if NetworkManager is not running or connecting"),
-         NULL},
+            'x',
+            0,
+            G_OPTION_ARG_NONE,
+            &data.exit_no_nm,
+            N_("Exit immediately if NetworkManager is not running or connecting"),
+            NULL},
         {NULL},
     };
 
@@ -289,7 +290,7 @@ main(int argc, char *argv[])
         return EXIT_FAILURE_ERROR;
     }
 
-    if (t_secs < 0 || t_secs > 3600) {
+    if (t_secs < 0 || t_secs > 2073600) {
         g_printerr("%s: %s\n",
                    argv[0],
                    _("Invalid option.  Please use --help to see a list of valid options."));

@@ -29,6 +29,7 @@ G_BEGIN_DECLS
 #define NM_SETTING_VLAN_PARENT               "parent"
 #define NM_SETTING_VLAN_ID                   "id"
 #define NM_SETTING_VLAN_FLAGS                "flags"
+#define NM_SETTING_VLAN_PROTOCOL             "protocol"
 #define NM_SETTING_VLAN_INGRESS_PRIORITY_MAP "ingress-priority-map"
 #define NM_SETTING_VLAN_EGRESS_PRIORITY_MAP  "egress-priority-map"
 
@@ -42,12 +43,10 @@ typedef struct _NMSettingVlanClass NMSettingVlanClass;
  * A selector for traffic priority maps; these map Linux SKB priorities
  * to 802.1p priorities used in VLANs.
  **/
-/* clang-format off */
 typedef enum {
     NM_VLAN_INGRESS_MAP,
-    NM_VLAN_EGRESS_MAP
+    NM_VLAN_EGRESS_MAP,
 } NMVlanPriorityMap;
-/* clang-format on */
 
 /**
  * NMVlanFlags:
@@ -63,17 +62,17 @@ typedef enum {
  *
  * #NMVlanFlags values control the behavior of the VLAN interface.
  **/
-typedef enum { /*< flags >*/
+typedef enum /*< flags >*/ {
 
-               NM_VLAN_FLAG_REORDER_HEADERS = 0x1,
-               NM_VLAN_FLAG_GVRP            = 0x2,
-               NM_VLAN_FLAG_LOOSE_BINDING   = 0x4,
-               NM_VLAN_FLAG_MVRP            = 0x8,
+    NM_VLAN_FLAG_REORDER_HEADERS = 0x1,
+    NM_VLAN_FLAG_GVRP            = 0x2,
+    NM_VLAN_FLAG_LOOSE_BINDING   = 0x4,
+    NM_VLAN_FLAG_MVRP            = 0x8,
 
-               /* NOTE: if adding flags update nm-setting-vlan.c::verify() */
+    /* NOTE: if adding flags update nm-setting-vlan.c::verify() */
 
-               /* NOTE: these flags must correspond to the value from the kernel
-                * header files. */
+    /* NOTE: these flags must correspond to the value from the kernel
+     * header files. */
 } NMVlanFlags;
 
 #define NM_VLAN_FLAGS_ALL                                                          \
@@ -86,6 +85,8 @@ NMSetting *nm_setting_vlan_new(void);
 const char *nm_setting_vlan_get_parent(NMSettingVlan *setting);
 guint32     nm_setting_vlan_get_id(NMSettingVlan *setting);
 guint32     nm_setting_vlan_get_flags(NMSettingVlan *setting);
+NM_AVAILABLE_IN_1_42
+const char *nm_setting_vlan_get_protocol(NMSettingVlan *setting);
 
 gint32 nm_setting_vlan_get_num_priorities(NMSettingVlan *setting, NMVlanPriorityMap map);
 

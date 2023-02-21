@@ -75,8 +75,9 @@ typedef struct {
     guint schedule_activate_all_id; /* idle handler for schedule_activate_all(). */
 
     NMPolicyHostnameMode hostname_mode;
-    char                *orig_hostname; /* hostname at NM start time */
-    char                *cur_hostname;  /* hostname we want to assign */
+    char                *orig_hostname;     /* hostname at NM start time */
+    char                *cur_hostname;      /* hostname we want to assign */
+    char                *cur_hostname_full; /* similar to @last_hostname, but before shortening */
     char *
         last_hostname; /* last hostname NM set (to detect if someone else changed it in the meanwhile) */
 
@@ -107,9 +108,10 @@ _PRIV_TO_SELF(NMPolicyPrivate *priv)
 
     nm_assert(priv);
 
-    self = (NMPolicy *) (((char *) priv) - G_STRUCT_OFFSET(NMPolicy, _priv));
+    self = NM_CAST_ALIGN(NMPolicy, (((char *) priv) - G_STRUCT_OFFSET(NMPolicy, _priv)));
 
     nm_assert(NM_IS_POLICY(self));
+
     return self;
 }
 
@@ -166,11 +168,11 @@ static void
 clear_ip6_prefix_delegation(gpointer data)
 {
     IP6PrefixDelegation *delegation = data;
-    char                 sbuf[NM_UTILS_INET_ADDRSTRLEN];
+    char                 sbuf[NM_INET_ADDRSTRLEN];
 
     _LOGD(LOGD_IP6,
           "ipv6-pd: undelegating prefix %s/%d",
-          _nm_utils_inet6_ntop(&delegation->prefix.address, sbuf),
+          nm_inet6_ntop(&delegation->prefix.address, sbuf),
           delegation->prefix.plen);
 
     g_hash_table_foreach(delegation->subnets, _clear_ip6_subnet, NULL);
@@ -186,7 +188,7 @@ expire_ip6_delegations(NMPolicy *self)
     guint                i;
 
     for (i = 0; i < priv->ip6_prefix_delegations->len; i++) {
-        delegation = &g_array_index(priv->ip6_prefix_delegations, IP6PrefixDelegation, i);
+        delegation = &nm_g_array_index(priv->ip6_prefix_delegations, IP6PrefixDelegation, i);
         if (delegation->prefix.timestamp + delegation->prefix.lifetime < now)
             g_array_remove_index_fast(priv->ip6_prefix_delegations, i);
     }
@@ -203,7 +205,7 @@ ip6_subnet_from_delegation(IP6PrefixDelegation *delegation, NMDevice *device)
 {
     NMPlatformIP6Address *subnet;
     int                   ifindex = nm_device_get_ifindex(device);
-    char                  sbuf[NM_UTILS_INET_ADDRSTRLEN];
+    char                  sbuf[NM_INET_ADDRSTRLEN];
 
     subnet = g_hash_table_lookup(delegation->subnets, GINT_TO_POINTER(ifindex));
     if (!subnet) {
@@ -211,7 +213,7 @@ ip6_subnet_from_delegation(IP6PrefixDelegation *delegation, NMDevice *device)
         if (delegation->next_subnet >= (1 << (64 - delegation->prefix.plen))) {
             _LOGD(LOGD_IP6,
                   "ipv6-pd: no more prefixes in %s/%d",
-                  _nm_utils_inet6_ntop(&delegation->prefix.address, sbuf),
+                  nm_inet6_ntop(&delegation->prefix.address, sbuf),
                   delegation->prefix.plen);
             return FALSE;
         }
@@ -240,7 +242,7 @@ ip6_subnet_from_delegation(IP6PrefixDelegation *delegation, NMDevice *device)
 
     _LOGD(LOGD_IP6,
           "ipv6-pd: %s allocated from a /%d prefix on %s",
-          _nm_utils_inet6_ntop(&subnet->address, sbuf),
+          nm_inet6_ntop(&subnet->address, sbuf),
           delegation->prefix.plen,
           nm_device_get_iface(device));
 
@@ -266,7 +268,7 @@ ip6_subnet_from_device(NMPolicy *self, NMDevice *from_device, NMDevice *device)
     expire_ip6_delegations(self);
 
     for (i = 0; i < priv->ip6_prefix_delegations->len; i++) {
-        delegation = &g_array_index(priv->ip6_prefix_delegations, IP6PrefixDelegation, i);
+        delegation = &nm_g_array_index(priv->ip6_prefix_delegations, IP6PrefixDelegation, i);
 
         if (delegation->device != from_device)
             continue;
@@ -294,7 +296,7 @@ ip6_remove_device_prefix_delegations(NMPolicy *self, NMDevice *device)
     guint                i;
 
     for (i = 0; i < priv->ip6_prefix_delegations->len; i++) {
-        delegation = &g_array_index(priv->ip6_prefix_delegations, IP6PrefixDelegation, i);
+        delegation = &nm_g_array_index(priv->ip6_prefix_delegations, IP6PrefixDelegation, i);
         if (delegation->device == device)
             g_array_remove_index_fast(priv->ip6_prefix_delegations, i);
     }
@@ -311,11 +313,11 @@ device_ip6_prefix_delegated(NMDevice                   *device,
     guint                i;
     const CList         *tmp_list;
     NMActiveConnection  *ac;
-    char                 sbuf[NM_UTILS_INET_ADDRSTRLEN];
+    char                 sbuf[NM_INET_ADDRSTRLEN];
 
     _LOGI(LOGD_IP6,
           "ipv6-pd: received a prefix %s/%d from %s",
-          _nm_utils_inet6_ntop(&prefix->address, sbuf),
+          nm_inet6_ntop(&prefix->address, sbuf),
           prefix->plen,
           nm_device_get_iface(device));
 
@@ -323,16 +325,15 @@ device_ip6_prefix_delegated(NMDevice                   *device,
 
     for (i = 0; i < priv->ip6_prefix_delegations->len; i++) {
         /* Look for an already known prefix to update. */
-        delegation = &g_array_index(priv->ip6_prefix_delegations, IP6PrefixDelegation, i);
+        delegation = &nm_g_array_index(priv->ip6_prefix_delegations, IP6PrefixDelegation, i);
         if (IN6_ARE_ADDR_EQUAL(&delegation->prefix.address, &prefix->address))
             break;
     }
 
     if (i == priv->ip6_prefix_delegations->len) {
         /* Allocate a delegation for new prefix. */
-        g_array_set_size(priv->ip6_prefix_delegations, i + 1);
-        delegation          = &g_array_index(priv->ip6_prefix_delegations, IP6PrefixDelegation, i);
-        delegation->subnets = g_hash_table_new(nm_direct_hash, NULL);
+        delegation = nm_g_array_append_new(priv->ip6_prefix_delegations, IP6PrefixDelegation);
+        delegation->subnets     = g_hash_table_new(nm_direct_hash, NULL);
         delegation->next_subnet = 0;
     }
 
@@ -457,7 +458,7 @@ get_best_active_connection(NMPolicy *self, int addr_family, gboolean fully_activ
 }
 
 static gboolean
-all_devices_not_active(NMPolicy *self)
+any_devices_active(NMPolicy *self)
 {
     NMPolicyPrivate *priv = NM_POLICY_GET_PRIVATE(self);
     const CList     *tmp_lst;
@@ -467,12 +468,13 @@ all_devices_not_active(NMPolicy *self)
         NMDeviceState state;
 
         state = nm_device_get_state(device);
-        if (state <= NM_DEVICE_STATE_DISCONNECTED || state >= NM_DEVICE_STATE_DEACTIVATING) {
+        if (state <= NM_DEVICE_STATE_DISCONNECTED || state >= NM_DEVICE_STATE_DEACTIVATING)
             continue;
-        }
-        return FALSE;
+        if (nm_device_sys_iface_state_is_external(device))
+            continue;
+        return TRUE;
     }
-    return TRUE;
+    return FALSE;
 }
 
 #define FALLBACK_HOSTNAME4 "localhost.localdomain"
@@ -560,6 +562,7 @@ _set_hostname(NMPolicy *self, const char *new_hostname, const char *msg)
 {
     NMPolicyPrivate *priv         = NM_POLICY_GET_PRIVATE(self);
     gs_free char    *old_hostname = NULL;
+    gboolean         cur_hostname_full_changed;
     const char      *name;
 
     /* The incoming hostname *can* be NULL, which will get translated to
@@ -568,32 +571,50 @@ _set_hostname(NMPolicy *self, const char *new_hostname, const char *msg)
      * there was no valid hostname to start with.
      */
 
+    if (nm_strdup_reset(&priv->cur_hostname_full, new_hostname)) {
+        gs_free char *shortened = NULL;
+
+        cur_hostname_full_changed = TRUE;
+
+        if (priv->cur_hostname_full
+            && !nm_utils_shorten_hostname(priv->cur_hostname_full, &shortened)) {
+            _LOGW(LOGD_DNS,
+                  "set-hostname: hostname '%s' %s is invalid",
+                  priv->cur_hostname_full,
+                  msg);
+            return;
+        }
+
+        if (shortened) {
+            _LOGI(LOGD_DNS,
+                  "set-hostname: shortened hostname %s from '%s' to '%s'",
+                  msg,
+                  priv->cur_hostname_full,
+                  shortened);
+            nm_strdup_reset_take(&priv->cur_hostname, g_steal_pointer(&shortened));
+        } else
+            nm_strdup_reset(&priv->cur_hostname, priv->cur_hostname_full);
+    } else
+        cur_hostname_full_changed = FALSE;
+
     /* Update the DNS only if the hostname is actually
      * going to change.
      */
-    if (!nm_streq0(priv->cur_hostname, new_hostname)) {
-        g_free(priv->cur_hostname);
-        priv->cur_hostname = g_strdup(new_hostname);
-
+    if (cur_hostname_full_changed) {
         /* Notify the DNS manager of the hostname change so that the domain part, if
          * present, can be added to the search list. Set the @updating_dns flag
          * so that dns_config_changed() doesn't try again to restart DNS lookup.
          */
         priv->updating_dns = TRUE;
         nm_dns_manager_set_hostname(priv->dns_manager,
-                                    priv->cur_hostname,
-                                    all_devices_not_active(self));
+                                    priv->cur_hostname_full,
+                                    !any_devices_active(self));
         priv->updating_dns = FALSE;
     }
 
     /* Finally, set kernel hostname */
-    if (!new_hostname)
-        name = FALLBACK_HOSTNAME4;
-    else if (!new_hostname[0]) {
-        g_warn_if_reached();
-        name = FALLBACK_HOSTNAME4;
-    } else
-        name = new_hostname;
+    nm_assert(!priv->cur_hostname || priv->cur_hostname[0]);
+    name = priv->cur_hostname ?: FALLBACK_HOSTNAME4;
 
     /* Don't set the hostname if it isn't actually changing */
     if ((old_hostname = _get_hostname(self)) && (nm_streq(name, old_hostname))) {
@@ -602,14 +623,16 @@ _set_hostname(NMPolicy *self, const char *new_hostname, const char *msg)
     }
 
     /* Keep track of the last set hostname */
-    g_free(priv->last_hostname);
-    priv->last_hostname     = g_strdup(name);
+    nm_strdup_reset(&priv->last_hostname, name);
     priv->changing_hostname = TRUE;
 
     _LOGI(LOGD_DNS, "set-hostname: set hostname to '%s' (%s)", name, msg);
 
     /* Ask NMSettings to update the transient hostname using its
-     * systemd-hostnamed proxy */
+     * systemd-hostnamed proxy.
+     *
+     * FIXME(shutdown): an async request must be cancellable, so we are guaranteed
+     *   to tear down in a reasonable time.*/
     nm_hostname_manager_set_transient_hostname(priv->hostname_manager,
                                                name,
                                                settings_set_hostname_cb,
@@ -716,6 +739,9 @@ build_device_hostname_infos(NMPolicy *self)
         if (!device)
             continue;
 
+        if (nm_device_sys_iface_state_is_external(device))
+            continue;
+
         only_from_default =
             device_get_hostname_property_boolean(device, NM_SETTING_HOSTNAME_ONLY_FROM_DEFAULT);
 
@@ -748,10 +774,10 @@ build_device_hostname_infos(NMPolicy *self)
 
         g_array_sort(array, device_hostname_info_compare);
 
-        info0 = &g_array_index(array, DeviceHostnameInfo, 0);
+        info0 = &nm_g_array_first(array, DeviceHostnameInfo);
         if (info0->priority < 0) {
             for (i = 1; i < array->len; i++) {
-                const DeviceHostnameInfo *info = &g_array_index(array, DeviceHostnameInfo, i);
+                const DeviceHostnameInfo *info = &nm_g_array_index(array, DeviceHostnameInfo, i);
 
                 if (info->priority > info0->priority) {
                     g_array_set_size(array, i);
@@ -772,6 +798,20 @@ device_dns_lookup_done(NMDevice *device, gpointer user_data)
     g_signal_handlers_disconnect_by_func(device, device_dns_lookup_done, self);
 
     update_system_hostname(self, "lookup finished");
+}
+
+static void
+device_carrier_changed(NMDevice *device, GParamSpec *pspec, gpointer user_data)
+{
+    NMPolicyPrivate *priv = user_data;
+    NMPolicy        *self = _PRIV_TO_SELF(priv);
+    gs_free char    *msg  = NULL;
+
+    if (nm_device_has_carrier(device)) {
+        g_signal_handlers_disconnect_by_func(device, device_carrier_changed, priv);
+        msg = g_strdup_printf("device '%s' got carrier", nm_device_get_iface(device));
+        update_system_hostname(self, msg);
+    }
 }
 
 static void
@@ -804,7 +844,7 @@ update_system_hostname(NMPolicy *self, const char *msg)
         && (nm_utils_is_specific_hostname(temp_hostname)
             || nm_utils_is_specific_hostname(priv->last_hostname))) {
         external_hostname = TRUE;
-        _LOGI(LOGD_DNS,
+        _LOGD(LOGD_DNS,
               "set-hostname: current hostname was changed outside NetworkManager: '%s'",
               temp_hostname);
         priv->dhcp_hostname = FALSE;
@@ -842,7 +882,7 @@ update_system_hostname(NMPolicy *self, const char *msg)
     if (infos && _LOGT_ENABLED(LOGD_DNS)) {
         _LOGT(LOGD_DNS, "device hostname info:");
         for (i = 0; i < infos->len; i++) {
-            info = &g_array_index(infos, DeviceHostnameInfo, i);
+            info = &nm_g_array_index(infos, DeviceHostnameInfo, i);
             _LOGT(LOGD_DNS,
                   "  - prio:%5d ipv%c%s %s %s dev:%s",
                   info->priority,
@@ -855,9 +895,10 @@ update_system_hostname(NMPolicy *self, const char *msg)
     }
 
     for (i = 0; infos && i < infos->len; i++) {
-        info        = &g_array_index(infos, DeviceHostnameInfo, i);
+        info        = &nm_g_array_index(infos, DeviceHostnameInfo, i);
         addr_family = info->IS_IPv4 ? AF_INET : AF_INET6;
         g_signal_handlers_disconnect_by_func(info->device, device_dns_lookup_done, self);
+        g_signal_handlers_disconnect_by_func(info->device, device_carrier_changed, priv);
 
         if (info->from_dhcp) {
             dhcp_config = nm_device_get_dhcp_config(info->device, addr_family);
@@ -883,10 +924,18 @@ update_system_hostname(NMPolicy *self, const char *msg)
 
         if (priv->hostname_mode != NM_POLICY_HOSTNAME_MODE_DHCP) {
             if (info->from_dns) {
-                const char *result;
-                gboolean    wait = FALSE;
+                const char *result = NULL;
+                gboolean    wait   = FALSE;
 
-                result = nm_device_get_hostname_from_dns_lookup(info->device, addr_family, &wait);
+                if (nm_device_has_carrier(info->device)) {
+                    result =
+                        nm_device_get_hostname_from_dns_lookup(info->device, addr_family, &wait);
+                } else {
+                    g_signal_connect(info->device,
+                                     "notify::" NM_DEVICE_CARRIER,
+                                     G_CALLBACK(device_carrier_changed),
+                                     priv);
+                }
                 if (result) {
                     _set_hostname(self, result, "from address lookup");
                     return;
@@ -1316,8 +1365,16 @@ auto_activate_device(NMPolicy *self, NMDevice *device)
     // but another connection now overrides the current one for that device,
     // deactivate the device and activate the new connection instead of just
     // bailing if the device is already active
-    if (nm_device_get_act_request(device))
-        return;
+    if (nm_device_get_act_request(device)) {
+        if (nm_device_sys_iface_state_is_external(device)
+            && nm_device_get_allow_autoconnect_on_external(device)) {
+            /* this is an external activation, and we allow autoconnecting on
+             * top of that.
+             *
+             * pass. */
+        } else
+            return;
+    }
 
     if (!nm_device_autoconnect_allowed(device))
         return;
@@ -1644,8 +1701,13 @@ schedule_activate_check(NMPolicy *self, NMDevice *device)
         return;
 
     nm_manager_for_each_active_connection (priv->manager, ac, tmp_list) {
-        if (nm_active_connection_get_device(ac) == device)
-            return;
+        if (nm_active_connection_get_device(ac) == device) {
+            if (nm_device_sys_iface_state_is_external(device)
+                && nm_device_get_allow_autoconnect_on_external(device)) {
+                /* pass */
+            } else
+                return;
+        }
     }
 
     nm_device_add_pending_action(device, NM_PENDING_ACTION_AUTOACTIVATE, TRUE);
@@ -2140,19 +2202,14 @@ device_l3cd_changed(NMDevice             *device,
 
     nm_dns_manager_begin_updates(priv->dns_manager, __func__);
 
-    /* We catch already all the IP events registering on the device state changes but
-     * the ones where the IP changes with a stable state (i.e., activated):
-     * ignore IP config changes but when the device is in activated state.
-     * Prevents unnecessary changes to DNS information.
-     * FIXME(l3cfg): check why ^^^ this is needed and implement it. Note that
-     * this function is not always called when the device becomes ACTIVATED.
-     * Previously, we would also update the DNS manager's IP config in
-     * device_state_change(ACTIVATED). There we would also special-case
-     * pseudo-VPNs like wireguard. I don't see the code where this is handled
-     * now.
+    /* FIXME(l3cfg): Note that this function is not always called when the
+     * device becomes ACTIVATED. Previously, we would also update the DNS
+     * manager's IP config in device_state_change(ACTIVATED). There we would
+     * also special-case pseudo-VPNs like wireguard. I don't see the code where
+     * this is handled now.
      */
     state = nm_device_get_state(device);
-    if (l3cd_new && state > NM_DEVICE_STATE_IP_CONFIG && state < NM_DEVICE_STATE_DEACTIVATING) {
+    if (l3cd_new && state >= NM_DEVICE_STATE_IP_CONFIG && state < NM_DEVICE_STATE_DEACTIVATING) {
         nm_dns_manager_set_ip_config(priv->dns_manager,
                                      AF_UNSPEC,
                                      device,
@@ -2770,7 +2827,7 @@ constructed(GObject *object)
                      self);
 
     priv->dns_manager = g_object_ref(nm_dns_manager_get());
-    nm_dns_manager_set_initial_hostname(priv->dns_manager, priv->orig_hostname);
+    nm_dns_manager_set_hostname(priv->dns_manager, priv->orig_hostname, TRUE);
     priv->config_changed_id = g_signal_connect(priv->dns_manager,
                                                NM_DNS_MANAGER_CONFIG_CHANGED,
                                                G_CALLBACK(dns_config_changed),
@@ -2885,7 +2942,7 @@ dispose(GObject *object)
     }
 
     g_hash_table_iter_init(&h_iter, priv->devices);
-    if (g_hash_table_iter_next(&h_iter, (gpointer *) &device, NULL)) {
+    while (g_hash_table_iter_next(&h_iter, (gpointer *) &device, NULL)) {
         g_hash_table_iter_remove(&h_iter);
         devices_list_unregister(self, device);
     }
@@ -2901,6 +2958,7 @@ dispose(GObject *object)
 
     nm_clear_g_free(&priv->orig_hostname);
     nm_clear_g_free(&priv->cur_hostname);
+    nm_clear_g_free(&priv->cur_hostname_full);
     nm_clear_g_free(&priv->last_hostname);
 
     if (priv->hostname_manager) {

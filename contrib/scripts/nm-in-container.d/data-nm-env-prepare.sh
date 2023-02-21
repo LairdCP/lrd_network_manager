@@ -11,6 +11,9 @@ do_cleanup() {
     local IDX="$1"
     local NAME_PREFIX="${2:-net}"
     local PEER_PREFIX="${3:-d_}"
+    local NETNS_PREFIX="${4:-tt}"
+
+    logger --id "nm-env-prepare-$IDX" "cleanup start # $@"
 
     pkill -F "/tmp/nm-dnsmasq-$PEER_PREFIX$IDX.pid" dnsmasq &>/dev/null || :
     rm -rf "/tmp/nm-dnsmasq-$PEER_PREFIX$IDX.pid"
@@ -24,45 +27,70 @@ do_cleanup() {
 
     rm -rf "/tmp/nm-radvd-$PEER_PREFIX$IDX.conf"
 
-    ip link del "$PEER_PREFIX$IDX" &>/dev/null || :
+    ip -netns "$NETNS_PREFIX$IDX" link del "$PEER_PREFIX$IDX" &>/dev/null || :
+
+    ip netns del "$NETNS_PREFIX$IDX" &>/dev/null || :
+
+    logger --id "nm-env-prepare-$IDX" "cleanup complete # $@"
 }
 
 do_setup() {
     local IDX="$1"
     local NAME_PREFIX="${2:-net}"
     local PEER_PREFIX="${3:-d_}"
+    local NETNS_PREFIX="${4:-tt}"
 
-    do_cleanup "$IDX"
+    logger --id "nm-env-prepare-$IDX" "setup start # $@"
 
-    ip link add "$NAME_PREFIX$IDX" type veth peer "$PEER_PREFIX$IDX"
-    ip link set "$PEER_PREFIX$IDX" up
+    ip netns add "$NETNS_PREFIX$IDX"
+    ip -netns "$NETNS_PREFIX$IDX" link set name lo up
 
-    ip addr add "192.168.$((120 + IDX)).1/23" dev "$PEER_PREFIX$IDX"
-    ip addr add "192:168:$((120 + IDX))::1/64" dev "$PEER_PREFIX$IDX"
+    ip -netns "$NETNS_PREFIX$IDX" link add "$NAME_PREFIX$IDX" type veth peer "$PEER_PREFIX$IDX"
+    ip -netns "$NETNS_PREFIX$IDX" link set name "$NAME_PREFIX$IDX" addr aa:0f:f1:ce:00:$(printf '%02x' $IDX)
+    ip -netns "$NETNS_PREFIX$IDX" link set name "$PEER_PREFIX$IDX" addr cc:0f:f1:ce:00:$(printf '%02x' $IDX)
+    ip -netns "$NETNS_PREFIX$IDX" link set name "$PEER_PREFIX$IDX" up
+
+    ip -netns "$NETNS_PREFIX$IDX" addr add "192.168.$((120 + IDX)).1/23" dev "$PEER_PREFIX$IDX"
+    ip -netns "$NETNS_PREFIX$IDX" addr add "192:168:$((120 + IDX))::1/64" dev "$PEER_PREFIX$IDX"
 
     # PPPoE inside the rootless container is not actually working, because
     # /dev/ppp is not accessible. Still start it, so that we at least can
     # test how far it goes...
     echo "192.168.$((120 + $IDX)).180-200" > "/tmp/nm-pppoe-allip-$PEER_PREFIX$IDX"
-    pppoe-server -X "/tmp/nm-pppoe-$PEER_PREFIX$IDX.pid" -S isp -C isp -L "192.168.$((120 + IDX)).1" -p "/tmp/nm-pppoe-allip-$PEER_PREFIX$IDX" -I "$PEER_PREFIX$IDX" &
+    ip netns exec "$NETNS_PREFIX$IDX" \
+        pppoe-server \
+            -X "/tmp/nm-pppoe-$PEER_PREFIX$IDX.pid" \
+            -S isp \
+            -C isp \
+            -L "192.168.$((120 + IDX)).1" \
+            -p "/tmp/nm-pppoe-allip-$PEER_PREFIX$IDX" \
+            -I "$PEER_PREFIX$IDX" \
+            &
 
-    dnsmasq \
-        --conf-file=/dev/null \
-        --pid-file="/tmp/nm-dnsmasq-$PEER_PREFIX$IDX.pid" \
-        --no-hosts \
-        --keep-in-foreground \
-        --bind-interfaces \
-        --except-interface=lo \
-        --clear-on-reload \
-        --listen-address="192.168.$((120 + $IDX)).1" \
-        --dhcp-range="192.168.$((120 + $IDX)).100,192.168.$((120 + $IDX)).150" \
-        --no-ping \
-        &
+    ip netns exec "$NETNS_PREFIX$IDX" \
+        dnsmasq \
+            --conf-file=/dev/null \
+            --pid-file="/tmp/nm-dnsmasq-$PEER_PREFIX$IDX.pid" \
+            --no-hosts \
+            --keep-in-foreground \
+            --bind-interfaces \
+            --log-debug \
+            --log-queries \
+            --log-dhcp \
+            --except-interface=lo \
+            --clear-on-reload \
+            --listen-address="192.168.$((120 + $IDX)).1" \
+            --listen-address="192:168:$((120 + IDX))::1" \
+            --dhcp-range="192.168.$((120 + $IDX)).100,192.168.$((120 + $IDX)).150,2m" \
+            --dhcp-range="192:168:$((120 + IDX))::1:1000,192:168:$((120 + IDX))::1:2000,64,2m" \
+            --no-ping \
+            &
 
     cat <<EOF > "/tmp/nm-radvd-$PEER_PREFIX$IDX.conf"
 interface $PEER_PREFIX$IDX
 {
         AdvSendAdvert on;
+        AdvManagedFlag on;
         prefix 192:168:$((120 + IDX))::/64
         {
                 AdvOnLink on;
@@ -70,10 +98,17 @@ interface $PEER_PREFIX$IDX
 
 };
 EOF
-    radvd \
-        --config "/tmp/nm-radvd-$PEER_PREFIX$IDX.conf" \
-        --pidfile "/tmp/nm-radvd-$PEER_PREFIX$IDX.pid" \
-        &
+    ip netns exec "$NETNS_PREFIX$IDX" \
+        radvd \
+            --config "/tmp/nm-radvd-$PEER_PREFIX$IDX.conf" \
+            --pidfile "/tmp/nm-radvd-$PEER_PREFIX$IDX.pid" \
+            --logmethod syslog \
+            -d 5 \
+            &
+
+    ip -netns ""$NETNS_PREFIX$IDX"" link set name "$NAME_PREFIX$IDX" netns $$
+
+    logger --id "nm-env-prepare-$IDX" "setup complete: netns=$NETNS_PREFIX$IDX, iface=$NAME_PREFIX$IDX, peer=$PEER_PREFIX$IDX # $@"
 }
 
 do_redo() {

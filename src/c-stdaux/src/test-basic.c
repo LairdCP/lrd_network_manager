@@ -7,23 +7,59 @@
 
 #undef NDEBUG
 #include <stdlib.h>
-#include <sys/eventfd.h>
 #include "c-stdaux.h"
 
-/*
- * Tests for all remaining helpers
- */
-static void test_misc(int non_constant_expr) {
-        int foo;
+#if defined(C_MODULE_GENERIC)
 
+static int check_cassert_unreachable(int switch_val) {
+    int result;
+
+    /* Check whether this triggers a "-Wsometimes-uninitialized" warning or
+     * whether the compiler recognizes c_assert(0) as unreachable code. */
+    switch (switch_val) {
+    case 1: result = 1; break;
+    case 2: result = 2; break;
+    default: c_assert(0);
+    }
+
+    return result;
+}
+
+static void test_basic_generic(int non_constant_expr) {
         /*
-         * Test the C_EXPR_ASSERT() macro to work in static and non-static
-         * environments, and evaluate exactly to its passed expression.
+         * Verify `_c_boolean_expr_` evaluates expressions to a boolean value
+         * and correctly works on all platforms.
          */
         {
-                static int v = C_EXPR_ASSERT(1, true, "");
+                int v = 0;
 
-                c_assert(v == 1);
+                c_assert(_c_boolean_expr_(0) == 0);
+                c_assert(_c_boolean_expr_(1) == 1);
+                c_assert(_c_boolean_expr_(2) == 1);
+                c_assert(_c_boolean_expr_(INT_MIN) == 1);
+                c_assert(_c_boolean_expr_(INT_MAX) == 1);
+
+                /* verify no double-evaluation takes place */
+                c_assert(_c_boolean_expr_(v++) == 0);
+                c_assert(_c_boolean_expr_(v) == 1);
+
+#if defined(C_COMPILER_GNUC)
+                c_assert(__builtin_constant_p(_c_boolean_expr_(1)));
+                c_assert(!__builtin_constant_p(_c_boolean_expr_(non_constant_expr)));
+#endif
+        }
+
+        /*
+         * Test that _c_likely_() and _c_unlikely_() can deal with constant
+         * expressions.
+         */
+        {
+#if defined(C_COMPILER_GNUC)
+                c_assert(__builtin_constant_p(_c_likely_(1)));
+                c_assert(__builtin_constant_p(_c_unlikely_(1)));
+                c_assert(!__builtin_constant_p(_c_likely_(non_constant_expr)));
+                c_assert(!__builtin_constant_p(_c_unlikely_(non_constant_expr)));
+#endif
         }
 
         /*
@@ -79,13 +115,6 @@ static void test_misc(int non_constant_expr) {
                         c_assert(sub == UNIQUEsub);
                 }
                 {
-                        /*
-                         * Make sure both produce different names, even though they're
-                         * exactly the same expression.
-                         */
-                        _c_unused_ int C_VAR(sub, __COUNTER__), C_VAR(sub, __COUNTER__);
-                }
-                {
                         /* verify C_VAR() with single argument works line-based */
                         int C_VAR(sub); C_VAR(sub) = 5; c_assert(C_VAR(sub) == 5);
                 }
@@ -93,6 +122,226 @@ static void test_misc(int non_constant_expr) {
                         /* verify C_VAR() with no argument works line-based */
                         int C_VAR(); C_VAR() = 5; c_assert(C_VAR() == 5);
                 }
+#if defined(C_MODULE_GNUC)
+                {
+                        /*
+                         * Make sure both produce different names, even though they're
+                         * exactly the same expression.
+                         */
+                        _c_unused_ int C_VAR(sub, __COUNTER__), C_VAR(sub, __COUNTER__);
+                }
+#endif
+        }
+
+#if defined(C_MODULE_GNUC)
+        /*
+         * Verify that c_free*() works as expected. Since we want to support
+         * running under valgrind, there is no easy way to verify the
+         * correctness of free(). Hence, we simply rely on valgrind to catch
+         * the leaks.
+         */
+        {
+                int i;
+
+                for (i = 0; i < 16; ++i) {
+                        _c_cleanup_(c_freep) void *foo;
+                        _c_cleanup_(c_freep) int **bar; /* supports any type */
+                        size_t sz = 128 * 1024;
+
+                        foo = malloc(sz);
+                        c_assert(foo);
+
+                        bar = malloc(sz);
+                        c_assert(bar);
+                        bar = c_free(bar);
+                        c_assert(!bar);
+                }
+
+                c_assert(c_free(NULL) == NULL);
+        }
+#endif
+
+#if defined(C_MODULE_UNIX)
+        /*
+         * Test c_fclose() and c_fclosep(). This uses the same logic as the
+         * tests for c_close() (i.e., sparse FD allocation).
+         */
+        {
+                int r, i, fd, tmp[2];
+                FILE *f;
+
+                r = pipe(tmp);
+                c_assert(r >= 0);
+                fd = tmp[0];
+                c_close(tmp[1]);
+
+                f = fdopen(fd, "r");
+                c_assert(f);
+
+                /* verify c_fclose() returns NULL */
+                f = c_fclose(f);
+                c_assert(!f);
+
+                /* verify c_fclose() deals fine with NULL */
+                c_assert(!c_fclose(NULL));
+
+                /* make sure c_flosep() deals fine with NULL */
+                {
+                        _c_cleanup_(c_fclosep) _c_unused_ FILE *t = (void *)0xdeadbeef;
+                        t = NULL;
+                }
+
+                /*
+                 * Make sure the c_fclose() earlier worked, by allocating the
+                 * FD again and relying on the same FD number to be reused. Do
+                 * this twice, to verify that the c_fclosep() in the cleanup
+                 * path works as well.
+                 */
+                for (i = 0; i < 2; ++i) {
+                        _c_cleanup_(c_fclosep) _c_unused_ FILE *t = NULL;
+                        int tfd;
+
+                        r = pipe(tmp);
+                        c_assert(r >= 0);
+                        tfd = tmp[0];
+                        c_close(tmp[1]);
+
+                        c_assert(tfd == fd); /* the same as before */
+                        t = fdopen(tfd, "r");
+                        c_assert(t);
+                }
+        }
+#endif
+
+        /*
+         * Test c_assert(). Make sure side-effects are always evaluated, and
+         * variables are marked as used regardless of NDEBUG.
+         */
+        {
+                int v1 = 0, v2 = 0;
+
+#define NDEBUG 1
+                c_assert(!v1);
+                if (v1)
+                        abort();
+                c_assert(++v1);
+                if (v1 != 1)
+                        abort();
+#undef NDEBUG
+                c_assert(!v2);
+                if (v2)
+                        abort();
+                c_assert(++v2);
+                if (v2 != 1)
+                        abort();
+
+                /*
+                 * Use the `check_cassert_unreachable()` helper to verify the
+                 * compiler does not complain about unreachable code when
+                 * `c_assert(0)` is used.
+                 */
+                c_assert(check_cassert_unreachable(1) == 1);
+                c_assert(check_cassert_unreachable(2) == 2);
+        }
+
+        /*
+         * Test c_errno(). Simply verify that the correct value is returned. It
+         * must always be >0 and equivalent to `errno' if set.
+         */
+        {
+                c_assert(c_errno() > 0);
+
+                strtol("0xfffffffffffffffffffffffffffffffff", NULL, 0);
+                c_assert(errno == ERANGE);
+                c_assert(c_errno() == errno);
+
+                errno = 0;
+                c_assert(c_errno() != errno);
+        }
+
+        /*
+         * Test c_memset(). Simply verify its most basic behavior, as well as
+         * calling it on empty regions.
+         */
+        {
+                uint64_t v = (uint64_t)-1;
+                size_t n;
+                void *p;
+
+                /* try filling with 0 and 0xff */
+                c_assert(v == (uint64_t)-1);
+                c_memset(&v, 0, sizeof(v));
+                c_assert(v == (uint64_t)0);
+                c_memset(&v, 0xff, sizeof(v));
+                c_assert(v == (uint64_t)-1);
+
+                /*
+                 * Try tricking the optimizer into thinking @p cannot be NULL,
+                 * as normal `memset(3)` would allow.
+                 */
+                p = NULL;
+                n = 0;
+                c_memset(p, 0, n);
+                if (p)
+                        abort();
+                c_assert(p == NULL);
+        }
+
+        /*
+         * Test c_memzero(). Simply verify it can clear a trivial area to 0.
+         */
+        {
+                uint64_t v = (uint64_t)-1;
+
+                c_assert(v == (uint64_t)-1);
+                c_memzero(&v, sizeof(v));
+                c_assert(v == (uint64_t)0);
+        }
+
+        /*
+         * Test c_memcpy() with a simple 8-byte copy.
+         */
+        {
+                uint64_t v1 = (uint64_t)-1, v2 = (uint64_t)0;
+
+                c_assert(v1 == (uint64_t)-1);
+                c_memcpy(&v1, &v2, sizeof(v1));
+                c_assert(v1 == (uint64_t)0);
+
+                c_memcpy(NULL, NULL, 0);
+        }
+
+        /*
+         * Test c_memcmp() with.
+         */
+        {
+                uint64_t v1 = (uint64_t)-1, v2 = (uint64_t)0;
+
+                c_assert(c_memcmp(NULL, NULL, 0) == 0);
+                c_assert(c_memcmp(&v1, &v2, 0) == 0);
+                c_assert(c_memcmp(&v1, &v2, 8) != 0);
+        }
+}
+
+#else /* C_MODULE_GENERIC */
+
+static void test_basic_generic(int non_constant_expr) {
+        (void)non_constant_expr;
+}
+
+#endif /* C_MODULE_GENERIC */
+
+#if defined(C_MODULE_GNUC)
+
+static void test_basic_gnuc(int non_constant_expr) {
+        /*
+         * Test the C_EXPR_ASSERT() macro to work in static and non-static
+         * environments, and evaluate exactly to its passed expression.
+         */
+        {
+                static int v = C_EXPR_ASSERT(1, true, "");
+
+                c_assert(v == 1);
         }
 
         /*
@@ -138,6 +387,8 @@ static void test_misc(int non_constant_expr) {
                 c_assert(&sub == c_container_of(&sub.a, struct foobar, a));
                 c_assert(&sub == c_container_of(&sub.b, struct foobar, b));
                 c_assert(&sub == c_container_of((const char *)&sub.b, struct foobar, b));
+
+                c_assert(!c_container_of(NULL, struct foobar, b));
         }
 
         /*
@@ -146,6 +397,8 @@ static void test_misc(int non_constant_expr) {
          * return value is constant as well.
          */
         {
+                int foo;
+
                 foo = 0;
                 c_assert(c_max(1, 5) == 5);
                 c_assert(c_max(-1, 5) == 5);
@@ -177,6 +430,8 @@ static void test_misc(int non_constant_expr) {
          * if all arguments are constant.
          */
         {
+                int foo;
+
                 foo = 8;
                 c_assert(c_less_by(1, 5) == 0);
                 c_assert(c_less_by(5, 1) == 4);
@@ -207,7 +462,7 @@ static void test_misc(int non_constant_expr) {
          *      [(x + y - 1) / y].
          */
         {
-                int i, j;
+                int i, j, foo;
 
 #define TEST_ALT_DIV(_x, _y) (((_x) + (_y) - 1) / (_y))
                 foo = 8;
@@ -267,91 +522,34 @@ static void test_misc(int non_constant_expr) {
                 c_assert(__builtin_constant_p(c_align_to(16, 7 + 1)));
                 c_assert(c_align_to(15, non_constant_expr ? 8 : 16) == 16);
         }
-
-        /*
-         * Test c_assert(). Make sure side-effects are always evaluated, and
-         * variables are marked as used regardless of NDEBUG.
-         */
-        {
-                int v1 = 0, v2 = 0;
-
-#define NDEBUG 1
-                c_assert(!v1);
-                if (v1)
-                        abort();
-                c_assert(++v1);
-                if (v1 != 1)
-                        abort();
-#undef NDEBUG
-                c_assert(!v2);
-                if (v2)
-                        abort();
-                c_assert(++v2);
-                if (v2 != 1)
-                        abort();
-        }
-
-        /*
-         * Test c_errno(). Simply verify that the correct value is returned. It
-         * must always be >0 and equivalent to `errno' if set.
-         */
-        {
-                c_assert(c_errno() > 0);
-
-                close(-1);
-                c_assert(c_errno() == errno);
-
-                errno = 0;
-                c_assert(c_errno() != errno);
-        }
 }
 
-/*
- * Tests for:
- *  - c_free*()
- *  - c_close*()
- *  - c_fclose*()
- *  - c_closedir*()
- */
-static void test_destructors(void) {
-        int i;
+#else /* C_MODULE_GNUC */
 
-        /*
-         * Verify that c_free*() works as expected. Since we want to support
-         * running under valgrind, there is no easy way to verify the
-         * correctness of free(). Hence, we simply rely on valgrind to catch
-         * the leaks.
-         */
-        {
-                for (i = 0; i < 16; ++i) {
-                        _c_cleanup_(c_freep) void *foo;
-                        _c_cleanup_(c_freep) int **bar; /* supports any type */
-                        size_t sz = 128 * 1024;
+static void test_basic_gnuc(int unused0) {
+        (void)unused0;
+}
 
-                        foo = malloc(sz);
-                        c_assert(foo);
+#endif /* C_MODULE_GNUC */
 
-                        bar = malloc(sz);
-                        c_assert(bar);
-                        bar = c_free(bar);
-                        c_assert(!bar);
-                }
+#if defined(C_MODULE_UNIX)
 
-                c_assert(c_free(NULL) == NULL);
-        }
-
+static void test_basic_unix(void) {
         /*
          * Test c_close*(), rely on sparse FD allocation. Make sure all the
          * helpers actually close the fd, and cope fine with negative numbers.
          */
         {
-                int fd;
+                int r, i, fd1, fd2, tmp[2];
 
-                fd = eventfd(0, EFD_CLOEXEC);
-                c_assert(fd >= 0);
+                r = pipe(tmp);
+                c_assert(r >= 0);
+                fd1 = tmp[0];
+                fd2 = tmp[1];
 
                 /* verify c_close() returns -1 */
-                c_assert(c_close(fd) == -1);
+                c_assert(c_close(fd1) == -1);
+                c_assert(c_close(fd2) == -1);
 
                 /* verify c_close() deals fine with negative fds */
                 c_assert(c_close(-1) == -1);
@@ -359,7 +557,7 @@ static void test_destructors(void) {
 
                 /* make sure c_closep() deals fine with negative FDs */
                 {
-                        _c_cleanup_(c_closep) int t = 0;
+                        _c_cleanup_(c_closep) _c_unused_ int t = 0;
                         t = -1;
                 }
 
@@ -370,63 +568,30 @@ static void test_destructors(void) {
                  * path works as well.
                  */
                 for (i = 0; i < 2; ++i) {
-                        _c_cleanup_(c_closep) int t = -1;
+                        _c_cleanup_(c_closep) _c_unused_ int t1 = -1, t2 = -1;
 
-                        t = eventfd(0, EFD_CLOEXEC);
-                        c_assert(t >= 0);
-                        c_assert(t == fd);
-                }
-        }
+                        r = pipe(tmp);
+                        c_assert(r >= 0);
+                        t1 = tmp[0];
+                        t2 = tmp[1];
 
-        /*
-         * Test c_fclose() and c_fclosep(). This uses the same logic as the
-         * tests for c_close() (i.e., sparse FD allocation).
-         */
-        {
-                FILE *f;
-                int fd;
-
-                fd = eventfd(0, EFD_CLOEXEC);
-                c_assert(fd >= 0);
-
-                f = fdopen(fd, "r");
-                c_assert(f);
-
-                /* verify c_fclose() returns NULL */
-                f = c_fclose(f);
-                c_assert(!f);
-
-                /* verify c_fclose() deals fine with NULL */
-                c_assert(!c_fclose(NULL));
-
-                /* make sure c_flosep() deals fine with NULL */
-                {
-                        _c_cleanup_(c_fclosep) FILE *t = (void *)0xdeadbeef;
-                        t = NULL;
-                }
-
-                /*
-                 * Make sure the c_fclose() earlier worked, by allocating the
-                 * FD again and relying on the same FD number to be reused. Do
-                 * this twice, to verify that the c_fclosep() in the cleanup
-                 * path works as well.
-                 */
-                for (i = 0; i < 2; ++i) {
-                        _c_cleanup_(c_fclosep) FILE *t = NULL;
-                        int tfd;
-
-                        tfd = eventfd(0, EFD_CLOEXEC);
-                        c_assert(tfd >= 0);
-                        c_assert(tfd == fd); /* the same as before */
-
-                        t = fdopen(tfd, "r");
-                        c_assert(t);
+                        c_assert(t1 == fd1);
+                        c_assert(t2 == fd2);
                 }
         }
 }
 
-int main(int argc, _c_unused_ char **argv) {
-        test_misc(argc);
-        test_destructors();
+#else /* C_MODULE_UNIX */
+
+static void test_basic_unix(void) {
+}
+
+#endif /* C_MODULE_UNIX */
+
+int main(int argc, char **argv) {
+        (void)argv;
+        test_basic_generic(argc);
+        test_basic_gnuc(argc);
+        test_basic_unix();
         return 0;
 }

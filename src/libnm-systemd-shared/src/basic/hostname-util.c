@@ -10,6 +10,7 @@
 #include <unistd.h>
 
 #include "alloc-util.h"
+#include "env-file.h"
 #include "hostname-util.h"
 #include "os-util.h"
 #include "string-util.h"
@@ -78,10 +79,8 @@ int gethostname_full(GetHostnameFlags flags, char **ret) {
 bool valid_ldh_char(char c) {
         /* "LDH" → "Letters, digits, hyphens", as per RFC 5890, Section 2.3.1 */
 
-        return
-                (c >= 'a' && c <= 'z') ||
-                (c >= 'A' && c <= 'Z') ||
-                (c >= '0' && c <= '9') ||
+        return ascii_isalpha(c) ||
+                ascii_isdigit(c) ||
                 c == '-';
 }
 
@@ -196,4 +195,21 @@ bool is_localhost(const char *hostname) {
                 endswith_no_case(hostname, ".localhost.") ||
                 endswith_no_case(hostname, ".localhost.localdomain") ||
                 endswith_no_case(hostname, ".localhost.localdomain.");
+}
+
+int get_pretty_hostname(char **ret) {
+        _cleanup_free_ char *n = NULL;
+        int r;
+
+        assert(ret);
+
+        r = parse_env_file(NULL, "/etc/machine-info", "PRETTY_HOSTNAME", &n);
+        if (r < 0)
+                return r;
+
+        if (isempty(n))
+                return -ENXIO;
+
+        *ret = TAKE_PTR(n);
+        return 0;
 }

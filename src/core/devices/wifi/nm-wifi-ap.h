@@ -13,7 +13,7 @@
 #include "libnm-base/nm-base.h"
 
 #define NM_TYPE_WIFI_AP            (nm_wifi_ap_get_type())
-#define NM_WIFI_AP(obj)            (G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_WIFI_AP, NMWifiAP))
+#define NM_WIFI_AP(obj)            (_NM_G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_WIFI_AP, NMWifiAP))
 #define NM_WIFI_AP_CLASS(klass)    (G_TYPE_CHECK_CLASS_CAST((klass), NM_TYPE_WIFI_AP, NMWifiAPClass))
 #define NM_IS_WIFI_AP(obj)         (G_TYPE_CHECK_INSTANCE_TYPE((obj), NM_TYPE_WIFI_AP))
 #define NM_IS_WIFI_AP_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE((klass), NM_TYPE_WIFI_AP))
@@ -52,12 +52,12 @@ gboolean nm_wifi_ap_update_from_properties(NMWifiAP                          *ap
 
 gboolean nm_wifi_ap_check_compatible(NMWifiAP                *self,
                                      NMConnection            *connection,
-                                     NMDeviceWifiCapabilities dev_caps);
+                                     _NMDeviceWifiCapabilities dev_caps);
 
 gboolean nm_wifi_ap_complete_connection(NMWifiAP                *self,
                                         NMConnection            *connection,
                                         gboolean                 lock_bssid,
-                                        NMDeviceWifiCapabilities dev_cap,
+                                        _NMDeviceWifiCapabilities dev_cap,
                                         GError                 **error);
 
 static inline NMRefString *
@@ -95,7 +95,7 @@ const char **nm_wifi_aps_get_paths(const CList *aps_lst_head, gboolean include_w
 
 NMWifiAP *nm_wifi_aps_find_first_compatible(const CList             *aps_lst_head,
                                             NMConnection            *connection,
-                                            NMDeviceWifiCapabilities dev_caps);
+                                            _NMDeviceWifiCapabilities dev_caps);
 
 NMWifiAP *nm_wifi_ap_lookup_for_device(NMDevice *device, const char *exported_path);
 

@@ -21,5 +21,8 @@
 
 #include "linux-headers/ethtool.h"
 #include "linux-headers/nl802154.h"
+#include "linux-headers/nl80211-vnd-intel.h"
+#include "linux-headers/mptcp.h"
+#include "linux-headers/if_link.h"
 
 #endif /* __NM_LINUX_COMPAT_H__ */

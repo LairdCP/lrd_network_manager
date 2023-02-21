@@ -453,7 +453,7 @@ _create_iface_dbus_call_get_interface_cb(GObject *source, GAsyncResult *result, 
         char ifname[NMP_IFNAMSIZ];
 
         if (handle->create_iface_try_count < CREATE_IFACE_TRY_COUNT_MAX
-            && _nm_dbus_error_has_name(error, NM_WPAS_ERROR_UNKNOWN_IFACE)
+            && nm_dbus_error_is(error, NM_WPAS_ERROR_UNKNOWN_IFACE)
             && nm_platform_if_indextoname(NM_PLATFORM_GET, handle->ifindex, ifname)) {
             /* Before, supplicant told us the interface existed. Was there a race?
              * Try again. */
@@ -503,7 +503,7 @@ _create_iface_dbus_call_create_interface_cb(GObject      *source,
                 nm_assert(handle->self);
                 TRUE;
             })
-            && _nm_dbus_error_has_name(error, NM_WPAS_ERROR_EXISTS_ERROR)
+            && nm_dbus_error_is(error, NM_WPAS_ERROR_EXISTS_ERROR)
             && nm_platform_if_indextoname(NM_PLATFORM_GET, handle->ifindex, ifname)) {
             self = handle->self;
             _LOGT("create-iface[" NM_HASH_OBFUSCATE_PTR_FMT
@@ -923,6 +923,7 @@ _dbus_get_capabilities_cb(GVariant *res, GError *error, gpointer user_data)
                     _caps_set(priv, NM_SUPPL_CAP_TYPE_PMF, NM_TERNARY_FALSE);
                     _caps_set(priv, NM_SUPPL_CAP_TYPE_FILS, NM_TERNARY_FALSE);
                     _caps_set(priv, NM_SUPPL_CAP_TYPE_SUITEB192, NM_TERNARY_FALSE);
+                    _caps_set(priv, NM_SUPPL_CAP_TYPE_WEP, NM_TERNARY_TRUE);
                     if (array) {
                         for (a = array; *a; a++) {
                             if (nm_streq(*a, "laird-features")) {
@@ -959,6 +960,10 @@ _dbus_get_capabilities_cb(GVariant *res, GError *error, gpointer user_data)
                             }
                             if (nm_streq(*a, "suiteb192")) {
                                 _caps_set(priv, NM_SUPPL_CAP_TYPE_SUITEB192, NM_TERNARY_TRUE);
+                                continue;
+                            }
+                            if (nm_streq(*a, "wep_disabled")) {
+                                _caps_set(priv, NM_SUPPL_CAP_TYPE_WEP, NM_TERNARY_FALSE);
                                 continue;
                             }
                         }
@@ -1000,6 +1005,8 @@ _dbus_get_capabilities_cb(GVariant *res, GError *error, gpointer user_data)
           " MESH%c"
           " FAST%c"
           " WFD%c"
+          " SUITEB192%c"
+          " WEP%c"
           " LAIRD%c"
           "",
           NM_SUPPL_CAP_TO_CHAR(priv->capabilities, NM_SUPPL_CAP_TYPE_AP),
@@ -1011,6 +1018,8 @@ _dbus_get_capabilities_cb(GVariant *res, GError *error, gpointer user_data)
           NM_SUPPL_CAP_TO_CHAR(priv->capabilities, NM_SUPPL_CAP_TYPE_MESH),
           NM_SUPPL_CAP_TO_CHAR(priv->capabilities, NM_SUPPL_CAP_TYPE_FAST),
           NM_SUPPL_CAP_TO_CHAR(priv->capabilities, NM_SUPPL_CAP_TYPE_WFD),
+          NM_SUPPL_CAP_TO_CHAR(priv->capabilities, NM_SUPPL_CAP_TYPE_SUITEB192),
+          NM_SUPPL_CAP_TO_CHAR(priv->capabilities, NM_SUPPL_CAP_TYPE_WEP),
           NM_SUPPL_CAP_TO_CHAR(priv->capabilities, NM_SUPPL_CAP_TYPE_LAIRD));
 
     nm_assert(g_hash_table_size(priv->supp_ifaces) == 0);

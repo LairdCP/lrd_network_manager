@@ -38,12 +38,13 @@ G_BEGIN_DECLS
 #define NM_SETTING_IP_TUNNEL_OUTPUT_KEY          "output-key"
 #define NM_SETTING_IP_TUNNEL_ENCAPSULATION_LIMIT "encapsulation-limit"
 #define NM_SETTING_IP_TUNNEL_FLOW_LABEL          "flow-label"
+#define NM_SETTING_IP_TUNNEL_FWMARK              "fwmark"
 #define NM_SETTING_IP_TUNNEL_MTU                 "mtu"
 #define NM_SETTING_IP_TUNNEL_FLAGS               "flags"
 
 typedef struct _NMSettingIPTunnelClass NMSettingIPTunnelClass;
 
-/*
+/**
  * NMIPTunnelFlags:
  * @NM_IP_TUNNEL_FLAG_NONE: no flag
  * @NM_IP_TUNNEL_FLAG_IP6_IGN_ENCAP_LIMIT: don't add encapsulation limit
@@ -60,14 +61,14 @@ typedef struct _NMSettingIPTunnelClass NMSettingIPTunnelClass;
  *
  * Since: 1.12
  */
-typedef enum { /*< flags, prefix=NM_IP_TUNNEL_FLAG >*/
-               NM_IP_TUNNEL_FLAG_NONE                   = 0x0,
-               NM_IP_TUNNEL_FLAG_IP6_IGN_ENCAP_LIMIT    = 0x1,
-               NM_IP_TUNNEL_FLAG_IP6_USE_ORIG_TCLASS    = 0x2,
-               NM_IP_TUNNEL_FLAG_IP6_USE_ORIG_FLOWLABEL = 0x4,
-               NM_IP_TUNNEL_FLAG_IP6_MIP6_DEV           = 0x8,
-               NM_IP_TUNNEL_FLAG_IP6_RCV_DSCP_COPY      = 0x10,
-               NM_IP_TUNNEL_FLAG_IP6_USE_ORIG_FWMARK    = 0x20,
+typedef enum /*< prefix=NM_IP_TUNNEL_FLAG, flags >*/ {
+    NM_IP_TUNNEL_FLAG_NONE                   = 0x0,
+    NM_IP_TUNNEL_FLAG_IP6_IGN_ENCAP_LIMIT    = 0x1,
+    NM_IP_TUNNEL_FLAG_IP6_USE_ORIG_TCLASS    = 0x2,
+    NM_IP_TUNNEL_FLAG_IP6_USE_ORIG_FLOWLABEL = 0x4,
+    NM_IP_TUNNEL_FLAG_IP6_MIP6_DEV           = 0x8,
+    NM_IP_TUNNEL_FLAG_IP6_RCV_DSCP_COPY      = 0x10,
+    NM_IP_TUNNEL_FLAG_IP6_USE_ORIG_FWMARK    = 0x20,
 } NMIPTunnelFlags;
 
 NM_AVAILABLE_IN_1_2
@@ -94,10 +95,12 @@ NM_AVAILABLE_IN_1_2
 const char *nm_setting_ip_tunnel_get_input_key(NMSettingIPTunnel *setting);
 NM_AVAILABLE_IN_1_2
 const char *nm_setting_ip_tunnel_get_output_key(NMSettingIPTunnel *setting);
-NM_AVAILABLE_IN_1_2
+NM_AVAILABLE_IN_1_42
 guint nm_setting_ip_tunnel_get_encapsulation_limit(NMSettingIPTunnel *setting);
-NM_AVAILABLE_IN_1_2
+NM_AVAILABLE_IN_1_42
 guint nm_setting_ip_tunnel_get_flow_label(NMSettingIPTunnel *setting);
+NM_AVAILABLE_IN_1_42
+guint32 nm_setting_ip_tunnel_get_fwmark(NMSettingIPTunnel *setting);
 NM_AVAILABLE_IN_1_2
 guint nm_setting_ip_tunnel_get_mtu(NMSettingIPTunnel *setting);
 NM_AVAILABLE_IN_1_12

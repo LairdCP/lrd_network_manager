@@ -129,7 +129,7 @@ get_ip_domains(GPtrArray *domains, const NML3ConfigData *l3cd, int addr_family)
     char                      *cidr;
     guint                      num;
     guint                      i;
-    char                       sbuf[NM_UTILS_INET_ADDRSTRLEN];
+    char                       sbuf[NM_INET_ADDRSTRLEN];
     const NMPlatformIPAddress *address;
     const NMPlatformIPRoute   *route;
     const char *const         *strv;
@@ -144,7 +144,7 @@ get_ip_domains(GPtrArray *domains, const NML3ConfigData *l3cd, int addr_family)
 
     nm_l3_config_data_iter_ip_address_for_each (&ipconf_iter, l3cd, addr_family, &address) {
         cidr = g_strdup_printf("%s/%u",
-                               nm_utils_inet_ntop(addr_family, address->address_ptr, sbuf),
+                               nm_inet_ntop(addr_family, address->address_ptr, sbuf),
                                address->plen);
         g_ptr_array_add(domains, cidr);
     }
@@ -153,7 +153,7 @@ get_ip_domains(GPtrArray *domains, const NML3ConfigData *l3cd, int addr_family)
         if (NM_PLATFORM_IP_ROUTE_IS_DEFAULT(route))
             continue;
         cidr = g_strdup_printf("%s/%u",
-                               nm_utils_inet_ntop(addr_family, route->network_ptr, sbuf),
+                               nm_inet_ntop(addr_family, route->network_ptr, sbuf),
                                route->plen);
         g_ptr_array_add(domains, cidr);
     }
@@ -291,7 +291,7 @@ _call_destroy_proxy_configuration(NMPacrunnerManager *self,
                            g_variant_new("(o)", path),
                            G_VARIANT_TYPE("()"),
                            G_DBUS_CALL_FLAGS_NO_AUTO_START,
-                           NM_SHUTDOWN_TIMEOUT_MS,
+                           NM_SHUTDOWN_TIMEOUT_1500_MSEC,
                            priv->cancellable,
                            _call_destroy_proxy_configuration_cb,
                            conf_id_ref(conf_id));
@@ -315,7 +315,7 @@ _call_create_proxy_configuration(NMPacrunnerManager *self,
                            conf_id->parameters,
                            G_VARIANT_TYPE("(o)"),
                            G_DBUS_CALL_FLAGS_NO_AUTO_START,
-                           NM_SHUTDOWN_TIMEOUT_MS,
+                           NM_SHUTDOWN_TIMEOUT_1500_MSEC,
                            priv->cancellable,
                            _call_create_proxy_configuration_cb,
                            conf_id_ref(conf_id));

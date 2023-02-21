@@ -31,9 +31,9 @@ G_BEGIN_DECLS
  *
  * Since: 1.22
  */
-typedef enum { /*< flags >*/
-               NM_IP_ADDRESS_CMP_FLAGS_NONE       = 0,
-               NM_IP_ADDRESS_CMP_FLAGS_WITH_ATTRS = 0x1,
+typedef enum /*< flags >*/ {
+    NM_IP_ADDRESS_CMP_FLAGS_NONE       = 0,
+    NM_IP_ADDRESS_CMP_FLAGS_WITH_ATTRS = 0x1,
 } NMIPAddressCmpFlags;
 
 typedef struct NMIPAddress NMIPAddress;
@@ -86,9 +86,9 @@ void     nm_ip_route_ref(NMIPRoute *route);
 void     nm_ip_route_unref(NMIPRoute *route);
 gboolean nm_ip_route_equal(NMIPRoute *route, NMIPRoute *other);
 
-enum { /*< flags >*/
-       NM_IP_ROUTE_EQUAL_CMP_FLAGS_NONE       = 0,
-       NM_IP_ROUTE_EQUAL_CMP_FLAGS_WITH_ATTRS = 0x1,
+enum /*< flags >*/ {
+    NM_IP_ROUTE_EQUAL_CMP_FLAGS_NONE       = 0,
+    NM_IP_ROUTE_EQUAL_CMP_FLAGS_WITH_ATTRS = 0x1,
 };
 
 NM_AVAILABLE_IN_1_10
@@ -123,10 +123,12 @@ gboolean nm_ip_route_attribute_validate(const char *name,
                                         gboolean   *known,
                                         GError    **error);
 
+#define NM_IP_ROUTE_ATTRIBUTE_ADVMSS        "advmss"
 #define NM_IP_ROUTE_ATTRIBUTE_CWND          "cwnd"
 #define NM_IP_ROUTE_ATTRIBUTE_FROM          "from"
 #define NM_IP_ROUTE_ATTRIBUTE_INITCWND      "initcwnd"
 #define NM_IP_ROUTE_ATTRIBUTE_INITRWND      "initrwnd"
+#define NM_IP_ROUTE_ATTRIBUTE_LOCK_ADVMSS   "lock-advmss"
 #define NM_IP_ROUTE_ATTRIBUTE_LOCK_CWND     "lock-cwnd"
 #define NM_IP_ROUTE_ATTRIBUTE_LOCK_INITCWND "lock-initcwnd"
 #define NM_IP_ROUTE_ATTRIBUTE_LOCK_INITRWND "lock-initrwnd"
@@ -134,12 +136,15 @@ gboolean nm_ip_route_attribute_validate(const char *name,
 #define NM_IP_ROUTE_ATTRIBUTE_LOCK_WINDOW   "lock-window"
 #define NM_IP_ROUTE_ATTRIBUTE_MTU           "mtu"
 #define NM_IP_ROUTE_ATTRIBUTE_ONLINK        "onlink"
+#define NM_IP_ROUTE_ATTRIBUTE_QUICKACK      "quickack"
+#define NM_IP_ROUTE_ATTRIBUTE_RTO_MIN       "rto_min"
 #define NM_IP_ROUTE_ATTRIBUTE_SCOPE         "scope"
 #define NM_IP_ROUTE_ATTRIBUTE_SRC           "src"
 #define NM_IP_ROUTE_ATTRIBUTE_TABLE         "table"
 #define NM_IP_ROUTE_ATTRIBUTE_TOS           "tos"
 #define NM_IP_ROUTE_ATTRIBUTE_TYPE          "type"
 #define NM_IP_ROUTE_ATTRIBUTE_WINDOW        "window"
+#define NM_IP_ROUTE_ATTRIBUTE_WEIGHT        "weight"
 
 /*****************************************************************************/
 
@@ -277,12 +282,12 @@ gboolean nm_ip_routing_rule_validate(const NMIPRoutingRule *self, GError **error
  *
  * Since: 1.18
  */
-typedef enum { /*< flags >*/
-               NM_IP_ROUTING_RULE_AS_STRING_FLAGS_NONE = 0,
+typedef enum /*< flags >*/ {
+    NM_IP_ROUTING_RULE_AS_STRING_FLAGS_NONE = 0,
 
-               NM_IP_ROUTING_RULE_AS_STRING_FLAGS_AF_INET  = 0x1,
-               NM_IP_ROUTING_RULE_AS_STRING_FLAGS_AF_INET6 = 0x2,
-               NM_IP_ROUTING_RULE_AS_STRING_FLAGS_VALIDATE = 0x4,
+    NM_IP_ROUTING_RULE_AS_STRING_FLAGS_AF_INET  = 0x1,
+    NM_IP_ROUTING_RULE_AS_STRING_FLAGS_AF_INET6 = 0x2,
+    NM_IP_ROUTING_RULE_AS_STRING_FLAGS_VALIDATE = 0x4,
 } NMIPRoutingRuleAsStringFlags;
 
 NM_AVAILABLE_IN_1_18
@@ -334,6 +339,7 @@ char *nm_ip_routing_rule_to_string(const NMIPRoutingRule       *self,
 #define NM_SETTING_IP_CONFIG_REQUIRED_TIMEOUT    "required-timeout"
 #define NM_SETTING_IP_CONFIG_DHCP_IAID           "dhcp-iaid"
 #define NM_SETTING_IP_CONFIG_DHCP_REJECT_SERVERS "dhcp-reject-servers"
+#define NM_SETTING_IP_CONFIG_AUTO_ROUTE_EXT_GW   "auto-route-ext-gw"
 
 /* these are not real GObject properties. */
 #define NM_SETTING_IP_CONFIG_ROUTING_RULES "routing-rules"
@@ -386,14 +392,14 @@ typedef struct _NMSettingIPConfigClass NMSettingIPConfigClass;
  *
  * Since: 1.22
  */
-typedef enum { /*< flags >*/
-               NM_DHCP_HOSTNAME_FLAG_NONE = 0x0,
+typedef enum /*< flags >*/ {
+    NM_DHCP_HOSTNAME_FLAG_NONE = 0x0,
 
-               NM_DHCP_HOSTNAME_FLAG_FQDN_SERV_UPDATE = 0x1,
-               NM_DHCP_HOSTNAME_FLAG_FQDN_ENCODED     = 0x2,
-               NM_DHCP_HOSTNAME_FLAG_FQDN_NO_UPDATE   = 0x4,
+    NM_DHCP_HOSTNAME_FLAG_FQDN_SERV_UPDATE = 0x1,
+    NM_DHCP_HOSTNAME_FLAG_FQDN_ENCODED     = 0x2,
+    NM_DHCP_HOSTNAME_FLAG_FQDN_NO_UPDATE   = 0x4,
 
-               NM_DHCP_HOSTNAME_FLAG_FQDN_CLEAR_FLAGS = 0x8,
+    NM_DHCP_HOSTNAME_FLAG_FQDN_CLEAR_FLAGS = 0x8,
 
 } NMDhcpHostnameFlags;
 
@@ -476,7 +482,7 @@ NM_AVAILABLE_IN_1_2
 int nm_setting_ip_config_get_dhcp_timeout(NMSettingIPConfig *setting);
 NM_AVAILABLE_IN_1_34
 int nm_setting_ip_config_get_required_timeout(NMSettingIPConfig *setting);
-NM_AVAILABLE_IN_1_22
+NM_AVAILABLE_IN_1_42
 const char *nm_setting_ip_config_get_dhcp_iaid(NMSettingIPConfig *setting);
 
 NM_AVAILABLE_IN_1_22
@@ -491,6 +497,8 @@ NM_AVAILABLE_IN_1_28
 void nm_setting_ip_config_remove_dhcp_reject_server(NMSettingIPConfig *setting, guint idx);
 NM_AVAILABLE_IN_1_28
 void nm_setting_ip_config_clear_dhcp_reject_servers(NMSettingIPConfig *setting);
+NM_AVAILABLE_IN_1_42
+NMTernary nm_setting_ip_config_get_auto_route_ext_gw(NMSettingIPConfig *setting);
 
 G_END_DECLS
 

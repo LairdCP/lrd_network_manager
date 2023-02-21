@@ -9,6 +9,8 @@
 
 #include <stdlib.h>
 #include <net/if.h>
+#include <linux/if_ether.h>
+#include <linux/if_link.h>
 
 #include "NetworkManagerUtils.h"
 #include "nm-device-private.h"
@@ -16,7 +18,9 @@
 #include "nm-device-factory.h"
 #include "libnm-core-aux-intern/nm-libnm-core-utils.h"
 #include "libnm-core-intern/nm-core-internal.h"
+#include "nm-manager.h"
 #include "nm-setting-bond-port.h"
+#include "nm-bond-manager.h"
 
 #define _NMLOG_DEVICE_TYPE NMDeviceBond
 #include "nm-device-logging.h"
@@ -37,17 +41,17 @@
         NM_SETTING_BOND_OPTION_USE_CARRIER, NM_SETTING_BOND_OPTION_XMIT_HASH_POLICY,       \
         NM_SETTING_BOND_OPTION_NUM_GRAT_ARP, NM_SETTING_BOND_OPTION_PEER_NOTIF_DELAY
 
-#define OPTIONS_REAPPLY_SUBSET                                                            \
-    NM_SETTING_BOND_OPTION_MIIMON, NM_SETTING_BOND_OPTION_UPDELAY,                        \
-        NM_SETTING_BOND_OPTION_DOWNDELAY, NM_SETTING_BOND_OPTION_ARP_INTERVAL,            \
-        NM_SETTING_BOND_OPTION_ARP_VALIDATE, NM_SETTING_BOND_OPTION_PRIMARY,              \
-        NM_SETTING_BOND_OPTION_AD_ACTOR_SYSTEM, NM_SETTING_BOND_OPTION_AD_ACTOR_SYS_PRIO, \
-        NM_SETTING_BOND_OPTION_ALL_SLAVES_ACTIVE, NM_SETTING_BOND_OPTION_ARP_ALL_TARGETS, \
-        NM_SETTING_BOND_OPTION_FAIL_OVER_MAC, NM_SETTING_BOND_OPTION_LP_INTERVAL,         \
-        NM_SETTING_BOND_OPTION_MIN_LINKS, NM_SETTING_BOND_OPTION_PACKETS_PER_SLAVE,       \
-        NM_SETTING_BOND_OPTION_PRIMARY_RESELECT, NM_SETTING_BOND_OPTION_RESEND_IGMP,      \
-        NM_SETTING_BOND_OPTION_USE_CARRIER, NM_SETTING_BOND_OPTION_XMIT_HASH_POLICY,      \
-        NM_SETTING_BOND_OPTION_NUM_GRAT_ARP, NM_SETTING_BOND_OPTION_PEER_NOTIF_DELAY
+#define OPTIONS_REAPPLY_SUBSET                                                             \
+    NM_SETTING_BOND_OPTION_MIIMON, NM_SETTING_BOND_OPTION_UPDELAY,                         \
+        NM_SETTING_BOND_OPTION_DOWNDELAY, NM_SETTING_BOND_OPTION_ARP_INTERVAL,             \
+        NM_SETTING_BOND_OPTION_ARP_VALIDATE, NM_SETTING_BOND_OPTION_PRIMARY,               \
+        NM_SETTING_BOND_OPTION_AD_ACTOR_SYSTEM, NM_SETTING_BOND_OPTION_AD_ACTOR_SYS_PRIO,  \
+        NM_SETTING_BOND_OPTION_ALL_SLAVES_ACTIVE, NM_SETTING_BOND_OPTION_ARP_ALL_TARGETS,  \
+        NM_SETTING_BOND_OPTION_LP_INTERVAL, NM_SETTING_BOND_OPTION_MIN_LINKS,              \
+        NM_SETTING_BOND_OPTION_PACKETS_PER_SLAVE, NM_SETTING_BOND_OPTION_PRIMARY_RESELECT, \
+        NM_SETTING_BOND_OPTION_RESEND_IGMP, NM_SETTING_BOND_OPTION_USE_CARRIER,            \
+        NM_SETTING_BOND_OPTION_XMIT_HASH_POLICY, NM_SETTING_BOND_OPTION_NUM_GRAT_ARP,      \
+        NM_SETTING_BOND_OPTION_PEER_NOTIF_DELAY
 
 #define OPTIONS_REAPPLY_FULL                                     \
     OPTIONS_REAPPLY_SUBSET, NM_SETTING_BOND_OPTION_ACTIVE_SLAVE, \
@@ -56,7 +60,8 @@
 /*****************************************************************************/
 
 struct _NMDeviceBond {
-    NMDevice parent;
+    NMDevice       parent;
+    NMBondManager *bond_manager;
 };
 
 struct _NMDeviceBondClass {
@@ -175,7 +180,9 @@ update_connection(NMDevice *device, NMConnection *connection)
         gs_free char *value  = NULL;
         char         *p;
 
-        if (NM_IN_STRSET(option, NM_SETTING_BOND_OPTION_ACTIVE_SLAVE))
+        if (NM_IN_STRSET(option,
+                         NM_SETTING_BOND_OPTION_ACTIVE_SLAVE,
+                         NM_SETTING_BOND_OPTION_BALANCE_SLB))
             continue;
 
         value =
@@ -221,9 +228,10 @@ controller_update_port_connection(NMDevice     *self,
                                   GError      **error)
 {
     NMSettingBondPort *s_port;
-    int                ifindex_port = nm_device_get_ifindex(port);
-    uint               queue_id     = NM_BOND_PORT_QUEUE_ID_DEF;
-    gs_free char      *queue_id_str = NULL;
+    int                ifindex_port       = nm_device_get_ifindex(port);
+    NMConnection      *applied_connection = nm_device_get_applied_connection(self);
+    uint               queue_id           = NM_BOND_PORT_QUEUE_ID_DEF;
+    gs_free char      *queue_id_str       = NULL;
 
     g_return_val_if_fail(ifindex_port > 0, FALSE);
 
@@ -240,7 +248,7 @@ controller_update_port_connection(NMDevice     *self,
 
     g_object_set(nm_connection_get_setting_connection(connection),
                  NM_SETTING_CONNECTION_MASTER,
-                 nm_device_get_iface(self),
+                 nm_connection_get_uuid(applied_connection),
                  NM_SETTING_CONNECTION_SLAVE_TYPE,
                  NM_SETTING_BOND_SETTING_NAME,
                  NULL);
@@ -271,10 +279,10 @@ set_arp_targets(NMDevice *device, const char *cur_arp_ip_target, const char *new
             in_addr_t   a4;
 
             s = new_strv[i];
-            if (nm_utils_parse_inaddr_bin(AF_INET, s, NULL, &a4)) {
+            if (nm_inet_parse_bin(AF_INET, s, NULL, &a4)) {
                 char sbuf[INET_ADDRSTRLEN];
 
-                _nm_utils_inet4_ntop(a4, sbuf);
+                nm_inet4_ntop(a4, sbuf);
                 if (!nm_streq(s, sbuf)) {
                     if (!free_list)
                         free_list = g_ptr_array_new_with_free_func(g_free);
@@ -312,7 +320,7 @@ set_bond_attr_or_default(NMDevice *device, NMSettingBond *s_bond, const char *op
     NMDeviceBond *self = NM_DEVICE_BOND(device);
     const char   *value;
 
-    value = nm_setting_bond_get_option_or_default(s_bond, opt);
+    value = nm_setting_bond_get_option_normalized(s_bond, opt);
     if (!value) {
         if (_LOGT_ENABLED(LOGD_BOND) && nm_setting_bond_get_option_by_name(s_bond, opt))
             _LOGT(LOGD_BOND, "bond option '%s' not set as it conflicts with other options", opt);
@@ -346,58 +354,245 @@ set_bond_arp_ip_targets(NMDevice *device, NMSettingBond *s_bond)
     set_arp_targets(
         device,
         cur_arp_ip_target,
-        nm_setting_bond_get_option_or_default(s_bond, NM_SETTING_BOND_OPTION_ARP_IP_TARGET));
+        nm_setting_bond_get_option_normalized(s_bond, NM_SETTING_BOND_OPTION_ARP_IP_TARGET));
 }
 
-static gboolean
-apply_bonding_config(NMDeviceBond *self)
+static guint8
+_bond_arp_ip_target_to_platform(const char *value, in_addr_t out[static NM_BOND_MAX_ARP_TARGETS])
 {
-    NMDevice      *device = NM_DEVICE(self);
+    gs_free const char **ip = NULL;
+    in_addr_t            in_a;
+    int                  i;
+    int                  added = 0;
+
+    ip = nm_utils_bond_option_arp_ip_targets_split(value);
+
+    if (!ip)
+        return added;
+
+    for (i = 0; ip[i]; i++) {
+        if (added > NM_BOND_MAX_ARP_TARGETS - 1)
+            break;
+        if (!nm_inet_parse_bin(AF_INET, ip[i], NULL, &in_a))
+            nm_assert_not_reached(); /* verify() already validated the IP addresses */
+
+        out[added++] = in_a;
+    }
+    return added;
+}
+
+static int
+_setting_bond_primary_opt_as_ifindex(NMSettingBond *s_bond)
+{
+    const char *primary_str;
+    int         ifindex = 0;
+
+    primary_str = nm_setting_bond_get_option_normalized(s_bond, NM_SETTING_BOND_OPTION_PRIMARY);
+
+    if (primary_str != NULL)
+        ifindex = nm_platform_link_get_ifindex(NM_PLATFORM_GET, primary_str);
+
+    return ifindex;
+}
+
+static void
+_platform_lnk_bond_init_from_setting(NMSettingBond *s_bond, NMPlatformLnkBond *props)
+{
+    const char *opt_value;
+
+#define _v_fcn(fcn, s_bond, opt) (fcn(nm_setting_bond_get_option_normalized((s_bond), (opt))))
+#define _v_u8(s_bond, opt)       _nm_setting_bond_opt_value_as_u8((s_bond), (opt))
+#define _v_u16(s_bond, opt)      _nm_setting_bond_opt_value_as_u16((s_bond), (opt))
+#define _v_u32(s_bond, opt)      _nm_setting_bond_opt_value_as_u32((s_bond), (opt))
+#define _v_intbool(s_bond, opt)  _nm_setting_bond_opt_value_as_intbool((s_bond), (opt))
+
+    *props = (NMPlatformLnkBond){
+        .mode      = _v_fcn(_nm_setting_bond_mode_from_string, s_bond, NM_SETTING_BOND_OPTION_MODE),
+        .primary   = _setting_bond_primary_opt_as_ifindex(s_bond),
+        .miimon    = _v_u32(s_bond, NM_SETTING_BOND_OPTION_MIIMON),
+        .updelay   = _v_u32(s_bond, NM_SETTING_BOND_OPTION_UPDELAY),
+        .downdelay = _v_u32(s_bond, NM_SETTING_BOND_OPTION_DOWNDELAY),
+        .arp_interval      = _v_u32(s_bond, NM_SETTING_BOND_OPTION_ARP_INTERVAL),
+        .resend_igmp       = _v_u32(s_bond, NM_SETTING_BOND_OPTION_RESEND_IGMP),
+        .min_links         = _v_u32(s_bond, NM_SETTING_BOND_OPTION_MIN_LINKS),
+        .lp_interval       = _v_u32(s_bond, NM_SETTING_BOND_OPTION_LP_INTERVAL),
+        .packets_per_port  = _v_u32(s_bond, NM_SETTING_BOND_OPTION_PACKETS_PER_SLAVE),
+        .peer_notif_delay  = _v_u32(s_bond, NM_SETTING_BOND_OPTION_PEER_NOTIF_DELAY),
+        .arp_all_targets   = _v_fcn(_nm_setting_bond_arp_all_targets_from_string,
+                                  s_bond,
+                                  NM_SETTING_BOND_OPTION_ARP_ALL_TARGETS),
+        .arp_validate      = _v_fcn(_nm_setting_bond_arp_validate_from_string,
+                               s_bond,
+                               NM_SETTING_BOND_OPTION_ARP_VALIDATE),
+        .ad_actor_sys_prio = _v_u16(s_bond, NM_SETTING_BOND_OPTION_AD_ACTOR_SYS_PRIO),
+        .ad_user_port_key  = _v_u16(s_bond, NM_SETTING_BOND_OPTION_AD_USER_PORT_KEY),
+        .primary_reselect  = _v_fcn(_nm_setting_bond_primary_reselect_from_string,
+                                   s_bond,
+                                   NM_SETTING_BOND_OPTION_PRIMARY_RESELECT),
+        .fail_over_mac     = _v_fcn(_nm_setting_bond_fail_over_mac_from_string,
+                                s_bond,
+                                NM_SETTING_BOND_OPTION_FAIL_OVER_MAC),
+        .xmit_hash_policy  = _v_fcn(_nm_setting_bond_xmit_hash_policy_from_string,
+                                   s_bond,
+                                   NM_SETTING_BOND_OPTION_XMIT_HASH_POLICY),
+        .num_grat_arp      = _v_u8(s_bond, NM_SETTING_BOND_OPTION_NUM_GRAT_ARP),
+        .all_ports_active  = _v_u8(s_bond, NM_SETTING_BOND_OPTION_ALL_SLAVES_ACTIVE),
+        .lacp_rate         = _v_fcn(_nm_setting_bond_lacp_rate_from_string,
+                            s_bond,
+                            NM_SETTING_BOND_OPTION_LACP_RATE),
+        .ad_select         = _v_fcn(_nm_setting_bond_ad_select_from_string,
+                            s_bond,
+                            NM_SETTING_BOND_OPTION_AD_SELECT),
+        .use_carrier       = _v_intbool(s_bond, NM_SETTING_BOND_OPTION_USE_CARRIER),
+        .tlb_dynamic_lb    = _v_intbool(s_bond, NM_SETTING_BOND_OPTION_TLB_DYNAMIC_LB),
+    };
+
+    nm_ether_addr_from_string(
+        &props->ad_actor_system,
+        nm_setting_bond_get_option_normalized(s_bond, NM_SETTING_BOND_OPTION_AD_ACTOR_SYSTEM));
+
+    opt_value = nm_setting_bond_get_option_normalized(s_bond, NM_SETTING_BOND_OPTION_ARP_IP_TARGET);
+    if (opt_value != NULL)
+        props->arp_ip_targets_num =
+            _bond_arp_ip_target_to_platform(opt_value, props->arp_ip_target);
+
+    props->miimon_has           = !props->arp_interval && !props->arp_validate;
+    props->updelay_has          = props->miimon_has && props->miimon;
+    props->downdelay_has        = props->miimon_has && props->miimon;
+    props->peer_notif_delay_has = (props->miimon || props->arp_interval) && props->peer_notif_delay;
+    props->resend_igmp_has      = props->resend_igmp != 1;
+    props->lp_interval_has      = props->lp_interval != 1;
+    props->tlb_dynamic_lb_has   = NM_IN_SET(props->mode, NM_BOND_MODE_TLB, NM_BOND_MODE_ALB);
+}
+
+static void
+_balance_slb_cb(NMBondManager *bond_manager, NMBondManagerEventType event_type, gpointer user_data)
+{
+    NMDevice     *device = user_data;
+    NMDeviceBond *self   = NM_DEVICE_BOND(device);
+
+    nm_assert(NM_IS_DEVICE_BOND(self));
+    nm_assert(self->bond_manager == bond_manager);
+
+    switch (event_type) {
+    case NM_BOND_MANAGER_EVENT_TYPE_STATE:
+        switch (nm_bond_manager_get_state(bond_manager)) {
+        case NM_OPTION_BOOL_FALSE:
+            if (nm_device_get_state(device) <= NM_DEVICE_STATE_ACTIVATED) {
+                _LOGD(LOGD_BOND, "balance-slb: failed");
+                nm_device_state_changed(device,
+                                        NM_DEVICE_STATE_FAILED,
+                                        NM_DEVICE_STATE_REASON_CONFIG_FAILED);
+            }
+            return;
+        case NM_OPTION_BOOL_TRUE:
+            if (nm_device_get_state(device) <= NM_DEVICE_STATE_ACTIVATED
+                && nm_device_devip_get_state(device, AF_UNSPEC) <= NM_DEVICE_IP_STATE_PENDING) {
+                nm_device_devip_set_state(device, AF_UNSPEC, NM_DEVICE_IP_STATE_READY, NULL);
+            }
+            return;
+        case NM_OPTION_BOOL_DEFAULT:
+            if (nm_device_get_state(device) <= NM_DEVICE_STATE_ACTIVATED
+                && nm_device_devip_get_state(device, AF_UNSPEC) == NM_DEVICE_IP_STATE_READY) {
+                /* We are again busy. We can also go back to "pending" from "ready".
+                 * If ip-config state is not yet complete, this will further delay it.
+                 * Otherwise, it should have no effect. */
+                nm_device_devip_set_state(device, AF_UNSPEC, NM_DEVICE_IP_STATE_PENDING, NULL);
+            }
+            return;
+        }
+        nm_assert_not_reached();
+        return;
+    }
+
+    nm_assert_not_reached();
+}
+
+static void
+_balance_slb_setup(NMDeviceBond *self, NMConnection *connection)
+{
+    int            ifindex     = nm_device_get_ifindex(NM_DEVICE(self));
+    gboolean       balance_slb = FALSE;
+    const char    *uuid;
     NMSettingBond *s_bond;
-    NMBondMode     mode;
-    const char    *mode_str;
-    gs_free char  *device_bond_mode = NULL;
 
-    s_bond = nm_device_get_applied_setting(device, NM_TYPE_SETTING_BOND);
-    g_return_val_if_fail(s_bond, FALSE);
+    if (ifindex > 0 && connection && (s_bond = nm_connection_get_setting_bond(connection)))
+        balance_slb = _v_intbool(s_bond, NM_SETTING_BOND_OPTION_BALANCE_SLB);
 
-    mode_str = nm_setting_bond_get_option_or_default(s_bond, NM_SETTING_BOND_OPTION_MODE);
-    mode     = _nm_setting_bond_mode_from_string(mode_str);
-    g_return_val_if_fail(mode != NM_BOND_MODE_UNKNOWN, FALSE);
+    if (!balance_slb) {
+        if (nm_clear_pointer(&self->bond_manager, nm_bond_manager_destroy)) {
+            _LOGD(LOGD_BOND, "balance-slb: stopped");
+            nm_device_devip_set_state(NM_DEVICE(self), AF_UNSPEC, NM_DEVICE_IP_STATE_NONE, NULL);
+        }
+        return;
+    }
 
-    /* Set mode first, as some other options (e.g. arp_interval) are valid
-     * only for certain modes.
-     */
-    device_bond_mode = nm_platform_sysctl_master_get_option(nm_device_get_platform(device),
-                                                            nm_device_get_ifindex(device),
-                                                            NM_SETTING_BOND_OPTION_MODE);
-    /* Need to release all slaves before we can change bond mode */
-    if (!nm_streq0(device_bond_mode, mode_str))
-        nm_device_master_release_slaves(device);
+    uuid = nm_connection_get_uuid(connection);
 
-    set_bond_attr_or_default(device, s_bond, NM_SETTING_BOND_OPTION_MODE);
+    if (self->bond_manager) {
+        if (nm_bond_manager_get_ifindex(self->bond_manager) == ifindex
+            && nm_streq0(nm_bond_manager_get_connection_uuid(self->bond_manager), uuid)) {
+            _LOGD(LOGD_BOND, "balance-slb: reapply");
+            nm_bond_manager_reapply(self->bond_manager);
+            return;
+        }
+        nm_clear_pointer(&self->bond_manager, nm_bond_manager_destroy);
+        _LOGD(LOGD_BOND, "balance-slb: restart");
+    }
 
-    set_bond_arp_ip_targets(device, s_bond);
-
-    set_bond_attrs_or_default(device, s_bond, NM_MAKE_STRV(OPTIONS_APPLY_SUBSET));
-    return TRUE;
+    _LOGD(LOGD_BOND, "balance-slb: start");
+    if (nm_device_devip_get_state(NM_DEVICE(self), AF_UNSPEC) < NM_DEVICE_IP_STATE_PENDING)
+        nm_device_devip_set_state(NM_DEVICE(self), AF_UNSPEC, NM_DEVICE_IP_STATE_PENDING, NULL);
+    self->bond_manager = nm_bond_manager_new(nm_device_get_platform(NM_DEVICE(self)),
+                                             ifindex,
+                                             uuid,
+                                             _balance_slb_cb,
+                                             self);
+    nm_assert(nm_bond_manager_get_state(self->bond_manager) == NM_OPTION_BOOL_DEFAULT);
 }
 
 static NMActStageReturn
 act_stage1_prepare(NMDevice *device, NMDeviceStateReason *out_failure_reason)
 {
-    NMDeviceBond    *self = NM_DEVICE_BOND(device);
-    NMActStageReturn ret  = NM_ACT_STAGE_RETURN_SUCCESS;
+    NMDeviceBond     *self = NM_DEVICE_BOND(device);
+    NMActStageReturn  ret  = NM_ACT_STAGE_RETURN_SUCCESS;
+    NMConnection     *connection;
+    NMSettingBond    *s_bond;
+    NMPlatformLnkBond props;
+    int               r;
+    int               ifindex = nm_device_get_ifindex(device);
+
+    connection = nm_device_get_applied_connection(device);
+    g_return_val_if_fail(connection, NM_ACT_STAGE_RETURN_FAILURE);
+
+    s_bond = nm_connection_get_setting_bond(connection);
+    g_return_val_if_fail(s_bond, NM_ACT_STAGE_RETURN_FAILURE);
+
+    if (nm_device_sys_iface_state_is_external(device))
+        return NM_ACT_STAGE_RETURN_SUCCESS;
+
+    _balance_slb_setup(self, connection);
+
+    if (nm_device_sys_iface_state_is_external_or_assume(device))
+        return NM_ACT_STAGE_RETURN_SUCCESS;
+
+    _platform_lnk_bond_init_from_setting(s_bond, &props);
 
     /* Interface must be down to set bond options */
     nm_device_take_down(device, TRUE);
-    if (!apply_bonding_config(self))
+    r = nm_platform_link_bond_change(nm_device_get_platform(device), ifindex, &props);
+    if (r < 0) {
         ret = NM_ACT_STAGE_RETURN_FAILURE;
-    else {
+        NM_SET_OUT(out_failure_reason, NM_DEVICE_STATE_REASON_CONFIG_FAILED);
+    } else {
         if (!nm_device_hw_addr_set_cloned(device, nm_device_get_applied_connection(device), FALSE))
             ret = NM_ACT_STAGE_RETURN_FAILURE;
     }
-    nm_device_bring_up(device, TRUE, NULL);
+
+    /* This is a workaround because netlink do not support ifname as primary */
+    set_bond_attr_or_default(device, s_bond, NM_SETTING_BOND_OPTION_PRIMARY);
+
+    nm_device_bring_up(device);
 
     return ret;
 }
@@ -424,8 +619,14 @@ commit_port_options(NMDevice *bond_device, NMDevice *port, NMSettingBondPort *s_
                                          queue_id_str);
 }
 
-static gboolean
-enslave_slave(NMDevice *device, NMDevice *port, NMConnection *connection, gboolean configure)
+static NMTernary
+attach_port(NMDevice                  *device,
+            NMDevice                  *port,
+            NMConnection              *connection,
+            gboolean                   configure,
+            GCancellable              *cancellable,
+            NMDeviceAttachPortCallback callback,
+            gpointer                   user_data)
 {
     NMDeviceBond      *self = NM_DEVICE_BOND(device);
     NMSettingBondPort *s_port;
@@ -439,10 +640,10 @@ enslave_slave(NMDevice *device, NMDevice *port, NMConnection *connection, gboole
         success = nm_platform_link_enslave(nm_device_get_platform(device),
                                            nm_device_get_ip_ifindex(device),
                                            nm_device_get_ip_ifindex(port));
-        nm_device_bring_up(port, TRUE, NULL);
+        nm_device_bring_up(port);
 
         if (!success) {
-            _LOGI(LOGD_BOND, "assigning bond port %s: failed", nm_device_get_ip_iface(port));
+            _LOGI(LOGD_BOND, "attaching bond port %s: failed", nm_device_get_ip_iface(port));
             return FALSE;
         }
 
@@ -450,15 +651,15 @@ enslave_slave(NMDevice *device, NMDevice *port, NMConnection *connection, gboole
 
         commit_port_options(device, port, s_port);
 
-        _LOGI(LOGD_BOND, "assigned bond port %s", nm_device_get_ip_iface(port));
+        _LOGI(LOGD_BOND, "attached bond port %s", nm_device_get_ip_iface(port));
     } else
-        _LOGI(LOGD_BOND, "bond port %s was assigned", nm_device_get_ip_iface(port));
+        _LOGI(LOGD_BOND, "bond port %s was attached", nm_device_get_ip_iface(port));
 
     return TRUE;
 }
 
 static void
-release_slave(NMDevice *device, NMDevice *slave, gboolean configure)
+detach_port(NMDevice *device, NMDevice *port, gboolean configure)
 {
     NMDeviceBond *self = NM_DEVICE_BOND(device);
     gboolean      success;
@@ -472,10 +673,10 @@ release_slave(NMDevice *device, NMDevice *slave, gboolean configure)
             configure = FALSE;
     }
 
-    ifindex_slave = nm_device_get_ip_ifindex(slave);
+    ifindex_slave = nm_device_get_ip_ifindex(port);
 
     if (ifindex_slave <= 0)
-        _LOGD(LOGD_BOND, "bond slave %s is already released", nm_device_get_ip_iface(slave));
+        _LOGD(LOGD_BOND, "bond port %s is already detached", nm_device_get_ip_iface(port));
 
     if (configure) {
         NMConnection   *applied;
@@ -490,9 +691,9 @@ release_slave(NMDevice *device, NMDevice *slave, gboolean configure)
                                                ifindex_slave);
 
             if (success) {
-                _LOGI(LOGD_BOND, "released bond slave %s", nm_device_get_ip_iface(slave));
+                _LOGI(LOGD_BOND, "detached bond port %s", nm_device_get_ip_iface(port));
             } else {
-                _LOGW(LOGD_BOND, "failed to release bond slave %s", nm_device_get_ip_iface(slave));
+                _LOGW(LOGD_BOND, "failed to detach bond port %s", nm_device_get_ip_iface(port));
             }
         }
 
@@ -512,12 +713,12 @@ release_slave(NMDevice *device, NMDevice *slave, gboolean configure)
          * other state is noticed by the now-released slave.
          */
         if (ifindex_slave > 0) {
-            if (!nm_device_bring_up(slave, TRUE, NULL))
-                _LOGW(LOGD_BOND, "released bond slave could not be brought up.");
+            if (!nm_device_bring_up(port))
+                _LOGW(LOGD_BOND, "detached bond port could not be brought up.");
         }
     } else {
         if (ifindex_slave > 0) {
-            _LOGI(LOGD_BOND, "bond slave %s was released", nm_device_get_ip_iface(slave));
+            _LOGI(LOGD_BOND, "bond port %s was detached", nm_device_get_ip_iface(port));
         }
     }
 }
@@ -529,12 +730,19 @@ create_and_realize(NMDevice              *device,
                    const NMPlatformLink **out_plink,
                    GError               **error)
 {
-    const char *iface = nm_device_get_iface(device);
-    int         r;
+    const char       *iface = nm_device_get_iface(device);
+    NMSettingBond    *s_bond;
+    NMPlatformLnkBond props;
+    int               r;
 
     g_assert(iface);
 
-    r = nm_platform_link_bond_add(nm_device_get_platform(device), iface, out_plink);
+    s_bond = nm_connection_get_setting_bond(connection);
+    nm_assert(s_bond);
+
+    _platform_lnk_bond_init_from_setting(s_bond, &props);
+
+    r = nm_platform_link_bond_add(nm_device_get_platform(device), iface, &props, out_plink);
     if (r < 0) {
         g_set_error(error,
                     NM_DEVICE_ERROR,
@@ -576,7 +784,7 @@ can_reapply_change(NMDevice   *device,
             const char *name = *option_list;
 
             /* We support changes to these */
-            if (NM_IN_STRSET(name, OPTIONS_REAPPLY_FULL))
+            if (NM_IN_STRSET(name, OPTIONS_REAPPLY_FULL, NM_SETTING_BOND_OPTION_BALANCE_SLB))
                 continue;
 
             /* Reject any other changes */
@@ -612,7 +820,7 @@ reapply_connection(NMDevice *device, NMConnection *con_old, NMConnection *con_ne
     s_bond = nm_connection_get_setting_bond(con_new);
     g_return_if_fail(s_bond);
 
-    value = nm_setting_bond_get_option_or_default(s_bond, NM_SETTING_BOND_OPTION_MODE);
+    value = nm_setting_bond_get_option_normalized(s_bond, NM_SETTING_BOND_OPTION_MODE);
     mode  = _nm_setting_bond_mode_from_string(value);
     g_return_if_fail(mode != NM_BOND_MODE_UNKNOWN);
 
@@ -622,6 +830,16 @@ reapply_connection(NMDevice *device, NMConnection *con_old, NMConnection *con_ne
     set_bond_arp_ip_targets(device, s_bond);
 
     set_bond_attrs_or_default(device, s_bond, NM_MAKE_STRV(OPTIONS_REAPPLY_SUBSET));
+
+    _balance_slb_setup(self, con_new);
+}
+
+static void
+deactivate(NMDevice *device)
+{
+    NMDeviceBond *self = NM_DEVICE_BOND(device);
+
+    _balance_slb_setup(self, NULL);
 }
 
 /*****************************************************************************/
@@ -660,20 +878,22 @@ nm_device_bond_class_init(NMDeviceBondClass *klass)
     device_class->update_connection              = update_connection;
     device_class->master_update_slave_connection = controller_update_port_connection;
 
-    device_class->create_and_realize = create_and_realize;
-    device_class->act_stage1_prepare = act_stage1_prepare;
+    device_class->create_and_realize                             = create_and_realize;
+    device_class->act_stage1_prepare                             = act_stage1_prepare;
+    device_class->act_stage1_prepare_also_for_external_or_assume = TRUE;
     device_class->get_configured_mtu = nm_device_get_configured_mtu_for_wired;
-    device_class->enslave_slave      = enslave_slave;
-    device_class->release_slave      = release_slave;
+    device_class->attach_port        = attach_port;
+    device_class->detach_port        = detach_port;
     device_class->can_reapply_change = can_reapply_change;
     device_class->reapply_connection = reapply_connection;
+    device_class->deactivate         = deactivate;
 }
 
 /*****************************************************************************/
 
 #define NM_TYPE_BOND_DEVICE_FACTORY (nm_bond_device_factory_get_type())
 #define NM_BOND_DEVICE_FACTORY(obj) \
-    (G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_BOND_DEVICE_FACTORY, NMBondDeviceFactory))
+    (_NM_G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_BOND_DEVICE_FACTORY, NMBondDeviceFactory))
 
 static NMDevice *
 create_device(NMDeviceFactory      *factory,

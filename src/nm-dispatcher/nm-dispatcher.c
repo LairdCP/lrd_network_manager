@@ -62,7 +62,7 @@ typedef struct {
     bool shutdown_quitting;
 } GlobalData;
 
-GlobalData gl;
+static GlobalData gl;
 
 typedef struct {
     Request *request;
@@ -1146,7 +1146,7 @@ _initial_setup(int *p_argc, char ***p_argv, GError **error)
                                   "Output to console rather than syslog",
                                   NULL,
                               },
-                              {
+                                 {
                                   "persist",
                                   0,
                                   0,
@@ -1155,7 +1155,7 @@ _initial_setup(int *p_argc, char ***p_argv, GError **error)
                                   "Don't quit after a short timeout",
                                   NULL,
                               },
-                              {
+                                 {
                                   NULL,
                               }};
     gboolean        success;

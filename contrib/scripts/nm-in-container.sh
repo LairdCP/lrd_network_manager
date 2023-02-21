@@ -6,24 +6,42 @@ set -e
 # Script to create a podman container for testing NetworkManager.
 #
 # Commands:
-#  - build: build a new image, named "$CONTAINER_NAME_REPOSITORY:$CONTAINER_NAME_TAG" ("nm:nm")
-#  - run: start the container and tag it "$CONTAINER_NAME_NAME" ("nm")
-#  - exec: run bash inside the container
-#  - stop: stop the container
-#  - clean: delete the container and the image.
+#  - build: build a new image, named "$CONTAINER_NAME_REPOSITORY:$CONTAINER_NAME_TAG" ("nm:nm").
+#  - run: start the container and tag it "$CONTAINER_NAME_NAME" ("nm").
+#  - exec: run bash inside the container (this is the default).
+#  - journal|j: print the journal from inside the container.
+#  - stop: stop the container.
+#  - reset: stop and delete the container.
+#  - clean: stop and delete the container and the image.
 #
 # Options:
 #  --no-cleanup: don't delete the CONTAINERFILE and other artifacts
 #  --stop: only has effect with "run". It will stop the container afterwards.
-#  -- [COMMAND]: with command "exec", provide a command to run in the container.
-#    Defaults to "bash".
+#  -- [EXTRA_ARGS]:
+#    - with command "exec", provide a command and arguments to run in the container.
+#      Defaults to "bash".
+#    - with command "journal", additional arguments that are passed to journalctl.
 #
 # It bind mounts the current working directory inside the container.
 # You can run `make install` and run tests.
 # There is a script nm-env-prepare.sh to generate a net1 interface for testing.
+#
+# This will bind-mount the NetworkManager working tree inside the container.
+# Create a symlink ./.git/NetworkManager-ci, to also bind-mount the CI directory.
+#
+# Currently NM-ci requires a working eth1.
+# Hence call `nm-env-prepare.sh --prefix eth -i 1 && nmcli device connect eth1` before
+# running a CI test.
 ###############################################################################
 
-BASE_IMAGE="${BASE_IMAGE:-fedora:latest}"
+if [ -z "$BASE_IMAGE" ]; then
+    if grep -q "^ID=fedora$" /etc/os-release 2>/dev/null ; then
+        BASE_IMAGE="$(sed -n 's/^VERSION_ID=\([0-9]\+\)$/fedora:\1/p' /etc/os-release)"
+    fi
+fi
+if [ -z "$BASE_IMAGE" ]; then
+    BASE_IMAGE=fedora:latest
+fi
 
 BASEDIR_NM="$(readlink -f "$(dirname "$(readlink -f "$0")")/../..")"
 BASEDIR="$BASEDIR_NM/contrib/scripts/nm-in-container.d"
@@ -32,11 +50,13 @@ CONTAINER_NAME_REPOSITORY=${CONTAINER_NAME_REPOSITORY:-nm}
 CONTAINER_NAME_TAG=${CONTAINER_NAME_TAG:-nm}
 CONTAINER_NAME_NAME=${CONTAINER_NAME_NAME:-nm}
 
+EXEC_ENV=()
+
 ###############################################################################
 
 usage() {
     cat <<EOF
-$0: build|run|exec|stop|clean [--no-cleanup] [--stop]
+$0: build|run|exec|stop|reset|reexec|clean|journal [--no-cleanup] [--stop] [-- EXTRA_ARGS]
 EOF
     echo
     awk '/^####*$/{ if(on) exit; on=1} { if (on) { if (on==2) print(substr($0,3)); on=2; } }' "$BASH_SOURCE"
@@ -88,7 +108,7 @@ bind_files() {
         [[ "$f2" = *.tmp ]] && continue
         [[ "$f2" = *~ ]] && continue
         f2="/root/$f2"
-        ARR+=( -v "$f:$f2:Z" )
+        ARR+=( -v "$f:$f2" )
     done
 
     eval "$VARIABLE_NAME=( \"\${ARR[@]}\" )"
@@ -108,10 +128,76 @@ create_dockerfile() {
 find NetworkManager bind mounted at $BASEDIR_NM
 run \`nm-env-prepare.sh setup --idx 1\` to setup test interfaces
 
-Configure NetworkManager with
-  \$ ./configure --enable-maintainer-mode --enable-more-warnings=error --with-more-asserts="\${NM_BUILD_MORE_ASSERTS:-1000}" --with-nm-cloud-setup=yes --prefix=/opt/test --localstatedir=/var --sysconfdir=/etc --enable-gtk-doc --enable-introspection --with-ofono=yes --with-dhclient=yes --with-dhcpcanon=yes --with-dhcpcd=yes --enable-more-logging --enable-compile-warnings=yes --enable-address-sanitizer=no --enable-undefined-sanitizer=no --with-valgrind=yes --enable-concheck --enable-wimax --enable-ifcfg-rh=yes --enable-config-plugin-ibft=yes --enable-ifcfg-suse --enable-ifupdown=yes --enable-ifnet --enable-vala=yes --enable-polkit=yes --with-libnm-glib=yes --with-nmcli=yes --with-nmtui=yes --with-modem-manager-1 --with-suspend-resume=systemd --enable-teamdctl=yes --enable-ovs=yes --enable-tests="\${NM_BUILD_TESTS:-yes}" --with-netconfig=/bin/nowhere/netconfig --with-resolvconf=/bin/nowhere/resolvconf --with-crypto=nss --with-session-tracking=systemd --with-consolekit=yes --with-systemd-logind=yes --with-iwd=yes --enable-json-validation=yes --with-consolekit=yes --with-config-dns-rc-manager-default=auto --with-config-dhcp-default=internal "\${NM_CONFIGURE_OTPS[@]}"
+Coredumps: coredumps are not namespaced, so by default they will
+be sent to coredumpctl of the outer host, which has no idea where
+to get the debugging symbols from. A possible workaround is setting
+
+  $ echo '/tmp/core.%e.%p' | sudo tee /proc/sys/kernel/core_pattern
+
+so that core dumps get written to file. Afterwards, restore with
+
+  echo '|/usr/lib/systemd/systemd-coredump %P %u %g %s %t %c %h' | sudo tee /proc/sys/kernel/core_pattern
+
+from /usr/lib/sysctl.d/50-coredump.conf.
+
+For example, configure NetworkManager with
+  \$ ./configure \\
+           --enable-address-sanitizer=no \\
+           --enable-compile-warnings=yes \\
+           --enable-concheck \\
+           --enable-config-plugin-ibft=yes \\
+           --enable-gtk-doc \\
+           --enable-ifcfg-rh=yes \\
+           --enable-ifcfg-suse \\
+           --enable-ifnet \\
+           --enable-ifupdown=yes \\
+           --enable-introspection \\
+           --enable-json-validation=yes \\
+           --enable-maintainer-mode \\
+           --enable-more-logging \\
+           --enable-more-warnings=error \\
+           --enable-ovs=yes \\
+           --enable-polkit=yes \\
+           --enable-teamdctl=yes \\
+           --enable-undefined-sanitizer=no \\
+           --enable-vala=yes \\
+           --enable-wimax \\
+           --localstatedir=/var \\
+           --prefix=/opt/test \\
+           --sysconfdir=/etc \\
+           --with-config-dhcp-default=internal \\
+           --with-config-dns-rc-manager-default=auto \\
+           --with-consolekit=yes \\
+           --with-consolekit=yes \\
+           --with-crypto=nss \\
+           --with-dhclient=yes \\
+           --with-dhcpcanon=yes \\
+           --with-dhcpcd=yes \\
+           --with-iwd=yes \\
+           --with-libnm-glib=yes \\
+           --with-modem-manager-1 \\
+           --with-netconfig=/bin/nowhere/netconfig \\
+           --with-nm-cloud-setup=yes \\
+           --with-nmcli=yes \\
+           --with-nmtui=yes \\
+           --with-ofono=yes \\
+           --with-resolvconf=/bin/nowhere/resolvconf \\
+           --with-session-tracking=systemd \\
+           --with-suspend-resume=systemd \\
+           --with-systemd-logind=yes \\
+           --with-valgrind=yes \\
+           --enable-tests="\${NM_BUILD_TESTS:-yes}" \\
+           --with-more-asserts="\${NM_BUILD_MORE_ASSERTS:-1000}" \\
+           "\${NM_CONFIGURE_OTPS[@]}"
 Test with:
   \$ systemctl stop NetworkManager; /opt/test/sbin/NetworkManager --debug 2>&1 | tee -a /tmp/nm-log.txt
+
+Or better, configure with \`contrib/fedora/rpm/configure-for-system.sh\`,
+subsequent \`make && make install\` will overwrite your system's NetworkManager,
+and you can test it with \`systemctl daemon-reload ; systemctl restart NetworkManager\`.
+
+Run NM-ci tests after creating eth1 with
+\`nm-env-prepare.sh --prefix eth -i 1 && nmcli device connect eth1\`.
 EOF
 
     cat <<EOF | tmp_file "$BASEDIR/data-bashrc.my"
@@ -119,6 +205,12 @@ alias m="make -j 8"
 alias n="ninja -C build"
 
 alias l='ls -l --color=auto'
+
+ulimit -c unlimited
+
+export G_DEBUG=fatal-warnings
+
+unset DEBUGINFOD_URLS
 
 Clean() {
     systemctl stop NetworkManager
@@ -130,6 +222,11 @@ Cat-Timestamp() {
     while IFS=$'\n' read line; do
         printf "[%s]: %s\n" "$(date '+%s.%N')" "$line"
     done
+}
+
+Journald-clear() {
+    rm -rf /var/log/journal/????????????????????????????????/*
+    systemctl restart systemd-journald
 }
 
 nm_run_gdb() {
@@ -170,24 +267,36 @@ match-device=interface-name:net*,interface-name:eth*
 managed=1
 EOF
 
+    cat <<EOF | tmp_file "$BASEDIR/data-95-user.conf"
+EOF
+
     cat <<EOF | tmp_file "$BASEDIR/data-bash_history" 600
 NM-log
 NM-log /tmp/nm-log.txt
-behave -f html --stop ./features/scenarios/vrf.feature
 behave -f html --stop -t ipv4_method_static_with_IP ./features/scenarios/ipv4.feature
+behave -f html --stop ./features/scenarios/vrf.feature
 cd $BASEDIR_NM
+for i in {1..9}; do nm-env-prepare.sh --prefix eth -i \$i; done
+Journald-clear
 journalctl | NM-log
+journalctl --since '3 min ago' | NM-log
+m
+make
+make install
+n
 nm-env-prepare.sh
-nm-env-prepare.sh --prefix eth -i 4
+nm-env-prepare.sh --prefix eth -i 1
+nm-env-prepare.sh --prefix eth -i 1 && nmcli device connect eth1
 nm_run_gdb
 nm_run_normal
-nmcli device connect net1
+gdb /usr/sbin/NetworkManager /tmp/core.NetworkManager.
 nmcli connection add type pppoe con-name ppp-net1 ifname ppp-net1 pppoe.parent net1 service isp username test password networkmanager autoconnect no
-for i in {1..9}; do nm-env-prepare.sh --prefix eth -i \$i; done
-systemctl status NetworkManager
-systemctl stop NetworkManager
-systemctl stop NetworkManager; /opt/test/sbin/NetworkManager --debug 2>&1 | tee -a /tmp/nm-log.txt
+nmcli device connect eth1
+systemctl stop NetworkManager; /opt/test/sbin/NetworkManager --debug 2>&1 | tee -a ./nm-log.txt
 systemctl stop NetworkManager; gdb -ex run --args /opt/test/sbin/NetworkManager --debug
+systemctl stop NetworkManager
+systemctl daemon-reload ; systemctl restart NetworkManager
+systemctl status NetworkManager
 EOF
 
     cat <<EOF | tmp_file "$BASEDIR/data-gdbinit"
@@ -210,7 +319,12 @@ FROM $BASE_IMAGE
 
 ENTRYPOINT ["/sbin/init"]
 
+RUN sed -i 's/^tsflags=.*/tsflags=/' /etc/dnf/dnf.conf
+
 RUN dnf install -y \\
+    --skip-broken \\
+    \\
+    /usr/bin/python \\
     ModemManager-devel \\
     ModemManager-glib-devel \\
     NetworkManager \\
@@ -218,6 +332,7 @@ RUN dnf install -y \\
     bash-completion \\
     bind-utils \\
     bluez-libs-devel \\
+    clang-tools-extra \\
     cscope \\
     dbus-devel \\
     dbus-x11 \\
@@ -229,11 +344,13 @@ RUN dnf install -y \\
     gettext-devel \\
     git \\
     glib2-doc \\
+    glibc-langpack-pl \\
     gnutls-devel \\
     gobject-introspection-devel \\
     gtk-doc \\
     intltool \\
     iproute \\
+    iproute-tc \\
     iptables \\
     jansson-devel \\
     libasan \\
@@ -245,16 +362,18 @@ RUN dnf install -y \\
     libuuid-devel \\
     make \\
     meson \\
-    meson \\
     mlocate \\
     mobile-broadband-provider-info-devel \\
     newt-devel \\
+    nispor \\
+    nmstate \\
     nss-devel \\
     polkit-devel \\
     ppp \\
     ppp-devel \\
     procps \\
     python3-behave \\
+    python3-black \\
     python3-dbus \\
     python3-devel \\
     python3-gobject \\
@@ -262,6 +381,7 @@ RUN dnf install -y \\
     python3-pip \\
     python3-pyte \\
     python3-pyyaml \\
+    qt-devel \\
     radvd \\
     readline-devel \\
     rp-pppoe \\
@@ -269,29 +389,90 @@ RUN dnf install -y \\
     strace \\
     systemd \\
     systemd-devel \\
+    tcpdump \\
     teamd-devel \\
     vala \\
     vala-devel \\
     valgrind \\
     vim \\
-    which
+    which \\
+    \\
+    'dbus*' \\
+    'openvswitch2*' \\
+    /usr/bin/debuginfo-install \\
+    NetworkManager-openvpn \\
+    NetworkManager-pptp \\
+    NetworkManager-strongswan \\
+    NetworkManager-vpnc \\
+    NetworkManager-ovs \\
+    NetworkManager-wifi \\
+    NetworkManager-team \\
+    NetworkManager-ppp \\
+    cryptsetup \\
+    dhcp-client \\
+    dhcp-relay \\
+    dhcp-server \\
+    dnsmasq \\
+    dracut-network \\
+    ethtool \\
+    firewalld \\
+    gcc \\
+    gdb \\
+    gdb \\
+    git \\
+    hostapd \\
+    iproute-tc \\
+    ipsec-tools \\
+    iputils \\
+    iscsi-initiator-utils \\
+    iw \\
+    ldns \\
+    libreswan \\
+    libyaml-devel \\
+    logrotate \\
+    lvm2 \\
+    mdadm \\
+    net-tools \\
+    nfs-utils \\
+    nmap-ncat \\
+    nss-tools \\
+    openvpn \\
+    perl-IO-Pty-Easy \\
+    perl-IO-Tty \\
+    psmisc \\
+    python3-dbus \\
+    python3-gobject \\
+    python3-netaddr \\
+    qemu-kvm \\
+    radvd \\
+    rp-pppoe \\
+    scsi-target-utils \\
+    tcpdump \\
+    tcpreplay \\
+    tuned \\
+    wireguard-tools \\
+    wireshark-cli
 
 RUN dnf debuginfo-install --skip-broken \$(ldd /usr/sbin/NetworkManager | sed -n 's/.* => \\(.*\\) (0x[0-9A-Fa-f]*)$/\1/p' | xargs -n1 readlink -f) -y
 
-RUN pip3 install --user \\
-    behave_html_formatter
+RUN dnf clean all
 
-RUN systemctl enable NetworkManager
+RUN pip3 install --user behave_html_formatter || true
 
 COPY data-NM-log "/usr/bin/NM-log"
 COPY data-nm-env-prepare.sh "/usr/bin/nm-env-prepare.sh"
+COPY data-_nm-in-container-setup.sh "/usr/bin/_nm-in-container-setup.sh"
+COPY data-etc-rc.local "/etc/rc.d/rc.local"
 COPY data-motd /etc/motd
 COPY data-bashrc.my /etc/bashrc.my
 COPY data-90-my.conf /etc/NetworkManager/conf.d/90-my.conf
+COPY data-95-user.conf /etc/NetworkManager/conf.d/95-user.conf
 COPY data-bash_history /root/.bash_history
 COPY data-gdbinit /root/.gdbinit
 COPY data-gdb_history /root/.gdb_history
 COPY data-behaverc /root/.behaverc
+
+RUN systemctl enable NetworkManager
 
 # Generate a stable machine id.
 RUN echo "10001000100010001000100010001000" > /etc/machine-id
@@ -328,9 +509,13 @@ container_is_running() {
 
 ###############################################################################
 
-do_clean() {
+do_reset() {
     podman stop "$CONTAINER_NAME_NAME" || :
     podman rm "$CONTAINER_NAME_NAME" || :
+}
+
+do_clean() {
+    do_reset
     podman rmi "$CONTAINER_NAME_REPOSITORY:$CONTAINER_NAME_TAG" || :
 }
 
@@ -339,7 +524,7 @@ do_build() {
 
     CONTAINERFILE="$BASEDIR/containerfile"
     create_dockerfile "$CONTAINERFILE" "$BASE_IMAGE"
-    podman build --tag "$CONTAINER_NAME_REPOSITORY:$CONTAINER_NAME_TAG" -f "$CONTAINERFILE"
+    podman build --squash-all --tag "$CONTAINER_NAME_REPOSITORY:$CONTAINER_NAME_TAG" -f "$CONTAINERFILE"
 }
 
 do_run() {
@@ -357,13 +542,13 @@ do_run() {
         BIND_NM_CI=()
         if [ -d "$BASEDIR_NM/.git/NetworkManager-ci" ] ; then
             DIR="$(readlink -f "$BASEDIR_NM/.git/NetworkManager-ci")"
-            BIND_NM_CI=(-v "$DIR:$DIR:Z")
+            BIND_NM_CI=(-v "$DIR:$DIR")
         fi
 
         podman run --privileged \
             --name "$CONTAINER_NAME_NAME" \
             -d \
-            -v "$BASEDIR_NM:$BASEDIR_NM:Z" \
+            -v "$BASEDIR_NM:$BASEDIR_NM" \
             "${BIND_NM_CI[@]}" \
             "${BIND_FILES[@]}" \
             "$CONTAINER_NAME_REPOSITORY:$CONTAINER_NAME_TAG"
@@ -373,16 +558,32 @@ do_run() {
 do_exec() {
     do_run
 
+    local e
     local EXTRA_ARGS=("$@")
     if [ "${#EXTRA_ARGS[@]}" = 0 ]; then
         EXTRA_ARGS=('bash')
     fi
 
-    podman exec --workdir "$BASEDIR_NM" -it "$CONTAINER_NAME_NAME" "${EXTRA_ARGS[@]}"
+    local ENV=()
+    for e in "${EXEC_ENV[@]}" ; do
+        ENV+=(-e "$e")
+    done
+
+    podman exec "${ENV[@]}" --workdir "$BASEDIR_NM" -it "$CONTAINER_NAME_NAME" "${EXTRA_ARGS[@]}"
 
     if [ "$DO_STOP" = 1 ]; then
         do_stop
     fi
+}
+
+do_reexec() {
+    do_reset
+    do_exec "$@"
+}
+
+do_journal() {
+    EXEC_ENV+=( "SYSTEMD_COLORS=0" )
+    do_exec "journalctl" --no-pager "$@"
 }
 
 do_stop() {
@@ -405,7 +606,10 @@ for (( i=1 ; i<="$#" ; )) ; do
         --stop)
             DO_STOP=1
             ;;
-        build|run|exec|stop|clean)
+        j)
+            CMD=journal
+            ;;
+        build|run|exec|stop|reset|reexec|clean|journal)
             CMD=$c
             ;;
         --)
@@ -417,8 +621,13 @@ for (( i=1 ; i<="$#" ; )) ; do
             exit 0
             ;;
         *)
-            usage
-            die "invalid argument: $c"
+            if [ "$CMD" = "journal" ]; then
+                EXTRA_ARGS=( "${@:$((i-1))}" )
+                break;
+            else
+                usage
+                die "invalid argument: $c"
+            fi
             ;;
     esac
 done
@@ -427,8 +636,8 @@ done
 
 test "$UID" != 0 || die "cannot run as root"
 
-if test $CMD != exec && test "${#EXTRA_ARGS[@]}" != 0 ; then
-    die "Extra arguments are only allowed with exec command"
+if test "$CMD" != exec -a "$CMD" != journal -a "$CMD" != reexec -a "${#EXTRA_ARGS[@]}" != 0 ; then
+    die "Extra arguments are only allowed with exec|journal|reexec command"
 fi
 
 ###############################################################################

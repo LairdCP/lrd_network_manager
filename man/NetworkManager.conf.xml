@@ -345,19 +345,12 @@ no-auto-default=*
         <para><literal>systemd-resolved</literal>: NetworkManager will
         push the DNS configuration to systemd-resolved</para>
 
-        <para><literal>unbound</literal>: NetworkManager will talk
-        to unbound and dnssec-triggerd, using "Conditional Forwarding"
-        with DNSSEC support. <filename>/etc/resolv.conf</filename>
-        will be managed by dnssec-trigger daemon. This option is
-        deprecated. Note that dnssec-trigger ships a NetworkManager dispatcher
-        script so this DNS plugin is not necessary.</para>
-
         <para><literal>none</literal>: NetworkManager will not
         modify resolv.conf. This implies
         <literal>rc-manager</literal>&nbsp;<literal>unmanaged</literal></para>
 
-        <para>Note that the plugins <literal>dnsmasq</literal>, <literal>systemd-resolved</literal>
-        and <literal>unbound</literal> are caching local nameservers.
+        <para>Note that the plugins <literal>dnsmasq</literal> and <literal>systemd-resolved</literal>
+        are caching local nameservers.
         Hence, when NetworkManager writes <filename>&nmrundir;/resolv.conf</filename>
         and <filename>/etc/resolv.conf</filename> (according to <literal>rc-manager</literal>
         setting below), the name server there will be localhost only.
@@ -622,9 +615,59 @@ unmanaged-devices=mac:00:22:68:1c:59:b1;mac:00:1E:65:30:D1:C4;interface-name:eth
 
   <refsect1>
     <title><literal>logging</literal> section</title>
-    <para>This section controls NetworkManager's logging.  Any
-    settings here are overridden by the <option>--log-level</option>
-    and <option>--log-domains</option> command-line options.</para>
+    <para>
+    This section controls NetworkManager's logging.
+    Logging is very important to understand what NetworkManager is doing.
+    When you report a bug, do not unnecessarily filter or limit the log file.
+    Just enable <literal>level=TRACE</literal> and <literal>domains=ALL</literal>
+    to collect everything.
+    </para>
+
+    <para>
+    The recommended way for enabling logging is with a file <filename>/etc/NetworkManager/conf.d/95-logging.conf</filename>
+    that contains
+<programlisting>
+[logging]
+level=TRACE
+domains=ALL
+</programlisting>
+    and restart the daemon with <command>systemctl restart NetworkManager</command>. Then
+    reproduce the problem. You can find the logs in syslog (for example <command>journalctl</command>).
+    </para>
+
+    <para>
+    Any settings here are overridden by the <option>--log-level</option>
+    and <option>--log-domains</option> command-line options.
+    Logging can also be reconfigured at runtime with
+    <command>nmcli general logging level "$LEVEL" domains "$DOMAINS"</command>.
+    However, often it is interesting to get a complete log from the
+    start. Especially, when debugging an issue, enable debug logging
+    in NetworkManager.conf and restart the service to enable verbose logging
+    early on.
+    </para>
+
+    <para>
+    By setting <option>nm.debug</option> on the kernel command line (either from
+    <filename>&nmrundir;/proc-cmdline</filename> or <filename>/proc/cmdline</filename>),
+    debug logging is enabled. This overrides both the command-line options and the settings
+    from NetworkManager.conf.
+    </para>
+
+    <para>
+    NetworkManager's logging aims not to contain private sensitive data
+    and you should be fine sharing the debug logs. Still, there will
+    be IP addresses and your network setup, if you consider that private
+    then review the log before sharing. However, try not to mangle the logfile
+    in a way that distorts the meaning too much.
+    </para>
+
+    <para>
+    NetworkManager uses syslog or systemd-journald, depending on configuration.
+    In any case, debug logs are verbose and might be rate limited
+    or filtered by the logging daemon. For systemd-journald, see
+    <literal>RateLimitIntervalSec</literal> and <literal>RateLimitBurst</literal>
+    in <literal>journald.conf</literal> manual for how to disable that.
+    </para>
 
     <para>
       <variablelist>
@@ -633,18 +676,33 @@ unmanaged-devices=mac:00:22:68:1c:59:b1;mac:00:1E:65:30:D1:C4;interface-name:eth
           <listitem><para>The default logging verbosity level.
           One of <literal>OFF</literal>, <literal>ERR</literal>,
           <literal>WARN</literal>, <literal>INFO</literal>,
-          <literal>DEBUG</literal>, <literal>TRACE</literal>.  The ERR
-          level logs only critical errors.  WARN logs warnings that may
-          reflect operation. INFO logs various informational messages that
-          are useful for tracking state and operations.  DEBUG enables
-          verbose logging for debugging purposes. TRACE enables even more
-          verbose logging then DEBUG level.  Subsequent levels also log
-          all messages from earlier levels; thus setting the log level
-          to INFO also logs error and warning messages.</para></listitem>
+          <literal>DEBUG</literal>, <literal>TRACE</literal>,
+          in order of verbosity.
+          </para>
+          <para>
+          <literal>OFF</literal> disables all logging. <literal>INFO</literal>
+          is the default verbosity for regular operation. <literal>TRACE</literal>
+          is for debugging.
+          </para>
+          <para>
+          The other levels are in most cases not useful. For example, <literal>DEBUG</literal>
+          is between <literal>TRACE</literal> and <literal>INFO</literal>, but it's too
+          verbose for regular operation and lacks possibly interesting messages for debugging.
+          Almost always, when debugging an issue or reporting a bug, collect full
+          level <literal>TRACE</literal> logs to get the full picture.
+          </para>
+          </listitem>
         </varlistentry>
         <varlistentry>
           <term><varname>domains</varname></term>
-          <listitem><para>The following log domains are available:
+          <listitem>
+          <para>Filter the messages by their topic. When debugging
+          an issue, it's better to collect all logs (<literal>ALL</literal> domain)
+          upfront. The unnecessary parts can always be ignored
+          later.
+          </para>
+          <para>In the uncommon case to tune out certain topics, the following log
+          domains are available:
           PLATFORM, RFKILL, ETHER, WIFI, BT, MB, DHCP4, DHCP6, PPP,
           WIFI_SCAN, IP4, IP6, AUTOIP4, DNS, VPN, SHARING, SUPPLICANT,
           AGENTS, SETTINGS, SUSPEND, CORE, DEVICE, OLPC, WIMAX,
@@ -655,7 +713,12 @@ unmanaged-devices=mac:00:22:68:1c:59:b1;mac:00:1E:65:30:D1:C4;interface-name:eth
           ALL, DEFAULT, DHCP, IP.</para>
           <para>You can specify per-domain log level overrides by
           adding a colon and a log level to any domain. E.g.,
-          "<literal>WIFI:DEBUG,WIFI_SCAN:OFF</literal>".</para></listitem>
+          "<literal>WIFI:DEBUG,WIFI_SCAN:OFF</literal>".
+          Another example is <literal>ALL,VPN_PLUGIN:TRACE</literal>
+          to enable all the logging there is (see about <literal>VPN_PLUGIN</literal>
+          below).
+          </para>
+          </listitem>
         </varlistentry>
         <varlistentry>
           <para>Domain descriptions:
@@ -804,6 +867,10 @@ ipv6.ip6-privacy=0
           <listitem><para>If unspecified, the ultimate default values depends on the DNS plugin. With systemd-resolved the default currently is "no" (0) and for all other plugins also "no" (0).</para></listitem>
         </varlistentry>
         <varlistentry>
+          <term><varname>connection.mptcp-flags</varname></term>
+          <listitem><para>If unspecified, the fallback is 0x22 (<literal>"enabled,subflow"</literal>). Note that if sysctl <literal>/proc/sys/net/mptcp/enabled</literal> is disabled, NetworkManager will still not configure endpoints.</para></listitem>
+        </varlistentry>
+        <varlistentry>
           <term><varname>connection.dns-over-tls</varname></term>
           <listitem><para>If unspecified, the ultimate default values depends on the DNS plugin. With systemd-resolved the default currently is global setting and for all other plugins "no" (0).</para></listitem>
         </varlistentry>
@@ -879,6 +946,10 @@ ipv6.ip6-privacy=0
           <term><varname>ipv4.required-timeout</varname></term>
         </varlistentry>
         <varlistentry>
+          <term><varname>ipv4.link-local</varname></term>
+          <listitem><para>If left unspecified, fallback to "auto" which makes it dependent on "ipv4.method" setting.</para></listitem>
+        </varlistentry>
+        <varlistentry>
           <term><varname>ipv4.route-metric</varname></term>
         </varlistentry>
         <varlistentry>
@@ -887,6 +958,12 @@ ipv6.ip6-privacy=0
             is different from explicitly selecting the main table 254, because of how NetworkManager
             removes extraneous routes from the tables.
           </para></listitem>
+        </varlistentry>
+        <varlistentry>
+          <term><varname>ipv6.addr-gen-mode</varname></term>
+          <listitem><para>If the per-profile setting is either "default" or "default-or-eui64", the
+            global default is used. If the default is unspecified, the fallback value is either "stable-privacy"
+            or "eui64", depending on whether the per-profile setting is "default" or "default-or-eui64, respectively.</para></listitem>
         </varlistentry>
         <varlistentry>
           <term><varname>ipv6.ra-timeout</varname></term>
@@ -932,6 +1009,10 @@ ipv6.ip6-privacy=0
             is different from explicitly selecting the main table 254, because of how NetworkManager
             removes extraneous routes from the tables.
           </para></listitem>
+        </varlistentry>
+        <varlistentry>
+          <term><varname>loopback.mtu</varname></term>
+          <listitem><para>If configured explicitly to 0, the MTU is not reconfigured during device activation unless it is required due to IPv6 constraints. If left unspecified, a DHCP/IPv6 SLAAC provided value is used or the MTU is left unspecified on activation.</para></listitem>
         </varlistentry>
         <varlistentry>
           <term><varname>sriov.autoprobe-drivers</varname></term>

@@ -636,7 +636,7 @@ connect_context_step(NMModemBroadband *self)
         if (ctx->ip_types_i < ctx->ip_types->len) {
             NMModemIPType current;
 
-            current = g_array_index(ctx->ip_types, NMModemIPType, ctx->ip_types_i);
+            current = nm_g_array_index(ctx->ip_types, NMModemIPType, ctx->ip_types_i);
 
             if (current == NM_MODEM_IP_TYPE_IPV4)
                 mm_simple_connect_properties_set_ip_type(ctx->connect_properties,
@@ -957,7 +957,7 @@ stage3_ip_config_start(NMModem *modem, int addr_family, NMModemIPMethod ip_metho
     const int                               IS_IPv4 = NM_IS_IPv4(addr_family);
     NMModemBroadband                       *self    = NM_MODEM_BROADBAND(modem);
     nm_auto_unref_l3cd_init NML3ConfigData *l3cd    = NULL;
-    char                                    sbuf[sizeof(_nm_utils_to_string_buffer)];
+    char                                    sbuf[NM_UTILS_TO_STRING_BUFFER_SIZE];
     gs_free_error GError                   *error = NULL;
     const char                             *data_port;
     const char                             *address_string;
@@ -993,7 +993,7 @@ stage3_ip_config_start(NMModem *modem, int addr_family, NMModemIPMethod ip_metho
         /* Fully fail if invalid IP address retrieved */
         address_string = mm_bearer_ip_config_get_address(self->_priv.ipv4_config);
         if (!address_string
-            || !nm_utils_parse_inaddr_bin(AF_INET, address_string, NULL, &address_network)) {
+            || !nm_inet_parse_bin(AF_INET, address_string, NULL, &address_network)) {
             g_set_error(&error,
                         NM_DEVICE_ERROR,
                         NM_DEVICE_ERROR_INVALID_CONNECTION,
@@ -1005,7 +1005,7 @@ stage3_ip_config_start(NMModem *modem, int addr_family, NMModemIPMethod ip_metho
 
         /* Missing gateway not a hard failure */
         gw_string = mm_bearer_ip_config_get_gateway(self->_priv.ipv4_config);
-        if (gw_string && !nm_utils_parse_inaddr_bin(AF_INET, gw_string, NULL, &gw)) {
+        if (gw_string && !nm_inet_parse_bin(AF_INET, gw_string, NULL, &gw)) {
             g_set_error(&error,
                         NM_DEVICE_ERROR,
                         NM_DEVICE_ERROR_INVALID_CONNECTION,
@@ -1057,9 +1057,8 @@ stage3_ip_config_start(NMModem *modem, int addr_family, NMModemIPMethod ip_metho
 
         dns = mm_bearer_ip_config_get_dns(self->_priv.ipv4_config);
         for (i = 0; dns && dns[i]; i++) {
-            if (nm_utils_parse_inaddr_bin(AF_INET, dns[i], NULL, &address_network)
-                && address_network > 0) {
-                nm_l3_config_data_add_nameserver(l3cd, AF_INET, &address_network);
+            if (nm_inet_parse_bin(AF_INET, dns[i], NULL, &address_network) && address_network > 0) {
+                nm_l3_config_data_add_nameserver_detail(l3cd, AF_INET, &address_network, NULL);
                 _LOGI("  DNS %s", dns[i]);
             }
         }
@@ -1115,17 +1114,16 @@ stage3_ip_config_start(NMModem *modem, int addr_family, NMModemIPMethod ip_metho
 
         _LOGI("IPv6 base configuration:");
 
-        l3cd = nm_l3_config_data_new(nm_platform_get_multi_idx(NM_PLATFORM_GET),
+        l3cd    = nm_l3_config_data_new(nm_platform_get_multi_idx(NM_PLATFORM_GET),
                                      ifindex,
                                      NM_IP_CONFIG_SOURCE_WWAN);
-
         do_auto = TRUE;
 
         address.plen = mm_bearer_ip_config_get_prefix(self->_priv.ipv6_config);
         if (address.plen <= 128) {
             if (IN6_IS_ADDR_LINKLOCAL(&address.address)) {
-                iid_data.id = ((guint64 *) (&address.address.s6_addr))[1];
-                iid         = &iid_data;
+                nm_utils_ipv6_interface_identifier_get_from_addr(&iid_data, &address.address);
+                iid = &iid_data;
             } else
                 do_auto = FALSE;
             nm_l3_config_data_add_address_6(l3cd, &address);
@@ -1175,7 +1173,7 @@ stage3_ip_config_start(NMModem *modem, int addr_family, NMModemIPMethod ip_metho
             struct in6_addr addr;
 
             if (inet_pton(AF_INET6, dns[i], &addr)) {
-                nm_l3_config_data_add_nameserver(l3cd, AF_INET6, &addr);
+                nm_l3_config_data_add_nameserver_detail(l3cd, AF_INET6, &addr, NULL);
                 _LOGI("  DNS %s", dns[i]);
             }
         }

@@ -65,38 +65,42 @@ NM_GOBJECT_PROPERTIES_DEFINE(NMSettingConnection,
                              PROP_MDNS,
                              PROP_LLMNR,
                              PROP_DNS_OVER_TLS,
+                             PROP_MPTCP_FLAGS,
                              PROP_STABLE_ID,
                              PROP_AUTH_RETRIES,
                              PROP_WAIT_DEVICE_TIMEOUT,
-                             PROP_MUD_URL, );
+                             PROP_MUD_URL,
+                             PROP_WAIT_ACTIVATION_DELAY, );
 
 typedef struct {
-    GArray *permissions;
-    GArray *secondaries;
-    char   *id;
-    char   *uuid;
-    char   *stable_id;
-    char   *interface_name;
-    char   *type;
-    char   *master;
-    char   *slave_type;
-    char   *zone;
-    char   *mud_url;
-    guint64 timestamp;
-    int     autoconnect_slaves;
-    int     metered;
-    gint32  autoconnect_priority;
-    gint32  autoconnect_retries;
-    gint32  multi_connect;
-    gint32  auth_retries;
-    gint32  mdns;
-    gint32  llmnr;
-    gint32  dns_over_tls;
-    gint32  wait_device_timeout;
-    gint32  lldp;
-    guint32 gateway_ping_timeout;
-    bool    autoconnect;
-    bool    read_only;
+    GArray     *permissions;
+    NMValueStrv secondaries;
+    char       *id;
+    char       *uuid;
+    char       *stable_id;
+    char       *interface_name;
+    char       *type;
+    char       *master;
+    char       *slave_type;
+    char       *zone;
+    char       *mud_url;
+    guint64     timestamp;
+    int         autoconnect_slaves;
+    int         metered;
+    gint32      autoconnect_priority;
+    gint32      autoconnect_retries;
+    gint32      multi_connect;
+    gint32      auth_retries;
+    gint32      mdns;
+    gint32      llmnr;
+    gint32      dns_over_tls;
+    gint32      wait_device_timeout;
+    gint32      lldp;
+    gint32      wait_activation_delay;
+    guint32     mptcp_flags;
+    guint32     gateway_ping_timeout;
+    bool        autoconnect;
+    bool        read_only;
 } NMSettingConnectionPrivate;
 
 /**
@@ -335,7 +339,7 @@ nm_setting_connection_get_permission(NMSettingConnection *setting,
 
     g_return_val_if_fail(idx < nm_g_array_len(priv->permissions), FALSE);
 
-    permission = &g_array_index(priv->permissions, Permission, idx);
+    permission = &nm_g_array_index(priv->permissions, Permission, idx);
     switch (permission->ptype) {
     case PERM_TYPE_USER:
         NM_SET_OUT(out_ptype, NM_SETTINGS_CONNECTION_PERMISSION_USER);
@@ -380,7 +384,7 @@ nm_setting_connection_permissions_user_allowed(NMSettingConnection *setting, con
     }
 
     for (i = 0; i < priv->permissions->len; i++) {
-        const Permission *permission = &g_array_index(priv->permissions, Permission, i);
+        const Permission *permission = &nm_g_array_index(priv->permissions, Permission, i);
 
         if (permission->ptype == PERM_TYPE_USER && nm_streq(permission->item, uname))
             return TRUE;
@@ -436,7 +440,7 @@ nm_setting_connection_add_permission(NMSettingConnection *setting,
     }
 
     for (i = 0; i < priv->permissions->len; i++) {
-        const Permission *permission = &g_array_index(priv->permissions, Permission, i);
+        const Permission *permission = &nm_g_array_index(priv->permissions, Permission, i);
 
         if (permission->ptype == PERM_TYPE_USER && nm_streq(permission->item, pitem))
             return TRUE;
@@ -507,7 +511,7 @@ nm_setting_connection_remove_permission_by_value(NMSettingConnection *setting,
     priv = NM_SETTING_CONNECTION_GET_PRIVATE(setting);
     if (priv->permissions) {
         for (i = 0; i < priv->permissions->len; i++) {
-            const Permission *permission = &g_array_index(priv->permissions, Permission, i);
+            const Permission *permission = &nm_g_array_index(priv->permissions, Permission, i);
 
             if (permission->ptype == PERM_TYPE_USER && nm_streq(permission->item, pitem)) {
                 g_array_remove_index(priv->permissions, i);
@@ -735,6 +739,23 @@ nm_setting_connection_get_wait_device_timeout(NMSettingConnection *setting)
 }
 
 /**
+ * nm_setting_connection_get_wait_activation_delay:
+ * @setting: the #NMSettingConnection
+ *
+ * Returns: the %NM_SETTING_CONNECTION_WAIT_ACTIVATION_DELAY property with
+ *   the delay in milliseconds. -1 is the default.
+ *
+ * Since: 1.40
+ */
+gint32
+nm_setting_connection_get_wait_activation_delay(NMSettingConnection *setting)
+{
+    g_return_val_if_fail(NM_IS_SETTING_CONNECTION(setting), -1);
+
+    return NM_SETTING_CONNECTION_GET_PRIVATE(setting)->wait_activation_delay;
+}
+
+/**
  * nm_setting_connection_get_autoconnect_slaves:
  * @setting: the #NMSettingConnection
  *
@@ -757,7 +778,7 @@ nm_setting_connection_get_autoconnect_slaves(NMSettingConnection *setting)
 GArray *
 _nm_setting_connection_get_secondaries(NMSettingConnection *setting)
 {
-    return NM_SETTING_CONNECTION_GET_PRIVATE(setting)->secondaries;
+    return NM_SETTING_CONNECTION_GET_PRIVATE(setting)->secondaries.arr;
 }
 
 /**
@@ -771,7 +792,7 @@ nm_setting_connection_get_num_secondaries(NMSettingConnection *setting)
 {
     g_return_val_if_fail(NM_IS_SETTING_CONNECTION(setting), 0);
 
-    return nm_g_array_len(NM_SETTING_CONNECTION_GET_PRIVATE(setting)->secondaries);
+    return nm_g_array_len(NM_SETTING_CONNECTION_GET_PRIVATE(setting)->secondaries.arr);
 }
 
 /**
@@ -794,14 +815,14 @@ nm_setting_connection_get_secondary(NMSettingConnection *setting, guint32 idx)
 
     priv = NM_SETTING_CONNECTION_GET_PRIVATE(setting);
 
-    secondaries_len = nm_g_array_len(priv->secondaries);
+    secondaries_len = nm_g_array_len(priv->secondaries.arr);
     if (idx >= secondaries_len) {
         /* access one past the length is OK. */
         g_return_val_if_fail(idx == secondaries_len, NULL);
         return NULL;
     }
 
-    return nm_strvarray_get_idx(priv->secondaries, idx);
+    return nm_strvarray_get_idx(priv->secondaries.arr, idx);
 }
 
 /**
@@ -841,10 +862,10 @@ nm_setting_connection_add_secondary(NMSettingConnection *setting, const char *se
 
     priv = NM_SETTING_CONNECTION_GET_PRIVATE(setting);
 
-    if (nm_strvarray_find_first(priv->secondaries, sec_uuid) >= 0)
+    if (nm_strvarray_find_first(priv->secondaries.arr, sec_uuid) >= 0)
         return FALSE;
 
-    nm_strvarray_add(nm_strvarray_ensure(&priv->secondaries), sec_uuid);
+    nm_strvarray_add(nm_strvarray_ensure(&priv->secondaries.arr), sec_uuid);
     _notify(setting, PROP_SECONDARIES);
     return TRUE;
 }
@@ -865,9 +886,9 @@ nm_setting_connection_remove_secondary(NMSettingConnection *setting, guint32 idx
 
     priv = NM_SETTING_CONNECTION_GET_PRIVATE(setting);
 
-    g_return_if_fail(idx < nm_g_array_len(priv->secondaries));
+    g_return_if_fail(idx < nm_g_array_len(priv->secondaries.arr));
 
-    g_array_remove_index(priv->secondaries, idx);
+    g_array_remove_index(priv->secondaries.arr, idx);
     _notify(setting, PROP_SECONDARIES);
 }
 
@@ -890,7 +911,7 @@ nm_setting_connection_remove_secondary_by_value(NMSettingConnection *setting, co
 
     priv = NM_SETTING_CONNECTION_GET_PRIVATE(setting);
 
-    if (nm_strvarray_remove_first(priv->secondaries, sec_uuid)) {
+    if (nm_strvarray_remove_first(priv->secondaries.arr, sec_uuid)) {
         _notify(setting, PROP_SECONDARIES);
         return TRUE;
     }
@@ -994,6 +1015,22 @@ nm_setting_connection_get_dns_over_tls(NMSettingConnection *setting)
                          NM_SETTING_CONNECTION_DNS_OVER_TLS_DEFAULT);
 
     return NM_SETTING_CONNECTION_GET_PRIVATE(setting)->dns_over_tls;
+}
+
+/**
+ * nm_setting_connection_get_mptcp_flags:
+ * @setting: the #NMSettingConnection
+ *
+ * Returns: the #NMSettingConnection:mptcp-flags property of the setting.
+ *
+ * Since: 1.42
+ **/
+NMMptcpFlags
+nm_setting_connection_get_mptcp_flags(NMSettingConnection *setting)
+{
+    g_return_val_if_fail(NM_IS_SETTING_CONNECTION(setting), NM_MPTCP_FLAGS_NONE);
+
+    return NM_SETTING_CONNECTION_GET_PRIVATE(setting)->mptcp_flags;
 }
 
 static void
@@ -1348,6 +1385,50 @@ after_interface_name:
         return FALSE;
     }
 
+    if (priv->mptcp_flags != 0) {
+        if (NM_FLAGS_HAS(priv->mptcp_flags, NM_MPTCP_FLAGS_DISABLED)) {
+            if (priv->mptcp_flags != NM_MPTCP_FLAGS_DISABLED) {
+                g_set_error_literal(
+                    error,
+                    NM_CONNECTION_ERROR,
+                    NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                    _("\"disabled\" flag cannot be combined with other MPTCP flags"));
+                g_prefix_error(error,
+                               "%s.%s: ",
+                               NM_SETTING_CONNECTION_SETTING_NAME,
+                               NM_SETTING_CONNECTION_MPTCP_FLAGS);
+                return FALSE;
+            }
+        } else {
+            guint32 f;
+
+            if (NM_FLAGS_ALL(priv->mptcp_flags, NM_MPTCP_FLAGS_SIGNAL | NM_MPTCP_FLAGS_FULLMESH)) {
+                g_set_error_literal(error,
+                                    NM_CONNECTION_ERROR,
+                                    NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                                    _("cannot set both \"signal\" and \"fullmesh\" MPTCP flags"));
+                g_prefix_error(error,
+                               "%s.%s: ",
+                               NM_SETTING_CONNECTION_SETTING_NAME,
+                               NM_SETTING_CONNECTION_MPTCP_FLAGS);
+                return FALSE;
+            }
+            f = priv->mptcp_flags | ((guint32) NM_MPTCP_FLAGS_ENABLED);
+            if (f != nm_mptcp_flags_normalize(f)) {
+                g_set_error(error,
+                            NM_CONNECTION_ERROR,
+                            NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                            _("value %u is not a valid combination of MPTCP flags"),
+                            priv->mptcp_flags);
+                g_prefix_error(error,
+                               "%s.%s: ",
+                               NM_SETTING_CONNECTION_SETTING_NAME,
+                               NM_SETTING_CONNECTION_MPTCP_FLAGS);
+                return FALSE;
+            }
+        }
+    }
+
     if (!NM_IN_SET(priv->multi_connect,
                    (int) NM_CONNECTION_MULTI_CONNECT_DEFAULT,
                    (int) NM_CONNECTION_MULTI_CONNECT_SINGLE,
@@ -1409,7 +1490,7 @@ after_interface_name:
         guint i;
 
         for (i = 0; i < priv->permissions->len; i++) {
-            const Permission *permissions = &g_array_index(priv->permissions, Permission, i);
+            const Permission *permissions = &nm_g_array_index(priv->permissions, Permission, i);
 
             if (permissions->ptype != PERM_TYPE_USER) {
                 g_set_error_literal(error,
@@ -1524,7 +1605,7 @@ after_interface_name:
         return NM_SETTING_VERIFY_NORMALIZABLE;
     }
 
-    if (!_nm_setting_connection_verify_secondaries(priv->secondaries, error))
+    if (!_nm_setting_connection_verify_secondaries(priv->secondaries.arr, error))
         return NM_SETTING_VERIFY_NORMALIZABLE;
 
     return TRUE;
@@ -1628,7 +1709,7 @@ get_property(GObject *object, guint prop_id, GValue *value, GParamSpec *pspec)
         strv = g_new(char *, l + 1u);
 
         for (i = 0; i < l; i++)
-            strv[i] = _permission_to_string(&g_array_index(priv->permissions, Permission, i));
+            strv[i] = _permission_to_string(&nm_g_array_index(priv->permissions, Permission, i));
         strv[i] = NULL;
 
         g_value_take_boxed(value, strv);
@@ -1636,9 +1717,6 @@ get_property(GObject *object, guint prop_id, GValue *value, GParamSpec *pspec)
     }
     case PROP_TIMESTAMP:
         g_value_set_uint64(value, nm_setting_connection_get_timestamp(setting));
-        break;
-    case PROP_SECONDARIES:
-        g_value_take_boxed(value, nm_strvarray_get_strv_non_empty_dup(priv->secondaries, NULL));
         break;
     default:
         _nm_setting_property_get_property_direct(object, prop_id, value, pspec);
@@ -1675,9 +1753,6 @@ set_property(GObject *object, guint prop_id, const GValue *value, GParamSpec *ps
     case PROP_TIMESTAMP:
         priv->timestamp = g_value_get_uint64(value);
         break;
-    case PROP_SECONDARIES:
-        nm_strvarray_set_strv(&priv->secondaries, g_value_get_boxed(value));
-        break;
     default:
         _nm_setting_property_set_property_direct(object, prop_id, value, pspec);
         break;
@@ -1709,7 +1784,7 @@ finalize(GObject *object)
     NMSettingConnectionPrivate *priv = NM_SETTING_CONNECTION_GET_PRIVATE(object);
 
     nm_clear_pointer(&priv->permissions, g_array_unref);
-    nm_clear_pointer(&priv->secondaries, g_array_unref);
+    nm_clear_pointer(&priv->secondaries.arr, g_array_unref);
 
     G_OBJECT_CLASS(nm_setting_connection_parent_class)->finalize(object);
 }
@@ -1773,6 +1848,18 @@ nm_setting_connection_class_init(NMSettingConnectionClass *klass)
      * be generated by nm_utils_uuid_generate() or
      * nm_uuid_generate_from_string_str().
      **/
+    /* ---nmcli---
+     * property: uuid
+     * format: a valid RFC4122 universally unique identifier (UUID).
+     * description: The connection.uuid is the real identifier of a profile.
+     *   It cannot change and it must be unique. It is therefore often best
+     *   to refer to a profile by UUID, for example with `nmcli connection up uuid $UUID`.
+     *
+     *   The UUID cannot be changed, except in offline mode. In that case,
+     *   the special values "new", "generate" and "" are allowed to generate
+     *   a new random UUID.
+     * ---end---
+     */
     /* ---ifcfg-rh---
      * property: uuid
      * variable: UUID(+)
@@ -1808,7 +1895,8 @@ nm_setting_connection_class_init(NMSettingConnectionClass *klass)
      * is commonly also included, so that different systems end up generating
      * different IDs. Or with ipv6.addr-gen-mode=stable-privacy, also the device's
      * name is included, so that different interfaces yield different addresses.
-     * The per-host key is the identity of your machine and stored in /var/lib/NetworkManager/secret-key.
+     * The per-host key is the identity of your machine and stored in /var/lib/NetworkManager/secret_key.
+     * See NetworkManager(8) manual about the secret-key and the host identity.
      *
      * The '$' character is treated special to perform dynamic substitutions
      * at runtime. Currently, supported are "${CONNECTION}", "${DEVICE}", "${MAC}",
@@ -1958,6 +2046,15 @@ nm_setting_connection_class_init(NMSettingConnectionClass *klass)
      * Note that autoconnect is not implemented for VPN profiles. See
      * #NMSettingConnection:secondaries as an alternative to automatically
      * connect VPN profiles.
+     *
+     * If multiple profiles are ready to autoconnect on the same device,
+     * the one with the better "connection.autoconnect-priority" is chosen. If
+     * the priorities are equal, then the most recently connected profile is activated.
+     * If the profiles were not connected earlier or their
+     * "connection.timestamp" is identical, the choice is undefined.
+     *
+     * Depending on "connection.multi-connect", a profile can (auto)connect only
+     * once at a time or multiple times.
      **/
     /* ---ifcfg-rh---
      * property: autoconnect
@@ -2230,12 +2327,13 @@ nm_setting_connection_class_init(NMSettingConnectionClass *klass)
      *   together with this connection.
      * ---end---
      */
-    obj_properties[PROP_SECONDARIES] = g_param_spec_boxed(
-        NM_SETTING_CONNECTION_SECONDARIES,
-        "",
-        "",
-        G_TYPE_STRV,
-        G_PARAM_READWRITE | NM_SETTING_PARAM_FUZZY_IGNORE | G_PARAM_STATIC_STRINGS);
+    _nm_setting_property_define_direct_strv(properties_override,
+                                            obj_properties,
+                                            NM_SETTING_CONNECTION_SECONDARIES,
+                                            PROP_SECONDARIES,
+                                            NM_SETTING_PARAM_FUZZY_IGNORE,
+                                            NMSettingConnectionPrivate,
+                                            secondaries);
 
     /**
      * NMSettingConnection:gateway-ping-timeout:
@@ -2459,6 +2557,110 @@ nm_setting_connection_class_init(NMSettingConnectionClass *klass)
                                              NMSettingConnectionPrivate,
                                              dns_over_tls);
 
+    /* Notes about "mptcp-flags":
+     *
+     * It is a bit odd that NMMptcpFlags mixes flags with different purposes:
+     *
+     * - "disabled", "disabled-on-local-iface", "enable": whether MPTCP handling
+     *   is enabled. The flag "disabled-on-local-iface" enables it based on whether
+     *   the interface has a default route.
+     * - "signal", "subflow", "backup", "fullmesh": the endpoint flags
+     *   that are used.
+     *
+     * The reason is, that it is useful to have one "connection.mptcp-flags"
+     * property, that can express various aspects at once. The alternatives
+     * would be multiple properties like "connection.mptcp-enabled",
+     * "connection.mptcp-addr-flags" and "connection.mptcp-notify-flags".
+     * More properties does not necessarily make the API simpler. In particular
+     * for something like MPTCP, which should just work by default and only
+     * in special cases require special configuration.
+     *
+     * The entire idea is to only have one "connection.mptcp-flags" property (for now).
+     * That one can encode multiple aspects about MPTCP, whether it's enabled at all,
+     * which address flags to use when configuring endpoints, and opt-in addresses
+     * that otherwise would not be configured as endpoints.
+     *
+     * "connection.mptcp-flags" applies to all addresses on the interface (minus the ones
+     * that are not included by default). The idea is that in the future we could have
+     * more properties like "ipv4.dhcp-mptcp-flags=subflow", "ipv6.link-local-mptcp-flags=disabled",
+     * "ipv4.addresses='192.168.1.5/24 mptcp-flags=signal,backup'", which can overwrite the
+     * flags on a per-address basis.
+     *
+     * But for that future extension, we now need a global "connection.mptcp-flags" property
+     * in the API that is the basis and applies to all addresses.
+     */
+
+    /**
+     * NMSettingConnection:mptcp-flags:
+     *
+     * Whether to configure MPTCP endpoints and the address flags.
+     * If MPTCP is enabled in NetworkManager, it will configure the
+     * addresses of the interface as MPTCP endpoints. Note that
+     * IPv4 loopback addresses (127.0.0.0/8), IPv4 link local
+     * addresses (169.254.0.0/16), the IPv6 loopback address (::1),
+     * IPv6 link local addresses (fe80::/10), IPv6 unique
+     * local addresses (ULA, fc00::/7) and IPv6 privacy extension addresses
+     * (rfc3041, ipv6.ip6-privacy) will be excluded from being
+     * configured as endpoints.
+     *
+     * If "disabled" (0x1), MPTCP handling for the interface is disabled and
+     * no endpoints are registered.
+     *
+     * The "enabled" (0x2) flag means that MPTCP handling is enabled.
+     * This flag can also be implied from the presence of other flags.
+     *
+     * Even when enabled, MPTCP handling will by default still be disabled
+     * unless "/proc/sys/net/mptcp/enabled" sysctl is on. NetworkManager
+     * does not change the sysctl and this is up to the administrator
+     * or distribution. To configure endpoints even if the sysctl is
+     * disabled, "also-without-sysctl" (0x4) flag can be used. In that case,
+     * NetworkManager doesn't look at the sysctl and configures endpoints
+     * regardless.
+     *
+     * Even when enabled, NetworkManager will only configure MPTCP endpoints
+     * for a certain address family, if there is a unicast default route (0.0.0.0/0
+     * or ::/0) in the main routing table. The flag "also-without-default-route"
+     * (0x8) can override that.
+     *
+     * When MPTCP handling is enabled then endpoints are configured with
+     * the specified address flags "signal" (0x10), "subflow" (0x20), "backup" (0x40),
+     * "fullmesh" (0x80). See ip-mptcp(8) manual for additional information about the flags.
+     *
+     * If the flags are zero (0x0), the global connection default from NetworkManager.conf is
+     * honored. If still unspecified, the fallback is "enabled,subflow".
+     * Note that this means that MPTCP is by default done depending on the
+     * "/proc/sys/net/mptcp/enabled" sysctl.
+     *
+     * NetworkManager does not change the MPTCP limits nor enable MPTCP via
+     * "/proc/sys/net/mptcp/enabled". That is a host configuration which the
+     * admin can change via sysctl and ip-mptcp.
+     *
+     * Strict reverse path filtering (rp_filter) breaks many MPTCP use cases, so when
+     * MPTCP handling for IPv4 addresses on the interface is enabled, NetworkManager would
+     * loosen the strict reverse path filtering (1) to the loose setting (2).
+     *
+     * Since: 1.40
+     **/
+    /* ---ifcfg-rh---
+     * property: mptcp-flags
+     * variable: MPTCP_FLAGS(+)
+     * default: missing variable means global default
+     * description: The MPTCP flags that indicate whether MPTCP is enabled
+     *   and which flags to use for the address endpoints.
+     * example: MPTCP_FLAGS="signal,subflow"
+     * ---end---
+     */
+    _nm_setting_property_define_direct_uint32(properties_override,
+                                              obj_properties,
+                                              NM_SETTING_CONNECTION_MPTCP_FLAGS,
+                                              PROP_MPTCP_FLAGS,
+                                              0,
+                                              G_MAXUINT32,
+                                              NM_MPTCP_FLAGS_NONE,
+                                              NM_SETTING_PARAM_NONE,
+                                              NMSettingConnectionPrivate,
+                                              mptcp_flags);
+
     /**
      * NMSettingConnection:wait-device-timeout:
      *
@@ -2524,6 +2726,37 @@ nm_setting_connection_class_init(NMSettingConnectionClass *klass)
                                               NM_SETTING_PARAM_NONE,
                                               NMSettingConnectionPrivate,
                                               mud_url);
+
+    /**
+     * NMSettingConnection:wait-activation-delay:
+     *
+     * Time in milliseconds to wait for connection to be considered activated.
+     * The wait will start after the pre-up dispatcher event.
+     *
+     * The value 0 means no wait time. The default value is -1, which
+     * currently has the same meaning as no wait time.
+     *
+     * Since: 1.40
+     **/
+    /* ---ifcfg-rh---
+     * property: wait-activation-delay
+     * variable: WAIT_ACTIVATION_DELAY(+)
+     * values: delay in milliseconds.
+     * description: Time in milliseconds to wait for connection to be considered activated.
+     * The wait will start after the pre-up dispatcher event.
+     * example: WAIT_ACTIVATION_DELAY=5000
+     * ---end---
+     */
+    _nm_setting_property_define_direct_int32(properties_override,
+                                             obj_properties,
+                                             NM_SETTING_CONNECTION_WAIT_ACTIVATION_DELAY,
+                                             PROP_WAIT_ACTIVATION_DELAY,
+                                             -1,
+                                             G_MAXINT32,
+                                             -1,
+                                             NM_SETTING_PARAM_NONE,
+                                             NMSettingConnectionPrivate,
+                                             wait_activation_delay);
 
     g_object_class_install_properties(object_class, _PROPERTY_ENUMS_LAST, obj_properties);
 

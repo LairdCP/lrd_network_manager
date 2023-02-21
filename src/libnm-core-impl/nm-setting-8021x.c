@@ -9,8 +9,8 @@
 #include "nm-setting-8021x.h"
 
 #include "libnm-glib-aux/nm-secret-utils.h"
+#include "libnm-crypto/nm-crypto.h"
 #include "nm-utils.h"
-#include "nm-crypto.h"
 #include "nm-utils-private.h"
 #include "nm-setting-private.h"
 #include "nm-core-enum-types.h"
@@ -67,7 +67,10 @@ _crypto_format_to_ck(NMCryptoFileFormat format)
 
 /*****************************************************************************/
 
-typedef void (*EAPMethodNeedSecretsFunc)(NMSetting8021x *self, GPtrArray *secrets, gboolean phase2);
+typedef void (*EAPMethodNeedSecretsFunc)(NMSetting8021x *self,
+                                         GPtrArray      *secrets,
+                                         gboolean        phase2,
+                                         gboolean        check_rerequest);
 
 typedef gboolean (*EAPMethodValidateFunc)(NMSetting8021x *self, gboolean phase2, GError **error);
 
@@ -129,7 +132,6 @@ NM_GOBJECT_PROPERTIES_DEFINE(NMSetting8021x,
                              PROP_SYSTEM_CA_CERTS,
                              PROP_OPTIONAL,
                              PROP_AUTH_TIMEOUT,
-                             PROP_TLS_DISABLE_TIME_CHECKS,
                              PROP_PAC_FILE_PASSWORD,
                              PROP_PAC_FILE_PASSWORD_FLAGS, );
 
@@ -168,7 +170,6 @@ typedef struct {
     char   *private_key_password;
     GBytes *phase2_private_key;
     char   *phase2_private_key_password;
-    char   *tls_disable_time_checks;
     char   *pac_file_password;
     guint   pac_file_password_flags;
     guint   ca_cert_password_flags;
@@ -524,7 +525,7 @@ _cert_impl_set(NMSetting8021x         *setting,
         gs_unref_bytes GBytes *file = NULL;
 
         if (NM_IN_SET(property, PROP_PRIVATE_KEY, PROP_PHASE2_PRIVATE_KEY)) {
-            file = nm_crypto_read_file(value, error);
+            file = nm_utils_read_crypto_file_to_bytes(value, error);
             if (!file)
                 goto err;
             format = nm_crypto_verify_private_key_data(g_bytes_get_data(file, NULL),
@@ -1860,7 +1861,7 @@ nm_setting_802_1x_get_phase2_ca_cert_path(NMSetting8021x *setting)
  * nm_setting_802_1x_get_phase2_ca_cert_blob() and
  * nm_setting_802_1x_get_phase2_ca_cert_path().
  *
- * Currently, it's limited to PKCS#11 URIs ('pkcs11' scheme as defined by RFC
+ * Currently, it's limited to PKCS#<!-- -->11 URIs ('pkcs11' scheme as defined by RFC
  * 7512), but may be extended to other schemes in future (such as 'file' URIs
  * for local files and 'data' URIs for inline certificate data).
  *
@@ -2196,7 +2197,7 @@ nm_setting_802_1x_get_phase2_client_cert_path(NMSetting8021x *setting)
  * nm_setting_802_1x_get_phase2_ca_cert_blob() and
  * nm_setting_802_1x_get_phase2_ca_cert_path().
  *
- * Currently, it's limited to PKCS#11 URIs ('pkcs11' scheme as defined by RFC
+ * Currently, it's limited to PKCS#<!-- -->11 URIs ('pkcs11' scheme as defined by RFC
  * 7512), but may be extended to other schemes in future (such as 'file' URIs
  * for local files and 'data' URIs for inline certificate data).
  *
@@ -2432,7 +2433,7 @@ nm_setting_802_1x_get_private_key_path(NMSetting8021x *setting)
  * nm_setting_802_1x_get_private_key_blob() and
  * nm_setting_802_1x_get_private_key_path().
  *
- * Currently, it's limited to PKCS#11 URIs ('pkcs11' scheme as defined by RFC
+ * Currently, it's limited to PKCS#<!-- -->11 URIs ('pkcs11' scheme as defined by RFC
  * 7512), but may be extended to other schemes in future (such as 'file' URIs
  * for local files and 'data' URIs for inline certificate data).
  *
@@ -2444,21 +2445,6 @@ const char *
 nm_setting_802_1x_get_private_key_uri(NMSetting8021x *setting)
 {
     _cert_impl_get_uri(setting, private_key);
-}
-
-/**
- * nm_setting_802_1x_get_tls_disable_time_checks:
- * @setting: the #NMSetting8021x
- *
- * Returns: the value to be used for checking the datetime of certificates
- *  during wpa-eap authentications. Valid values are "0" (enable), and "1" (disable).
- **/
-const char *
-nm_setting_802_1x_get_tls_disable_time_checks(NMSetting8021x *setting)
-{
-    g_return_val_if_fail(NM_IS_SETTING_802_1X(setting), NULL);
-
-    return NM_SETTING_802_1X_GET_PRIVATE(setting)->tls_disable_time_checks;
 }
 
 /**
@@ -2664,7 +2650,7 @@ nm_setting_802_1x_get_phase2_private_key_path(NMSetting8021x *setting)
  * nm_setting_802_1x_get_phase2_private_key_blob() and
  * nm_setting_802_1x_get_phase2_private_key_path().
  *
- * Currently, it's limited to PKCS#11 URIs ('pkcs11' scheme as defined by RFC
+ * Currently, it's limited to PKCS#<!-- -->11 URIs ('pkcs11' scheme as defined by RFC
  * 7512), but may be extended to other schemes in future (such as 'file' URIs
  * for local files and 'data' URIs for inline certificate data).
  *
@@ -2788,296 +2774,111 @@ nm_setting_802_1x_get_optional(NMSetting8021x *setting)
 /*****************************************************************************/
 
 static void
-need_secrets_password(NMSetting8021x *self, GPtrArray *secrets, gboolean phase2)
+need_secrets_password(NMSetting8021x *self,
+                      GPtrArray      *secrets,
+                      gboolean        phase2,
+                      gboolean        check_rerequest)
 {
     NMSetting8021xPrivate *priv = NM_SETTING_802_1X_GET_PRIVATE(self);
 
-    if (nm_str_is_empty(priv->password)
-        && (!priv->password_raw || !g_bytes_get_size(priv->password_raw))) {
+    if (check_rerequest
+        || (nm_str_is_empty(priv->password)
+            && (!priv->password_raw || !g_bytes_get_size(priv->password_raw)))) {
         g_ptr_array_add(secrets, NM_SETTING_802_1X_PASSWORD);
         g_ptr_array_add(secrets, NM_SETTING_802_1X_PASSWORD_RAW);
     }
 }
 
 static void
-need_secrets_sim(NMSetting8021x *self, GPtrArray *secrets, gboolean phase2)
+need_secrets_sim(NMSetting8021x *self,
+                 GPtrArray      *secrets,
+                 gboolean        phase2,
+                 gboolean        check_rerequest)
 {
     NMSetting8021xPrivate *priv = NM_SETTING_802_1X_GET_PRIVATE(self);
 
-    if (nm_str_is_empty(priv->pin))
+    if (check_rerequest || nm_str_is_empty(priv->pin))
         g_ptr_array_add(secrets, NM_SETTING_802_1X_PIN);
 }
 
-static gboolean
-need_private_key_password(GBytes                *blob,
-                          NMSetting8021xCKScheme scheme,
-                          const char            *path,
-                          const char            *password,
-                          NMSettingSecretFlags   flags)
-{
-    NMCryptoFileFormat format = NM_CRYPTO_FILE_FORMAT_UNKNOWN;
-
-    if (flags & NM_SETTING_SECRET_FLAG_NOT_REQUIRED)
-        return FALSE;
-
-    /* Private key password is required */
-    if (password) {
-        if (path)
-            format = nm_crypto_verify_private_key(path, password, NULL, NULL);
-        else if (blob)
-            format = nm_crypto_verify_private_key_data(g_bytes_get_data(blob, NULL),
-                                                       g_bytes_get_size(blob),
-                                                       password,
-                                                       NULL,
-                                                       NULL);
-        else
-            return FALSE;
-    }
-
-    return (format == NM_CRYPTO_FILE_FORMAT_UNKNOWN);
-}
-
 static void
-need_secrets_tls(NMSetting8021x *self, GPtrArray *secrets, gboolean phase2)
+need_secrets_tls(NMSetting8021x *self,
+                 GPtrArray      *secrets,
+                 gboolean        phase2,
+                 gboolean        check_rerequest)
 {
     NMSetting8021xPrivate *priv = NM_SETTING_802_1X_GET_PRIVATE(self);
     NMSetting8021xCKScheme scheme;
-    GBytes                *blob = NULL;
-    const char            *path = NULL;
 
-    if (phase2) {
-        scheme = nm_setting_802_1x_get_phase2_private_key_scheme(self);
-        if (scheme == NM_SETTING_802_1X_CK_SCHEME_PATH)
-            path = nm_setting_802_1x_get_phase2_private_key_path(self);
-        else if (scheme == NM_SETTING_802_1X_CK_SCHEME_BLOB)
-            blob = nm_setting_802_1x_get_phase2_private_key_blob(self);
-        else if (scheme != NM_SETTING_802_1X_CK_SCHEME_PKCS11)
-            g_warning("%s: unknown phase2 private key scheme %d", __func__, scheme);
+    /* If check_rerequest is TRUE do not return secrets, unless missing.
+     * This secret cannot be wrong. */
 
-        if (need_private_key_password(blob,
-                                      scheme,
-                                      path,
-                                      priv->phase2_private_key_password,
-                                      priv->phase2_private_key_password_flags))
-            g_ptr_array_add(secrets, NM_SETTING_802_1X_PHASE2_PRIVATE_KEY_PASSWORD);
+    if (!NM_FLAGS_HAS(phase2 ? priv->phase2_private_key_password_flags
+                             : priv->private_key_password_flags,
+                      NM_SETTING_SECRET_FLAG_NOT_REQUIRED)) {
+        NMCryptoFileFormat format       = NM_CRYPTO_FILE_FORMAT_UNKNOWN;
+        gboolean           has_password = FALSE;
+        const char        *password;
 
-        scheme = nm_setting_802_1x_get_phase2_ca_cert_scheme(self);
-        if (scheme == NM_SETTING_802_1X_CK_SCHEME_PKCS11
-            && !(priv->phase2_ca_cert_password_flags & NM_SETTING_SECRET_FLAG_NOT_REQUIRED)
-            && !priv->phase2_ca_cert_password)
-            g_ptr_array_add(secrets, NM_SETTING_802_1X_PHASE2_CA_CERT_PASSWORD);
+        password = phase2 ? priv->phase2_private_key_password : priv->private_key_password;
 
-        scheme = nm_setting_802_1x_get_phase2_client_cert_scheme(self);
-        if (scheme == NM_SETTING_802_1X_CK_SCHEME_PKCS11
-            && !(priv->phase2_client_cert_password_flags & NM_SETTING_SECRET_FLAG_NOT_REQUIRED)
-            && !priv->phase2_client_cert_password)
-            g_ptr_array_add(secrets, NM_SETTING_802_1X_PHASE2_CLIENT_CERT_PASSWORD);
-    } else {
-        scheme = nm_setting_802_1x_get_private_key_scheme(self);
-        if (scheme == NM_SETTING_802_1X_CK_SCHEME_PATH)
-            path = nm_setting_802_1x_get_private_key_path(self);
-        else if (scheme == NM_SETTING_802_1X_CK_SCHEME_BLOB)
-            blob = nm_setting_802_1x_get_private_key_blob(self);
-        else if (scheme != NM_SETTING_802_1X_CK_SCHEME_PKCS11)
-            g_warning("%s: unknown private key scheme %d", __func__, scheme);
+        /* Check whether the password works. */
+        if (password) {
+            scheme = phase2 ? nm_setting_802_1x_get_phase2_private_key_scheme(self)
+                            : nm_setting_802_1x_get_private_key_scheme(self);
 
-        if (need_private_key_password(blob,
-                                      scheme,
-                                      path,
-                                      priv->private_key_password,
-                                      priv->private_key_password_flags))
-            g_ptr_array_add(secrets, NM_SETTING_802_1X_PRIVATE_KEY_PASSWORD);
+            if (scheme == NM_SETTING_802_1X_CK_SCHEME_PATH) {
+                const char *path = phase2 ? nm_setting_802_1x_get_phase2_private_key_path(self)
+                                          : nm_setting_802_1x_get_private_key_path(self);
 
-        scheme = nm_setting_802_1x_get_ca_cert_scheme(self);
-        if (scheme == NM_SETTING_802_1X_CK_SCHEME_PKCS11
-            && !(priv->ca_cert_password_flags & NM_SETTING_SECRET_FLAG_NOT_REQUIRED)
-            && !priv->ca_cert_password)
-            g_ptr_array_add(secrets, NM_SETTING_802_1X_CA_CERT_PASSWORD);
+                if (path)
+                    format = nm_crypto_verify_private_key(path, password, NULL, NULL);
+            } else if (scheme == NM_SETTING_802_1X_CK_SCHEME_BLOB) {
+                GBytes *blob = phase2 ? nm_setting_802_1x_get_phase2_private_key_blob(self)
+                                      : nm_setting_802_1x_get_private_key_blob(self);
 
-        scheme = nm_setting_802_1x_get_client_cert_scheme(self);
-        if (scheme == NM_SETTING_802_1X_CK_SCHEME_PKCS11
-            && !(priv->client_cert_password_flags & NM_SETTING_SECRET_FLAG_NOT_REQUIRED)
-            && !priv->client_cert_password)
-            g_ptr_array_add(secrets, NM_SETTING_802_1X_CLIENT_CERT_PASSWORD);
-    }
-}
-
-static gboolean
-verify_tls(NMSetting8021x *self, gboolean phase2, GError **error)
-{
-    NMSetting8021xPrivate *priv = NM_SETTING_802_1X_GET_PRIVATE(self);
-
-    if (phase2) {
-        if (!priv->phase2_client_cert) {
-            g_set_error_literal(error,
-                                NM_CONNECTION_ERROR,
-                                NM_CONNECTION_ERROR_MISSING_PROPERTY,
-                                _("property is missing"));
-            g_prefix_error(error,
-                           "%s.%s: ",
-                           NM_SETTING_802_1X_SETTING_NAME,
-                           NM_SETTING_802_1X_PHASE2_CLIENT_CERT);
-            return FALSE;
-        } else if (!g_bytes_get_size(priv->phase2_client_cert)) {
-            g_set_error_literal(error,
-                                NM_CONNECTION_ERROR,
-                                NM_CONNECTION_ERROR_INVALID_PROPERTY,
-                                _("property is empty"));
-            g_prefix_error(error,
-                           "%s.%s: ",
-                           NM_SETTING_802_1X_SETTING_NAME,
-                           NM_SETTING_802_1X_PHASE2_CLIENT_CERT);
-            return FALSE;
-        }
-
-        /* Private key is required for TLS */
-        if (!priv->phase2_private_key) {
-            g_set_error_literal(error,
-                                NM_CONNECTION_ERROR,
-                                NM_CONNECTION_ERROR_MISSING_PROPERTY,
-                                _("property is missing"));
-            g_prefix_error(error,
-                           "%s.%s: ",
-                           NM_SETTING_802_1X_SETTING_NAME,
-                           NM_SETTING_802_1X_PHASE2_PRIVATE_KEY);
-            return FALSE;
-        } else if (!g_bytes_get_size(priv->phase2_private_key)) {
-            g_set_error_literal(error,
-                                NM_CONNECTION_ERROR,
-                                NM_CONNECTION_ERROR_INVALID_PROPERTY,
-                                _("property is empty"));
-            g_prefix_error(error,
-                           "%s.%s: ",
-                           NM_SETTING_802_1X_SETTING_NAME,
-                           NM_SETTING_802_1X_PHASE2_PRIVATE_KEY);
-            return FALSE;
-        }
-
-        /* If the private key is PKCS#12, check that it matches the client cert */
-        if (nm_crypto_is_pkcs12_data(g_bytes_get_data(priv->phase2_private_key, NULL),
-                                     g_bytes_get_size(priv->phase2_private_key),
-                                     NULL)) {
-            if (!g_bytes_equal(priv->phase2_private_key, priv->phase2_client_cert)) {
-                g_set_error(error,
-                            NM_CONNECTION_ERROR,
-                            NM_CONNECTION_ERROR_INVALID_PROPERTY,
-                            _("has to match '%s' property for PKCS#12"),
-                            NM_SETTING_802_1X_PHASE2_PRIVATE_KEY);
-                g_prefix_error(error,
-                               "%s.%s: ",
-                               NM_SETTING_802_1X_SETTING_NAME,
-                               NM_SETTING_802_1X_PHASE2_CLIENT_CERT);
-                return FALSE;
+                if (blob)
+                    format = nm_crypto_verify_private_key_data(g_bytes_get_data(blob, NULL),
+                                                               g_bytes_get_size(blob),
+                                                               password,
+                                                               NULL,
+                                                               NULL);
+            } else {
+                /* For PKCS#11 URLS, we assume the password is correct. */
+                has_password = TRUE;
             }
         }
-    } else {
-        if (!priv->client_cert) {
-            g_set_error_literal(error,
-                                NM_CONNECTION_ERROR,
-                                NM_CONNECTION_ERROR_MISSING_PROPERTY,
-                                _("property is missing"));
-            g_prefix_error(error,
-                           "%s.%s: ",
-                           NM_SETTING_802_1X_SETTING_NAME,
-                           NM_SETTING_802_1X_CLIENT_CERT);
-            return FALSE;
-        } else if (!g_bytes_get_size(priv->client_cert)) {
-            g_set_error_literal(error,
-                                NM_CONNECTION_ERROR,
-                                NM_CONNECTION_ERROR_INVALID_PROPERTY,
-                                _("property is empty"));
-            g_prefix_error(error,
-                           "%s.%s: ",
-                           NM_SETTING_802_1X_SETTING_NAME,
-                           NM_SETTING_802_1X_CLIENT_CERT);
-            return FALSE;
-        }
-
-        /* Private key is required for TLS */
-        if (!priv->private_key) {
-            g_set_error_literal(error,
-                                NM_CONNECTION_ERROR,
-                                NM_CONNECTION_ERROR_MISSING_PROPERTY,
-                                _("property is missing"));
-            g_prefix_error(error,
-                           "%s.%s: ",
-                           NM_SETTING_802_1X_SETTING_NAME,
-                           NM_SETTING_802_1X_PRIVATE_KEY);
-            return FALSE;
-        } else if (!g_bytes_get_size(priv->private_key)) {
-            g_set_error_literal(error,
-                                NM_CONNECTION_ERROR,
-                                NM_CONNECTION_ERROR_INVALID_PROPERTY,
-                                _("property is empty"));
-            g_prefix_error(error,
-                           "%s.%s: ",
-                           NM_SETTING_802_1X_SETTING_NAME,
-                           NM_SETTING_802_1X_PRIVATE_KEY);
-            return FALSE;
-        }
-
-        /* If the private key is PKCS#12, check that it matches the client cert */
-        if (nm_crypto_is_pkcs12_data(g_bytes_get_data(priv->private_key, NULL),
-                                     g_bytes_get_size(priv->private_key),
-                                     NULL)) {
-            if (!g_bytes_equal(priv->private_key, priv->client_cert)) {
-                g_set_error(error,
-                            NM_CONNECTION_ERROR,
-                            NM_CONNECTION_ERROR_INVALID_PROPERTY,
-                            _("has to match '%s' property for PKCS#12"),
-                            NM_SETTING_802_1X_PRIVATE_KEY);
-                g_prefix_error(error,
-                               "%s.%s: ",
-                               NM_SETTING_802_1X_SETTING_NAME,
-                               NM_SETTING_802_1X_CLIENT_CERT);
-                return FALSE;
-            }
+        if (!has_password && format == NM_CRYPTO_FILE_FORMAT_UNKNOWN) {
+            g_ptr_array_add(secrets,
+                            phase2 ? NM_SETTING_802_1X_PHASE2_PRIVATE_KEY_PASSWORD
+                                   : NM_SETTING_802_1X_PRIVATE_KEY_PASSWORD);
         }
     }
 
-    return TRUE;
-}
-
-static gboolean
-verify_ttls(NMSetting8021x *self, gboolean phase2, GError **error)
-{
-    NMSetting8021xPrivate *priv = NM_SETTING_802_1X_GET_PRIVATE(self);
-
-    if (nm_str_is_empty(priv->identity)) {
-        if (!priv->identity) {
-            g_set_error_literal(error,
-                                NM_CONNECTION_ERROR,
-                                NM_CONNECTION_ERROR_MISSING_PROPERTY,
-                                _("property is missing"));
-        } else {
-            g_set_error_literal(error,
-                                NM_CONNECTION_ERROR,
-                                NM_CONNECTION_ERROR_INVALID_PROPERTY,
-                                _("property is empty"));
+    if (!NM_FLAGS_HAS(phase2 ? priv->phase2_ca_cert_password_flags : priv->ca_cert_password_flags,
+                      NM_SETTING_SECRET_FLAG_NOT_REQUIRED)) {
+        scheme = phase2 ? nm_setting_802_1x_get_phase2_ca_cert_scheme(self)
+                        : nm_setting_802_1x_get_ca_cert_scheme(self);
+        if (scheme == NM_SETTING_802_1X_CK_SCHEME_PKCS11
+            && !(phase2 ? priv->phase2_ca_cert_password : priv->ca_cert_password)) {
+            g_ptr_array_add(secrets,
+                            phase2 ? NM_SETTING_802_1X_PHASE2_CA_CERT_PASSWORD
+                                   : NM_SETTING_802_1X_CA_CERT_PASSWORD);
         }
-        g_prefix_error(error,
-                       "%s.%s: ",
-                       NM_SETTING_802_1X_SETTING_NAME,
-                       NM_SETTING_802_1X_IDENTITY);
-        return FALSE;
     }
 
-    if ((!priv->phase2_auth && !priv->phase2_autheap)
-        || (priv->phase2_auth && priv->phase2_autheap)) {
-        g_set_error_literal(error,
-                            NM_CONNECTION_ERROR,
-                            NM_CONNECTION_ERROR_MISSING_PROPERTY,
-                            _("exactly one property must be set"));
-        g_prefix_error(error,
-                       "%s.%s, %s.%s: ",
-                       NM_SETTING_802_1X_SETTING_NAME,
-                       NM_SETTING_802_1X_PHASE2_AUTH,
-                       NM_SETTING_802_1X_SETTING_NAME,
-                       NM_SETTING_802_1X_PHASE2_AUTHEAP);
-        return FALSE;
+    if (!NM_FLAGS_HAS(phase2 ? priv->phase2_client_cert_password_flags
+                             : priv->client_cert_password_flags,
+                      NM_SETTING_SECRET_FLAG_NOT_REQUIRED)) {
+        scheme = phase2 ? nm_setting_802_1x_get_phase2_client_cert_scheme(self)
+                        : nm_setting_802_1x_get_client_cert_scheme(self);
+        if (scheme == NM_SETTING_802_1X_CK_SCHEME_PKCS11
+            && !(phase2 ? priv->phase2_client_cert_password : priv->client_cert_password)) {
+            g_ptr_array_add(secrets,
+                            phase2 ? NM_SETTING_802_1X_PHASE2_CLIENT_CERT_PASSWORD
+                                   : NM_SETTING_802_1X_CLIENT_CERT_PASSWORD);
+        }
     }
-
-    return TRUE;
 }
 
 static gboolean
@@ -3107,8 +2908,108 @@ verify_identity(NMSetting8021x *self, gboolean phase2, GError **error)
     return TRUE;
 }
 
+static gboolean
+verify_tls(NMSetting8021x *self, gboolean phase2, GError **error)
+{
+    NMSetting8021xPrivate *priv = NM_SETTING_802_1X_GET_PRIVATE(self);
+    GBytes                *client_cert;
+    GBytes                *private_key;
+    const char            *prop_client_cert;
+    const char            *prop_private_key;
+
+    client_cert = phase2 ? priv->phase2_client_cert : priv->client_cert;
+    private_key = phase2 ? priv->phase2_private_key : priv->private_key;
+    prop_client_cert =
+        phase2 ? NM_SETTING_802_1X_PHASE2_CLIENT_CERT : NM_SETTING_802_1X_CLIENT_CERT;
+    prop_private_key =
+        phase2 ? NM_SETTING_802_1X_PHASE2_PRIVATE_KEY : NM_SETTING_802_1X_PRIVATE_KEY;
+
+    if (!client_cert) {
+        g_set_error_literal(error,
+                            NM_CONNECTION_ERROR,
+                            NM_CONNECTION_ERROR_MISSING_PROPERTY,
+                            _("property is missing"));
+        g_prefix_error(error, "%s.%s: ", NM_SETTING_802_1X_SETTING_NAME, prop_client_cert);
+        return FALSE;
+    }
+    if (g_bytes_get_size(client_cert) == 0) {
+        g_set_error_literal(error,
+                            NM_CONNECTION_ERROR,
+                            NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                            _("property is empty"));
+        g_prefix_error(error, "%s.%s: ", NM_SETTING_802_1X_SETTING_NAME, prop_client_cert);
+        return FALSE;
+    }
+
+    /* Private key is required for TLS */
+    if (!private_key) {
+        g_set_error_literal(error,
+                            NM_CONNECTION_ERROR,
+                            NM_CONNECTION_ERROR_MISSING_PROPERTY,
+                            _("property is missing"));
+        g_prefix_error(error, "%s.%s: ", NM_SETTING_802_1X_SETTING_NAME, prop_private_key);
+        return FALSE;
+    }
+
+    if (g_bytes_get_size(private_key) == 0) {
+        g_set_error_literal(error,
+                            NM_CONNECTION_ERROR,
+                            NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                            _("property is empty"));
+        g_prefix_error(error, "%s.%s: ", NM_SETTING_802_1X_SETTING_NAME, prop_private_key);
+        return FALSE;
+    }
+
+    if (_nm_setting_802_1x_cert_get_scheme(private_key, NULL) == NM_SETTING_802_1X_CK_SCHEME_BLOB
+        && nm_crypto_is_pkcs12_data(g_bytes_get_data(private_key, NULL),
+                                    g_bytes_get_size(private_key),
+                                    NULL)) {
+        /* If the private key is PKCS#12, check that it matches the client cert */
+        if (!g_bytes_equal(private_key, client_cert)) {
+            g_set_error(error,
+                        NM_CONNECTION_ERROR,
+                        NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                        _("has to match '%s' property for PKCS#12"),
+                        prop_private_key);
+            g_prefix_error(error, "%s.%s: ", NM_SETTING_802_1X_SETTING_NAME, prop_client_cert);
+            return FALSE;
+        }
+    }
+
+    return TRUE;
+}
+
+static gboolean
+verify_ttls(NMSetting8021x *self, gboolean phase2, GError **error)
+{
+    NMSetting8021xPrivate *priv = NM_SETTING_802_1X_GET_PRIVATE(self);
+
+    if (!verify_identity(self, phase2, error))
+        return FALSE;
+
+    if ((!priv->phase2_auth && !priv->phase2_autheap)
+        || (priv->phase2_auth && priv->phase2_autheap)) {
+        g_set_error_literal(error,
+                            NM_CONNECTION_ERROR,
+                            NM_CONNECTION_ERROR_MISSING_PROPERTY,
+                            _("exactly one property must be set"));
+        g_prefix_error(error,
+                       "%s.%s, %s.%s: ",
+                       NM_SETTING_802_1X_SETTING_NAME,
+                       NM_SETTING_802_1X_PHASE2_AUTH,
+                       NM_SETTING_802_1X_SETTING_NAME,
+                       NM_SETTING_802_1X_PHASE2_AUTHEAP);
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
 static void
-need_secrets_phase2(NMSetting8021x *self, GPtrArray *secrets, gboolean phase2)
+need_secrets_phase2(NMSetting8021x *self,
+                    GPtrArray      *secrets,
+                    gboolean        phase2,
+                    gboolean        check_rerequest)
 {
     NMSetting8021xPrivate *priv = NM_SETTING_802_1X_GET_PRIVATE(self);
     GSList                *iter;
@@ -3123,20 +3024,19 @@ need_secrets_phase2(NMSetting8021x *self, GPtrArray *secrets, gboolean phase2)
         iter = priv->phase2_autheap;
 
     if (!iter) {
-        g_warning("Couldn't find AUTH method.");
-        g_assert_not_reached();
-        return;
-    }
+        g_warning("Couldn't find EAP method.");
+        g_return_if_reached();
+	}
 
     while (iter && !auth_method_found) {
         const char *method = (const char *) iter->data;
 
         /* Ask the configured phase2 method if it needs secrets */
         for (i = 0; eap_methods_table[i].method; i++) {
-            if (eap_methods_table[i].ns_func == NULL)
+        if (!eap_methods_table[i].ns_func)
                 continue;
-            if (!strcmp(eap_methods_table[i].method, method)) {
-                (*eap_methods_table[i].ns_func)(self, secrets, TRUE);
+        if (nm_streq(eap_methods_table[i].method, method)) {
+            (*eap_methods_table[i].ns_func)(self, secrets, TRUE, check_rerequest);
                 if (secrets->len > 0)
                     auth_method_found = TRUE;
                 break;
@@ -3229,11 +3129,18 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
     }
 
     if (!NM_IN_STRSET(priv->phase1_peapver, NULL, "0", "1")) {
-        g_set_error(error,
-                    NM_CONNECTION_ERROR,
-                    NM_CONNECTION_ERROR_INVALID_PROPERTY,
-                    _("'%s' is not a valid value for the property"),
-                    priv->phase1_peapver);
+        if (priv->phase1_peapver) {
+            g_set_error(error,
+                        NM_CONNECTION_ERROR,
+                        NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                        _("'%s' is not a valid value for the property"),
+                        priv->phase1_peapver);
+        } else {
+            g_set_error(error,
+                        NM_CONNECTION_ERROR,
+                        NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                        _("property is empty"));
+        }
         g_prefix_error(error,
                        "%s.%s: ",
                        NM_SETTING_802_1X_SETTING_NAME,
@@ -3242,11 +3149,18 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
     }
 
     if (!NM_IN_STRSET(priv->phase1_peaplabel, NULL, "0", "1")) {
-        g_set_error(error,
-                    NM_CONNECTION_ERROR,
-                    NM_CONNECTION_ERROR_INVALID_PROPERTY,
-                    _("'%s' is not a valid value for the property"),
-                    priv->phase1_peaplabel);
+        if (priv->phase1_peaplabel) {
+            g_set_error(error,
+                        NM_CONNECTION_ERROR,
+                        NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                        _("'%s' is not a valid value for the property"),
+                        priv->phase1_peaplabel);
+        } else {
+            g_set_error(error,
+                        NM_CONNECTION_ERROR,
+                        NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                        _("property is empty"));
+        }
         g_prefix_error(error,
                        "%s.%s: ",
                        NM_SETTING_802_1X_SETTING_NAME,
@@ -3255,11 +3169,18 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
     }
 
     if (!NM_IN_STRSET(priv->phase1_fast_provisioning, NULL, "0", "1", "2", "3")) {
-        g_set_error(error,
-                    NM_CONNECTION_ERROR,
-                    NM_CONNECTION_ERROR_INVALID_PROPERTY,
-                    _("'%s' is not a valid value for the property"),
-                    priv->phase1_fast_provisioning);
+        if (priv->phase1_fast_provisioning) {
+            g_set_error(error,
+                        NM_CONNECTION_ERROR,
+                        NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                        _("'%s' is not a valid value for the property"),
+                        priv->phase1_fast_provisioning);
+        } else {
+            g_set_error(error,
+                        NM_CONNECTION_ERROR,
+                        NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                        _("property is empty"));
+        }
         g_prefix_error(error,
                        "%s.%s: ",
                        NM_SETTING_802_1X_SETTING_NAME,
@@ -3268,10 +3189,11 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
     }
 
     if (NM_FLAGS_ANY(priv->phase1_auth_flags, ~((guint32) NM_SETTING_802_1X_AUTH_FLAGS_ALL))) {
-        g_set_error_literal(error,
-                            NM_CONNECTION_ERROR,
-                            NM_CONNECTION_ERROR_INVALID_PROPERTY,
-                            _("invalid auth flags"));
+        g_set_error(error,
+                    NM_CONNECTION_ERROR,
+                    NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                    _("invalid auth flags: '%d' contains unknown flags"),
+                    priv->phase1_auth_flags);
         g_prefix_error(error,
                        "%s.%s: ",
                        NM_SETTING_802_1X_SETTING_NAME,
@@ -3279,12 +3201,42 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
         return FALSE;
     }
 
-    if (priv->phase2_auth
-        && !_nm_utils_string_slist_validate(priv->phase2_auth, valid_phase2_auth)) {
-        g_set_error_literal(error,
-                            NM_CONNECTION_ERROR,
-                            NM_CONNECTION_ERROR_MISSING_PROPERTY,
-                            _("property is missing"));
+    if (NM_FLAGS_ALL(priv->phase1_auth_flags,
+                     NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_0_ENABLE
+                         | NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_0_DISABLE)
+        || NM_FLAGS_ALL(priv->phase1_auth_flags,
+                        NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_1_ENABLE
+                            | NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_1_DISABLE)
+        || NM_FLAGS_ALL(priv->phase1_auth_flags,
+                        NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_2_ENABLE
+                            | NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_2_DISABLE)
+        || NM_FLAGS_ALL(priv->phase1_auth_flags,
+                        NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_3_ENABLE
+                            | NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_3_DISABLE)) {
+        g_set_error_literal(
+            error,
+            NM_CONNECTION_ERROR,
+            NM_CONNECTION_ERROR_INVALID_PROPERTY,
+            _("invalid auth flags: both enable and disable are set for the same TLS version"));
+        g_prefix_error(error,
+                       "%s.%s: ",
+                       NM_SETTING_802_1X_SETTING_NAME,
+                       NM_SETTING_802_1X_PHASE1_AUTH_FLAGS);
+        return FALSE;
+    }
+
+    if (!_nm_utils_string_slist_validate(priv->phase2_auth, valid_phase2_auth)) {
+        if (priv->phase2_auth) {
+            g_set_error(error,
+                        NM_CONNECTION_ERROR,
+                        NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                        _("invalid value for the property"));
+        } else {
+            g_set_error(error,
+                        NM_CONNECTION_ERROR,
+                        NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                        _("property is empty"));
+        }
         g_prefix_error(error,
                        "%s.%s: ",
                        NM_SETTING_802_1X_SETTING_NAME,
@@ -3292,12 +3244,18 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
         return FALSE;
     }
 
-    if (priv->phase2_autheap
-        && !_nm_utils_string_slist_validate(priv->phase2_autheap, valid_phase2_autheap)) {
-        g_set_error_literal(error,
-                            NM_CONNECTION_ERROR,
-                            NM_CONNECTION_ERROR_MISSING_PROPERTY,
-                            _("property is missing"));
+    if (!_nm_utils_string_slist_validate(priv->phase2_autheap, valid_phase2_autheap)) {
+        if (priv->phase2_autheap) {
+            g_set_error(error,
+                        NM_CONNECTION_ERROR,
+                        NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                        _("invalid value for the property"));
+        } else {
+            g_set_error(error,
+                        NM_CONNECTION_ERROR,
+                        NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                        _("property is empty"));
+        }
         g_prefix_error(error,
                        "%s.%s: ",
                        NM_SETTING_802_1X_SETTING_NAME,
@@ -3340,13 +3298,57 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
                                error))
         return FALSE;
 
+#define _check_strempty_and_return(priv, prop_name, field, error)                               \
+    G_STMT_START                                                                                \
+    {                                                                                           \
+        NMSetting8021xPrivate *_priv  = (priv);                                                 \
+        GError               **_error = (error);                                                \
+                                                                                                \
+        if (_priv->field && _priv->field[0] == '\0') {                                          \
+            g_set_error(_error,                                                                 \
+                        NM_CONNECTION_ERROR,                                                    \
+                        NM_CONNECTION_ERROR_INVALID_PROPERTY,                                   \
+                        _("property is empty"));                                                \
+            g_prefix_error(_error, "%s.%s: ", NM_SETTING_802_1X_SETTING_NAME, "" prop_name ""); \
+            return NM_SETTING_VERIFY_NORMALIZABLE;                                              \
+        }                                                                                       \
+    }                                                                                           \
+    G_STMT_END
+
+    /* normalizable warnings from here on. */
+
+    _check_strempty_and_return(priv, NM_SETTING_802_1X_IDENTITY, identity, error);
+    _check_strempty_and_return(priv,
+                               NM_SETTING_802_1X_ANONYMOUS_IDENTITY,
+                               anonymous_identity,
+                               error);
+    _check_strempty_and_return(priv, NM_SETTING_802_1X_PAC_FILE, pac_file, error);
+    _check_strempty_and_return(priv, NM_SETTING_802_1X_SUBJECT_MATCH, subject_match, error);
+    _check_strempty_and_return(priv,
+                               NM_SETTING_802_1X_PHASE2_SUBJECT_MATCH,
+                               phase2_subject_match,
+                               error);
+    _check_strempty_and_return(priv,
+                               NM_SETTING_802_1X_DOMAIN_SUFFIX_MATCH,
+                               domain_suffix_match,
+                               error);
+    _check_strempty_and_return(priv,
+                               NM_SETTING_802_1X_PHASE2_DOMAIN_SUFFIX_MATCH,
+                               phase2_domain_suffix_match,
+                               error);
+    _check_strempty_and_return(priv, NM_SETTING_802_1X_DOMAIN_MATCH, domain_match, error);
+    _check_strempty_and_return(priv,
+                               NM_SETTING_802_1X_PHASE2_DOMAIN_MATCH,
+                               phase2_domain_match,
+                               error);
+
     return TRUE;
 }
 
 /*****************************************************************************/
 
 static GPtrArray *
-need_secrets(NMSetting *setting)
+need_secrets(NMSetting *setting, gboolean check_rerequest)
 {
     NMSetting8021x        *self = NM_SETTING_802_1X(setting);
     NMSetting8021xPrivate *priv = NM_SETTING_802_1X_GET_PRIVATE(self);
@@ -3365,7 +3367,7 @@ need_secrets(NMSetting *setting)
             if (eap_methods_table[i].ns_func == NULL)
                 continue;
             if (!strcmp(eap_methods_table[i].method, method)) {
-                (*eap_methods_table[i].ns_func)(self, secrets, FALSE);
+                (*eap_methods_table[i].ns_func)(self, secrets, FALSE, check_rerequest);
 
                 /* Only break out of the outer loop if this EAP method
                  * needed secrets.
@@ -3628,9 +3630,6 @@ nm_setting_802_1x_class_init(NMSetting8021xClass *klass)
      *
      * Since: 1.8
      **/
-    /* ---ifcfg-rh---
-     * ---end---
-     */
     _nm_setting_property_define_direct_string(properties_override,
                                               obj_properties,
                                               NM_SETTING_802_1X_CA_CERT_PASSWORD,
@@ -3646,9 +3645,6 @@ nm_setting_802_1x_class_init(NMSetting8021xClass *klass)
      *
      * Since: 1.8
      **/
-    /* ---ifcfg-rh---
-     * ---end---
-     */
     _nm_setting_property_define_direct_secret_flags(properties_override,
                                                     obj_properties,
                                                     NM_SETTING_802_1X_CA_CERT_PASSWORD_FLAGS,
@@ -3685,9 +3681,10 @@ nm_setting_802_1x_class_init(NMSetting8021xClass *klass)
      *
      * Substring to be matched against the subject of the certificate presented
      * by the authentication server. When unset, no verification of the
-     * authentication server certificate's subject is performed.  This property
-     * provides little security, if any, and its use is deprecated in favor of
-     * NMSetting8021x:domain-suffix-match.
+     * authentication server certificate's subject is performed. This property
+     * provides little security, if any, and should not be used.
+     *
+     * Deprecated: 1.2: Use #NMSetting8021x:phase2-domain-suffix-match instead.
      **/
     /* ---ifcfg-rh---
      * property: subject-match
@@ -3702,7 +3699,8 @@ nm_setting_802_1x_class_init(NMSetting8021xClass *klass)
                                               PROP_SUBJECT_MATCH,
                                               NM_SETTING_PARAM_NONE,
                                               NMSetting8021xPrivate,
-                                              subject_match);
+                                              subject_match,
+                                              .is_deprecated = TRUE, );
 
     /**
      * NMSetting8021x:altsubject-matches:
@@ -3818,9 +3816,6 @@ nm_setting_802_1x_class_init(NMSetting8021xClass *klass)
      *
      * Since: 1.8
      **/
-    /* ---ifcfg-rh---
-     * ---end---
-     */
     _nm_setting_property_define_direct_string(properties_override,
                                               obj_properties,
                                               NM_SETTING_802_1X_CLIENT_CERT_PASSWORD,
@@ -3836,9 +3831,6 @@ nm_setting_802_1x_class_init(NMSetting8021xClass *klass)
      *
      * Since: 1.8
      **/
-    /* ---ifcfg-rh---
-     * ---end---
-     */
     _nm_setting_property_define_direct_secret_flags(properties_override,
                                                     obj_properties,
                                                     NM_SETTING_802_1X_CLIENT_CERT_PASSWORD_FLAGS,
@@ -3926,9 +3918,10 @@ nm_setting_802_1x_class_init(NMSetting8021xClass *klass)
      *
      * Specifies authentication flags to use in "phase 1" outer
      * authentication using #NMSetting8021xAuthFlags options.
-     * The individual TLS versions can be explicitly disabled. If a certain
-     * TLS disable flag is not set, it is up to the supplicant to allow
-     * or forbid it. The TLS options map to tls_disable_tlsv1_x settings.
+     * The individual TLS versions can be explicitly disabled. TLS time checks
+     * can be also disabled. If a certain TLS disable flag is not
+     * set, it is up to the supplicant to allow or forbid it. The TLS options
+     * map to tls_disable_tlsv1_x and tls_disable_time_checks settings.
      * See the wpa_supplicant documentation for more details.
      *
      * Since: 1.8
@@ -4048,9 +4041,6 @@ nm_setting_802_1x_class_init(NMSetting8021xClass *klass)
      *
      * Since: 1.8
      **/
-    /* ---ifcfg-rh---
-     * ---end---
-     */
     _nm_setting_property_define_direct_string(properties_override,
                                               obj_properties,
                                               NM_SETTING_802_1X_PHASE2_CA_CERT_PASSWORD,
@@ -4066,9 +4056,6 @@ nm_setting_802_1x_class_init(NMSetting8021xClass *klass)
      *
      * Since: 1.8
      **/
-    /* ---ifcfg-rh---
-     * ---end---
-     */
     _nm_setting_property_define_direct_secret_flags(properties_override,
                                                     obj_properties,
                                                     NM_SETTING_802_1X_PHASE2_CA_CERT_PASSWORD_FLAGS,
@@ -4106,9 +4093,10 @@ nm_setting_802_1x_class_init(NMSetting8021xClass *klass)
      * Substring to be matched against the subject of the certificate presented
      * by the authentication server during the inner "phase 2"
      * authentication. When unset, no verification of the authentication server
-     * certificate's subject is performed.  This property provides little security,
-     * if any, and its use is deprecated in favor of
-     * NMSetting8021x:phase2-domain-suffix-match.
+     * certificate's subject is performed. This property provides little security,
+     * if any, and should not be used.
+     *
+     * Deprecated: 1.2: Use #NMSetting8021x:phase2-domain-suffix-match instead.
      **/
     /* ---ifcfg-rh---
      * property: phase2-subject-match
@@ -4123,7 +4111,8 @@ nm_setting_802_1x_class_init(NMSetting8021xClass *klass)
                                               PROP_PHASE2_SUBJECT_MATCH,
                                               NM_SETTING_PARAM_NONE,
                                               NMSetting8021xPrivate,
-                                              phase2_subject_match);
+                                              phase2_subject_match,
+                                              .is_deprecated = TRUE, );
 
     /**
      * NMSetting8021x:phase2-altsubject-matches:
@@ -4243,9 +4232,6 @@ nm_setting_802_1x_class_init(NMSetting8021xClass *klass)
      *
      * Since: 1.8
      **/
-    /* ---ifcfg-rh---
-     * ---end---
-     */
     _nm_setting_property_define_direct_string(properties_override,
                                               obj_properties,
                                               NM_SETTING_802_1X_PHASE2_CLIENT_CERT_PASSWORD,
@@ -4261,9 +4247,6 @@ nm_setting_802_1x_class_init(NMSetting8021xClass *klass)
      *
      * Since: 1.8
      **/
-    /* ---ifcfg-rh---
-     * ---end---
-     */
     _nm_setting_property_define_direct_secret_flags(
         properties_override,
         obj_properties,
@@ -4650,29 +4633,6 @@ nm_setting_802_1x_class_init(NMSetting8021xClass *klass)
                                                NM_SETTING_PARAM_NONE,
                                                NMSetting8021xPrivate,
                                                optional);
-
-    /**
-     * NMSetting8021x:tls-disable-time-checks:
-     *
-     * When set to "1", ignore certificate validity time (this requests the TLS
-     * library to accept certificates even if they are not currently vaid, i.e.,
-     * have expired or have not yet become valid; this should be used only for
-     * testing purposes). This property may be set to "0" or "1".
-     **/
-    /* ---ifcfg-rh---
-     * property: disable-time-checks
-     * variable: ??
-     * values: 0, 1
-     * description: Use to ignore certificate validity time
-     * ---end---
-     */
-    _nm_setting_property_define_direct_string(properties_override,
-                                              obj_properties,
-                                              NM_SETTING_802_1X_TLS_DISABLE_TIME_CHECKS,
-                                              PROP_TLS_DISABLE_TIME_CHECKS,
-                                              NM_SETTING_PARAM_NONE,
-                                              NMSetting8021xPrivate,
-                                              tls_disable_time_checks);
 
     /**
      * NMSetting8021x:pac-file-password:

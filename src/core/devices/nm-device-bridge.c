@@ -22,11 +22,17 @@
 
 /*****************************************************************************/
 
+enum _NMBtCbState {
+    _NM_BT_CB_STATE_NONE    = 0, /* Registration not done    */
+    _NM_BT_CB_STATE_WAIT    = 1, /* Waiting for the callback */
+    _NM_BT_CB_STATE_SUCCESS = 2, /* Callback succeeded       */
+};
+
 struct _NMDeviceBridge {
     NMDevice      parent;
     GCancellable *bt_cancellable;
     bool          vlan_configured : 1;
-    bool          bt_registered : 1;
+    unsigned      bt_cb_state : 2;
 };
 
 struct _NMDeviceBridgeClass {
@@ -76,7 +82,8 @@ check_connection_available(NMDevice                      *device,
         if (!nm_bt_vtable_network_server->is_available(
                 nm_bt_vtable_network_server,
                 bdaddr,
-                (self->bt_cancellable || self->bt_registered) ? device : NULL)) {
+                (self->bt_cancellable || self->bt_cb_state != _NM_BT_CB_STATE_NONE) ? device
+                                                                                    : NULL)) {
             if (bdaddr)
                 nm_utils_error_set(error,
                                    NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
@@ -672,9 +679,10 @@ master_update_slave_connection(NMDevice     *device,
     NMDeviceBridge      *self = NM_DEVICE_BRIDGE(device);
     NMSettingConnection *s_con;
     NMSettingBridgePort *s_port;
-    int                  ifindex_slave = nm_device_get_ifindex(slave);
-    const char          *iface         = nm_device_get_iface(device);
-    const Option        *option;
+    int                  ifindex_slave      = nm_device_get_ifindex(slave);
+    NMConnection        *applied_connection = nm_device_get_applied_connection(device);
+
+    const Option *option;
 
     g_return_val_if_fail(ifindex_slave > 0, FALSE);
 
@@ -710,7 +718,7 @@ master_update_slave_connection(NMDevice     *device,
 
     g_object_set(s_con,
                  NM_SETTING_CONNECTION_MASTER,
-                 iface,
+                 nm_connection_get_uuid(applied_connection),
                  NM_SETTING_CONNECTION_SLAVE_TYPE,
                  NM_SETTING_BRIDGE_SETTING_NAME,
                  NULL);
@@ -791,270 +799,10 @@ bridge_set_vlan_options(NMDevice *device, NMSettingBridge *s_bridge)
     return TRUE;
 }
 
-static NMActStageReturn
-act_stage1_prepare(NMDevice *device, NMDeviceStateReason *out_failure_reason)
-{
-    NMConnection *connection;
-    NMSetting    *s_bridge;
-    const Option *option;
-
-    connection = nm_device_get_applied_connection(device);
-    g_return_val_if_fail(connection, NM_ACT_STAGE_RETURN_FAILURE);
-
-    s_bridge = (NMSetting *) nm_connection_get_setting_bridge(connection);
-    g_return_val_if_fail(s_bridge, NM_ACT_STAGE_RETURN_FAILURE);
-
-    for (option = master_options; option->name; option++)
-        commit_option(device, s_bridge, option, FALSE);
-
-    if (!bridge_set_vlan_options(device, (NMSettingBridge *) s_bridge)) {
-        NM_SET_OUT(out_failure_reason, NM_DEVICE_STATE_REASON_CONFIG_FAILED);
-        return NM_ACT_STAGE_RETURN_FAILURE;
-    }
-
-    return NM_ACT_STAGE_RETURN_SUCCESS;
-}
-
 static void
-_bt_register_bridge_cb(GError *error, gpointer user_data)
+_platform_lnk_bridge_init_from_setting(NMSettingBridge *s_bridge, NMPlatformLnkBridge *props)
 {
-    NMDeviceBridge *self;
-
-    if (nm_utils_error_is_cancelled(error))
-        return;
-
-    self = user_data;
-
-    g_clear_object(&self->bt_cancellable);
-
-    if (error) {
-        _LOGD(LOGD_DEVICE, "bluetooth NAP server failed to register bridge: %s", error->message);
-        nm_device_state_changed(NM_DEVICE(self),
-                                NM_DEVICE_STATE_FAILED,
-                                NM_DEVICE_STATE_REASON_BT_FAILED);
-        return;
-    }
-
-    nm_device_activate_schedule_stage2_device_config(NM_DEVICE(self), FALSE);
-}
-
-void
-_nm_device_bridge_notify_unregister_bt_nap(NMDevice *device, const char *reason)
-{
-    NMDeviceBridge *self = NM_DEVICE_BRIDGE(device);
-
-    _LOGD(LOGD_DEVICE,
-          "bluetooth NAP server unregistered from bridge: %s%s",
-          reason,
-          self->bt_registered ? "" : " (was no longer registered)");
-
-    nm_clear_g_cancellable(&self->bt_cancellable);
-
-    if (self->bt_registered) {
-        self->bt_registered = FALSE;
-        nm_device_state_changed(device, NM_DEVICE_STATE_FAILED, NM_DEVICE_STATE_REASON_BT_FAILED);
-    }
-}
-
-static NMActStageReturn
-act_stage2_config(NMDevice *device, NMDeviceStateReason *out_failure_reason)
-{
-    NMDeviceBridge       *self = NM_DEVICE_BRIDGE(device);
-    NMConnection         *connection;
-    NMSettingBluetooth   *s_bt;
-    gs_free_error GError *error = NULL;
-
-    connection = nm_device_get_applied_connection(device);
-
-    s_bt = _nm_connection_get_setting_bluetooth_for_nap(connection);
-    if (!s_bt)
-        return NM_ACT_STAGE_RETURN_SUCCESS;
-
-    if (!nm_bt_vtable_network_server) {
-        _LOGD(LOGD_DEVICE, "bluetooth NAP server failed because bluetooth plugin not available");
-        *out_failure_reason = NM_DEVICE_STATE_REASON_BT_FAILED;
-        return NM_ACT_STAGE_RETURN_FAILURE;
-    }
-
-    if (self->bt_cancellable)
-        return NM_ACT_STAGE_RETURN_POSTPONE;
-
-    if (self->bt_registered)
-        return NM_ACT_STAGE_RETURN_POSTPONE;
-
-    self->bt_cancellable = g_cancellable_new();
-    if (!nm_bt_vtable_network_server->register_bridge(nm_bt_vtable_network_server,
-                                                      nm_setting_bluetooth_get_bdaddr(s_bt),
-                                                      device,
-                                                      self->bt_cancellable,
-                                                      _bt_register_bridge_cb,
-                                                      device,
-                                                      &error)) {
-        _LOGD(LOGD_DEVICE, "bluetooth NAP server failed to register bridge: %s", error->message);
-        *out_failure_reason = NM_DEVICE_STATE_REASON_BT_FAILED;
-        return NM_ACT_STAGE_RETURN_FAILURE;
-    }
-
-    self->bt_registered = TRUE;
-    return NM_ACT_STAGE_RETURN_POSTPONE;
-}
-
-static void
-deactivate(NMDevice *device)
-{
-    NMDeviceBridge *self = NM_DEVICE_BRIDGE(device);
-
-    _LOGD(LOGD_DEVICE,
-          "deactivate bridge%s",
-          self->bt_registered ? " (registered as NAP bluetooth device)" : "");
-
-    self->vlan_configured = FALSE;
-
-    nm_clear_g_cancellable(&self->bt_cancellable);
-
-    if (self->bt_registered) {
-        self->bt_registered = FALSE;
-        nm_bt_vtable_network_server->unregister_bridge(nm_bt_vtable_network_server, device);
-    }
-}
-
-static gboolean
-enslave_slave(NMDevice *device, NMDevice *slave, NMConnection *connection, gboolean configure)
-{
-    NMDeviceBridge      *self = NM_DEVICE_BRIDGE(device);
-    NMConnection        *master_connection;
-    NMSettingBridge     *s_bridge;
-    NMSettingBridgePort *s_port;
-
-    if (configure) {
-        if (!nm_platform_link_enslave(nm_device_get_platform(device),
-                                      nm_device_get_ip_ifindex(device),
-                                      nm_device_get_ip_ifindex(slave)))
-            return FALSE;
-
-        master_connection = nm_device_get_applied_connection(device);
-        nm_assert(master_connection);
-        s_bridge = nm_connection_get_setting_bridge(master_connection);
-        nm_assert(s_bridge);
-        s_port = nm_connection_get_setting_bridge_port(connection);
-
-        bridge_set_vlan_options(device, s_bridge);
-
-        if (nm_setting_bridge_get_vlan_filtering(s_bridge)) {
-            gs_free const NMPlatformBridgeVlan **plat_vlans = NULL;
-            gs_unref_ptrarray GPtrArray         *vlans      = NULL;
-
-            if (s_port)
-                g_object_get(s_port, NM_SETTING_BRIDGE_PORT_VLANS, &vlans, NULL);
-
-            plat_vlans = setting_vlans_to_platform(vlans);
-
-            /* Since the link was just enslaved, there are no existing VLANs
-             * (except for the default one) and so there's no need to flush. */
-
-            if (plat_vlans
-                && !nm_platform_link_set_bridge_vlans(nm_device_get_platform(slave),
-                                                      nm_device_get_ifindex(slave),
-                                                      TRUE,
-                                                      plat_vlans))
-                return FALSE;
-        }
-
-        commit_slave_options(slave, s_port);
-
-        _LOGI(LOGD_BRIDGE, "attached bridge port %s", nm_device_get_ip_iface(slave));
-    } else {
-        _LOGI(LOGD_BRIDGE, "bridge port %s was attached", nm_device_get_ip_iface(slave));
-    }
-
-    return TRUE;
-}
-
-static void
-release_slave(NMDevice *device, NMDevice *slave, gboolean configure)
-{
-    NMDeviceBridge *self = NM_DEVICE_BRIDGE(device);
-    gboolean        success;
-    int             ifindex_slave;
-    int             ifindex;
-
-    if (configure) {
-        ifindex = nm_device_get_ifindex(device);
-        if (ifindex <= 0 || !nm_platform_link_get(nm_device_get_platform(device), ifindex))
-            configure = FALSE;
-    }
-
-    ifindex_slave = nm_device_get_ip_ifindex(slave);
-
-    if (ifindex_slave <= 0) {
-        _LOGD(LOGD_TEAM, "bond slave %s is already released", nm_device_get_ip_iface(slave));
-        return;
-    }
-
-    if (configure) {
-        success = nm_platform_link_release(nm_device_get_platform(device),
-                                           nm_device_get_ip_ifindex(device),
-                                           ifindex_slave);
-
-        if (success) {
-            _LOGI(LOGD_BRIDGE, "detached bridge port %s", nm_device_get_ip_iface(slave));
-        } else {
-            _LOGW(LOGD_BRIDGE, "failed to detach bridge port %s", nm_device_get_ip_iface(slave));
-        }
-    } else {
-        _LOGI(LOGD_BRIDGE, "bridge port %s was detached", nm_device_get_ip_iface(slave));
-    }
-}
-
-static gboolean
-create_and_realize(NMDevice              *device,
-                   NMConnection          *connection,
-                   NMDevice              *parent,
-                   const NMPlatformLink **out_plink,
-                   GError               **error)
-{
-    NMSettingWired     *s_wired;
-    NMSettingBridge    *s_bridge;
-    const char         *iface = nm_device_get_iface(device);
-    const char         *hwaddr;
-    gs_free char       *hwaddr_cloned = NULL;
-    guint8              mac_address[_NM_UTILS_HWADDR_LEN_MAX];
-    NMPlatformLnkBridge props;
-    int                 r;
-    guint32             mtu = 0;
-
-    nm_assert(iface);
-
-    s_bridge = nm_connection_get_setting_bridge(connection);
-    nm_assert(s_bridge);
-
-    s_wired = nm_connection_get_setting_wired(connection);
-    if (s_wired)
-        mtu = nm_setting_wired_get_mtu(s_wired);
-
-    hwaddr = nm_setting_bridge_get_mac_address(s_bridge);
-    if (!hwaddr
-        && nm_device_hw_addr_get_cloned(device, connection, FALSE, &hwaddr_cloned, NULL, NULL)) {
-        /* FIXME: we set the MAC address when creating the interface, while the
-         * NMDevice is still unrealized. As we afterwards realize the device, it
-         * forgets the parameters for the cloned MAC address, and in stage 1
-         * it might create a different MAC address. That should be fixed by
-         * better handling device realization. */
-        hwaddr = hwaddr_cloned;
-    }
-
-    if (hwaddr) {
-        if (!nm_utils_hwaddr_aton(hwaddr, mac_address, ETH_ALEN)) {
-            g_set_error(error,
-                        NM_DEVICE_ERROR,
-                        NM_DEVICE_ERROR_FAILED,
-                        "Invalid hardware address '%s'",
-                        hwaddr);
-            g_return_val_if_reached(FALSE);
-        }
-    }
-
-    props = (NMPlatformLnkBridge){
+    *props = (NMPlatformLnkBridge){
         .forward_delay = _DEFAULT_IF_ZERO(nm_setting_bridge_get_forward_delay(s_bridge) * 100u,
                                           NM_BRIDGE_FORWARD_DELAY_DEF_SYS),
         .hello_time    = _DEFAULT_IF_ZERO(nm_setting_bridge_get_hello_time(s_bridge) * 100u,
@@ -1086,7 +834,295 @@ create_and_realize(NMDevice              *device,
             nm_setting_bridge_get_multicast_startup_query_interval(s_bridge),
     };
 
-    to_sysfs_group_address_sys(nm_setting_bridge_get_group_address(s_bridge), &props.group_addr);
+    to_sysfs_group_address_sys(nm_setting_bridge_get_group_address(s_bridge), &props->group_addr);
+}
+
+static gboolean
+link_config(NMDevice *device, NMConnection *connection)
+{
+    int                 ifindex = nm_device_get_ifindex(device);
+    NMSettingBridge    *s_bridge;
+    NMPlatformLnkBridge props;
+
+    s_bridge = nm_connection_get_setting_bridge(connection);
+    g_return_val_if_fail(s_bridge, FALSE);
+
+    _platform_lnk_bridge_init_from_setting(s_bridge, &props);
+
+    if (nm_platform_link_bridge_change(nm_device_get_platform(device), ifindex, &props) < 0)
+        return FALSE;
+
+    return bridge_set_vlan_options(device, s_bridge);
+}
+
+static NMActStageReturn
+act_stage1_prepare(NMDevice *device, NMDeviceStateReason *out_failure_reason)
+{
+    NMConnection *connection;
+
+    connection = nm_device_get_applied_connection(device);
+    g_return_val_if_fail(connection, NM_ACT_STAGE_RETURN_FAILURE);
+
+    if (!link_config(device, connection)) {
+        NM_SET_OUT(out_failure_reason, NM_DEVICE_STATE_REASON_CONFIG_FAILED);
+        return NM_ACT_STAGE_RETURN_FAILURE;
+    }
+
+    return NM_ACT_STAGE_RETURN_SUCCESS;
+}
+
+static void
+_bt_register_bridge_cb(GError *error, gpointer user_data)
+{
+    NMDeviceBridge *self;
+
+    if (nm_utils_error_is_cancelled(error))
+        return;
+
+    self = user_data;
+
+    g_clear_object(&self->bt_cancellable);
+
+    if (error) {
+        _LOGD(LOGD_DEVICE, "bluetooth NAP server failed to register bridge: %s", error->message);
+        nm_device_state_changed(NM_DEVICE(self),
+                                NM_DEVICE_STATE_FAILED,
+                                NM_DEVICE_STATE_REASON_BT_FAILED);
+        return;
+    }
+
+    self->bt_cb_state = _NM_BT_CB_STATE_SUCCESS;
+    nm_device_activate_schedule_stage2_device_config(NM_DEVICE(self), FALSE);
+}
+
+void
+_nm_device_bridge_notify_unregister_bt_nap(NMDevice *device, const char *reason)
+{
+    NMDeviceBridge *self = NM_DEVICE_BRIDGE(device);
+
+    _LOGD(LOGD_DEVICE,
+          "bluetooth NAP server unregistered from bridge: %s%s",
+          reason,
+          self->bt_cb_state != _NM_BT_CB_STATE_NONE ? "" : " (was no longer registered)");
+
+    nm_clear_g_cancellable(&self->bt_cancellable);
+
+    if (self->bt_cb_state != _NM_BT_CB_STATE_NONE) {
+        self->bt_cb_state = _NM_BT_CB_STATE_NONE;
+        nm_device_state_changed(device, NM_DEVICE_STATE_FAILED, NM_DEVICE_STATE_REASON_BT_FAILED);
+    }
+}
+
+static NMActStageReturn
+act_stage2_config(NMDevice *device, NMDeviceStateReason *out_failure_reason)
+{
+    NMDeviceBridge       *self = NM_DEVICE_BRIDGE(device);
+    NMConnection         *connection;
+    NMSettingBluetooth   *s_bt;
+    gs_free_error GError *error = NULL;
+
+    connection = nm_device_get_applied_connection(device);
+
+    s_bt = _nm_connection_get_setting_bluetooth_for_nap(connection);
+    if (!s_bt)
+        return NM_ACT_STAGE_RETURN_SUCCESS;
+
+    if (!nm_bt_vtable_network_server) {
+        _LOGD(LOGD_DEVICE, "bluetooth NAP server failed because bluetooth plugin not available");
+        *out_failure_reason = NM_DEVICE_STATE_REASON_BT_FAILED;
+        return NM_ACT_STAGE_RETURN_FAILURE;
+    }
+
+    if (self->bt_cancellable)
+        return NM_ACT_STAGE_RETURN_POSTPONE;
+
+    if (self->bt_cb_state == _NM_BT_CB_STATE_WAIT)
+        return NM_ACT_STAGE_RETURN_POSTPONE;
+
+    if (self->bt_cb_state == _NM_BT_CB_STATE_SUCCESS)
+        return NM_ACT_STAGE_RETURN_SUCCESS;
+
+    self->bt_cancellable = g_cancellable_new();
+    if (!nm_bt_vtable_network_server->register_bridge(nm_bt_vtable_network_server,
+                                                      nm_setting_bluetooth_get_bdaddr(s_bt),
+                                                      device,
+                                                      self->bt_cancellable,
+                                                      _bt_register_bridge_cb,
+                                                      device,
+                                                      &error)) {
+        _LOGD(LOGD_DEVICE, "bluetooth NAP server failed to register bridge: %s", error->message);
+        *out_failure_reason = NM_DEVICE_STATE_REASON_BT_FAILED;
+        return NM_ACT_STAGE_RETURN_FAILURE;
+    }
+
+    self->bt_cb_state = _NM_BT_CB_STATE_WAIT;
+    return NM_ACT_STAGE_RETURN_POSTPONE;
+}
+
+static void
+deactivate(NMDevice *device)
+{
+    NMDeviceBridge *self = NM_DEVICE_BRIDGE(device);
+
+    _LOGD(LOGD_DEVICE,
+          "deactivate bridge%s",
+          self->bt_cb_state != _NM_BT_CB_STATE_NONE ? " (registered as NAP bluetooth device)" : "");
+
+    self->vlan_configured = FALSE;
+
+    nm_clear_g_cancellable(&self->bt_cancellable);
+
+    if (self->bt_cb_state != _NM_BT_CB_STATE_NONE) {
+        self->bt_cb_state = _NM_BT_CB_STATE_NONE;
+        nm_bt_vtable_network_server->unregister_bridge(nm_bt_vtable_network_server, device);
+    }
+}
+
+static NMTernary
+attach_port(NMDevice                  *device,
+            NMDevice                  *port,
+            NMConnection              *connection,
+            gboolean                   configure,
+            GCancellable              *cancellable,
+            NMDeviceAttachPortCallback callback,
+            gpointer                   user_data)
+{
+    NMDeviceBridge      *self = NM_DEVICE_BRIDGE(device);
+    NMConnection        *master_connection;
+    NMSettingBridge     *s_bridge;
+    NMSettingBridgePort *s_port;
+
+    if (configure) {
+        if (!nm_platform_link_enslave(nm_device_get_platform(device),
+                                      nm_device_get_ip_ifindex(device),
+                                      nm_device_get_ip_ifindex(port)))
+            return FALSE;
+
+        master_connection = nm_device_get_applied_connection(device);
+        nm_assert(master_connection);
+        s_bridge = nm_connection_get_setting_bridge(master_connection);
+        nm_assert(s_bridge);
+        s_port = nm_connection_get_setting_bridge_port(connection);
+
+        if (!nm_device_sys_iface_state_is_external(device))
+            bridge_set_vlan_options(device, s_bridge);
+
+        if (nm_setting_bridge_get_vlan_filtering(s_bridge)) {
+            gs_free const NMPlatformBridgeVlan **plat_vlans = NULL;
+            gs_unref_ptrarray GPtrArray         *vlans      = NULL;
+
+            if (s_port)
+                g_object_get(s_port, NM_SETTING_BRIDGE_PORT_VLANS, &vlans, NULL);
+
+            plat_vlans = setting_vlans_to_platform(vlans);
+
+            /* Since the link was just enslaved, there are no existing VLANs
+             * (except for the default one) and so there's no need to flush. */
+
+            if (plat_vlans
+                && !nm_platform_link_set_bridge_vlans(nm_device_get_platform(port),
+                                                      nm_device_get_ifindex(port),
+                                                      TRUE,
+                                                      plat_vlans))
+                return FALSE;
+        }
+
+        commit_slave_options(port, s_port);
+
+        _LOGI(LOGD_BRIDGE, "attached bridge port %s", nm_device_get_ip_iface(port));
+    } else {
+        _LOGI(LOGD_BRIDGE, "bridge port %s was attached", nm_device_get_ip_iface(port));
+    }
+
+    return TRUE;
+}
+
+static void
+detach_port(NMDevice *device, NMDevice *port, gboolean configure)
+{
+    NMDeviceBridge *self = NM_DEVICE_BRIDGE(device);
+    gboolean        success;
+    int             ifindex_slave;
+    int             ifindex;
+
+    if (configure) {
+        ifindex = nm_device_get_ifindex(device);
+        if (ifindex <= 0 || !nm_platform_link_get(nm_device_get_platform(device), ifindex))
+            configure = FALSE;
+    }
+
+    ifindex_slave = nm_device_get_ip_ifindex(port);
+
+    if (ifindex_slave <= 0) {
+        _LOGD(LOGD_TEAM, "bridge port %s is already detached", nm_device_get_ip_iface(port));
+        return;
+    }
+
+    if (configure) {
+        success = nm_platform_link_release(nm_device_get_platform(device),
+                                           nm_device_get_ip_ifindex(device),
+                                           ifindex_slave);
+
+        if (success) {
+            _LOGI(LOGD_BRIDGE, "detached bridge port %s", nm_device_get_ip_iface(port));
+        } else {
+            _LOGW(LOGD_BRIDGE, "failed to detach bridge port %s", nm_device_get_ip_iface(port));
+        }
+    } else {
+        _LOGI(LOGD_BRIDGE, "bridge port %s was detached", nm_device_get_ip_iface(port));
+    }
+}
+
+static gboolean
+create_and_realize(NMDevice              *device,
+                   NMConnection          *connection,
+                   NMDevice              *parent,
+                   const NMPlatformLink **out_plink,
+                   GError               **error)
+{
+    NMSettingWired     *s_wired;
+    NMSettingBridge    *s_bridge;
+    const char         *iface = nm_device_get_iface(device);
+    const char         *hwaddr;
+    gs_free char       *hwaddr_cloned = NULL;
+    guint8              mac_address[_NM_UTILS_HWADDR_LEN_MAX];
+    NMPlatformLnkBridge props;
+    int                 r;
+    guint32             mtu = 0;
+
+    nm_assert(iface);
+
+    s_bridge = nm_connection_get_setting_bridge(connection);
+    nm_assert(s_bridge);
+
+    hwaddr = nm_setting_bridge_get_mac_address(s_bridge);
+    if (!hwaddr
+        && nm_device_hw_addr_get_cloned(device, connection, FALSE, &hwaddr_cloned, NULL, NULL)) {
+        /* FIXME: we set the MAC address when creating the interface, while the
+         * NMDevice is still unrealized. As we afterwards realize the device, it
+         * forgets the parameters for the cloned MAC address, and in stage 1
+         * it might create a different MAC address. That should be fixed by
+         * better handling device realization. */
+        hwaddr = hwaddr_cloned;
+    }
+
+    if (hwaddr) {
+        if (!nm_utils_hwaddr_aton(hwaddr, mac_address, ETH_ALEN)) {
+            g_set_error(error,
+                        NM_DEVICE_ERROR,
+                        NM_DEVICE_ERROR_FAILED,
+                        "Invalid hardware address '%s'",
+                        hwaddr);
+            g_return_val_if_reached(FALSE);
+        }
+    }
+
+    _platform_lnk_bridge_init_from_setting(s_bridge, &props);
+
+    s_wired = nm_connection_get_setting_wired(connection);
+    nm_assert(s_wired);
+
+    mtu = nm_setting_wired_get_mtu(s_wired);
 
     /* If mtu != 0, we set the MTU of the new bridge at creation time. However, kernel will still
      * automatically adjust the MTU of the bridge based on the minimum of the slave's MTU.
@@ -1113,6 +1149,72 @@ create_and_realize(NMDevice              *device,
     }
 
     return TRUE;
+}
+
+/*****************************************************************************/
+
+static gboolean
+can_reapply_change(NMDevice   *device,
+                   const char *setting_name,
+                   NMSetting  *s_old,
+                   NMSetting  *s_new,
+                   GHashTable *diffs,
+                   GError    **error)
+{
+    /* Delegate changes to other settings to parent class */
+    if (!nm_streq(setting_name, NM_SETTING_BRIDGE_SETTING_NAME)) {
+        return NM_DEVICE_CLASS(nm_device_bridge_parent_class)
+            ->can_reapply_change(device, setting_name, s_old, s_new, diffs, error);
+    }
+
+    return nm_device_hash_check_invalid_keys(diffs,
+                                             NM_SETTING_BRIDGE_SETTING_NAME,
+                                             error,
+                                             NM_SETTING_BRIDGE_STP,
+                                             NM_SETTING_BRIDGE_PRIORITY,
+                                             NM_SETTING_BRIDGE_FORWARD_DELAY,
+                                             NM_SETTING_BRIDGE_HELLO_TIME,
+                                             NM_SETTING_BRIDGE_MAX_AGE,
+                                             NM_SETTING_BRIDGE_AGEING_TIME,
+                                             NM_SETTING_BRIDGE_GROUP_FORWARD_MASK,
+                                             NM_SETTING_BRIDGE_MULTICAST_HASH_MAX,
+                                             NM_SETTING_BRIDGE_MULTICAST_LAST_MEMBER_COUNT,
+                                             NM_SETTING_BRIDGE_MULTICAST_LAST_MEMBER_INTERVAL,
+                                             NM_SETTING_BRIDGE_MULTICAST_MEMBERSHIP_INTERVAL,
+                                             NM_SETTING_BRIDGE_MULTICAST_SNOOPING,
+                                             NM_SETTING_BRIDGE_MULTICAST_ROUTER,
+                                             NM_SETTING_BRIDGE_MULTICAST_QUERIER,
+                                             NM_SETTING_BRIDGE_MULTICAST_QUERIER_INTERVAL,
+                                             NM_SETTING_BRIDGE_MULTICAST_QUERY_INTERVAL,
+                                             NM_SETTING_BRIDGE_MULTICAST_QUERY_RESPONSE_INTERVAL,
+                                             NM_SETTING_BRIDGE_MULTICAST_QUERY_USE_IFADDR,
+                                             NM_SETTING_BRIDGE_MULTICAST_STARTUP_QUERY_COUNT,
+                                             NM_SETTING_BRIDGE_MULTICAST_STARTUP_QUERY_INTERVAL,
+                                             NM_SETTING_BRIDGE_GROUP_ADDRESS,
+                                             NM_SETTING_BRIDGE_VLAN_PROTOCOL,
+                                             NM_SETTING_BRIDGE_VLAN_STATS_ENABLED,
+                                             NM_SETTING_BRIDGE_VLAN_FILTERING,
+                                             NM_SETTING_BRIDGE_VLAN_DEFAULT_PVID,
+                                             NM_SETTING_BRIDGE_VLANS);
+}
+
+static void
+reapply_connection(NMDevice *device, NMConnection *con_old, NMConnection *con_new)
+{
+    NMDeviceBridge  *self = NM_DEVICE_BRIDGE(device);
+    NMSettingBridge *s_bridge;
+
+    NM_DEVICE_CLASS(nm_device_bridge_parent_class)->reapply_connection(device, con_old, con_new);
+
+    _LOGD(LOGD_BRIDGE, "reapplying bridge settings");
+    s_bridge = nm_connection_get_setting_bridge(con_new);
+    g_return_if_fail(s_bridge);
+
+    /* Make sure bridge_set_vlan_options() called by link_config()
+     * sets vlan_filtering and default_pvid anew. */
+    self->vlan_configured = FALSE;
+
+    link_config(device, con_new);
 }
 
 /*****************************************************************************/
@@ -1158,16 +1260,18 @@ nm_device_bridge_class_init(NMDeviceBridgeClass *klass)
     device_class->act_stage1_prepare                     = act_stage1_prepare;
     device_class->act_stage2_config                      = act_stage2_config;
     device_class->deactivate                             = deactivate;
-    device_class->enslave_slave                          = enslave_slave;
-    device_class->release_slave                          = release_slave;
+    device_class->attach_port                            = attach_port;
+    device_class->detach_port                            = detach_port;
     device_class->get_configured_mtu                     = nm_device_get_configured_mtu_for_wired;
+    device_class->can_reapply_change                     = can_reapply_change;
+    device_class->reapply_connection                     = reapply_connection;
 }
 
 /*****************************************************************************/
 
 #define NM_TYPE_BRIDGE_DEVICE_FACTORY (nm_bridge_device_factory_get_type())
 #define NM_BRIDGE_DEVICE_FACTORY(obj) \
-    (G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_BRIDGE_DEVICE_FACTORY, NMBridgeDeviceFactory))
+    (_NM_G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_BRIDGE_DEVICE_FACTORY, NMBridgeDeviceFactory))
 
 static NMDevice *
 create_device(NMDeviceFactory      *factory,

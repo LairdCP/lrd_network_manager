@@ -527,7 +527,7 @@ nm_device_tun_class_init(NMDeviceTunClass *klass)
 
 #define NM_TYPE_TUN_DEVICE_FACTORY (nm_tun_device_factory_get_type())
 #define NM_TUN_DEVICE_FACTORY(obj) \
-    (G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_TUN_DEVICE_FACTORY, NMTunDeviceFactory))
+    (_NM_G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_TUN_DEVICE_FACTORY, NMTunDeviceFactory))
 
 static NMDevice *
 create_device(NMDeviceFactory      *factory,
@@ -541,6 +541,12 @@ create_device(NMDeviceFactory      *factory,
                              || nm_streq0(nm_connection_get_connection_type(connection),
                                           NM_SETTING_TUN_SETTING_NAME),
                          NULL);
+
+    /* OpenvSwitch will create a tun device named ovs-netdev when the datapath selected is netdev */
+    if (nm_streq0(iface, "ovs-netdev")) {
+        *out_ignore = TRUE;
+        return NULL;
+    }
 
     return g_object_new(NM_TYPE_DEVICE_TUN,
                         NM_DEVICE_IFACE,

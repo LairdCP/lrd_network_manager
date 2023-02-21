@@ -111,11 +111,12 @@ def node_set_attr(dst_node, name, nodes):
         dst_node.set(name, x)
 
 
-def find_first_not_none(itr):
-    for i in itr:
-        if i is not None:
-            return i
-    return None
+def find_attr(properties_attrs, name):
+    for p_attr in properties_attrs:
+        if p_attr is not None:
+            p_attr = p_attr.find(name)
+        if p_attr is not None:
+            return p_attr
 
 
 ###############################################################################
@@ -180,11 +181,10 @@ for setting_name in iter_keys_of_dicts(settings_roots, key_fcn_setting_name):
         dbg("> > > > property_name: %s" % (property_name))
 
         properties_attrs = list([p.get(property_name) for p in properties])
-        description_docbook = find_first_not_none(
-            p_attr.find("description-docbook")
-            for p_attr in properties_attrs
-            if p_attr is not None
-        )
+        description_docbook = find_attr(properties_attrs, "description-docbook")
+        description = find_attr(properties_attrs, "description")
+        deprecated_docbook = find_attr(properties_attrs, "deprecated-docbook")
+        deprecated = find_attr(properties_attrs, "deprecated")
 
         if gl_only_from_first and properties_attrs[0] is None:
             dbg("> > > > skip (only-from-first")
@@ -203,10 +203,21 @@ for setting_name in iter_keys_of_dicts(settings_roots, key_fcn_setting_name):
             node_set_attr(property_node, "type", properties_attrs)
 
         node_set_attr(property_node, "default", properties_attrs)
-        node_set_attr(property_node, "description", properties_attrs)
+        desc_value = node_get_attr(properties_attrs, "description")
         node_set_attr(property_node, "alias", properties_attrs)
+
         if description_docbook is not None:
             property_node.insert(0, description_docbook)
+        if desc_value:
+            description = ET.Element("description")
+            description.text = desc_value
+            property_node.append(description)
+        elif description is not None:
+            property_node.append(description)
 
+        if deprecated_docbook is not None:
+            property_node.insert(0, deprecated_docbook)
+        if deprecated is not None:
+            property_node.insert(0, deprecated)
 
 ET.ElementTree(root_node).write(gl_output_xml_file)

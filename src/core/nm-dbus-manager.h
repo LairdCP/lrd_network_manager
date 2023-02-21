@@ -10,7 +10,8 @@
 #include "nm-dbus-utils.h"
 
 #define NM_TYPE_DBUS_MANAGER (nm_dbus_manager_get_type())
-#define NM_DBUS_MANAGER(o)   (G_TYPE_CHECK_INSTANCE_CAST((o), NM_TYPE_DBUS_MANAGER, NMDBusManager))
+#define NM_DBUS_MANAGER(o) \
+    (_NM_G_TYPE_CHECK_INSTANCE_CAST((o), NM_TYPE_DBUS_MANAGER, NMDBusManager))
 #define NM_DBUS_MANAGER_CLASS(k) \
     (G_TYPE_CHECK_CLASS_CAST((k), NM_TYPE_DBUS_MANAGER, NMDBusManagerClass))
 #define NM_IS_DBUS_MANAGER(o)       (G_TYPE_CHECK_INSTANCE_TYPE((o), NM_TYPE_DBUS_MANAGER))
@@ -51,6 +52,9 @@ void nm_dbus_manager_stop(NMDBusManager *self);
 gboolean nm_dbus_manager_is_stopping(NMDBusManager *self);
 
 gpointer nm_dbus_manager_lookup_object(NMDBusManager *self, const char *path);
+
+gpointer
+nm_dbus_manager_lookup_object_with_type(NMDBusManager *self, GType gtype, const char *path);
 
 void _nm_dbus_manager_obj_export(NMDBusObject *obj);
 void _nm_dbus_manager_obj_unexport(NMDBusObject *obj);

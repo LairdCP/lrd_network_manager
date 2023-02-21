@@ -53,11 +53,10 @@ int flush_fd(int fd) {
 #endif /* NM_IGNORED */
 
 ssize_t loop_read(int fd, void *buf, size_t nbytes, bool do_poll) {
-        uint8_t *p = buf;
+        uint8_t *p = ASSERT_PTR(buf);
         ssize_t n = 0;
 
         assert(fd >= 0);
-        assert(buf);
 
         /* If called with nbytes == 0, let's call read() at least
          * once, to validate the operation */
@@ -113,10 +112,9 @@ int loop_read_exact(int fd, void *buf, size_t nbytes, bool do_poll) {
 
 #if 0 /* NM_IGNORED */
 int loop_write(int fd, const void *buf, size_t nbytes, bool do_poll) {
-        const uint8_t *p = buf;
+        const uint8_t *p = ASSERT_PTR(buf);
 
         assert(fd >= 0);
-        assert(buf);
 
         if (_unlikely_(nbytes > (size_t) SSIZE_MAX))
                 return -EINVAL;
@@ -165,7 +163,6 @@ int pipe_eof(int fd) {
 #endif /* NM_IGNORED */
 
 int ppoll_usec(struct pollfd *fds, size_t nfds, usec_t timeout) {
-        struct timespec ts;
         int r;
 
         assert(fds || nfds == 0);
@@ -173,7 +170,7 @@ int ppoll_usec(struct pollfd *fds, size_t nfds, usec_t timeout) {
         if (nfds == 0)
                 return 0;
 
-        r = ppoll(fds, nfds, timeout == USEC_INFINITY ? NULL : timespec_store(&ts, timeout), NULL);
+        r = ppoll(fds, nfds, timeout == USEC_INFINITY ? NULL : TIMESPEC_STORE(timeout), NULL);
         if (r < 0)
                 return -errno;
         if (r == 0)

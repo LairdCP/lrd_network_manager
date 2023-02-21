@@ -19,8 +19,6 @@
 #include "strv.h"
 
 char* strv_find(char * const *l, const char *name) {
-        char * const *i;
-
         assert(name);
 
         STRV_FOREACH(i, l)
@@ -31,8 +29,6 @@ char* strv_find(char * const *l, const char *name) {
 }
 
 char* strv_find_case(char * const *l, const char *name) {
-        char * const *i;
-
         assert(name);
 
         STRV_FOREACH(i, l)
@@ -43,8 +39,6 @@ char* strv_find_case(char * const *l, const char *name) {
 }
 
 char* strv_find_prefix(char * const *l, const char *name) {
-        char * const *i;
-
         assert(name);
 
         STRV_FOREACH(i, l)
@@ -55,14 +49,14 @@ char* strv_find_prefix(char * const *l, const char *name) {
 }
 
 char* strv_find_startswith(char * const *l, const char *name) {
-        char * const *i, *e;
-
         assert(name);
 
         /* Like strv_find_prefix, but actually returns only the
          * suffix, not the whole item */
 
         STRV_FOREACH(i, l) {
+                char *e;
+
                 e = startswith(*i, name);
                 if (e)
                         return e;
@@ -72,18 +66,13 @@ char* strv_find_startswith(char * const *l, const char *name) {
 }
 
 char** strv_free(char **l) {
-        if (!l)
-                return NULL;
-
-        for (char **k = l; *k; k++)
+        STRV_FOREACH(k, l)
                 free(*k);
 
         return mfree(l);
 }
 
 char** strv_free_erase(char **l) {
-        char **i;
-
         STRV_FOREACH(i, l)
                 erase_and_freep(i);
 
@@ -91,32 +80,29 @@ char** strv_free_erase(char **l) {
 }
 
 char** strv_copy(char * const *l) {
-        char **r, **k;
+        _cleanup_strv_free_ char **result = NULL;
+        char **k;
 
-        k = r = new(char*, strv_length(l) + 1);
-        if (!r)
+        result = new(char*, strv_length(l) + 1);
+        if (!result)
                 return NULL;
 
-        if (l)
-                for (; *l; k++, l++) {
-                        *k = strdup(*l);
-                        if (!*k) {
-                                strv_free(r);
-                                return NULL;
-                        }
-                }
+        k = result;
+        STRV_FOREACH(i, l) {
+                *k = strdup(*i);
+                if (!*k)
+                        return NULL;
+                k++;
+        }
 
         *k = NULL;
-        return r;
+        return TAKE_PTR(result);
 }
 
 size_t strv_length(char * const *l) {
         size_t n = 0;
 
-        if (!l)
-                return 0;
-
-        for (; *l; l++)
+        STRV_FOREACH(i, l)
                 n++;
 
         return n;
@@ -173,8 +159,8 @@ char** strv_new_internal(const char *x, ...) {
 }
 
 int strv_extend_strv(char ***a, char * const *b, bool filter_duplicates) {
-        char * const *s, **t;
         size_t p, q, i = 0;
+        char **t;
 
         assert(a);
 
@@ -220,7 +206,6 @@ rollback:
 
 #if 0 /* NM_IGNORED */
 int strv_extend_strv_concat(char ***a, char * const *b, const char *suffix) {
-        char * const *s;
         int r;
 
         STRV_FOREACH(s, b) {
@@ -372,8 +357,7 @@ int strv_split_colon_pairs(char ***t, const char *s) {
 }
 #endif /* NM_IGNORED */
 
-char* strv_join_full(char * const *l, const char *separator, const char *prefix, bool unescape_separators) {
-        char * const *s;
+char* strv_join_full(char * const *l, const char *separator, const char *prefix, bool escape_separator) {
         char *r, *e;
         size_t n, k, m;
 
@@ -383,7 +367,7 @@ char* strv_join_full(char * const *l, const char *separator, const char *prefix,
         k = strlen(separator);
         m = strlen_ptr(prefix);
 
-        if (unescape_separators) /* If there separator is multi-char, we won't know how to escape it. */
+        if (escape_separator) /* If the separator was multi-char, we wouldn't know how to escape it. */
                 assert(k == 1);
 
         n = 0;
@@ -391,7 +375,7 @@ char* strv_join_full(char * const *l, const char *separator, const char *prefix,
                 if (s != l)
                         n += k;
 
-                bool needs_escaping = unescape_separators && strchr(*s, separator[0]);
+                bool needs_escaping = escape_separator && strchr(*s, *separator);
 
                 n += m + strlen(*s) * (1 + needs_escaping);
         }
@@ -408,11 +392,11 @@ char* strv_join_full(char * const *l, const char *separator, const char *prefix,
                 if (prefix)
                         e = stpcpy(e, prefix);
 
-                bool needs_escaping = unescape_separators && strchr(*s, separator[0]);
+                bool needs_escaping = escape_separator && strchr(*s, *separator);
 
                 if (needs_escaping)
                         for (size_t i = 0; (*s)[i]; i++) {
-                                if ((*s)[i] == separator[0])
+                                if ((*s)[i] == *separator)
                                         *(e++) = '\\';
                                 *(e++) = (*s)[i];
                         }
@@ -425,27 +409,33 @@ char* strv_join_full(char * const *l, const char *separator, const char *prefix,
         return r;
 }
 
-int strv_push(char ***l, char *value) {
-        char **c;
-        size_t n;
+int strv_push_with_size(char ***l, size_t *n, char *value) {
+        /* n is a pointer to a variable to store the size of l.
+         * If not given (i.e. n is NULL or *n is SIZE_MAX), size will be calculated using strv_length().
+         * If n is not NULL, the size after the push will be returned.
+         * If value is empty, no action is taken and *n is not set. */
 
         if (!value)
                 return 0;
 
-        n = strv_length(*l);
+        size_t size = n ? *n : SIZE_MAX;
+        if (size == SIZE_MAX)
+                size = strv_length(*l);
 
         /* Check for overflow */
-        if (n > SIZE_MAX-2)
+        if (size > SIZE_MAX-2)
                 return -ENOMEM;
 
-        c = reallocarray(*l, GREEDY_ALLOC_ROUND_UP(n + 2), sizeof(char*));
+        char **c = reallocarray(*l, GREEDY_ALLOC_ROUND_UP(size + 2), sizeof(char*));
         if (!c)
                 return -ENOMEM;
 
-        c[n] = value;
-        c[n+1] = NULL;
+        c[size] = value;
+        c[size+1] = NULL;
 
         *l = c;
+        if (n)
+                *n = size + 1;
         return 0;
 }
 
@@ -506,10 +496,10 @@ int strv_insert(char ***l, size_t position, char *value) {
         return free_and_replace(*l, c);
 }
 
-int strv_consume(char ***l, char *value) {
+int strv_consume_with_size(char ***l, size_t *n, char *value) {
         int r;
 
-        r = strv_push(l, value);
+        r = strv_push_with_size(l, n, value);
         if (r < 0)
                 free(value);
 
@@ -551,7 +541,7 @@ int strv_prepend(char ***l, const char *value) {
         return strv_consume_prepend(l, v);
 }
 
-int strv_extend(char ***l, const char *value) {
+int strv_extend_with_size(char ***l, size_t *n, const char *value) {
         char *v;
 
         if (!value)
@@ -561,7 +551,7 @@ int strv_extend(char ***l, const char *value) {
         if (!v)
                 return -ENOMEM;
 
-        return strv_consume(l, v);
+        return strv_consume_with_size(l, n, v);
 }
 
 int strv_extend_front(char ***l, const char *value) {
@@ -601,8 +591,6 @@ int strv_extend_front(char ***l, const char *value) {
 }
 
 char** strv_uniq(char **l) {
-        char **i;
-
         /* Drops duplicate entries. The first identical string will be
          * kept, the others dropped */
 
@@ -613,10 +601,8 @@ char** strv_uniq(char **l) {
 }
 
 bool strv_is_uniq(char * const *l) {
-        char * const *i;
-
         STRV_FOREACH(i, l)
-                if (strv_find(i+1, *i))
+                if (strv_contains(i+1, *i))
                         return false;
 
         return true;
@@ -725,7 +711,6 @@ int strv_make_nulstr(char * const *l, char **ret, size_t *ret_size) {
          */
 
         _cleanup_free_ char *m = NULL;
-        char * const *i;
         size_t n = 0;
 
         assert(ret);
@@ -762,8 +747,6 @@ int strv_make_nulstr(char * const *l, char **ret, size_t *ret_size) {
 }
 
 bool strv_overlap(char * const *a, char * const *b) {
-        char * const *i;
-
         STRV_FOREACH(i, a)
                 if (strv_contains(b, *i))
                         return true;
@@ -805,8 +788,6 @@ int strv_compare(char * const *a, char * const *b) {
 }
 
 void strv_print(char * const *l) {
-        char * const *s;
-
         STRV_FOREACH(s, l)
                 puts(*s);
 }
@@ -841,8 +822,6 @@ char** strv_reverse(char **l) {
 
 #if 0 /* NM_IGNORED */
 char** strv_shell_escape(char **l, const char *bad) {
-        char **s;
-
         /* Escapes every character in every string in l that is in bad,
          * edits in-place, does not roll-back on error. */
 
@@ -861,13 +840,26 @@ char** strv_shell_escape(char **l, const char *bad) {
 }
 #endif /* NM_IGNORED */
 
-bool strv_fnmatch_full(char* const* patterns, const char *s, int flags, size_t *matched_pos) {
-        for (size_t i = 0; patterns && patterns[i]; i++)
-                if (fnmatch(patterns[i], s, flags) == 0) {
-                        if (matched_pos)
-                                *matched_pos = i;
-                        return true;
-                }
+bool strv_fnmatch_full(
+                char* const* patterns,
+                const char *s,
+                int flags,
+                size_t *ret_matched_pos) {
+
+        assert(s);
+
+        if (patterns)
+                for (size_t i = 0; patterns[i]; i++)
+                        /* NB: We treat all fnmatch() errors as equivalent to FNM_NOMATCH, i.e. if fnmatch() fails to
+                         * process the pattern for some reason we'll consider this equivalent to non-matching. */
+                        if (fnmatch(patterns[i], s, flags) == 0) {
+                                if (ret_matched_pos)
+                                        *ret_matched_pos = i;
+                                return true;
+                        }
+
+        if (ret_matched_pos)
+                *ret_matched_pos = SIZE_MAX;
 
         return false;
 }
@@ -926,7 +918,6 @@ rollback:
 
 int fputstrv(FILE *f, char * const *l, const char *separator, bool *space) {
         bool b = false;
-        char * const *s;
         int r;
 
         /* Like fputs(), but for strv, and with a less stupid argument order */

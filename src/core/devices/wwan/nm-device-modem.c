@@ -181,8 +181,10 @@ modem_new_config(NMModem                  *modem,
         return;
     }
 
-    if (!IS_IPv4)
+    if (!IS_IPv4) {
         priv->iid = iid ? *iid : ((NMUtilsIPv6IfaceId) NM_UTILS_IPV6_IFACE_ID_INIT);
+        nm_device_sysctl_ip_conf_set(device, AF_INET6, "disable_ipv6", "0");
+    }
 
     if (do_auto) {
         if (IS_IPv4)
@@ -271,6 +273,15 @@ modem_state_cb(NMModem *modem, int new_state_i, int old_state_i, gpointer user_d
         /* Called when the ModemManager modem enabled state is changed externally
          * to NetworkManager (eg something using MM's D-Bus API directly).
          */
+
+        if (!NM_MODEM_GET_CLASS(priv->modem)->set_mm_enabled) {
+            /* We cannot re-enable this modem, thus device becomes unavailable. */
+            nm_device_state_changed(device,
+                                    NM_DEVICE_STATE_UNAVAILABLE,
+                                    NM_DEVICE_STATE_REASON_USER_REQUESTED);
+            return;
+        }
+
         if (nm_device_is_activating(device) || dev_state == NM_DEVICE_STATE_ACTIVATED) {
             /* user-initiated action, hence DISCONNECTED not FAILED */
             nm_device_state_changed(device,
@@ -430,6 +441,13 @@ check_connection_available(NMDevice                      *device,
         nm_utils_error_set_literal(error,
                                    NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
                                    "modem not initialized");
+        return FALSE;
+    }
+
+    if (!NM_MODEM_GET_CLASS(priv->modem)->set_mm_enabled && state <= NM_MODEM_STATE_DISABLING) {
+        nm_utils_error_set_literal(error,
+                                   NM_UTILS_ERROR_CONNECTION_AVAILABLE_TEMPORARY,
+                                   "modem is disabled and NM cannot enable it");
         return FALSE;
     }
 
@@ -597,6 +615,11 @@ set_enabled(NMDevice *device, gboolean enabled)
 
     if (enabled == FALSE) {
         nm_device_state_changed(device, NM_DEVICE_STATE_UNAVAILABLE, NM_DEVICE_STATE_REASON_NONE);
+    } else {
+        /* It's possible that the modem is enabled outside of NM. Need to recheck. */
+        nm_device_queue_recheck_available(device,
+                                          NM_DEVICE_STATE_REASON_MODEM_AVAILABLE,
+                                          NM_DEVICE_STATE_REASON_MODEM_FAILED);
     }
 }
 
@@ -615,17 +638,20 @@ is_available(NMDevice *device, NMDeviceCheckDevAvailableFlags flags)
     if (modem_state <= NM_MODEM_STATE_INITIALIZING)
         return FALSE;
 
+    if (!NM_MODEM_GET_CLASS(priv->modem)->set_mm_enabled && modem_state <= NM_MODEM_STATE_DISABLING)
+        return FALSE;
+
     return TRUE;
 }
 
 static gboolean
-ready_for_ip_config(NMDevice *device)
+ready_for_ip_config(NMDevice *device, gboolean is_manual)
 {
-    /* Tell NMDevice to only run device-specific IP
+    /* Tell NMDevice to only run manual and device-specific IP
      * configuration (devip) and skip other methods
-     * (manual, dhcp, etc).
+     * (dhcp, link-local, shared, etc).
      */
-    return FALSE;
+    return is_manual;
 }
 
 /*****************************************************************************/
@@ -757,8 +783,6 @@ nm_device_modem_new(NMModem *modem)
                         "Broadband",
                         NM_DEVICE_DEVICE_TYPE,
                         NM_DEVICE_TYPE_MODEM,
-                        NM_DEVICE_RFKILL_TYPE,
-                        RFKILL_TYPE_WWAN,
                         NM_DEVICE_MODEM_MODEM,
                         modem,
                         NM_DEVICE_MODEM_CAPABILITIES,
@@ -839,6 +863,8 @@ nm_device_modem_class_init(NMDeviceModemClass *klass)
     device_class->ready_for_ip_config         = ready_for_ip_config;
 
     device_class->state_changed = device_state_changed;
+
+    device_class->rfkill_type = NM_RFKILL_TYPE_WWAN;
 
     obj_properties[PROP_MODEM] =
         g_param_spec_object(NM_DEVICE_MODEM_MODEM,

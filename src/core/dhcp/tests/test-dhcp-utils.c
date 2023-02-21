@@ -88,7 +88,6 @@ test_generic_options(void)
     const char                              *expected_route2_dest = "100.99.88.56";
     const char                              *expected_route2_gw   = "10.1.1.1";
     const char *const                       *strarr;
-    const in_addr_t                         *ia_arr;
     guint                                    u;
 
     options = fill_table(generic_options, NULL);
@@ -115,10 +114,10 @@ test_generic_options(void)
     g_assert_cmpstr(strarr[0], ==, expected_search1);
     g_assert_cmpstr(strarr[1], ==, expected_search2);
 
-    ia_arr = nm_l3_config_data_get_nameservers(l3cd, AF_INET, &u);
+    strarr = nm_l3_config_data_get_nameservers(l3cd, AF_INET, &u);
     g_assert_cmpint(u, ==, 2);
-    nmtst_assert_ip4_address(ia_arr[0], expected_dns1);
-    nmtst_assert_ip4_address(ia_arr[1], expected_dns2);
+    g_assert_cmpstr(strarr[0], ==, expected_dns1);
+    g_assert_cmpstr(strarr[1], ==, expected_dns2);
 
     g_assert_cmpint(nm_l3_config_data_get_num_routes(l3cd, AF_INET), ==, 3);
 
@@ -196,16 +195,16 @@ test_parse_search_list(void)
     char  **domains;
 
     data    = (guint8[]){0x05, 'l', 'o', 'c', 'a', 'l', 0x00};
-    domains = nm_dhcp_lease_data_parse_search_list(data, 7);
+    domains = nm_dhcp_lease_data_parse_search_list(data, 7, NULL, 0, 0);
     g_assert(domains);
     g_assert_cmpint(g_strv_length(domains), ==, 1);
     g_assert_cmpstr(domains[0], ==, "local");
     g_strfreev(domains);
 
     data    = (guint8[]){0x04, 't',  'e',  's', 't', 0x07, 'e',  'x',  'a',  'm', 'p', 'l',
-                      'e',  0x03, 'c',  'o', 'm', 0x00, 0xc0, 0x05, 0x03, 'a', 'b', 'c',
-                      0xc0, 0x0d, 0x06, 'f', 'o', 'o',  'b',  'a',  'r',  0x00};
-    domains = nm_dhcp_lease_data_parse_search_list(data, 34);
+                         'e',  0x03, 'c',  'o', 'm', 0x00, 0xc0, 0x05, 0x03, 'a', 'b', 'c',
+                         0xc0, 0x0d, 0x06, 'f', 'o', 'o',  'b',  'a',  'r',  0x00};
+    domains = nm_dhcp_lease_data_parse_search_list(data, 34, NULL, 0, 0);
     g_assert(domains);
     g_assert_cmpint(g_strv_length(domains), ==, 4);
     g_assert_cmpstr(domains[0], ==, "test.example.com");
@@ -220,7 +219,7 @@ test_parse_search_list(void)
         'a',
         'd',
     };
-    domains = nm_dhcp_lease_data_parse_search_list(data, 4);
+    domains = nm_dhcp_lease_data_parse_search_list(data, 4, NULL, 0, 0);
     g_assert(!domains);
 
     data = (guint8[]){
@@ -235,7 +234,7 @@ test_parse_search_list(void)
         'a',
         'd',
     };
-    domains = nm_dhcp_lease_data_parse_search_list(data, 10);
+    domains = nm_dhcp_lease_data_parse_search_list(data, 10, NULL, 0, 0);
     g_assert(domains);
     g_assert_cmpint(g_strv_length(domains), ==, 1);
     g_assert_cmpstr(domains[0], ==, "okay");
@@ -338,7 +337,7 @@ test_fedora_dhclient_classless_static_routes(void)
     static const Option                      data[]               = {
         /* Fedora dhclient format */
         {"classless_static_routes",
-         "0 192.168.0.113 25.129.210.177.132 192.168.0.113 7.2 10.34.255.6"},
+                                            "0 192.168.0.113 25.129.210.177.132 192.168.0.113 7.2 10.34.255.6"},
         {NULL, NULL}};
 
     options = fill_table(generic_options, NULL);

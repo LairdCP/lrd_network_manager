@@ -35,6 +35,7 @@
 #include "nmt-page-ip-tunnel.h"
 #include "nmt-page-ip4.h"
 #include "nmt-page-ip6.h"
+#include "nmt-page-macsec.h"
 #include "nmt-page-ppp.h"
 #include "nmt-page-team.h"
 #include "nmt-page-team-port.h"
@@ -362,6 +363,8 @@ nmt_editor_constructed(GObject *object)
         page = nmt_page_bridge_new(priv->edit_connection, deventry);
     else if (nm_connection_is_type(priv->edit_connection, NM_SETTING_INFINIBAND_SETTING_NAME))
         page = nmt_page_infiniband_new(priv->edit_connection, deventry);
+    else if (nm_connection_is_type(priv->edit_connection, NM_SETTING_MACSEC_SETTING_NAME))
+        page = nmt_page_macsec_new(priv->edit_connection, deventry);
     else if (nm_connection_is_type(priv->edit_connection, NM_SETTING_PPPOE_SETTING_NAME))
         page = nmt_page_dsl_new(priv->edit_connection, deventry);
     else if (nm_connection_is_type(priv->edit_connection, NM_SETTING_TEAM_SETTING_NAME))
@@ -377,7 +380,7 @@ nmt_editor_constructed(GObject *object)
     else if (nm_connection_is_type(priv->edit_connection, NM_SETTING_WIREGUARD_SETTING_NAME))
         page = nmt_page_wireguard_new(priv->edit_connection, deventry);
     else
-        g_assert_not_reached();
+        g_return_if_reached();
 
     add_sections_for_page(editor, grid, page);
     nmt_editor_grid_append(grid, NULL, nmt_newt_separator_new(), NULL);

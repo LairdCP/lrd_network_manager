@@ -18,7 +18,7 @@
 
 #define NM_TYPE_DHCP4_CONFIG (nm_dhcp4_config_get_type())
 #define NM_DHCP4_CONFIG(obj) \
-    (G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_DHCP4_CONFIG, NMDhcp4Config))
+    (_NM_G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_DHCP4_CONFIG, NMDhcp4Config))
 #define NM_DHCP4_CONFIG_CLASS(klass) \
     (G_TYPE_CHECK_CLASS_CAST((klass), NM_TYPE_DHCP4_CONFIG, NMDhcp4ConfigClass))
 #define NM_IS_DHCP4_CONFIG(obj)         (G_TYPE_CHECK_INSTANCE_TYPE((obj), NM_TYPE_DHCP4_CONFIG))
@@ -33,7 +33,7 @@ static GType nm_dhcp4_config_get_type(void);
 
 #define NM_TYPE_DHCP6_CONFIG (nm_dhcp6_config_get_type())
 #define NM_DHCP6_CONFIG(obj) \
-    (G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_DHCP6_CONFIG, NMDhcp6Config))
+    (_NM_G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_DHCP6_CONFIG, NMDhcp6Config))
 #define NM_DHCP6_CONFIG_CLASS(klass) \
     (G_TYPE_CHECK_CLASS_CAST((klass), NM_TYPE_DHCP6_CONFIG, NMDhcp6ConfigClass))
 #define NM_IS_DHCP6_CONFIG(obj)         (G_TYPE_CHECK_INSTANCE_TYPE((obj), NM_TYPE_DHCP6_CONFIG))
@@ -123,6 +123,29 @@ nm_dhcp_config_set_lease(NMDhcpConfig *self, const NML3ConfigData *l3cd)
     NM_SWAP(&priv->options, &options2);
 
     _notify(self, PROP_OPTIONS);
+}
+
+NMUtilsNamedValue *
+nm_dhcp_config_get_option_values(NMDhcpConfig *self, guint *num)
+{
+    NMDhcpConfigPrivate *priv = NM_DHCP_CONFIG_GET_PRIVATE(self);
+    NMDhcpLease         *lease;
+    NMUtilsNamedValue   *buffer = NULL;
+
+    if (!priv->l3cd) {
+        NM_SET_OUT(num, 0);
+        return NULL;
+    }
+
+    lease = nm_l3_config_data_get_dhcp_lease(priv->l3cd, nm_dhcp_config_get_addr_family(self));
+    nm_utils_named_values_from_strdict_full(nm_dhcp_lease_get_options(lease),
+                                            num,
+                                            nm_strcmp_p_with_data,
+                                            NULL,
+                                            NULL,
+                                            0,
+                                            &buffer);
+    return buffer;
 }
 
 const char *

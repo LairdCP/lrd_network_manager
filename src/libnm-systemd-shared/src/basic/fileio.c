@@ -767,8 +767,7 @@ int read_full_file_full(
 
         r = xfopenat(dir_fd, filename, "re", 0, &f);
         if (r < 0) {
-                _cleanup_close_ int dfd = -1, sk = -1;
-                union sockaddr_union sa;
+                _cleanup_close_ int sk = -1;
 
                 /* ENXIO is what Linux returns if we open a node that is an AF_UNIX socket */
                 if (r != -ENXIO)
@@ -780,23 +779,7 @@ int read_full_file_full(
 
                 /* Seeking is not supported on AF_UNIX sockets */
                 if (offset != UINT64_MAX)
-                        return -ESPIPE;
-
-                if (dir_fd == AT_FDCWD)
-                        r = sockaddr_un_set_path(&sa.un, filename);
-                else {
-                        /* If we shall operate relative to some directory, then let's use O_PATH first to
-                         * open the socket inode, and then connect to it via /proc/self/fd/. We have to do
-                         * this since there's not connectat() that takes a directory fd as first arg. */
-
-                        dfd = openat(dir_fd, filename, O_PATH|O_CLOEXEC);
-                        if (dfd < 0)
-                                return -errno;
-
-                        r = sockaddr_un_set_path(&sa.un, FORMAT_PROC_FD_PATH(dfd));
-                }
-                if (r < 0)
-                        return r;
+                        return -ENXIO;
 
                 sk = socket(AF_UNIX, SOCK_STREAM|SOCK_CLOEXEC, 0);
                 if (sk < 0)
@@ -813,12 +796,14 @@ int read_full_file_full(
                                 return r;
 
                         if (bind(sk, &bsa.sa, r) < 0)
-                                return r;
+                                return -errno;
                 }
 
-                if (connect(sk, &sa.sa, SOCKADDR_UN_LEN(sa.un)) < 0)
-                        return errno == ENOTSOCK ? -ENXIO : -errno; /* propagate original error if this is
-                                                                     * not a socket after all */
+                r = connect_unix_path(sk, dir_fd, filename);
+                if (IN_SET(r, -ENOTSOCK, -EINVAL)) /* propagate original error if this is not a socket after all */
+                        return -ENXIO;
+                if (r < 0)
+                        return r;
 
                 if (shutdown(sk, SHUT_WR) < 0)
                         return -errno;
@@ -1049,8 +1034,6 @@ static int search_and_fopen_internal(
                 FILE **ret,
                 char **ret_path) {
 
-        char **i;
-
         assert(path);
         assert(mode);
         assert(ret);
@@ -1204,7 +1187,7 @@ int write_timestamp_file_atomic(const char *fn, usec_t n) {
         /* Creates a "timestamp" file, that contains nothing but a
          * usec_t timestamp, formatted in ASCII. */
 
-        if (n <= 0 || n >= USEC_INFINITY)
+        if (!timestamp_is_set(n))
                 return -ERANGE;
 
         xsprintf(ln, USEC_FMT "\n", n);
@@ -1225,7 +1208,7 @@ int read_timestamp_file(const char *fn, usec_t *ret) {
         if (r < 0)
                 return r;
 
-        if (t <= 0 || t >= (uint64_t) USEC_INFINITY)
+        if (!timestamp_is_set(t))
                 return -ERANGE;
 
         *ret = (usec_t) t;

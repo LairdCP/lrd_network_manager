@@ -24,7 +24,7 @@ struct _NMDevice;
     "(" NM_SETTING_ADSL_ENCAPSULATION_VCMUX "/" NM_SETTING_ADSL_ENCAPSULATION_LLC ") [none]"
 
 #define NM_META_TEXT_PROMPT_CON_TYPE N_("Connection type")
-#define NM_META_TEXT_PROMPT_IFNAME   N_("Interface name [*]")
+#define NM_META_TEXT_PROMPT_IFNAME   N_("Interface name")
 #define NM_META_TEXT_PROMPT_VPN_TYPE N_("VPN type")
 #define NM_META_TEXT_PROMPT_MASTER   N_("Master")
 
@@ -91,6 +91,7 @@ typedef enum {
     NM_META_COLOR_CONNECTION_INVISIBLE,
     NM_META_COLOR_CONNECTION_EXTERNAL,
     NM_META_COLOR_CONNECTION_UNKNOWN,
+    NM_META_COLOR_CONNECTION_DEPRECATED,
     NM_META_COLOR_CONNECTIVITY_FULL,
     NM_META_COLOR_CONNECTIVITY_LIMITED,
     NM_META_COLOR_CONNECTIVITY_NONE,
@@ -126,6 +127,7 @@ typedef enum {
     NM_META_COLOR_WIFI_SIGNAL_GOOD,
     NM_META_COLOR_WIFI_SIGNAL_POOR,
     NM_META_COLOR_WIFI_SIGNAL_UNKNOWN,
+    NM_META_COLOR_WIFI_DEPRECATED,
     NM_META_COLOR_DISABLED,
     NM_META_COLOR_ENABLED,
     _NM_META_COLOR_NUM
@@ -484,6 +486,11 @@ typedef enum {
     NM_META_ENV_WARN_LEVEL_WARN,
 } NMMetaEnvWarnLevel;
 
+typedef enum {
+    NM_META_ENV_FLAGS_NONE    = 0,
+    NM_META_ENV_FLAGS_OFFLINE = 0x1,
+} NMMetaEnvFlags;
+
 /* the settings-meta data is supposed to be independent of an actual client
  * implementation. Hence, there is a need for hooks to the meta-data.
  * The meta-data handlers may call back to the environment with certain
@@ -504,7 +511,19 @@ struct _NMMetaEnvironment {
     struct _NMRemoteConnection *const *(*get_nm_connections)(const NMMetaEnvironment *environment,
                                                              gpointer environment_user_data,
                                                              guint   *out_len);
+
+    NMMetaEnvFlags (*get_env_flags)(const NMMetaEnvironment *environment,
+                                    gpointer                 environment_user_data);
 };
+
+static inline NMMetaEnvFlags
+nm_meta_environment_get_env_flags(const NMMetaEnvironment *environment,
+                                  gpointer                 environment_user_data)
+{
+    if (environment && environment->get_env_flags)
+        return environment->get_env_flags(environment, environment_user_data);
+    return NM_META_ENV_FLAGS_NONE;
+}
 
 /*****************************************************************************/
 

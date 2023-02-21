@@ -30,8 +30,9 @@ AUTHORS-LGPL:
         along with this program; If not, see <http://www.gnu.org/licenses/>.
 
 COPYRIGHT: (ordered alphabetically)
-        Copyright (C) 2015-2019 Red Hat, Inc.
+        Copyright (C) 2015-2022 Red Hat, Inc.
 
 AUTHORS: (ordered alphabetically)
+        Daniele Nicolodi <daniele@grinta.net>
         David Rheinsberg <david.rheinsberg@gmail.com>
         Tom Gundersen <teg@jklm.no>

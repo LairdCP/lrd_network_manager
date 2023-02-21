@@ -45,7 +45,7 @@ again:
             guint8 _extra_entropy[3 * HASH_KEY_SIZE];
         } t_arr;
 
-        nm_utils_random_bytes(&t_arr, sizeof(t_arr));
+        nm_random_get_bytes(&t_arr, sizeof(t_arr));
 
         /* We only initialize one random hash key. So we can spend some effort
          * of getting this right. For one, we collect more random bytes than
@@ -106,7 +106,7 @@ nm_hash_static(guint static_seed)
      *
      * Also, ensure that we don't return zero (like for nm_hash_complete()).
      */
-    return ((*((const guint *) _get_hash_key())) ^ static_seed) ?: 3679500967u;
+    return ((*NM_CAST_ALIGN(guint, _get_hash_key())) ^ static_seed) ?: 3679500967u;
 }
 
 void

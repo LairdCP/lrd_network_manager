@@ -311,6 +311,7 @@ test_read_valid_wired_connection(void)
 
     nmtst_assert_route_attribute_uint32(route, NM_IP_ROUTE_ATTRIBUTE_CWND, 10);
     nmtst_assert_route_attribute_uint32(route, NM_IP_ROUTE_ATTRIBUTE_MTU, 1430);
+    nmtst_assert_route_attribute_uint32(route, NM_IP_ROUTE_ATTRIBUTE_WEIGHT, 5);
     nmtst_assert_route_attribute_boolean(route, NM_IP_ROUTE_ATTRIBUTE_LOCK_CWND, TRUE);
     nmtst_assert_route_attribute_string(route, NM_IP_ROUTE_ATTRIBUTE_SRC, "7.7.7.7");
     nmtst_assert_route_attribute_string(route, NM_IP_ROUTE_ATTRIBUTE_TYPE, "unicast");
@@ -495,6 +496,7 @@ test_write_wired_connection(void)
     g_assert_no_error(error);
     nm_ip_route_set_attribute(rt, NM_IP_ROUTE_ATTRIBUTE_CWND, g_variant_new_uint32(10));
     nm_ip_route_set_attribute(rt, NM_IP_ROUTE_ATTRIBUTE_MTU, g_variant_new_uint32(1492));
+    nm_ip_route_set_attribute(rt, NM_IP_ROUTE_ATTRIBUTE_WEIGHT, g_variant_new_uint32(5));
     nm_ip_route_set_attribute(rt, NM_IP_ROUTE_ATTRIBUTE_SRC, g_variant_new_string("1.2.3.4"));
     g_assert(nm_setting_ip_config_add_route(s_ip4, rt));
     nm_ip_route_unref(rt);
@@ -1805,8 +1807,8 @@ test_read_infiniband_connection(void)
     NMSettingInfiniband          *s_ib;
     const char                   *mac;
     guint8      expected_mac[INFINIBAND_ALEN] = {0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66,
-                                            0x77, 0x88, 0x99, 0x01, 0x12, 0x23, 0x34,
-                                            0x45, 0x56, 0x67, 0x78, 0x89, 0x90};
+                                                 0x77, 0x88, 0x99, 0x01, 0x12, 0x23, 0x34,
+                                                 0x45, 0x56, 0x67, 0x78, 0x89, 0x90};
     const char *expected_id                   = "Test InfiniBand Connection";
     const char *expected_uuid                 = "4e80a56d-c99f-4aad-a6dd-b449bc398c57";
 
@@ -1924,6 +1926,7 @@ test_write_bridge_main(void)
     gs_unref_object NMConnection *connection = NULL;
     NMSettingConnection          *s_con;
     NMSettingBridge              *s_bridge;
+    NMSettingWired               *s_wired;
     NMSettingIPConfig            *s_ip4;
     NMSettingIPConfig            *s_ip6;
 
@@ -1952,6 +1955,11 @@ test_write_bridge_main(void)
     s_bridge = (NMSettingBridge *) nm_setting_bridge_new();
     g_assert(s_bridge);
     nm_connection_add_setting(connection, NM_SETTING(s_bridge));
+
+    /* Ethernet setting */
+    s_wired = (NMSettingWired *) nm_setting_wired_new();
+    g_assert(s_wired);
+    nm_connection_add_setting(connection, NM_SETTING(s_wired));
 
     /* IP4 setting */
     s_ip4 = (NMSettingIPConfig *) nm_setting_ip4_config_new();
@@ -2286,14 +2294,19 @@ test_read_missing_vlan_flags(void)
 static void
 test_read_missing_id_uuid(void)
 {
-    gs_unref_object NMConnection *connection    = NULL;
-    gs_free char                 *expected_uuid = NULL;
-    const char                   *FILENAME      = TEST_KEYFILES_DIR "/Test_Missing_ID_UUID";
+    gs_unref_object NMConnection *connection     = NULL;
+    gs_free char                 *expected_uuid  = NULL;
+    gs_free char                 *expected_uuid2 = NULL;
+    const char                   *FILENAME       = TEST_KEYFILES_DIR "/Test_Missing_ID_UUID";
+    const char                    F[] = "keyfile\0" TEST_KEYFILES_DIR "/Test_Missing_ID_UUID";
 
-    expected_uuid = nm_uuid_generate_from_strings("keyfile", FILENAME, NULL);
+    expected_uuid = nm_uuid_generate_from_strings_old("keyfile", FILENAME);
+
+    expected_uuid2 =
+        nm_uuid_generate_from_string_str(F, sizeof(F), NM_UUID_TYPE_VERSION3, &nm_uuid_ns_1);
+    g_assert_cmpstr(expected_uuid, ==, expected_uuid2);
 
     connection = keyfile_read_connection_from_file(FILENAME);
-
     g_assert_cmpstr(nm_connection_get_id(connection), ==, "Test_Missing_ID_UUID");
     g_assert_cmpstr(nm_connection_get_uuid(connection), ==, expected_uuid);
 }
@@ -2635,8 +2648,11 @@ _escape_filename(gboolean with_extension, const char *filename, gboolean would_b
     g_assert(esc && esc[0]);
     g_assert(!strchr(esc, '/'));
 
-    if (nm_keyfile_utils_ignore_filename(esc, with_extension))
+    if (nm_keyfile_utils_ignore_filename(esc, with_extension)) {
+        NM_PRAGMA_WARNING_DISABLE_DANGLING_POINTER
         g_error("Escaping filename \"%s\" yielded \"%s\", but this is ignored", filename, esc);
+        NM_PRAGMA_WARNING_REENABLE
+    }
 }
 
 static void

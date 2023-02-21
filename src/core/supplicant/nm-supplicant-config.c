@@ -172,16 +172,16 @@ nm_supplicant_config_add_option_with_type(NMSupplicantConfig *self,
         return FALSE;
     }
 
-    opt        = g_slice_new0(ConfigOption);
-    opt->value = g_malloc(len + 1);
-    memcpy(opt->value, value, len);
-    opt->value[len] = '\0';
-
-    opt->len  = len;
-    opt->type = type;
+    opt  = g_slice_new(ConfigOption);
+    *opt = (ConfigOption){
+        .value = nm_memdup_nul(value, len),
+        .len   = len,
+        .type  = type,
+    };
 
     {
         char buf[255];
+
         memset(&buf[0], 0, sizeof(buf));
         memcpy(&buf[0], opt->value, opt->len > 254 ? 254 : opt->len);
         nm_log_info(LOGD_SUPPLICANT,
@@ -593,6 +593,7 @@ nm_supplicant_config_add_setting_macsec(NMSupplicantConfig *self,
     const char *value;
     char        buf[32];
     int         port;
+    gsize       key_len;
 
     g_return_val_if_fail(NM_IS_SUPPLICANT_CONFIG(self), FALSE);
     g_return_val_if_fail(setting != NULL, FALSE);
@@ -636,7 +637,16 @@ nm_supplicant_config_add_setting_macsec(NMSupplicantConfig *self,
             return FALSE;
 
         value = nm_setting_macsec_get_mka_ckn(setting);
-        if (!value || !nm_utils_hexstr2bin_buf(value, FALSE, FALSE, NULL, buffer_ckn)) {
+        if (!value
+            || !nm_utils_hexstr2bin_full(value,
+                                         FALSE,
+                                         FALSE,
+                                         FALSE,
+                                         NULL,
+                                         0,
+                                         buffer_ckn,
+                                         G_N_ELEMENTS(buffer_ckn),
+                                         &key_len)) {
             g_set_error_literal(error,
                                 NM_SUPPLICANT_ERROR,
                                 NM_SUPPLICANT_ERROR_CONFIG,
@@ -646,7 +656,7 @@ nm_supplicant_config_add_setting_macsec(NMSupplicantConfig *self,
         if (!nm_supplicant_config_add_option(self,
                                              "mka_ckn",
                                              (char *) buffer_ckn,
-                                             sizeof(buffer_ckn),
+                                             key_len,
                                              value,
                                              error))
             return FALSE;
@@ -1181,10 +1191,10 @@ has_proto_only(NMSettingWirelessSecurity *s_wsec, const char *proto)
 
 gboolean
 nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig           *self,
-                                                   NMSettingWireless            *setting_wireless,
                                                    NMSettingWirelessSecurity    *setting,
                                                    NMSetting8021x               *setting_8021x,
                                                    const char                   *con_uuid,
+                                                   const char                   *mode,
                                                    guint32                       mtu,
                                                    NMSettingWirelessSecurityPmf  pmf,
                                                    NMSettingWirelessSecurityFils fils,
@@ -1197,17 +1207,19 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig           
     const char                   *psk;
     gboolean                      set_pmf, wps_disabled;
     gboolean                      wpa3_only;
-    const char                   *mode;
     gboolean                      is_ap;
 
     g_return_val_if_fail(NM_IS_SUPPLICANT_CONFIG(self), FALSE);
-    g_return_val_if_fail(setting_wireless != NULL, FALSE);
     g_return_val_if_fail(setting != NULL, FALSE);
     g_return_val_if_fail(con_uuid != NULL, FALSE);
     g_return_val_if_fail(!error || !*error, FALSE);
 
-    mode  = nm_setting_wireless_get_mode(setting_wireless);
-    is_ap = (mode && !strcmp(mode, "ap")) ? TRUE : FALSE;
+    /* Currently wpa_supplicant doesn't support FT in AP mode. Even
+     * if it did, it  would require additional parameters as the nas
+     * identifier and the mobility domain. Therefore we disable all
+     * FT key-mgmts in AP mode.
+     */
+    is_ap = nm_streq0(mode, NM_SETTING_WIRELESS_MODE_AP);
 
     wpa3_only = has_proto_only(setting, "wpa3");
 
@@ -1319,6 +1331,8 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig           
         if (ft != NM_SETTING_WIRELESS_SECURITY_FT_DISABLE)
             g_string_append(key_mgmt_conf, " FT-PSK");
         if (_get_capability(priv, NM_SUPPL_CAP_TYPE_SAE)
+            && _get_capability(priv, NM_SUPPL_CAP_TYPE_PMF)
+            && _get_capability(priv, NM_SUPPL_CAP_TYPE_BIP)
             && pmf != NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE) {
             if (ft != NM_SETTING_WIRELESS_SECURITY_FT_REQUIRED)
                 g_string_append(key_mgmt_conf, " SAE");
@@ -1332,10 +1346,10 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig           
         if (ft != NM_SETTING_WIRELESS_SECURITY_FT_DISABLE)
             g_string_append(key_mgmt_conf, " FT-SAE");
     } else if (nm_streq(key_mgmt, "wpa-eap")) {
+        bool add_ft = true, add_fils = true, add_fils_ft = true;
         // Laird - Allow wpa-eap regardless of PMF
         // if (pmf != NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED)
         g_string_append(key_mgmt_conf, "WPA-EAP");
-        bool add_ft = true, add_fils = true, add_fils_ft = true;
         if (pmf != NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE) {
             g_string_append(key_mgmt_conf, " WPA-EAP-SHA256");
 #if 0
@@ -1589,6 +1603,14 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig           
                     return FALSE;
              }
         }
+
+        /* In case the connection is saved as OWE / Enhanced Open, prevent
+         * unencrypted downgrade
+         */
+        if (nm_streq(key_mgmt, "owe")) {
+            if (!nm_supplicant_config_add_option(self, "owe_only", "1", -1, NULL, error))
+                return FALSE;
+        }
     }
 
     /* WEP keys if required */
@@ -1796,10 +1818,9 @@ nm_supplicant_config_add_setting_8021x(NMSupplicantConfig *self,
     guint32                       frag, hdrs;
     gs_free char                 *frag_str = NULL;
     NMSetting8021xAuthFlags       phase1_auth_flags;
-    nm_auto_free_gstring GString *eap_str            = NULL;
-    char const                   *tls_disable        = NULL;
-    int                           ca_cert_needed     = 0;
-    int                           ca_cert_configured = 0;
+    nm_auto_free_gstring GString *eap_str = NULL;
+    gboolean                      ca_cert_needed = FALSE;
+    gboolean                      ca_cert_configured = FALSE;
 
     g_return_val_if_fail(NM_IS_SUPPLICANT_CONFIG(self), FALSE);
     g_return_val_if_fail(setting != NULL, FALSE);
@@ -1873,7 +1894,7 @@ nm_supplicant_config_add_setting_8021x(NMSupplicantConfig *self,
         }
 
         if (nm_streq(method, "tls") || nm_streq(method, "peap") || nm_streq(method, "ttls")) {
-            ca_cert_needed = 1;
+            ca_cert_needed = TRUE;
         }
 
         if (eap_str->len)
@@ -1934,28 +1955,29 @@ nm_supplicant_config_add_setting_8021x(NMSupplicantConfig *self,
     }
 
     phase1_auth_flags = nm_setting_802_1x_get_phase1_auth_flags(setting);
-    if (NM_FLAGS_HAS(phase1_auth_flags, NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_0_DISABLE))
+    if (NM_FLAGS_HAS(phase1_auth_flags, NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_0_ENABLE))
+        g_string_append_printf(phase1, "%stls_disable_tlsv1_0=0", (phase1->len ? " " : ""));
+    else if (NM_FLAGS_HAS(phase1_auth_flags, NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_0_DISABLE))
         g_string_append_printf(phase1, "%stls_disable_tlsv1_0=1", (phase1->len ? " " : ""));
-    if (NM_FLAGS_HAS(phase1_auth_flags, NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_1_DISABLE))
+    if (NM_FLAGS_HAS(phase1_auth_flags, NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_1_ENABLE))
+        g_string_append_printf(phase1, "%stls_disable_tlsv1_1=0", (phase1->len ? " " : ""));
+    else if (NM_FLAGS_HAS(phase1_auth_flags, NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_1_DISABLE))
         g_string_append_printf(phase1, "%stls_disable_tlsv1_1=1", (phase1->len ? " " : ""));
-    if (NM_FLAGS_HAS(phase1_auth_flags, NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_2_DISABLE))
+    if (NM_FLAGS_HAS(phase1_auth_flags, NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_2_ENABLE))
+        g_string_append_printf(phase1, "%stls_disable_tlsv1_2=0", (phase1->len ? " " : ""));
+    else if (NM_FLAGS_HAS(phase1_auth_flags, NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_2_DISABLE))
         g_string_append_printf(phase1, "%stls_disable_tlsv1_2=1", (phase1->len ? " " : ""));
     if (NM_FLAGS_HAS(phase1_auth_flags, NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_3_ENABLE))
         g_string_append_printf(phase1, "%stls_disable_tlsv1_3=0", (phase1->len ? " " : ""));
+    else if (NM_FLAGS_HAS(phase1_auth_flags, NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_3_DISABLE))
+        g_string_append_printf(phase1, "%stls_disable_tlsv1_3=1", (phase1->len ? " " : ""));
+    if (NM_FLAGS_HAS(phase1_auth_flags, NM_SETTING_802_1X_AUTH_FLAGS_TLS_DISABLE_TIME_CHECKS))
+        g_string_append_printf(phase1, "%stls_disable_time_checks=1", (phase1->len ? " " : ""));
     if (NM_FLAGS_HAS(phase1_auth_flags, NM_SETTING_802_1X_AUTH_FLAGS_SAFE_RENEGOTIATION))
         g_string_append_printf(phase1, "%sallow_unsafe_renegotiation=0", (phase1->len ? " " : ""));
 
-    tls_disable = nm_setting_802_1x_get_tls_disable_time_checks(setting);
-    if (tls_disable) {
-        g_string_append_printf(phase1,
-                               "%stls_disable_time_checks=%s",
-                               (phase1->len ? " " : ""),
-                               tls_disable);
-    }
-
-    if (priv->flags1x.suiteb) {
+    if (priv->flags1x.suiteb)
         g_string_append_printf(phase1, "%stls_suiteb=1", (phase1->len ? " " : ""));
-    }
 
     if (phase1->len) {
         if (!add_string_val(self, phase1->str, "phase1", FALSE, NULL, error)) {
@@ -1998,12 +2020,8 @@ nm_supplicant_config_add_setting_8021x(NMSupplicantConfig *self,
         }
     }
 
-    if (tls_disable) {
-        g_string_append_printf(phase2,
-                               "%stls_disable_time_checks=%s",
-                               (phase2->len ? " " : ""),
-                               tls_disable);
-    }
+    if (NM_FLAGS_HAS(phase1_auth_flags, NM_SETTING_802_1X_AUTH_FLAGS_TLS_DISABLE_TIME_CHECKS))
+        g_string_append_printf(phase2, "%stls_disable_time_checks=1", (phase2->len ? " " : ""));
 
     if (phase2->len) {
         if (!add_string_val(self, phase2->str, "phase2", FALSE, NULL, error)) {
@@ -2078,7 +2096,7 @@ nm_supplicant_config_add_setting_8021x(NMSupplicantConfig *self,
     if (ca_cert_override) {
         if (!add_string_val(self, ca_cert_override, "ca_cert", FALSE, NULL, error))
             return FALSE;
-        ca_cert_configured = 1;
+        ca_cert_configured = TRUE;
     } else {
         switch (nm_setting_802_1x_get_ca_cert_scheme(setting)) {
         case NM_SETTING_802_1X_CK_SCHEME_BLOB:
@@ -2089,13 +2107,13 @@ nm_supplicant_config_add_setting_8021x(NMSupplicantConfig *self,
                                                               con_uuid,
                                                               error))
                 return FALSE;
-            ca_cert_configured = 1;
+            ca_cert_configured = TRUE;
             break;
         case NM_SETTING_802_1X_CK_SCHEME_PATH:
             path = nm_setting_802_1x_get_ca_cert_path(setting);
             if (!add_string_val(self, path, "ca_cert", FALSE, NULL, error))
                 return FALSE;
-            ca_cert_configured = 1;
+            ca_cert_configured = TRUE;
             break;
         case NM_SETTING_802_1X_CK_SCHEME_PKCS11:
             if (!add_pkcs11_uri_with_pin(self,
@@ -2106,7 +2124,7 @@ nm_supplicant_config_add_setting_8021x(NMSupplicantConfig *self,
                                          error)) {
                 return FALSE;
             }
-            ca_cert_configured = 1;
+            ca_cert_configured = TRUE;
             break;
         default:
             break;

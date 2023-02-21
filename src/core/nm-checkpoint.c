@@ -231,6 +231,7 @@ restore_and_activate_connection(NMCheckpoint *self, DeviceCheckpoint *dev_checkp
             persist_mode = NM_SETTINGS_CONNECTION_PERSIST_MODE_KEEP;
             nm_settings_connection_update(
                 connection,
+                NULL,
                 dev_checkpoint->settings_connection,
                 persist_mode,
                 sett_flags,
@@ -247,6 +248,7 @@ restore_and_activate_connection(NMCheckpoint *self, DeviceCheckpoint *dev_checkp
 
         persist_mode = NM_SETTINGS_CONNECTION_PERSIST_MODE_TO_DISK;
         if (!nm_settings_add_connection(NM_SETTINGS_GET,
+                                        NULL,
                                         dev_checkpoint->settings_connection,
                                         persist_mode,
                                         NM_SETTINGS_CONNECTION_ADD_REASON_NONE,
@@ -282,6 +284,11 @@ restore_and_activate_connection(NMCheckpoint *self, DeviceCheckpoint *dev_checkp
          * an internal subject. */
         if (nm_device_get_state(dev_checkpoint->device) > NM_DEVICE_STATE_DISCONNECTED
             && nm_device_get_state(dev_checkpoint->device) < NM_DEVICE_STATE_DEACTIVATING) {
+            if (!NM_FLAGS_HAS(priv->flags, NM_CHECKPOINT_CREATE_FLAG_NO_PRESERVE_EXTERNAL_PORTS)) {
+                nm_device_activation_state_set_preserve_external_ports(dev_checkpoint->device,
+                                                                       TRUE);
+            }
+
             nm_device_state_changed(dev_checkpoint->device,
                                     NM_DEVICE_STATE_DEACTIVATING,
                                     NM_DEVICE_STATE_REASON_NEW_ACTIVATION);
@@ -409,10 +416,10 @@ activate:
             }
         } else {
             /* The device was initially disconnected, deactivate any existing connection */
-            _LOGD("rollback: disconnecting device");
 
             if (nm_device_get_state(device) > NM_DEVICE_STATE_DISCONNECTED
                 && nm_device_get_state(device) < NM_DEVICE_STATE_DEACTIVATING) {
+                _LOGD("rollback: disconnecting device");
                 nm_device_state_changed(device,
                                         NM_DEVICE_STATE_DEACTIVATING,
                                         NM_DEVICE_STATE_REASON_USER_REQUESTED);

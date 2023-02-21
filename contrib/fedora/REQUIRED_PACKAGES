@@ -14,11 +14,14 @@ set -xe
 
 DNF="$(command -v dnf &>/dev/null && echo dnf || echo yum)"
 
+SUDO=
+[ "$EUID" -eq 0 ] || SUDO=sudo
+
 install() {
     if [ "$NM_INSTALL" != "" ]; then
         $NM_INSTALL "$@"
     else
-        sudo "$DNF" install -y "$@"
+        $SUDO "$DNF" install -y "$@"
     fi
 }
 
@@ -58,7 +61,6 @@ install \
     gnutls-devel \
     gobject-introspection-devel \
     gtk-doc \
-    intltool \
     iptables \
     jansson-devel \
     libcurl-devel \
@@ -76,6 +78,7 @@ install \
     ppp-devel \
     python3-dbus \
     python3-gobject \
+    python3-pexpect \
     readline-devel \
     rpm-build \
     systemd-devel \
@@ -95,7 +98,9 @@ install_ignore_missing \
     libasan \
     libpsl-devel \
     libubsan \
+    pexpect \
     pygobject3-base \
     python-gobject-base \
+    python36-pexpect \
     qt-devel \
     #end

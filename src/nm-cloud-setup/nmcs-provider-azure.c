@@ -117,7 +117,7 @@ _get_config_fetch_done_cb(NMHttpClient      *http_client,
     gs_free_error GError           *error    = NULL;
     const char                     *resp_str = NULL;
     gsize                           resp_len;
-    char                            tmp_addr_str[NM_UTILS_INET_ADDRSTRLEN];
+    char                            tmp_addr_str[NM_INET_ADDRSTRLEN];
     in_addr_t                       tmp_addr;
     int                             tmp_prefix = -1;
 
@@ -145,7 +145,7 @@ _get_config_fetch_done_cb(NMHttpClient      *http_client,
         }
         _LOGD("interface[%" G_GSSIZE_FORMAT "]: received address %s",
               iface_data->intern_iface_idx,
-              _nm_utils_inet4_ntop(tmp_addr, tmp_addr_str));
+              nm_inet4_ntop(tmp_addr, tmp_addr_str));
         iface_get_config->ipv4s_arr[iface_get_config->ipv4s_len] = tmp_addr;
         iface_get_config->has_ipv4s                              = TRUE;
         iface_get_config->ipv4s_len++;
@@ -159,7 +159,7 @@ _get_config_fetch_done_cb(NMHttpClient      *http_client,
         }
         _LOGD("interface[%" G_GSSIZE_FORMAT "]: received subnet address %s",
               iface_data->intern_iface_idx,
-              _nm_utils_inet4_ntop(tmp_addr, tmp_addr_str));
+              nm_inet4_ntop(tmp_addr, tmp_addr_str));
         iface_get_config->cidr_addr = tmp_addr;
         break;
 
@@ -387,9 +387,7 @@ _get_config_iface_cb(GObject *source, GAsyncResult *result, gpointer user_data)
             goto out_done;
         }
         iface_data->iface_get_config =
-            nmcs_provider_get_config_iface_data_create(get_config_data->result_dict,
-                                                       FALSE,
-                                                       v_hwaddr);
+            nmcs_provider_get_config_iface_data_create(get_config_data, FALSE, v_hwaddr);
     } else {
         if (iface_data->iface_get_config->iface_idx >= 0) {
             _LOGI("interface[%" G_GSSIZE_FORMAT "]: duplicate MAC address %s returned",

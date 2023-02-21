@@ -109,7 +109,7 @@ G_DEFINE_TYPE(NMSettingBridge, nm_setting_bridge, NM_TYPE_SETTING)
 G_DEFINE_BOXED_TYPE(NMBridgeVlan, nm_bridge_vlan, _nm_bridge_vlan_dup, nm_bridge_vlan_unref)
 
 struct _NMBridgeVlan {
-    guint   refcount;
+    int     refcount;
     guint16 vid_start;
     guint16 vid_end;
     bool    untagged : 1;
@@ -132,6 +132,8 @@ NM_IS_BRIDGE_VLAN(const NMBridgeVlan *self, gboolean also_sealed)
  * Setting @vid_end to 0 is equivalent to setting it to @vid_start
  * and creates a single-id VLAN.
  *
+ * Since 1.42, ref-counting of #NMBridgeVlan is thread-safe.
+ *
  * Returns: (transfer full): the new #NMBridgeVlan object.
  *
  * Since: 1.18
@@ -148,11 +150,12 @@ nm_bridge_vlan_new(guint16 vid_start, guint16 vid_end)
     g_return_val_if_fail(vid_end <= NM_BRIDGE_VLAN_VID_MAX, NULL);
     g_return_val_if_fail(vid_start <= vid_end, NULL);
 
-    vlan            = g_slice_new0(NMBridgeVlan);
-    vlan->refcount  = 1;
-    vlan->vid_start = vid_start;
-    vlan->vid_end   = vid_end;
-
+    vlan  = g_slice_new(NMBridgeVlan);
+    *vlan = (NMBridgeVlan){
+        .refcount  = 1,
+        .vid_start = vid_start,
+        .vid_end   = vid_end,
+    };
     return vlan;
 }
 
@@ -164,6 +167,8 @@ nm_bridge_vlan_new(guint16 vid_start, guint16 vid_end)
  *
  * Returns: the input argument @vlan object.
  *
+ * Since 1.42, ref-counting of #NMBridgeVlan is thread-safe.
+ *
  * Since: 1.18
  **/
 NMBridgeVlan *
@@ -171,9 +176,9 @@ nm_bridge_vlan_ref(NMBridgeVlan *vlan)
 {
     g_return_val_if_fail(NM_IS_BRIDGE_VLAN(vlan, TRUE), NULL);
 
-    nm_assert(vlan->refcount < G_MAXUINT);
+    nm_assert(vlan->refcount < G_MAXINT);
 
-    vlan->refcount++;
+    g_atomic_int_inc(&vlan->refcount);
     return vlan;
 }
 
@@ -184,6 +189,8 @@ nm_bridge_vlan_ref(NMBridgeVlan *vlan)
  * Decreases the reference count of the object.  If the reference count
  * reaches zero the object will be destroyed.
  *
+ * Since 1.42, ref-counting of #NMBridgeVlan is thread-safe.
+ *
  * Since: 1.18
  **/
 void
@@ -191,7 +198,7 @@ nm_bridge_vlan_unref(NMBridgeVlan *vlan)
 {
     g_return_if_fail(NM_IS_BRIDGE_VLAN(vlan, TRUE));
 
-    if (--vlan->refcount == 0)
+    if (g_atomic_int_dec_and_test(&vlan->refcount))
         g_slice_free(NMBridgeVlan, vlan);
 }
 
@@ -435,7 +442,7 @@ nm_bridge_vlan_to_str(const NMBridgeVlan *vlan, GError **error)
      * future if more parameters are added to the object that could
      * make it invalid. */
 
-    nm_str_buf_init(&string, NM_UTILS_GET_NEXT_REALLOC_SIZE_32, FALSE);
+    string = NM_STR_BUF_INIT(NM_UTILS_GET_NEXT_REALLOC_SIZE_32, FALSE);
 
     if (vlan->vid_start == vlan->vid_end)
         nm_str_buf_append_printf(&string, "%u", vlan->vid_start);
@@ -926,7 +933,7 @@ _nm_setting_bridge_get_vlans(NMSettingBridge *setting)
  *
  * Returns: the #NMSettingBridge:group-address property of the setting
  *
- * Since 1.24
+ * Since: 1.24
  **/
 const char *
 nm_setting_bridge_get_group_address(const NMSettingBridge *setting)
@@ -942,7 +949,7 @@ nm_setting_bridge_get_group_address(const NMSettingBridge *setting)
  *
  * Returns: the #NMSettingBridge:vlan-protocol property of the setting
  *
- * Since 1.24
+ * Since: 1.24
  **/
 const char *
 nm_setting_bridge_get_vlan_protocol(const NMSettingBridge *setting)
@@ -958,7 +965,7 @@ nm_setting_bridge_get_vlan_protocol(const NMSettingBridge *setting)
  *
  * Returns: the #NMSettingBridge:vlan-stats-enabled property of the setting
  *
- * Since 1.24
+ * Since: 1.24
  **/
 gboolean
 nm_setting_bridge_get_vlan_stats_enabled(const NMSettingBridge *setting)
@@ -974,7 +981,7 @@ nm_setting_bridge_get_vlan_stats_enabled(const NMSettingBridge *setting)
  *
  * Returns: the #NMSettingBridge:multicast-router property of the setting
  *
- * Since 1.24
+ * Since: 1.24
  **/
 const char *
 nm_setting_bridge_get_multicast_router(const NMSettingBridge *setting)
@@ -990,7 +997,7 @@ nm_setting_bridge_get_multicast_router(const NMSettingBridge *setting)
  *
  * Returns: the #NMSettingBridge:multicast-query-use-ifaddr property of the setting
  *
- * Since 1.24
+ * Since: 1.24
  **/
 gboolean
 nm_setting_bridge_get_multicast_query_use_ifaddr(const NMSettingBridge *setting)
@@ -1006,7 +1013,7 @@ nm_setting_bridge_get_multicast_query_use_ifaddr(const NMSettingBridge *setting)
  *
  * Returns: the #NMSettingBridge:multicast-querier property of the setting
  *
- * Since 1.24
+ * Since: 1.24
  **/
 gboolean
 nm_setting_bridge_get_multicast_querier(const NMSettingBridge *setting)
@@ -1022,7 +1029,7 @@ nm_setting_bridge_get_multicast_querier(const NMSettingBridge *setting)
  *
  * Returns: the #NMSettingBridge:multicast-hash-max property of the setting
  *
- * Since 1.26
+ * Since: 1.26
  **/
 guint32
 nm_setting_bridge_get_multicast_hash_max(const NMSettingBridge *setting)
@@ -1038,7 +1045,7 @@ nm_setting_bridge_get_multicast_hash_max(const NMSettingBridge *setting)
  *
  * Returns: the #NMSettingBridge:multicast-last-member-count property of the setting
  *
- * Since 1.26
+ * Since: 1.26
  **/
 guint32
 nm_setting_bridge_get_multicast_last_member_count(const NMSettingBridge *setting)
@@ -1054,7 +1061,7 @@ nm_setting_bridge_get_multicast_last_member_count(const NMSettingBridge *setting
  *
  * Returns: the #NMSettingBridge:multicast-last-member-interval property of the setting
  *
- * Since 1.26
+ * Since: 1.26
  **/
 guint64
 nm_setting_bridge_get_multicast_last_member_interval(const NMSettingBridge *setting)
@@ -1070,7 +1077,7 @@ nm_setting_bridge_get_multicast_last_member_interval(const NMSettingBridge *sett
  *
  * Returns: the #NMSettingBridge:multicast-membership-interval property of the setting
  *
- * Since 1.26
+ * Since: 1.26
  **/
 guint64
 nm_setting_bridge_get_multicast_membership_interval(const NMSettingBridge *setting)
@@ -1086,7 +1093,7 @@ nm_setting_bridge_get_multicast_membership_interval(const NMSettingBridge *setti
  *
  * Returns: the #NMSettingBridge:multicast-querier-interval property of the setting
  *
- * Since 1.26
+ * Since: 1.26
  **/
 guint64
 nm_setting_bridge_get_multicast_querier_interval(const NMSettingBridge *setting)
@@ -1102,7 +1109,7 @@ nm_setting_bridge_get_multicast_querier_interval(const NMSettingBridge *setting)
  *
  * Returns: the #NMSettingBridge:multicast-query-interval property of the setting
  *
- * Since 1.26
+ * Since: 1.26
  **/
 guint64
 nm_setting_bridge_get_multicast_query_interval(const NMSettingBridge *setting)
@@ -1118,7 +1125,7 @@ nm_setting_bridge_get_multicast_query_interval(const NMSettingBridge *setting)
  *
  * Returns: the #NMSettingBridge:multicast-query-response-interval property of the setting
  *
- * Since 1.26
+ * Since: 1.26
  **/
 guint64
 nm_setting_bridge_get_multicast_query_response_interval(const NMSettingBridge *setting)
@@ -1134,7 +1141,7 @@ nm_setting_bridge_get_multicast_query_response_interval(const NMSettingBridge *s
  *
  * Returns: the #NMSettingBridge:multicast-query-response-interval property of the setting
  *
- * Since 1.26
+ * Since: 1.26
  **/
 guint32
 nm_setting_bridge_get_multicast_startup_query_count(const NMSettingBridge *setting)
@@ -1150,7 +1157,7 @@ nm_setting_bridge_get_multicast_startup_query_count(const NMSettingBridge *setti
  *
  * Returns: the #NMSettingBridge:multicast-startup-query-interval property of the setting
  *
- * Since 1.26
+ * Since: 1.26
  **/
 guint64
 nm_setting_bridge_get_multicast_startup_query_interval(const NMSettingBridge *setting)
@@ -1311,6 +1318,15 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
                                            NM_SETTING_BRIDGE_VLANS))
         return NM_SETTING_VERIFY_NORMALIZABLE;
 
+    if (connection && !nm_connection_get_setting_wired(connection)) {
+        g_set_error_literal(error,
+                            NM_CONNECTION_ERROR,
+                            NM_CONNECTION_ERROR_SETTING_NOT_FOUND,
+                            _("bridge connection should have a ethernet setting as well"));
+        g_prefix_error(error, "%s: ", NM_SETTING_BRIDGE_SETTING_NAME);
+        return NM_SETTING_VERIFY_NORMALIZABLE;
+    }
+
     return TRUE;
 }
 
@@ -1417,10 +1433,9 @@ nm_setting_bridge_class_init(NMSettingBridgeClass *klass)
      * If this field is left unspecified, the "ethernet.cloned-mac-address" is
      * referred instead to generate the initial MAC address. Note that setting
      * "ethernet.cloned-mac-address" anyway overwrites the MAC address of
-     * the bridge later while activating the bridge. Hence, this property
-     * is deprecated.
+     * the bridge later while activating the bridge.
      *
-     * Deprecated: 1.12: Use the ethernet.cloned-mac-address property instead.
+     * Deprecated: 1.12: Use the #NMSettingWired:cloned-mac-address property instead.
      **/
     /* ---keyfile---
      * property: mac-address
@@ -1430,7 +1445,8 @@ nm_setting_bridge_class_init(NMSettingBridgeClass *klass)
      * example: mac-address=00:22:68:12:79:A2
      *  mac-address=0;34;104;18;121;162;
      * ---end---
-     * ---ifcfg-rh---
+     */
+    /* ---ifcfg-rh---
      * property: mac-address
      * variable: BRIDGE_MACADDR(+)
      * description: MAC address of the bridge. Note that this requires a recent
@@ -1445,7 +1461,8 @@ nm_setting_bridge_class_init(NMSettingBridgeClass *klass)
                                                    NM_SETTING_PARAM_INFERRABLE,
                                                    NMSettingBridge,
                                                    _priv.mac_address,
-                                                   .direct_set_string_mac_address_len = ETH_ALEN);
+                                                   .direct_set_string_mac_address_len = ETH_ALEN,
+                                                   .is_deprecated                     = TRUE, );
 
     /**
      * NMSettingBridge:stp:
@@ -1739,7 +1756,8 @@ nm_setting_bridge_class_init(NMSettingBridgeClass *klass)
      */
     _nm_properties_override_dbus(properties_override,
                                  "interface-name",
-                                 &nm_sett_info_propert_type_deprecated_interface_name);
+                                 &nm_sett_info_propert_type_deprecated_interface_name,
+                                 .dbus_deprecated = TRUE, );
 
     /**
      * NMSettingBridge:group-address:

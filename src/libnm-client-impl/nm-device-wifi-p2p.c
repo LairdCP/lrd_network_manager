@@ -5,13 +5,13 @@
 
 #include "libnm-client-impl/nm-default-libnm.h"
 
+#include "nm-wifi-p2p-peer.h"
 #include "nm-device-wifi-p2p.h"
 
 #include "libnm-glib-aux/nm-dbus-aux.h"
 #include "nm-setting-connection.h"
 #include "nm-setting-wifi-p2p.h"
 #include "nm-utils.h"
-#include "nm-wifi-p2p-peer.h"
 #include "nm-object-private.h"
 #include "libnm-core-intern/nm-core-internal.h"
 #include "nm-dbus-helpers.h"
@@ -100,7 +100,7 @@ nm_device_wifi_p2p_get_peers(NMDeviceWifiP2P *device)
  *
  * Returns: (transfer none): the peer or %NULL if none is found.
  *
- * Since: 1.16
+ * Since: 1.42
  **/
 NMWifiP2PPeer *
 nm_device_wifi_p2p_get_peer_by_path(NMDeviceWifiP2P *device, const char *path)

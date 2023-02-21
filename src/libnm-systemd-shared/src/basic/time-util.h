@@ -34,6 +34,7 @@ typedef enum TimestampStyle {
         TIMESTAMP_US,
         TIMESTAMP_UTC,
         TIMESTAMP_US_UTC,
+        TIMESTAMP_UNIX,
         _TIMESTAMP_STYLE_MAX,
         _TIMESTAMP_STYLE_INVALID = -EINVAL,
 } TimestampStyle;
@@ -81,7 +82,7 @@ usec_t map_clock_usec(usec_t from, clockid_t from_clock, clockid_t to_clock);
 dual_timestamp* dual_timestamp_get(dual_timestamp *ts);
 dual_timestamp* dual_timestamp_from_realtime(dual_timestamp *ts, usec_t u);
 dual_timestamp* dual_timestamp_from_monotonic(dual_timestamp *ts, usec_t u);
-dual_timestamp* dual_timestamp_from_boottime_or_monotonic(dual_timestamp *ts, usec_t u);
+dual_timestamp* dual_timestamp_from_boottime(dual_timestamp *ts, usec_t u);
 
 triple_timestamp* triple_timestamp_get(triple_timestamp *ts);
 triple_timestamp* triple_timestamp_from_realtime(triple_timestamp *ts, usec_t u);
@@ -114,8 +115,12 @@ nsec_t timespec_load_nsec(const struct timespec *ts) _pure_;
 struct timespec* timespec_store(struct timespec *ts, usec_t u);
 struct timespec* timespec_store_nsec(struct timespec *ts, nsec_t n);
 
+#define TIMESPEC_STORE(u) timespec_store(&(struct timespec) {}, (u))
+
 usec_t timeval_load(const struct timeval *tv) _pure_;
 struct timeval* timeval_store(struct timeval *tv, usec_t u);
+
+#define TIMEVAL_STORE(u) timeval_store(&(struct timeval) {}, (u))
 
 char* format_timestamp_style(char *buf, size_t l, usec_t t, TimestampStyle style) _warn_unused_result_;
 char* format_timestamp_relative(char *buf, size_t l, usec_t t) _warn_unused_result_;
@@ -150,9 +155,7 @@ static inline bool timezone_is_valid(const char *name, int log_level) {
         return verify_timezone(name, log_level) >= 0;
 }
 
-bool clock_boottime_supported(void);
 bool clock_supported(clockid_t clock);
-clockid_t clock_boottime_or_monotonic(void);
 
 usec_t usec_shift_clock(usec_t, clockid_t from, clockid_t to);
 
@@ -186,10 +189,15 @@ static inline usec_t usec_sub_unsigned(usec_t timestamp, usec_t delta) {
 }
 
 static inline usec_t usec_sub_signed(usec_t timestamp, int64_t delta) {
+        if (delta == INT64_MIN) { /* prevent overflow */
+                assert_cc(-(INT64_MIN + 1) == INT64_MAX);
+                assert_cc(USEC_INFINITY > INT64_MAX);
+                return usec_add(timestamp, (usec_t) INT64_MAX + 1);
+        }
         if (delta < 0)
                 return usec_add(timestamp, (usec_t) (-delta));
-        else
-                return usec_sub_unsigned(timestamp, (usec_t) delta);
+
+        return usec_sub_unsigned(timestamp, (usec_t) delta);
 }
 
 #if SIZEOF_TIME_T == 8

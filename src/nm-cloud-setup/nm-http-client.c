@@ -306,6 +306,12 @@ nm_http_client_get(NMHttpClient       *self,
     curl_easy_setopt(edata->ehandle, CURLOPT_WRITEDATA, edata);
     curl_easy_setopt(edata->ehandle, CURLOPT_PRIVATE, edata);
 
+#if LIBCURL_VERSION_NUM >= 0x075500 /* libcurl 7.85.0 */
+    curl_easy_setopt(edata->ehandle, CURLOPT_PROTOCOLS_STR, "HTTP,HTTPS");
+#else
+    curl_easy_setopt(edata->ehandle, CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
+#endif
+
     if (http_headers) {
         for (i = 0; http_headers[i]; ++i) {
             struct curl_slist *tmp;
@@ -679,14 +685,13 @@ _mhandle_socketfunction_cb(CURL         *e_handle,
             condition = 0;
 
         if (condition) {
-            source_socket = nm_g_unix_fd_source_new(fd,
-                                                    condition,
-                                                    G_PRIORITY_DEFAULT,
-                                                    _mhandle_socket_cb,
-                                                    self,
-                                                    NULL);
-            g_source_attach(source_socket, priv->context);
-
+            source_socket = _source_attach(self,
+                                           nm_g_unix_fd_source_new(fd,
+                                                                   condition,
+                                                                   G_PRIORITY_DEFAULT,
+                                                                   _mhandle_socket_cb,
+                                                                   self,
+                                                                   NULL));
             g_hash_table_insert(priv->source_sockets_hashtable, GINT_TO_POINTER(fd), source_socket);
         }
     }

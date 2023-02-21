@@ -10,9 +10,10 @@
 #define NM_L3CFG_CONFIG_PRIORITY_IPV6LL 1
 #define NM_L3CFG_CONFIG_PRIORITY_VPN    9
 #define NM_ACD_TIMEOUT_RFC5227_MSEC     9000u
+#define NM_ACD_TIMEOUT_MAX_MSEC         30000u
 
 #define NM_TYPE_L3CFG            (nm_l3cfg_get_type())
-#define NM_L3CFG(obj)            (G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_L3CFG, NML3Cfg))
+#define NM_L3CFG(obj)            (_NM_G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_L3CFG, NML3Cfg))
 #define NM_L3CFG_CLASS(klass)    (G_TYPE_CHECK_CLASS_CAST((klass), NM_TYPE_L3CFG, NML3CfgClass))
 #define NM_IS_L3CFG(obj)         (G_TYPE_CHECK_INSTANCE_TYPE((obj), NM_TYPE_L3CFG))
 #define NM_IS_L3CFG_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE((klass), NM_TYPE_L3CFG))
@@ -195,19 +196,29 @@ typedef struct {
 } NML3ConfigNotifyData;
 
 struct _NML3CfgPrivate;
-struct _NMPRouteManager;
+struct _NMPGlobalTracker;
 
 struct _NML3Cfg {
     GObject parent;
     struct {
-        struct _NML3CfgPrivate  *p;
-        NMNetns                 *netns;
-        NMPlatform              *platform;
-        struct _NMPRouteManager *route_manager;
-        const NMPObject         *plobj;
-        const NMPObject         *plobj_next;
-        int                      ifindex;
+        struct _NML3CfgPrivate   *p;
+        NMNetns                  *netns;
+        NMPlatform               *platform;
+        struct _NMPGlobalTracker *global_tracker;
+        const NMPObject          *plobj;
+        const NMPObject          *plobj_next;
+        int                       ifindex;
     } priv;
+
+    /* NML3Cfg strongly cooperates with NMNetns. The latter is
+     * the one that creates and manages (also) the lifetime of the
+     * NML3Cfg instance. We track some per-l3cfg-data that is only
+     * relevant to NMNetns here. */
+    struct {
+        guint32 signal_pending_obj_type_flags;
+        CList   signal_pending_lst;
+        CList   ecmp_track_ifindex_lst_head;
+    } internal_netns;
 };
 
 typedef struct _NML3CfgClass NML3CfgClass;
@@ -363,15 +374,6 @@ typedef enum _nm_packed {
     /* Don't touch the interface. */
     NM_L3_CFG_COMMIT_TYPE_NONE,
 
-    /* ASSUME means to keep any pre-existing extra routes/addresses, while
-     * also not adding routes/addresses that are not present yet. This is to
-     * gracefully take over after restart, where the existing IP configuration
-     * should not change.
-     *
-     * The flag NM_L3CFG_CONFIG_FLAGS_ASSUME_CONFIG_ONCE can make certain addresses/
-     * routes commitable also during "assume". */
-    NM_L3_CFG_COMMIT_TYPE_ASSUME,
-
     /* UPDATE means to add new addresses/routes, while also removing addresses/routes
      * that are no longer present (but were previously configured by NetworkManager).
      * Routes/addresses that were removed externally won't be re-added, and routes/addresses
@@ -408,7 +410,7 @@ gboolean nm_l3cfg_check_ready(NML3Cfg               *self,
                               const NML3ConfigData  *l3cd,
                               int                    addr_family,
                               NML3CfgCheckReadyFlags flags,
-                              gboolean              *acd_used);
+                              GArray               **conflicts);
 
 gboolean nm_l3cfg_has_temp_not_available_obj(NML3Cfg *self, int addr_family);
 
@@ -463,5 +465,10 @@ struct _NMIPConfig *nm_l3cfg_ipconfig_get(NML3Cfg *self, int addr_family);
 struct _NMIPConfig *nm_l3cfg_ipconfig_acquire(NML3Cfg *self, int addr_family);
 
 /*****************************************************************************/
+
+typedef struct _NML3CfgBlockHandle NML3CfgBlockHandle;
+
+NML3CfgBlockHandle *nm_l3cfg_block_obj_pruning(NML3Cfg *self, int addr_family);
+void                nm_l3cfg_unblock_obj_pruning(NML3CfgBlockHandle *handle);
 
 #endif /* __NM_L3CFG_H__ */

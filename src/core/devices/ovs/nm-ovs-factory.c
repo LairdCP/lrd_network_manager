@@ -27,7 +27,8 @@ typedef struct {
 } NMOvsFactoryClass;
 
 #define NM_TYPE_OVS_FACTORY (nm_ovs_factory_get_type())
-#define NM_OVS_FACTORY(obj) (G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_OVS_FACTORY, NMOvsFactory))
+#define NM_OVS_FACTORY(obj) \
+    (_NM_G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_OVS_FACTORY, NMOvsFactory))
 #define NM_OVS_FACTORY_CLASS(klass) \
     (G_TYPE_CHECK_CLASS_CAST((klass), NM_TYPE_OVS_FACTORY, NMOvsFactoryClass))
 #define NM_IS_OVS_FACTORY(obj)         (G_TYPE_CHECK_INSTANCE_TYPE((obj), NM_TYPE_OVS_FACTORY))
@@ -178,7 +179,8 @@ ovsdb_device_removed(NMOvsdb         *ovsdb,
     device_state = nm_device_get_state(device);
 
     if (device_type == NM_DEVICE_TYPE_OVS_INTERFACE && nm_device_get_act_request(device)
-        && device_state < NM_DEVICE_STATE_DEACTIVATING) {
+        && (device_state > NM_DEVICE_STATE_DISCONNECTED
+            && device_state < NM_DEVICE_STATE_DEACTIVATING)) {
         nm_device_state_changed(device,
                                 NM_DEVICE_STATE_DEACTIVATING,
                                 NM_DEVICE_STATE_REASON_REMOVED);
@@ -244,7 +246,11 @@ ovsdb_interface_failed(NMOvsdb         *ovsdb,
             TRUE);
     }
 
-    nm_device_state_changed(device, NM_DEVICE_STATE_FAILED, NM_DEVICE_STATE_REASON_OVSDB_FAILED);
+    if (nm_device_is_activating(device)) {
+        nm_device_state_changed(device,
+                                NM_DEVICE_STATE_FAILED,
+                                NM_DEVICE_STATE_REASON_OVSDB_FAILED);
+    }
 }
 
 static void

@@ -581,7 +581,7 @@ freq_to_band(guint32 freq)
 gboolean
 nm_wifi_ap_check_compatible(NMWifiAP                *self,
                             NMConnection            *connection,
-                            NMDeviceWifiCapabilities dev_caps)
+                            _NMDeviceWifiCapabilities dev_caps)
 {
     NMWifiAPPrivate           *priv;
     NMSettingWireless         *s_wireless;
@@ -651,22 +651,22 @@ nm_wifi_ap_check_compatible(NMWifiAP                *self,
                                                        priv->wpa_flags,
                                                        priv->rsn_flags,
                                                        NM_802_11_MODE_CAST(priv->mode),
-                                                       dev_caps);
+                                                       (NMDeviceWifiCapabilities)dev_caps);
 }
 
 #define RSN_CAPS_PMF                                                         \
-    (NM_WIFI_DEVICE_CAP_CIPHER_CMAC_128 | NM_WIFI_DEVICE_CAP_CIPHER_CMAC_256 \
-     | NM_WIFI_DEVICE_CAP_CIPHER_GMAC_128 | NM_WIFI_DEVICE_CAP_CIPHER_GMAC_256)
+    (_NM_WIFI_DEVICE_CAP_CIPHER_CMAC_128 | _NM_WIFI_DEVICE_CAP_CIPHER_CMAC_256 \
+     | _NM_WIFI_DEVICE_CAP_CIPHER_GMAC_128 | _NM_WIFI_DEVICE_CAP_CIPHER_GMAC_256)
 
 gboolean
 nm_wifi_ap_complete_connection(NMWifiAP                *self,
                                NMConnection            *connection,
                                gboolean                 lock_bssid,
-                               NMDeviceWifiCapabilities dev_cap,
+                               _NMDeviceWifiCapabilities dev_cap,
                                GError                 **error)
 {
-    guint32          rsn_flags;
     NMWifiAPPrivate *priv = NM_WIFI_AP_GET_PRIVATE(self);
+    NM80211ApSecurityFlags rsn_flags;
 
     g_return_val_if_fail(connection != NULL, FALSE);
 
@@ -1061,7 +1061,7 @@ nm_wifi_aps_get_paths(const CList *aps_lst_head, gboolean include_without_ssid)
 NMWifiAP *
 nm_wifi_aps_find_first_compatible(const CList             *aps_lst_head,
                                   NMConnection            *connection,
-                                  NMDeviceWifiCapabilities dev_caps)
+                                  _NMDeviceWifiCapabilities dev_caps)
 {
     NMWifiAP *ap;
 
@@ -1083,9 +1083,10 @@ nm_wifi_ap_lookup_for_device(NMDevice *device, const char *exported_path)
 
     g_return_val_if_fail(NM_IS_DEVICE(device), NULL);
 
-    ap = nm_dbus_manager_lookup_object(nm_dbus_object_get_manager(NM_DBUS_OBJECT(device)),
-                                       exported_path);
-    if (!ap || !NM_IS_WIFI_AP(ap) || ap->wifi_device != device)
+    ap = nm_dbus_manager_lookup_object_with_type(nm_dbus_object_get_manager(NM_DBUS_OBJECT(device)),
+                                                 NM_TYPE_WIFI_AP,
+                                                 exported_path);
+    if (!ap || ap->wifi_device != device)
         return NULL;
 
     return ap;

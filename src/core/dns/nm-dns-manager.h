@@ -12,16 +12,6 @@
 #include "nm-setting-connection.h"
 #include "nm-dns-plugin.h"
 
-typedef enum {
-    NM_DNS_IP_CONFIG_TYPE_REMOVED = -1,
-
-    NM_DNS_IP_CONFIG_TYPE_DEFAULT = 0,
-    NM_DNS_IP_CONFIG_TYPE_BEST_DEVICE,
-    NM_DNS_IP_CONFIG_TYPE_VPN,
-} NMDnsIPConfigType;
-
-/*****************************************************************************/
-
 struct _NMDnsConfigData;
 struct _NMDnsManager;
 
@@ -71,7 +61,7 @@ typedef struct _NMDnsConfigData {
 /*****************************************************************************/
 
 #define NM_TYPE_DNS_MANAGER (nm_dns_manager_get_type())
-#define NM_DNS_MANAGER(o)   (G_TYPE_CHECK_INSTANCE_CAST((o), NM_TYPE_DNS_MANAGER, NMDnsManager))
+#define NM_DNS_MANAGER(o)   (_NM_G_TYPE_CHECK_INSTANCE_CAST((o), NM_TYPE_DNS_MANAGER, NMDnsManager))
 #define NM_DNS_MANAGER_CLASS(k) \
     (G_TYPE_CHECK_CLASS_CAST((k), NM_TYPE_DNS_MANAGER, NMDnsManagerClass))
 #define NM_IS_DNS_MANAGER(o)       (G_TYPE_CHECK_INSTANCE_TYPE((o), NM_TYPE_DNS_MANAGER))
@@ -80,9 +70,10 @@ typedef struct _NMDnsConfigData {
     (G_TYPE_INSTANCE_GET_CLASS((o), NM_TYPE_DNS_MANAGER, NMDnsManagerClass))
 
 /* properties */
-#define NM_DNS_MANAGER_MODE          "mode"
-#define NM_DNS_MANAGER_RC_MANAGER    "rc-manager"
-#define NM_DNS_MANAGER_CONFIGURATION "configuration"
+#define NM_DNS_MANAGER_MODE           "mode"
+#define NM_DNS_MANAGER_RC_MANAGER     "rc-manager"
+#define NM_DNS_MANAGER_CONFIGURATION  "configuration"
+#define NM_DNS_MANAGER_UPDATE_PENDING "update-pending"
 
 /* internal signals */
 #define NM_DNS_MANAGER_CONFIG_CHANGED "config-changed"
@@ -105,7 +96,6 @@ gboolean nm_dns_manager_set_ip_config(NMDnsManager         *self,
                                       NMDnsIPConfigType     ip_config_type,
                                       gboolean              replace_all);
 
-void nm_dns_manager_set_initial_hostname(NMDnsManager *self, const char *hostname);
 void nm_dns_manager_set_hostname(NMDnsManager *self, const char *hostname, gboolean skip_update);
 
 /**
@@ -149,6 +139,8 @@ typedef enum {
 void nm_dns_manager_stop(NMDnsManager *self);
 
 NMDnsPlugin *nm_dns_manager_get_systemd_resolved(NMDnsManager *self);
+
+gboolean nm_dns_manager_get_update_pending(NMDnsManager *self);
 
 /*****************************************************************************/
 

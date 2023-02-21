@@ -15,6 +15,7 @@
 #include "libnm-core-aux-intern/nm-common-macros.h"
 #include "libnm-glib-aux/nm-enum-utils.h"
 #include "libnm-glib-aux/nm-secret-utils.h"
+#include "libnm-glib-aux/nm-uuid.h"
 #include "libnm-core-aux-intern/nm-libnm-core-utils.h"
 #include "libnm-core-aux-extern/nm-libnm-core-aux.h"
 
@@ -29,6 +30,8 @@ static char *secret_flags_to_string(guint32 flags, NMMetaAccessorGetType get_typ
 #define ALL_SECRET_FLAGS                                              \
     (NM_SETTING_SECRET_FLAG_NONE | NM_SETTING_SECRET_FLAG_AGENT_OWNED \
      | NM_SETTING_SECRET_FLAG_NOT_SAVED | NM_SETTING_SECRET_FLAG_NOT_REQUIRED)
+
+const NMUtilsEnumValueInfo GOBJECT_ENUM_VALUE_INFOS_GET_FROM_SETTER[1];
 
 /*****************************************************************************/
 
@@ -123,11 +126,7 @@ _value_str_as_index_list(const char *value, gsize *out_len)
             if (!str_cloned) {
                 /* we use alloca() inside a loop here, but it is guarded to happen at most once. */
                 str_cloned = TRUE;
-                str        = nm_strndup_a(/* lgtm [cpp/alloca-in-loop] */
-                                   200,
-                                   str,
-                                   strlen(str),
-                                   &str_clone_free);
+                str        = nm_strndup_a(200, str, strlen(str), &str_clone_free);
             }
             s         = str;
             str[good] = '\0';
@@ -259,24 +258,22 @@ _parse_ip_address(int family, const char *address, GError **error)
     plen = strchr(ip_str, '/');
     if (plen) {
         *plen++ = '\0';
-        if ((prefix = _nm_utils_ascii_str_to_int64(plen, 10, 1, MAX_PREFIX, -1)) == -1) {
-            g_set_error(error,
-                        NM_UTILS_ERROR,
-                        NM_UTILS_ERROR_INVALID_ARGUMENT,
-                        _("invalid prefix '%s'; <1-%d> allowed"),
-                        plen,
-                        MAX_PREFIX);
+        if ((prefix = _nm_utils_ascii_str_to_int64(plen, 10, 0, MAX_PREFIX, -1)) == -1) {
+            nm_utils_error_set(error,
+                               NM_UTILS_ERROR_INVALID_ARGUMENT,
+                               _("invalid prefix '%s'; <0-%d> allowed"),
+                               plen,
+                               MAX_PREFIX);
             return NULL;
         }
     }
 
     addr = nm_ip_address_new(family, ip_str, prefix, &local);
     if (!addr) {
-        g_set_error(error,
-                    NM_UTILS_ERROR,
-                    NM_UTILS_ERROR_INVALID_ARGUMENT,
-                    _("invalid IP address: %s"),
-                    local->message);
+        nm_utils_error_set(error,
+                           NM_UTILS_ERROR_INVALID_ARGUMENT,
+                           _("invalid IP address: %s"),
+                           local->message);
         g_clear_error(&local);
     }
     return addr;
@@ -310,7 +307,11 @@ _parse_ip_route(int family, const char *str, GError **error)
     str_clean = nm_strstrip_avoid_copy_a(300, str, &str_clean_free);
     routev    = nm_strsplit_set(str_clean, " \t");
     if (!routev) {
-        g_set_error(error, 1, 0, "'%s' is not valid. %s", str, ROUTE_SYNTAX);
+        nm_utils_error_set(error,
+                           NM_UTILS_ERROR_UNKNOWN,
+                           "'%s' is not valid. %s",
+                           str,
+                           ROUTE_SYNTAX);
         return NULL;
     }
 
@@ -326,12 +327,11 @@ _parse_ip_route(int family, const char *str, GError **error)
     prefix = MAX_PREFIX;
     if (plen) {
         if ((prefix = _nm_utils_ascii_str_to_int64(plen, 10, 0, MAX_PREFIX, -1)) == -1) {
-            g_set_error(error,
-                        NM_UTILS_ERROR,
-                        NM_UTILS_ERROR_INVALID_ARGUMENT,
-                        _("invalid prefix '%s'; <1-%d> allowed"),
-                        plen,
-                        MAX_PREFIX);
+            nm_utils_error_set(error,
+                               NM_UTILS_ERROR_INVALID_ARGUMENT,
+                               _("invalid prefix '%s'; <0-%d> allowed"),
+                               plen,
+                               MAX_PREFIX);
             return NULL;
         }
     }
@@ -339,20 +339,22 @@ _parse_ip_route(int family, const char *str, GError **error)
     for (i = 1; routev[i]; i++) {
         gint64 tmp64;
 
-        if (nm_utils_ipaddr_is_valid(family, routev[i])) {
+        if (nm_inet_is_valid(family, routev[i])) {
             if (metric != -1 || attrs) {
-                g_set_error(error, 1, 0, _("the next hop ('%s') must be first"), routev[i]);
+                nm_utils_error_set(error,
+                                   NM_UTILS_ERROR_UNKNOWN,
+                                   _("the next hop ('%s') must be first"),
+                                   routev[i]);
                 return NULL;
             }
             next_hop = routev[i];
         } else if ((tmp64 = _nm_utils_ascii_str_to_int64(routev[i], 10, 0, G_MAXUINT32, -1))
                    != -1) {
             if (attrs) {
-                g_set_error(error,
-                            1,
-                            0,
-                            _("the metric ('%s') must be before attributes"),
-                            routev[i]);
+                nm_utils_error_set(error,
+                                   NM_UTILS_ERROR_UNKNOWN,
+                                   _("the metric ('%s') must be before attributes"),
+                                   routev[i]);
                 return NULL;
             }
             metric = tmp64;
@@ -395,14 +397,18 @@ _parse_ip_route(int family, const char *str, GError **error)
                 g_hash_table_iter_steal(&iter);
             }
         } else {
-            g_set_error(error, 1, 0, "%s", ROUTE_SYNTAX);
+            nm_utils_error_set(error, NM_UTILS_ERROR_UNKNOWN, "%s", ROUTE_SYNTAX);
             return NULL;
         }
     }
 
     route = nm_ip_route_new(family, dest, prefix, next_hop, metric, &local);
     if (!route) {
-        g_set_error(error, 1, 0, _("invalid route: %s. %s"), local->message, ROUTE_SYNTAX);
+        nm_utils_error_set(error,
+                           NM_UTILS_ERROR_UNKNOWN,
+                           _("invalid route: %s. %s"),
+                           local->message,
+                           ROUTE_SYNTAX);
         g_clear_error(&local);
         return NULL;
     }
@@ -467,20 +473,18 @@ nmc_proxy_check_script(const char *script, char **out_script, GError **error)
 
         if (!g_file_get_contents(script, &contents, &c_len, NULL)) {
             if (desired_type == _PAC_SCRIPT_TYPE_FILE) {
-                g_set_error(error,
-                            NM_UTILS_ERROR,
-                            NM_UTILS_ERROR_INVALID_ARGUMENT,
-                            _("cannot read pac-script from file '%s'"),
-                            script);
+                nm_utils_error_set(error,
+                                   NM_UTILS_ERROR_INVALID_ARGUMENT,
+                                   _("cannot read pac-script from file '%s'"),
+                                   script);
                 return FALSE;
             }
         } else {
             if (c_len != strlen(contents)) {
-                g_set_error(error,
-                            NM_UTILS_ERROR,
-                            NM_UTILS_ERROR_INVALID_ARGUMENT,
-                            _("file '%s' contains non-valid utf-8"),
-                            script);
+                nm_utils_error_set(error,
+                                   NM_UTILS_ERROR_INVALID_ARGUMENT,
+                                   _("file '%s' contains non-valid utf-8"),
+                                   script);
                 return FALSE;
             }
             filename = script;
@@ -490,16 +494,12 @@ nmc_proxy_check_script(const char *script, char **out_script, GError **error)
 
     if (!strstr(script, "FindProxyForURL") || !g_utf8_validate(script, -1, NULL)) {
         if (filename) {
-            g_set_error(error,
-                        NM_UTILS_ERROR,
-                        NM_UTILS_ERROR_INVALID_ARGUMENT,
-                        _("'%s' does not contain a valid PAC Script"),
-                        filename);
+            nm_utils_error_set(error,
+                               NM_UTILS_ERROR_INVALID_ARGUMENT,
+                               _("'%s' does not contain a valid PAC Script"),
+                               filename);
         } else {
-            g_set_error(error,
-                        NM_UTILS_ERROR,
-                        NM_UTILS_ERROR_INVALID_ARGUMENT,
-                        _("Not a valid PAC Script"));
+            nm_utils_error_set(error, NM_UTILS_ERROR_INVALID_ARGUMENT, _("Not a valid PAC Script"));
         }
         return FALSE;
     }
@@ -549,20 +549,18 @@ nmc_team_check_config(const char *config, char **out_config, GError **error)
 
         if (!g_file_get_contents(config, &contents, &c_len, NULL)) {
             if (desired_type == _TEAM_CONFIG_TYPE_FILE) {
-                g_set_error(error,
-                            NM_UTILS_ERROR,
-                            NM_UTILS_ERROR_INVALID_ARGUMENT,
-                            _("cannot read team config from file '%s'"),
-                            config);
+                nm_utils_error_set(error,
+                                   NM_UTILS_ERROR_INVALID_ARGUMENT,
+                                   _("cannot read team config from file '%s'"),
+                                   config);
                 return FALSE;
             }
         } else {
             if (c_len != strlen(contents)) {
-                g_set_error(error,
-                            NM_UTILS_ERROR,
-                            NM_UTILS_ERROR_INVALID_ARGUMENT,
-                            _("team config file '%s' contains non-valid utf-8"),
-                            config);
+                nm_utils_error_set(error,
+                                   NM_UTILS_ERROR_INVALID_ARGUMENT,
+                                   _("team config file '%s' contains non-valid utf-8"),
+                                   config);
                 return FALSE;
             }
             config = config_clone = g_steal_pointer(&contents);
@@ -1082,7 +1080,7 @@ _get_fcn_gobject_enum(ARGS_GET_FCN)
     GType                                gtype            = 0;
     nm_auto_unref_gtypeclass GTypeClass *gtype_class      = NULL;
     nm_auto_unref_gtypeclass GTypeClass *gtype_prop_class = NULL;
-    const struct _NMUtilsEnumValueInfo  *value_infos      = NULL;
+    const NMUtilsEnumValueInfo          *value_infos      = NULL;
     gboolean                             has_gtype        = FALSE;
     nm_auto_unset_gvalue GValue          gval             = G_VALUE_INIT;
     gint64                               v;
@@ -1198,11 +1196,12 @@ _get_fcn_gobject_enum(ARGS_GET_FCN)
         RETURN_STR_TO_FREE(g_steal_pointer(&s));
     }
 
-    /* the gobject_enum.value_infos are currently ignored for the getter. They
-     * only declare additional aliases for the setter. */
-
-    if (property_info->property_typ_data)
+    if (property_info->property_typ_data) {
         value_infos = property_info->property_typ_data->subtype.gobject_enum.value_infos_get;
+        if (value_infos == GOBJECT_ENUM_VALUE_INFOS_GET_FROM_SETTER)
+            value_infos = property_info->property_typ_data->subtype.gobject_enum.value_infos;
+    }
+
     s = _nm_utils_enum_to_str_full(gtype, (int) v, ", ", value_infos);
 
     if (!format_numeric)
@@ -1408,29 +1407,27 @@ _set_fcn_gobject_int(ARGS_SET_FCN)
     if ((errsv = errno) != 0) {
         if (errsv == ERANGE) {
             if (is_uint64) {
-                g_set_error(
+                nm_utils_error_set(
                     error,
-                    NM_UTILS_ERROR,
                     NM_UTILS_ERROR_INVALID_ARGUMENT,
                     _("'%s' is out of range [%" G_GUINT64_FORMAT ", %" G_GUINT64_FORMAT "]"),
                     value,
                     min.u64,
                     max.u64);
             } else {
-                g_set_error(error,
-                            NM_UTILS_ERROR,
-                            NM_UTILS_ERROR_INVALID_ARGUMENT,
-                            _("'%s' is out of range [%" G_GINT64_FORMAT ", %" G_GINT64_FORMAT "]"),
-                            value,
-                            min.i64,
-                            max.i64);
+                nm_utils_error_set(
+                    error,
+                    NM_UTILS_ERROR_INVALID_ARGUMENT,
+                    _("'%s' is out of range [%" G_GINT64_FORMAT ", %" G_GINT64_FORMAT "]"),
+                    value,
+                    min.i64,
+                    max.i64);
             }
         } else {
-            g_set_error(error,
-                        NM_UTILS_ERROR,
-                        NM_UTILS_ERROR_INVALID_ARGUMENT,
-                        _("'%s' is not a valid number"),
-                        value);
+            nm_utils_error_set(error,
+                               NM_UTILS_ERROR_INVALID_ARGUMENT,
+                               _("'%s' is not a valid number"),
+                               value);
         }
         return FALSE;
     }
@@ -1483,12 +1480,11 @@ _set_fcn_gobject_mtu(ARGS_SET_FCN)
 
     v = _nm_utils_ascii_str_to_int64(value, 10, 0, G_MAXUINT32, -1);
     if (v < 0) {
-        g_set_error(error,
-                    NM_UTILS_ERROR,
-                    NM_UTILS_ERROR_INVALID_ARGUMENT,
-                    _("'%s' is out of range [0, %u]"),
-                    value,
-                    (unsigned) G_MAXUINT32);
+        nm_utils_error_set(error,
+                           NM_UTILS_ERROR_INVALID_ARGUMENT,
+                           _("'%s' is out of range [0, %u]"),
+                           value,
+                           (unsigned) G_MAXUINT32);
         return FALSE;
     }
 
@@ -1531,7 +1527,10 @@ _set_fcn_gobject_mac(ARGS_SET_FCN)
     }
 
     if (!valid) {
-        g_set_error(error, 1, 0, _("'%s' is not a valid Ethernet MAC"), value);
+        nm_utils_error_set(error,
+                           NM_UTILS_ERROR_UNKNOWN,
+                           _("'%s' is not a valid Ethernet MAC"),
+                           value);
         return FALSE;
     }
 
@@ -1653,19 +1652,17 @@ fail:
         valid_all = nm_utils_enum_get_values(gtype, min, max);
         valid_str = g_strjoinv(",", (char **) valid_all);
         if (is_flags) {
-            g_set_error(error,
-                        NM_UTILS_ERROR,
-                        NM_UTILS_ERROR_INVALID_ARGUMENT,
-                        _("invalid option '%s', use a combination of [%s]"),
-                        value,
-                        valid_str);
+            nm_utils_error_set(error,
+                               NM_UTILS_ERROR_INVALID_ARGUMENT,
+                               _("invalid option '%s', use a combination of [%s]"),
+                               value,
+                               valid_str);
         } else {
-            g_set_error(error,
-                        NM_UTILS_ERROR,
-                        NM_UTILS_ERROR_INVALID_ARGUMENT,
-                        _("invalid option '%s', use one of [%s]"),
-                        value,
-                        valid_str);
+            nm_utils_error_set(error,
+                               NM_UTILS_ERROR_INVALID_ARGUMENT,
+                               _("invalid option '%s', use one of [%s]"),
+                               value,
+                               valid_str);
         }
     }
     return FALSE;
@@ -1676,12 +1673,13 @@ fail:
 static const char *const *
 _values_fcn_gobject_enum(ARGS_VALUES_FCN)
 {
-    GType    gtype      = 0;
-    gboolean has_gtype  = FALSE;
-    gboolean has_minmax = FALSE;
-    int      min        = G_MININT;
-    int      max        = G_MAXINT;
-    char   **v;
+    const NMUtilsEnumValueInfo *value_infos = NULL;
+    GType                       gtype       = 0;
+    gboolean                    has_gtype   = FALSE;
+    gboolean                    has_minmax  = FALSE;
+    int                         min         = G_MININT;
+    int                         max         = G_MAXINT;
+    char                      **v;
 
     if (property_info->property_typ_data) {
         if (property_info->property_typ_data->subtype.gobject_enum.min
@@ -1711,10 +1709,29 @@ _values_fcn_gobject_enum(ARGS_VALUES_FCN)
         }
     }
 
-    /* the gobject_enum.value_infos are currently ignored for the list of
-     * values. They only declare additional (hidden) aliases for the setter. */
+    /* There is a problem. For flags, we don't expand to all the values that we could
+     * complete for. We only expand to a single flag "FLAG1", but if the property
+     * is already set to "FLAG2", we should also expand to "FLAG1,FLAG2". */
 
     v = nm_strv_make_deep_copied(nm_utils_enum_get_values(gtype, min, max));
+
+    if (property_info->property_typ_data
+        && (value_infos = property_info->property_typ_data->subtype.gobject_enum.value_infos)) {
+        const guint V_N = NM_PTRARRAY_LEN(v);
+        guint       n;
+        guint       i;
+
+        nm_assert(value_infos[0].nick);
+
+        for (n = 0; value_infos[n].nick;)
+            n++;
+
+        v = g_realloc(v, (V_N + n + 1) * sizeof(char *));
+        for (i = 0; i < n; i++)
+            v[V_N + i] = g_strdup(value_infos[i].nick);
+        v[V_N + n] = NULL;
+    }
+
     return (const char *const *) (*out_to_free = v);
 }
 
@@ -2136,12 +2153,11 @@ validate_flags(NMSetting *setting, const char *prop, guint val, GError **error)
         flag_values = flag_values_to_string(pspec_flags->flags_class->values,
                                             pspec_flags->flags_class->n_values);
 
-        g_set_error(error,
-                    1,
-                    0,
-                    _("'%u' flags are not valid; use combination of %s"),
-                    val,
-                    flag_values);
+        nm_utils_error_set(error,
+                           NM_UTILS_ERROR_UNKNOWN,
+                           _("'%u' flags are not valid; use combination of %s"),
+                           val,
+                           flag_values);
         success = FALSE;
     }
     g_value_unset(&value);
@@ -2157,7 +2173,10 @@ _set_fcn_gobject_flags(ARGS_SET_FCN)
         return _gobject_property_reset_default(setting, property_info->property_name);
 
     if (!nmc_string_to_uint(value, TRUE, 0, G_MAXUINT, &val_int)) {
-        g_set_error(error, 1, 0, _("'%s' is not a valid number (or out of range)"), value);
+        nm_utils_error_set(error,
+                           NM_UTILS_ERROR_UNKNOWN,
+                           _("'%s' is not a valid number (or out of range)"),
+                           value);
         return FALSE;
     }
 
@@ -2178,7 +2197,7 @@ _set_fcn_gobject_ssid(ARGS_SET_FCN)
         return _gobject_property_reset_default(setting, property_info->property_name);
 
     if (strlen(value) > 32) {
-        g_set_error(error, 1, 0, _("'%s' is not valid"), value);
+        nm_utils_error_set(error, NM_UTILS_ERROR_UNKNOWN, _("'%s' is not valid"), value);
         return FALSE;
     }
 
@@ -2253,7 +2272,7 @@ _multilist_validate_fcn_is_domain(const char *domain, GError **error)
 static const char *
 _multilist_validate_fcn_is_ipv4_addr_or_subnet(const char *value, GError **error)
 {
-    if (!nm_utils_parse_inaddr_prefix_bin(AF_INET, value, NULL, NULL, NULL)) {
+    if (!nm_inet_parse_with_prefix_bin(AF_INET, value, NULL, NULL, NULL)) {
         nm_utils_error_set(error,
                            NM_UTILS_ERROR_INVALID_ARGUMENT,
                            _("invalid IPv4 or subnet \"%s\""),
@@ -2303,7 +2322,10 @@ _set_fcn_gobject_bytes(ARGS_SET_FCN)
 
         v = _nm_utils_ascii_str_to_int64(*iter, 16, 0, 255, -1);
         if (v == -1) {
-            g_set_error(error, 1, 0, _("'%s' is not a valid hex character"), *iter);
+            nm_utils_error_set(error,
+                               NM_UTILS_ERROR_UNKNOWN,
+                               _("'%s' is not a valid hex character"),
+                               *iter);
             g_byte_array_free(array, TRUE);
             return FALSE;
         }
@@ -2608,29 +2630,66 @@ _get_fcn_connection_permissions(ARGS_GET_FCN)
 }
 
 static gboolean
+_set_fcn_connection_uuid(ARGS_SET_FCN)
+{
+    const char *uuid;
+
+    uuid = nm_setting_connection_get_uuid(NM_SETTING_CONNECTION(setting));
+
+    if (!uuid) {
+        /* No UUID yet, we are about to create a new profile. We can set the UUID. */
+    } else if (NM_FLAGS_HAS(nm_meta_environment_get_env_flags(environment, environment_user_data),
+                            NM_META_ENV_FLAGS_OFFLINE)) {
+        /* In offline mode, we can change it. */
+    } else if (nm_uuid_is_valid_nmlegacy(value) && nm_streq(uuid, value)) {
+        /* Setting the same value does not actually trigger an error. */
+    } else {
+        /* The UUID is the unchanging ID of a profile. It cannot change, unless
+         * we are in offline mode (in which case, it can be useful to do just that). */
+        nm_utils_error_set(error, NM_UTILS_ERROR_INVALID_ARGUMENT, "the property can't be changed");
+        return FALSE;
+    }
+
+    if (NM_IN_STRSET(value, NULL, "", "new", "generate")) {
+        /* Special keywords are used for generating a new UUID. */
+        value = nm_uuid_generate_random_str_a();
+    }
+
+    g_object_set(G_OBJECT(setting), NM_SETTING_CONNECTION_UUID, value, NULL);
+    return TRUE;
+}
+
+static gboolean
 _set_fcn_connection_type(ARGS_SET_FCN)
 {
-    gs_free char *uuid = NULL;
+    const char *connection_type;
 
-    if (nm_setting_connection_get_uuid(NM_SETTING_CONNECTION(setting))) {
-        /* Don't allow setting type unless the connection is brand new.
-         * Just because it's a bad idea and the user wouldn't probably want that.
-         * No technical reason, really.
-         * Also, using uuid to see if the connection is brand new is a bit
-         * hacky: we can not see if the type is already set, because
-         * nmc_setting_set_property() is called only after the property
-         * we're setting (type) has been removed. */
-        g_set_error(error, 1, 0, _("Can not change the connection type"));
-        return FALSE;
+    connection_type = nm_setting_connection_get_connection_type(NM_SETTING_CONNECTION(setting));
+
+    if (connection_type) {
+        if (nm_streq0(connection_type, value)) {
+            /* No change. Setting the same again is fine. */
+            return TRUE;
+        }
+
+        /* There is no technical reason that a profile couldn't change its type.
+         * NetworkManager allows that just fine.
+         *
+         * However, it seems an unusual thing to do, so only allow that in
+         * offline mode. */
+        if (!NM_FLAGS_HAS(nm_meta_environment_get_env_flags(environment, environment_user_data),
+                          NM_META_ENV_FLAGS_OFFLINE)) {
+            nm_utils_error_set(error,
+                               NM_UTILS_ERROR_UNKNOWN,
+                               _("Can not change the connection type"));
+            return FALSE;
+        }
     }
 
     if (_SET_FCN_DO_RESET_DEFAULT(property_info, modifier, value)) {
         g_object_set(G_OBJECT(setting), property_info->property_name, NULL, NULL);
         return TRUE;
     }
-
-    uuid = nm_utils_uuid_generate();
-    g_object_set(G_OBJECT(setting), NM_SETTING_CONNECTION_UUID, uuid, NULL);
 
     g_object_set(G_OBJECT(setting), property_info->property_name, value, NULL);
     return TRUE;
@@ -2971,7 +3030,10 @@ _set_fcn_dcb_flags(ARGS_SET_FCN)
                      || g_ascii_strcasecmp(*iter, "disabled") == 0 || t == 0) {
                 /* pass */
             } else {
-                g_set_error(error, 1, 0, _("'%s' is not a valid DCB flag"), *iter);
+                nm_utils_error_set(error,
+                                   NM_UTILS_ERROR_UNKNOWN,
+                                   _("'%s' is not a valid DCB flag"),
+                                   *iter);
                 return FALSE;
             }
         }
@@ -3011,20 +3073,18 @@ dcb_parse_uint_array(const char *val,
         /* If number is greater than 'max' it must equal 'other' */
         if (num == -1 || (other && (num > max) && (num != other))) {
             if (other) {
-                g_set_error(error,
-                            1,
-                            0,
-                            _("'%s' not a number between 0 and %u (inclusive) or %u"),
-                            *iter,
-                            max,
-                            other);
+                nm_utils_error_set(error,
+                                   NM_UTILS_ERROR_UNKNOWN,
+                                   _("'%s' not a number between 0 and %u (inclusive) or %u"),
+                                   *iter,
+                                   max,
+                                   other);
             } else {
-                g_set_error(error,
-                            1,
-                            0,
-                            _("'%s' not a number between 0 and %u (inclusive)"),
-                            *iter,
-                            max);
+                nm_utils_error_set(error,
+                                   NM_UTILS_ERROR_UNKNOWN,
+                                   _("'%s' not a number between 0 and %u (inclusive)"),
+                                   *iter,
+                                   max);
             }
             return FALSE;
         }
@@ -3210,7 +3270,10 @@ _set_fcn_infiniband_p_key(ARGS_SET_FCN)
     else {
         p_key = _nm_utils_ascii_str_to_int64(value, 0, -1, G_MAXUINT16, -2);
         if (p_key == -2) {
-            g_set_error(error, 1, 0, _("'%s' is not a valid IBoIP P_Key"), value);
+            nm_utils_error_set(error,
+                               NM_UTILS_ERROR_UNKNOWN,
+                               _("'%s' is not a valid IBoIP P_Key"),
+                               value);
             return FALSE;
         }
     }
@@ -3386,23 +3449,6 @@ _set_fcn_ip_config_method(ARGS_SET_FCN)
     return TRUE;
 }
 
-static const char *
-_multilist_validate2_fcn_ip_config_dns(NMSetting *setting, const char *value, GError **error)
-{
-    int addr_family = nm_setting_ip_config_get_addr_family(NM_SETTING_IP_CONFIG(setting));
-
-    if (!nm_utils_parse_inaddr(addr_family, value, NULL)) {
-        nm_utils_error_set(error,
-                           NM_UTILS_ERROR_INVALID_ARGUMENT,
-                           _("invalid IPv%c address '%s'"),
-                           nm_utils_addr_family_to_char(addr_family),
-                           value);
-        return NULL;
-    }
-
-    return value;
-}
-
 static gboolean
 _multilist_add_fcn_ip_config_dns_options(NMSetting *setting, const char *item)
 {
@@ -3518,12 +3564,11 @@ _set_fcn_ip_config_gateway(ARGS_SET_FCN)
 
     value = nm_strstrip_avoid_copy_a(300, value, &value_to_free);
 
-    if (!nm_utils_ipaddr_is_valid(addr_family, value)) {
-        g_set_error(error,
-                    NM_UTILS_ERROR,
-                    NM_UTILS_ERROR_INVALID_ARGUMENT,
-                    _("invalid gateway address '%s'"),
-                    value);
+    if (!nm_inet_is_valid(addr_family, value)) {
+        nm_utils_error_set(error,
+                           NM_UTILS_ERROR_INVALID_ARGUMENT,
+                           _("invalid gateway address '%s'"),
+                           value);
         return FALSE;
     }
 
@@ -3672,7 +3717,10 @@ _set_fcn_olpc_mesh_channel(ARGS_SET_FCN)
         return _gobject_property_reset_default(setting, property_info->property_name);
 
     if (!nmc_string_to_uint(value, TRUE, 1, 13, &chan_int)) {
-        g_set_error(error, 1, 0, _("'%s' is not a valid channel; use <1-13>"), value);
+        nm_utils_error_set(error,
+                           NM_UTILS_ERROR_UNKNOWN,
+                           _("'%s' is not a valid channel; use <1-13>"),
+                           value);
         return FALSE;
     }
     g_object_set(setting, property_info->property_name, chan_int, NULL);
@@ -3717,6 +3765,20 @@ _objlist_obj_to_str_fcn_tc_config_qdiscs(NMMetaAccessorGetType get_type,
     s     = nm_utils_tc_qdisc_to_str(qdisc, NULL);
     if (s)
         g_string_append(str, s);
+}
+
+static void
+_objlist_obj_to_str_fcn_ovs_port_trunks(NMMetaAccessorGetType get_type,
+                                        NMSetting            *setting,
+                                        guint                 idx,
+                                        GString              *str)
+{
+    gs_free char *s = NULL;
+    NMRange      *trunk;
+
+    trunk = nm_setting_ovs_port_get_trunk(NM_SETTING_OVS_PORT(setting), idx);
+    s     = nm_range_to_str(trunk);
+    nm_utils_escaped_tokens_escape_gstr_assert(s, ESCAPED_TOKENS_DELIMITERS, str);
 }
 
 static void
@@ -3784,6 +3846,37 @@ _objlist_set_fcn_tc_config_qdiscs(NMSetting  *setting,
         nm_setting_tc_config_add_qdisc(NM_SETTING_TC_CONFIG(setting), tc_qdisc);
     else
         nm_setting_tc_config_remove_qdisc_by_value(NM_SETTING_TC_CONFIG(setting), tc_qdisc);
+    return TRUE;
+}
+
+static gboolean
+_objlist_set_fcn_ovs_port_trunks(NMSetting  *setting,
+                                 gboolean    do_add,
+                                 const char *value,
+                                 GError    **error)
+{
+    NMRange              *range;
+    gs_free_error GError *local = NULL;
+    guint64               start;
+    guint64               end;
+
+    range = nm_range_from_str(value, &local);
+    if (!range) {
+        nm_utils_error_set(error,
+                           NM_UTILS_ERROR_INVALID_ARGUMENT,
+                           "%s. %s",
+                           local->message,
+                           _("The valid syntax is: '<value>' or '<start>-<end>"));
+        return FALSE;
+    }
+
+    if (do_add)
+        nm_setting_ovs_port_add_trunk(NM_SETTING_OVS_PORT(setting), range);
+    else {
+        nm_range_get_range(range, &start, &end);
+        nm_setting_ovs_port_remove_trunk_by_value(NM_SETTING_OVS_PORT(setting), start, end);
+    }
+
     return TRUE;
 }
 
@@ -4003,7 +4096,10 @@ _set_fcn_vlan_xgress_priority_map(ARGS_SET_FCN)
                                                   NULL,
                                                   NULL,
                                                   NULL)) {
-            g_set_error(error, 1, 0, _("invalid priority map '%s'"), prio_map[i]);
+            nm_utils_error_set(error,
+                               NM_UTILS_ERROR_UNKNOWN,
+                               _("invalid priority map '%s'"),
+                               prio_map[i]);
             return FALSE;
         }
     }
@@ -4093,7 +4189,10 @@ _set_fcn_wired_s390_subchannels(ARGS_SET_FCN)
     strv = nm_strsplit_set(value, " ,\t");
     len  = NM_PTRARRAY_LEN(strv);
     if (len != 2 && len != 3) {
-        g_set_error(error, 1, 0, _("'%s' is not valid; 2 or 3 strings should be provided"), value);
+        nm_utils_error_set(error,
+                           NM_UTILS_ERROR_UNKNOWN,
+                           _("'%s' is not valid; 2 or 3 strings should be provided"),
+                           value);
         return FALSE;
     }
 
@@ -4165,13 +4264,16 @@ _set_fcn_wireless_channel(ARGS_SET_FCN)
         return _gobject_property_reset_default(setting, property_info->property_name);
 
     if (!nmc_string_to_uint(value, FALSE, 0, 0, &chan_int)) {
-        g_set_error(error, 1, 0, _("'%s' is not a valid channel"), value);
+        nm_utils_error_set(error, NM_UTILS_ERROR_UNKNOWN, _("'%s' is not a valid channel"), value);
         return FALSE;
     }
 
     if (!nm_utils_wifi_is_channel_valid(chan_int, "a")
         && !nm_utils_wifi_is_channel_valid(chan_int, "bg")) {
-        g_set_error(error, 1, 0, _("'%ld' is not a valid channel"), chan_int);
+        nm_utils_error_set(error,
+                           NM_UTILS_ERROR_UNKNOWN,
+                           _("'%ld' is not a valid channel"),
+                           chan_int);
         return FALSE;
     }
 
@@ -4218,7 +4320,7 @@ _get_fcn_wireless_security_wep_key(ARGS_GET_FCN)
 static gboolean
 _set_fcn_wireless_wep_key(ARGS_SET_FCN)
 {
-    NMWepKeyType guessed_type = NM_WEP_KEY_TYPE_UNKNOWN;
+    NMWepKeyType guessed_type;
     NMWepKeyType type;
     guint32      prev_idx, idx;
 
@@ -4237,36 +4339,39 @@ _set_fcn_wireless_wep_key(ARGS_SET_FCN)
         guessed_type = NM_WEP_KEY_TYPE_KEY;
     else if (nm_utils_wep_key_valid(value, NM_WEP_KEY_TYPE_PASSPHRASE))
         guessed_type = NM_WEP_KEY_TYPE_PASSPHRASE;
-
-    if (guessed_type == NM_WEP_KEY_TYPE_UNKNOWN) {
-        g_set_error(error, 1, 0, _("'%s' is not valid"), value);
+    else {
+        nm_utils_error_set(error, NM_UTILS_ERROR_UNKNOWN, _("'%s' is not valid"), value);
         return FALSE;
     }
 
-    if (type != NM_WEP_KEY_TYPE_UNKNOWN && type != guessed_type) {
-        if (nm_utils_wep_key_valid(value, type))
+    if (type != guessed_type) {
+        if (type == NM_WEP_KEY_TYPE_UNKNOWN) {
+            /* pass */
+        } else if (nm_utils_wep_key_valid(value, type))
             guessed_type = type;
         else {
-            g_set_error(error,
-                        1,
-                        0,
-                        _("'%s' not compatible with %s '%s', please change the key or set the "
-                          "right %s first."),
-                        value,
-                        NM_SETTING_WIRELESS_SECURITY_WEP_KEY_TYPE,
-                        wep_key_type_to_string(type),
-                        NM_SETTING_WIRELESS_SECURITY_WEP_KEY_TYPE);
+            nm_utils_error_set(
+                error,
+                NM_UTILS_ERROR_UNKNOWN,
+                _("'%s' not compatible with %s '%s', please change the key or set the "
+                  "right %s first."),
+                value,
+                NM_SETTING_WIRELESS_SECURITY_WEP_KEY_TYPE,
+                wep_key_type_to_string(type),
+                NM_SETTING_WIRELESS_SECURITY_WEP_KEY_TYPE);
             return FALSE;
         }
     }
     prev_idx =
         nm_setting_wireless_security_get_wep_tx_keyidx(NM_SETTING_WIRELESS_SECURITY(setting));
     idx = property_info->property_name[strlen(property_info->property_name) - 1] - '0';
-    _env_warn_fcn(environment,
-                  environment_user_data,
-                  NM_META_ENV_WARN_LEVEL_INFO,
-                  N_("WEP key is guessed to be of '%s'"),
-                  wep_key_type_to_string(guessed_type));
+    if (type == NM_WEP_KEY_TYPE_UNKNOWN) {
+        _env_warn_fcn(environment,
+                      environment_user_data,
+                      NM_META_ENV_WARN_LEVEL_INFO,
+                      N_("WEP key is guessed to be of %s"),
+                      wep_key_type_to_string(guessed_type));
+    }
     if (idx != prev_idx) {
         _env_warn_fcn(environment,
                       environment_user_data,
@@ -4415,13 +4520,13 @@ _set_fcn_ethtool(ARGS_SET_FCN)
     if (nm_ethtool_id_is_coalesce(ethtool_id) || nm_ethtool_id_is_ring(ethtool_id)) {
         i64 = _nm_utils_ascii_str_to_int64(value, 10, 0, G_MAXUINT32, -1);
         if (i64 == -1) {
-            g_set_error(error,
-                        NM_UTILS_ERROR,
-                        NM_UTILS_ERROR_INVALID_ARGUMENT,
-                        _("'%s' is out of range [%" G_GUINT32_FORMAT ", %" G_GUINT32_FORMAT "]"),
-                        value,
-                        0,
-                        G_MAXUINT32);
+            nm_utils_error_set(
+                error,
+                NM_UTILS_ERROR_INVALID_ARGUMENT,
+                _("'%s' is out of range [%" G_GUINT32_FORMAT ", %" G_GUINT32_FORMAT "]"),
+                value,
+                0,
+                G_MAXUINT32);
             return FALSE;
         }
 
@@ -4435,11 +4540,10 @@ _set_fcn_ethtool(ARGS_SET_FCN)
                                     NMC_STRING_TO_TERNARY_FLAGS_IGNORE_FOR_DEFAULT,
                                     &t,
                                     NULL)) {
-        g_set_error(error,
-                    NM_UTILS_ERROR,
-                    NM_UTILS_ERROR_INVALID_ARGUMENT,
-                    _("'%s' is not valid; use 'on', 'off', or 'ignore'"),
-                    value);
+        nm_utils_error_set(error,
+                           NM_UTILS_ERROR_INVALID_ARGUMENT,
+                           _("'%s' is not valid; use 'on', 'off', or 'ignore'"),
+                           value);
         return FALSE;
     }
     if (t == NM_TERNARY_DEFAULT)
@@ -4507,7 +4611,8 @@ static const NMMetaNestedPropertyInfo meta_nested_property_infos_bond[] = {
             .property_name =            NM_SETTING_BOND_OPTIONS,
             .property_alias =           "primary",
             .inf_flags =                NM_META_PROPERTY_INF_FLAG_DONT_ASK,
-            .prompt =                   N_("Bonding primary interface [none]"),
+            .prompt =                   N_("Bonding primary interface"),
+            .def_hint =                 "[none]",
         )
     },
     {
@@ -4523,7 +4628,8 @@ static const NMMetaNestedPropertyInfo meta_nested_property_infos_bond[] = {
             .property_name =            NM_SETTING_BOND_OPTIONS,
             .property_alias =           "miimon",
             .inf_flags =                NM_META_PROPERTY_INF_FLAG_DONT_ASK,
-            .prompt =                   N_("Bonding miimon [100]"),
+            .prompt =                   N_("Bonding miimon"),
+            .def_hint =                 "[100]",
         )
     },
     {
@@ -4531,7 +4637,8 @@ static const NMMetaNestedPropertyInfo meta_nested_property_infos_bond[] = {
             .property_name =            NM_SETTING_BOND_OPTIONS,
             .property_alias =           "downdelay",
             .inf_flags =                NM_META_PROPERTY_INF_FLAG_DONT_ASK,
-            .prompt =                   N_("Bonding downdelay [0]"),
+            .prompt =                   N_("Bonding downdelay"),
+            .def_hint =                 "[0]",
         )
     },
     {
@@ -4539,7 +4646,8 @@ static const NMMetaNestedPropertyInfo meta_nested_property_infos_bond[] = {
             .property_name =            NM_SETTING_BOND_OPTIONS,
             .property_alias =           "updelay",
             .inf_flags =                NM_META_PROPERTY_INF_FLAG_DONT_ASK,
-            .prompt =                   N_("Bonding updelay [0]"),
+            .prompt =                   N_("Bonding updelay"),
+            .def_hint =                 "[0]",
         )
     },
     {
@@ -4547,7 +4655,8 @@ static const NMMetaNestedPropertyInfo meta_nested_property_infos_bond[] = {
             .property_name =            NM_SETTING_BOND_OPTIONS,
             .property_alias =           "arp-interval",
             .inf_flags =                NM_META_PROPERTY_INF_FLAG_DONT_ASK,
-            .prompt =                   N_("Bonding arp-interval [0]"),
+            .prompt =                   N_("Bonding arp-interval"),
+            .def_hint =                 "[0]",
         )
     },
     {
@@ -4555,7 +4664,8 @@ static const NMMetaNestedPropertyInfo meta_nested_property_infos_bond[] = {
             .property_name =            NM_SETTING_BOND_OPTIONS,
             .property_alias =           "arp-ip-target",
             .inf_flags =                NM_META_PROPERTY_INF_FLAG_DONT_ASK,
-            .prompt =                   N_("Bonding arp-ip-target [none]"),
+            .prompt =                   N_("Bonding arp-ip-target"),
+            .def_hint =                 "[none]",
         )
     },
     {
@@ -4563,7 +4673,8 @@ static const NMMetaNestedPropertyInfo meta_nested_property_infos_bond[] = {
             .property_name =            NM_SETTING_BOND_OPTIONS,
             .property_alias =           "lacp-rate",
             .inf_flags =                NM_META_PROPERTY_INF_FLAG_DONT_ASK,
-            .prompt =                   N_("LACP rate ('slow' or 'fast') [slow]"),
+            .prompt =                   N_("LACP rate (slow/fast)"),
+            .def_hint =                 "[slow]",
         )
     },
 };
@@ -5077,12 +5188,6 @@ static const NMMetaPropertyInfo *const property_infos_802_1X[] = {
     PROPERTY_INFO_WITH_DESC (NM_SETTING_802_1X_AUTH_TIMEOUT,
         .property_type =                &_pt_gobject_int,
     ),
-    PROPERTY_INFO_WITH_DESC (NM_SETTING_802_1X_TLS_DISABLE_TIME_CHECKS,
-        .property_type =                &_pt_gobject_string,
-        .property_typ_data = DEFINE_PROPERTY_TYP_DATA (
-            .values_static =            NM_MAKE_STRV ("0", "1"),
-        ),
-    ),
     PROPERTY_INFO_WITH_DESC (NM_SETTING_802_1X_PAC_FILE_PASSWORD,
         .is_secret =                    TRUE,
         .property_type =                &_pt_gobject_string,
@@ -5197,7 +5302,7 @@ static const NMMetaPropertyInfo *const property_infos_BOND_PORT[] = {
     PROPERTY_INFO_WITH_DESC (NM_SETTING_BOND_PORT_QUEUE_ID,
         .is_cli_option =                TRUE,
         .property_alias =               "queue-id",
-        .prompt =                       N_("Queue ID [0]"),
+        .prompt =                       N_("Queue ID"),
         .property_type =                &_pt_gobject_int,
     ),
     NULL
@@ -5215,37 +5320,37 @@ static const NMMetaPropertyInfo *const property_infos_BRIDGE[] = {
     PROPERTY_INFO_WITH_DESC (NM_SETTING_BRIDGE_STP,
         .is_cli_option =                TRUE,
         .property_alias =               "stp",
-        .prompt =                       N_("Enable STP [no]"),
+        .prompt =                       N_("Enable STP"),
         .property_type =                &_pt_gobject_bool,
     ),
     PROPERTY_INFO_WITH_DESC (NM_SETTING_BRIDGE_PRIORITY,
         .is_cli_option =                TRUE,
         .property_alias =               "priority",
-        .prompt =                       N_("STP priority [32768]"),
+        .prompt =                       N_("STP priority"),
         .property_type =                &_pt_gobject_int,
     ),
     PROPERTY_INFO_WITH_DESC (NM_SETTING_BRIDGE_FORWARD_DELAY,
         .is_cli_option =                TRUE,
         .property_alias =               "forward-delay",
-        .prompt =                       N_("Forward delay [15]"),
+        .prompt =                       N_("Forward delay"),
         .property_type =                &_pt_gobject_int,
     ),
     PROPERTY_INFO_WITH_DESC (NM_SETTING_BRIDGE_HELLO_TIME,
         .is_cli_option =                TRUE,
         .property_alias =               "hello-time",
-        .prompt =                       N_("Hello time [2]"),
+        .prompt =                       N_("Hello time"),
         .property_type =                &_pt_gobject_int,
     ),
     PROPERTY_INFO_WITH_DESC (NM_SETTING_BRIDGE_MAX_AGE,
         .is_cli_option =                TRUE,
         .property_alias =               "max-age",
-        .prompt =                       N_("Max age [20]"),
+        .prompt =                       N_("Max age"),
         .property_type =                &_pt_gobject_int,
     ),
     PROPERTY_INFO_WITH_DESC (NM_SETTING_BRIDGE_AGEING_TIME,
         .is_cli_option =                TRUE,
         .property_alias =               "ageing-time",
-        .prompt =                       N_("MAC address ageing time [300]"),
+        .prompt =                       N_("MAC address ageing time"),
         .property_type =                &_pt_gobject_int,
     ),
     PROPERTY_INFO_WITH_DESC (NM_SETTING_BRIDGE_GROUP_ADDRESS,
@@ -5255,7 +5360,7 @@ static const NMMetaPropertyInfo *const property_infos_BRIDGE[] = {
     PROPERTY_INFO_WITH_DESC (NM_SETTING_BRIDGE_GROUP_FORWARD_MASK,
         .is_cli_option =                TRUE,
         .property_alias =               "group-forward-mask",
-        .prompt =                       N_("Group forward mask [0]"),
+        .prompt =                       N_("Group forward mask"),
         .property_type =                &_pt_gobject_int,
     ),
     PROPERTY_INFO_WITH_DESC (NM_SETTING_BRIDGE_MULTICAST_HASH_MAX,
@@ -5297,7 +5402,7 @@ static const NMMetaPropertyInfo *const property_infos_BRIDGE[] = {
     PROPERTY_INFO_WITH_DESC (NM_SETTING_BRIDGE_MULTICAST_SNOOPING,
         .is_cli_option =                TRUE,
         .property_alias =               "multicast-snooping",
-        .prompt =                       N_("Enable IGMP snooping [no]"),
+        .prompt =                       N_("Enable IGMP snooping"),
         .property_type =                &_pt_gobject_bool,
     ),
     PROPERTY_INFO_WITH_DESC (NM_SETTING_BRIDGE_MULTICAST_STARTUP_QUERY_COUNT,
@@ -5355,19 +5460,19 @@ static const NMMetaPropertyInfo *const property_infos_BRIDGE_PORT[] = {
     PROPERTY_INFO_WITH_DESC (NM_SETTING_BRIDGE_PORT_PRIORITY,
         .is_cli_option =                TRUE,
         .property_alias =               "priority",
-        .prompt =                       N_("Bridge port priority [32]"),
+        .prompt =                       N_("Bridge port priority"),
         .property_type =                &_pt_gobject_int,
     ),
     PROPERTY_INFO_WITH_DESC (NM_SETTING_BRIDGE_PORT_PATH_COST,
         .is_cli_option =                TRUE,
         .property_alias =               "path-cost",
-        .prompt =                       N_("Bridge port STP path cost [100]"),
+        .prompt =                       N_("Bridge port STP path cost"),
         .property_type =                &_pt_gobject_int,
     ),
     PROPERTY_INFO_WITH_DESC (NM_SETTING_BRIDGE_PORT_HAIRPIN_MODE,
         .is_cli_option =                TRUE,
         .property_alias =               "hairpin",
-        .prompt =                       N_("Hairpin [no]"),
+        .prompt =                       N_("Hairpin"),
         .property_type =                &_pt_gobject_bool,
     ),
     PROPERTY_INFO_WITH_DESC (NM_SETTING_BRIDGE_PORT_VLANS,
@@ -5425,7 +5530,10 @@ static const NMMetaPropertyInfo *const property_infos_CONNECTION[] = {
         .property_type =                &_pt_gobject_string,
     ),
     PROPERTY_INFO_WITH_DESC (NM_SETTING_CONNECTION_UUID,
-        .property_type =                DEFINE_PROPERTY_TYPE ( .get_fcn = _get_fcn_gobject ),
+            .property_type =                DEFINE_PROPERTY_TYPE (
+                .get_fcn =                  _get_fcn_gobject,
+                .set_fcn =                  _set_fcn_connection_uuid,
+            ),
     ),
     PROPERTY_INFO_WITH_DESC (NM_SETTING_CONNECTION_STABLE_ID,
         .property_type =                &_pt_gobject_string,
@@ -5624,11 +5732,29 @@ static const NMMetaPropertyInfo *const property_infos_CONNECTION[] = {
             ),
         ),
     ),
+    PROPERTY_INFO_WITH_DESC (NM_SETTING_CONNECTION_MPTCP_FLAGS,
+        .property_type =                &_pt_gobject_enum,
+        .property_typ_data = DEFINE_PROPERTY_TYP_DATA (
+            PROPERTY_TYP_DATA_SUBTYPE (gobject_enum,
+                .get_gtype =            nm_mptcp_flags_get_type,
+                .value_infos_get =      GOBJECT_ENUM_VALUE_INFOS_GET_FROM_SETTER,
+                .value_infos =          ENUM_VALUE_INFOS (
+                    {
+                        .value = NM_MPTCP_FLAGS_NONE,
+                        .nick = "default",
+                    },
+                ),
+            ),
+        ),
+    ),
     PROPERTY_INFO_WITH_DESC (NM_SETTING_CONNECTION_MUD_URL,
         .property_type =                &_pt_gobject_string,
         .hide_if_default =              TRUE,
     ),
     PROPERTY_INFO_WITH_DESC (NM_SETTING_CONNECTION_WAIT_DEVICE_TIMEOUT,
+        .property_type =                &_pt_gobject_int,
+    ),
+    PROPERTY_INFO_WITH_DESC (NM_SETTING_CONNECTION_WAIT_ACTIVATION_DELAY,
         .property_type =                &_pt_gobject_int,
     ),
     NULL
@@ -5951,7 +6077,7 @@ static const NMMetaPropertyInfo *const property_infos_INFINIBAND[] = {
     PROPERTY_INFO_WITH_DESC (NM_SETTING_INFINIBAND_MTU,
         .is_cli_option =                TRUE,
         .property_alias =               "mtu",
-        .prompt =                       N_("MTU [auto]"),
+        .prompt =                       N_("MTU"),
         .property_type =                &_pt_gobject_mtu,
         .property_typ_data = DEFINE_PROPERTY_TYP_DATA_SUBTYPE (mtu,
             .get_fcn =                  MTU_GET_FCN (NMSettingInfiniband, nm_setting_infiniband_get_mtu),
@@ -6015,7 +6141,6 @@ static const NMMetaPropertyInfo *const property_infos_IP4_CONFIG[] = {
                 .add_fcn =              MULTILIST_ADD_FCN             (NMSettingIPConfig, nm_setting_ip_config_add_dns),
                 .remove_by_idx_fcn_s =  MULTILIST_REMOVE_BY_IDX_FCN_S (NMSettingIPConfig, nm_setting_ip_config_remove_dns),
                 .remove_by_value_fcn =  MULTILIST_REMOVE_BY_VALUE_FCN (NMSettingIPConfig, nm_setting_ip_config_remove_dns_by_value),
-                .validate2_fcn =        _multilist_validate2_fcn_ip_config_dns,
                 .strsplit_plain =       TRUE,
             ),
         ),
@@ -6209,6 +6334,14 @@ static const NMMetaPropertyInfo *const property_infos_IP4_CONFIG[] = {
     PROPERTY_INFO_WITH_DESC (NM_SETTING_IP4_CONFIG_DHCP_VENDOR_CLASS_IDENTIFIER,
         .property_type =                &_pt_gobject_string,
     ),
+    PROPERTY_INFO_WITH_DESC (NM_SETTING_IP4_CONFIG_LINK_LOCAL,
+        .property_type =                &_pt_gobject_enum,
+        .property_typ_data = DEFINE_PROPERTY_TYP_DATA (
+            PROPERTY_TYP_DATA_SUBTYPE (gobject_enum,
+                .get_gtype =            nm_setting_ip4_link_local_get_type,
+            ),
+        ),
+    ),
     PROPERTY_INFO (NM_SETTING_IP_CONFIG_DHCP_REJECT_SERVERS, DESCRIBE_DOC_NM_SETTING_IP4_CONFIG_DHCP_REJECT_SERVERS,
         .property_type =                &_pt_multilist,
         .property_typ_data = DEFINE_PROPERTY_TYP_DATA (
@@ -6221,6 +6354,9 @@ static const NMMetaPropertyInfo *const property_infos_IP4_CONFIG[] = {
                 .strsplit_plain =       TRUE,
             ),
         ),
+    ),
+    PROPERTY_INFO (NM_SETTING_IP_CONFIG_AUTO_ROUTE_EXT_GW, DESCRIBE_DOC_NM_SETTING_IP4_CONFIG_AUTO_ROUTE_EXT_GW,
+        .property_type =                &_pt_gobject_ternary,
     ),
     NULL
 };
@@ -6260,7 +6396,6 @@ static const NMMetaPropertyInfo *const property_infos_IP6_CONFIG[] = {
                 .add_fcn =              MULTILIST_ADD_FCN             (NMSettingIPConfig, nm_setting_ip_config_add_dns),
                 .remove_by_idx_fcn_s =  MULTILIST_REMOVE_BY_IDX_FCN_S (NMSettingIPConfig, nm_setting_ip_config_remove_dns),
                 .remove_by_value_fcn =  MULTILIST_REMOVE_BY_VALUE_FCN (NMSettingIPConfig, nm_setting_ip_config_remove_dns_by_value),
-                .validate2_fcn =        _multilist_validate2_fcn_ip_config_dns,
                 .strsplit_plain =       TRUE,
             ),
         ),
@@ -6438,6 +6573,12 @@ static const NMMetaPropertyInfo *const property_infos_IP6_CONFIG[] = {
         .property_type =                &_pt_gobject_int,
         .property_typ_data =            &_ptd_gobject_int_timeout,
     ),
+    PROPERTY_INFO (NM_SETTING_IP6_CONFIG_MTU, DESCRIBE_DOC_NM_SETTING_IP6_CONFIG_MTU,
+        .property_type =                &_pt_gobject_mtu,
+        .property_typ_data = DEFINE_PROPERTY_TYP_DATA_SUBTYPE (mtu,
+            .get_fcn =                  MTU_GET_FCN (NMSettingIP6Config, nm_setting_ip6_config_get_mtu),
+        ),
+    ),
     PROPERTY_INFO (NM_SETTING_IP6_CONFIG_DHCP_DUID, DESCRIBE_DOC_NM_SETTING_IP6_CONFIG_DHCP_DUID,
         .property_type =                &_pt_gobject_string,
     ),
@@ -6461,6 +6602,9 @@ static const NMMetaPropertyInfo *const property_infos_IP6_CONFIG[] = {
                 .get_gtype =            nm_dhcp_hostname_flags_get_type,
             ),
         )
+    ),
+    PROPERTY_INFO (NM_SETTING_IP_CONFIG_AUTO_ROUTE_EXT_GW, DESCRIBE_DOC_NM_SETTING_IP6_CONFIG_AUTO_ROUTE_EXT_GW,
+        .property_type =                &_pt_gobject_ternary,
     ),
     PROPERTY_INFO_WITH_DESC (NM_SETTING_IP6_CONFIG_TOKEN,
         .property_type =                &_pt_gobject_string,
@@ -6527,6 +6671,12 @@ static const NMMetaPropertyInfo *const property_infos_IP_TUNNEL[] = {
     PROPERTY_INFO_WITH_DESC (NM_SETTING_IP_TUNNEL_FLOW_LABEL,
         .property_type =                &_pt_gobject_int,
     ),
+    PROPERTY_INFO_WITH_DESC (NM_SETTING_IP_TUNNEL_FWMARK,
+        .property_type =                &_pt_gobject_int,
+        .property_typ_data = DEFINE_PROPERTY_TYP_DATA_SUBTYPE (gobject_int,
+            .base =                     16,
+        ),
+    ),
     PROPERTY_INFO_WITH_DESC (NM_SETTING_IP_TUNNEL_MTU,
         .property_type =                &_pt_gobject_mtu,
     ),
@@ -6536,6 +6686,21 @@ static const NMMetaPropertyInfo *const property_infos_IP_TUNNEL[] = {
             PROPERTY_TYP_DATA_SUBTYPE (gobject_enum,
                 .get_gtype =            nm_ip_tunnel_flags_get_type,
             ),
+        ),
+    ),
+    NULL
+};
+
+#undef  _CURRENT_NM_META_SETTING_TYPE
+#define _CURRENT_NM_META_SETTING_TYPE NM_META_SETTING_TYPE_LOOPBACK
+static const NMMetaPropertyInfo *const property_infos_LOOPBACK[] = {
+    PROPERTY_INFO_WITH_DESC (NM_SETTING_LOOPBACK_MTU,
+        .is_cli_option =                TRUE,
+        .property_alias =               "mtu",
+        .prompt =                       N_("MTU"),
+        .property_type =                &_pt_gobject_mtu,
+        .property_typ_data = DEFINE_PROPERTY_TYP_DATA_SUBTYPE (mtu,
+            .get_fcn =                  MTU_GET_FCN (NMSettingLoopback, nm_setting_loopback_get_mtu),
         ),
     ),
     NULL
@@ -6569,7 +6734,7 @@ static const NMMetaPropertyInfo *const property_infos_MACSEC[] = {
     PROPERTY_INFO_WITH_DESC (NM_SETTING_MACSEC_ENCRYPT,
         .is_cli_option =                TRUE,
         .property_alias =               "encrypt",
-        .prompt =                       N_("Enable encryption [yes]"),
+        .prompt =                       N_("Enable encryption"),
         .property_type =                &_pt_gobject_bool,
     ),
     PROPERTY_INFO_WITH_DESC (NM_SETTING_MACSEC_MKA_CAK,
@@ -6591,7 +6756,7 @@ static const NMMetaPropertyInfo *const property_infos_MACSEC[] = {
     PROPERTY_INFO_WITH_DESC (NM_SETTING_MACSEC_PORT,
         .is_cli_option =                TRUE,
         .property_alias =               "port",
-        .prompt =                       N_("SCI port [1]"),
+        .prompt =                       N_("SCI port"),
         .property_type =                &_pt_gobject_int,
     ),
     PROPERTY_INFO_WITH_DESC (NM_SETTING_MACSEC_VALIDATION,
@@ -6638,7 +6803,7 @@ static const NMMetaPropertyInfo *const property_infos_MACVLAN[] = {
     PROPERTY_INFO_WITH_DESC (NM_SETTING_MACVLAN_TAP,
         .is_cli_option =                TRUE,
         .property_alias =               "tap",
-        .prompt =                       N_("Tap [no]"),
+        .prompt =                       N_("Tap"),
         .property_type =                &_pt_gobject_bool,
     ),
     NULL
@@ -6714,7 +6879,7 @@ static const NMMetaPropertyInfo *const property_infos_OLPC_MESH[] = {
     PROPERTY_INFO_WITH_DESC (NM_SETTING_OLPC_MESH_CHANNEL,
         .is_cli_option =                TRUE,
         .property_alias =               "channel",
-        .prompt =                       N_("OLPC Mesh channel [1]"),
+        .prompt =                       N_("OLPC Mesh channel"),
         .property_type = DEFINE_PROPERTY_TYPE (
             .get_fcn =                  _get_fcn_gobject,
             .set_fcn =                  _set_fcn_olpc_mesh_channel,
@@ -6765,6 +6930,12 @@ static const NMMetaPropertyInfo *const property_infos_OVS_DPDK[] = {
    PROPERTY_INFO_WITH_DESC (NM_SETTING_OVS_DPDK_N_RXQ,
         .property_type =                &_pt_gobject_int,
    ),
+   PROPERTY_INFO_WITH_DESC (NM_SETTING_OVS_DPDK_N_RXQ_DESC,
+        .property_type =                &_pt_gobject_int,
+   ),
+   PROPERTY_INFO_WITH_DESC (NM_SETTING_OVS_DPDK_N_TXQ_DESC,
+        .property_type =                &_pt_gobject_int,
+   ),
     NULL
 };
 
@@ -6776,6 +6947,9 @@ static const NMMetaPropertyInfo *const property_infos_OVS_INTERFACE[] = {
         .property_typ_data = DEFINE_PROPERTY_TYP_DATA (
             .values_static =            NM_MAKE_STRV ("internal", "system", "patch", "dpdk"),
         ),
+    ),
+    PROPERTY_INFO_WITH_DESC (NM_SETTING_OVS_INTERFACE_OFPORT_REQUEST,
+          .property_type = &_pt_gobject_int,
     ),
     NULL
 };
@@ -6795,7 +6969,18 @@ static const NMMetaPropertyInfo *const property_infos_OVS_PORT[] = {
     PROPERTY_INFO_WITH_DESC (NM_SETTING_OVS_PORT_VLAN_MODE,
         .property_type =                &_pt_gobject_string,
         .property_typ_data = DEFINE_PROPERTY_TYP_DATA (
-            .values_static =            NM_MAKE_STRV ("access", "native-tagged", "native-untagged", "trunk"),
+            .values_static =            NM_MAKE_STRV ("access", "native-tagged", "native-untagged", "trunk", "dot1q-tunnel"),
+        ),
+    ),
+    PROPERTY_INFO_WITH_DESC (NM_SETTING_OVS_PORT_TRUNKS,
+        .property_type =                &_pt_objlist,
+        .property_typ_data = DEFINE_PROPERTY_TYP_DATA (
+            PROPERTY_TYP_DATA_SUBTYPE (objlist,
+                .get_num_fcn =          OBJLIST_GET_NUM_FCN         (NMSettingOvsPort, nm_setting_ovs_port_get_num_trunks),
+                .clear_all_fcn =        OBJLIST_CLEAR_ALL_FCN       (NMSettingOvsPort, nm_setting_ovs_port_clear_trunks),
+                .obj_to_str_fcn =       _objlist_obj_to_str_fcn_ovs_port_trunks,
+                .set_fcn =              _objlist_set_fcn_ovs_port_trunks,
+            ),
         ),
     ),
     PROPERTY_INFO_WITH_DESC (NM_SETTING_OVS_PORT_TAG,
@@ -6940,7 +7125,7 @@ static const NMMetaPropertyInfo *const property_infos_PROXY[] = {
     PROPERTY_INFO_WITH_DESC (NM_SETTING_PROXY_BROWSER_ONLY,
         .is_cli_option =                TRUE,
         .property_alias =               "browser-only",
-        .prompt =                       N_("Browser only [no]"),
+        .prompt =                       N_("Browser only"),
         .property_type =                &_pt_gobject_bool
     ),
     PROPERTY_INFO_WITH_DESC (NM_SETTING_PROXY_PAC_URL,
@@ -7379,19 +7564,19 @@ static const NMMetaPropertyInfo *const property_infos_TUN[] = {
     PROPERTY_INFO_WITH_DESC (NM_SETTING_TUN_PI,
         .is_cli_option =                TRUE,
         .property_alias =               "pi",
-        .prompt =                       N_("Enable PI [no]"),
+        .prompt =                       N_("Enable PI"),
         .property_type =                &_pt_gobject_bool,
     ),
     PROPERTY_INFO_WITH_DESC (NM_SETTING_TUN_VNET_HDR,
         .is_cli_option =                TRUE,
         .property_alias =               "vnet-hdr",
-        .prompt =                       N_("Enable VNET header [no]"),
+        .prompt =                       N_("Enable VNET header"),
         .property_type =                &_pt_gobject_bool,
     ),
     PROPERTY_INFO_WITH_DESC (NM_SETTING_TUN_MULTI_QUEUE,
         .is_cli_option =                TRUE,
         .property_alias =               "multi-queue",
-        .prompt =                       N_("Enable multi queue [no]"),
+        .prompt =                       N_("Enable multi queue"),
         .property_type =                &_pt_gobject_bool,
     ),
     NULL
@@ -7434,6 +7619,12 @@ static const NMMetaPropertyInfo *const property_infos_VLAN[] = {
         .property_type = DEFINE_PROPERTY_TYPE (
             .get_fcn =                  _get_fcn_vlan_flags,
             .set_fcn =                  _set_fcn_gobject_flags,
+        ),
+    ),
+    PROPERTY_INFO_WITH_DESC (NM_SETTING_VLAN_PROTOCOL,
+        .property_type =                &_pt_gobject_string,
+        .property_typ_data = DEFINE_PROPERTY_TYP_DATA (
+            .values_static =            NM_MAKE_STRV ("802.1Q", "802.1ad"),
         ),
     ),
     PROPERTY_INFO_WITH_DESC (NM_SETTING_VLAN_INGRESS_PRIORITY_MAP,
@@ -7517,7 +7708,7 @@ static const NMMetaPropertyInfo *const property_infos_VRF[] = {
         .is_cli_option =                TRUE,
         .property_alias =               "table",
         .inf_flags =                    NM_META_PROPERTY_INF_FLAG_REQD,
-        .prompt =                       N_("Table [0]"),
+        .prompt =                       N_("Table"),
         .property_type =                &_pt_gobject_int,
     ),
     NULL
@@ -7555,19 +7746,19 @@ static const NMMetaPropertyInfo *const property_infos_VXLAN[] = {
     PROPERTY_INFO_WITH_DESC (NM_SETTING_VXLAN_SOURCE_PORT_MIN,
         .is_cli_option =                TRUE,
         .property_alias =               "source-port-min",
-        .prompt =                       N_("Minimum source port [0]"),
+        .prompt =                       N_("Minimum source port"),
         .property_type =                &_pt_gobject_int,
     ),
     PROPERTY_INFO_WITH_DESC (NM_SETTING_VXLAN_SOURCE_PORT_MAX,
         .is_cli_option =                TRUE,
         .property_alias =               "source-port-max",
-        .prompt =                       N_("Maximum source port [0]"),
+        .prompt =                       N_("Maximum source port"),
         .property_type =                &_pt_gobject_int,
     ),
     PROPERTY_INFO_WITH_DESC (NM_SETTING_VXLAN_DESTINATION_PORT,
         .is_cli_option =                TRUE,
         .property_alias =               "destination-port",
-        .prompt =                       N_("Destination port [8472]"),
+        .prompt =                       N_("Destination port"),
         .property_type =                &_pt_gobject_int,
     ),
     PROPERTY_INFO_WITH_DESC (NM_SETTING_VXLAN_TOS,
@@ -7707,7 +7898,7 @@ static const NMMetaPropertyInfo *const property_infos_WIRED[] = {
     PROPERTY_INFO_WITH_DESC (NM_SETTING_WIRED_MTU,
         .is_cli_option =                TRUE,
         .property_alias =               "mtu",
-        .prompt =                       N_("MTU [auto]"),
+        .prompt =                       N_("MTU"),
         .property_type =                &_pt_gobject_mtu,
         .property_typ_data = DEFINE_PROPERTY_TYP_DATA_SUBTYPE (mtu,
             .get_fcn =                  MTU_GET_FCN (NMSettingWired, nm_setting_wired_get_mtu),
@@ -7907,7 +8098,7 @@ static const NMMetaPropertyInfo *const property_infos_WIRELESS[] = {
     PROPERTY_INFO_WITH_DESC (NM_SETTING_WIRELESS_MTU,
         .is_cli_option =                TRUE,
         .property_alias =               "mtu",
-        .prompt =                       N_("MTU [auto]"),
+        .prompt =                       N_("MTU"),
         .property_type =                &_pt_gobject_mtu,
         .property_typ_data = DEFINE_PROPERTY_TYP_DATA_SUBTYPE (mtu,
             .get_fcn =                  MTU_GET_FCN (NMSettingWireless, nm_setting_wireless_get_mtu),
@@ -8381,12 +8572,14 @@ _setting_init_fcn_wireless (ARGS_SETTING_INIT_FCN)
 #define SETTING_PRETTY_NAME_IP4_CONFIG          N_("IPv4 protocol")
 #define SETTING_PRETTY_NAME_IP6_CONFIG          N_("IPv6 protocol")
 #define SETTING_PRETTY_NAME_IP_TUNNEL           N_("IP-tunnel settings")
+#define SETTING_PRETTY_NAME_LOOPBACK            N_("Loopback settings")
 #define SETTING_PRETTY_NAME_MACSEC              N_("MACsec connection")
 #define SETTING_PRETTY_NAME_MACVLAN             N_("macvlan connection")
 #define SETTING_PRETTY_NAME_MATCH               N_("Match")
 #define SETTING_PRETTY_NAME_OLPC_MESH           N_("OLPC Mesh connection")
 #define SETTING_PRETTY_NAME_OVS_BRIDGE          N_("Open vSwitch bridge settings")
 #define SETTING_PRETTY_NAME_OVS_DPDK            N_("Open vSwitch DPDK interface settings")
+#define SETTING_PRETTY_NAME_OVS_OTHER_CONFIG    N_("OVS Other Config")
 #define SETTING_PRETTY_NAME_OVS_EXTERNAL_IDS    N_("OVS External IDs")
 #define SETTING_PRETTY_NAME_OVS_INTERFACE       N_("Open vSwitch interface settings")
 #define SETTING_PRETTY_NAME_OVS_PATCH           N_("Open vSwitch patch interface settings")
@@ -8540,6 +8733,12 @@ const NMMetaSettingInfoEditor nm_meta_setting_infos_editor[] = {
             NM_META_SETTING_VALID_PART_ITEM (ETHTOOL,               FALSE),
         ),
     ),
+    SETTING_INFO (LOOPBACK,
+        .valid_parts = NM_META_SETTING_VALID_PARTS (
+            NM_META_SETTING_VALID_PART_ITEM (CONNECTION,            TRUE),
+            NM_META_SETTING_VALID_PART_ITEM (LOOPBACK,              TRUE),
+        ),
+    ),
     SETTING_INFO (MACSEC,
         .valid_parts = NM_META_SETTING_VALID_PARTS (
             NM_META_SETTING_VALID_PART_ITEM (CONNECTION,            TRUE),
@@ -8579,6 +8778,7 @@ const NMMetaSettingInfoEditor nm_meta_setting_infos_editor[] = {
             NM_META_SETTING_VALID_PART_ITEM (OVS_DPDK,              TRUE),
         ),
     ),
+    SETTING_INFO_EMPTY (OVS_OTHER_CONFIG),
     SETTING_INFO_EMPTY (OVS_EXTERNAL_IDS),
     SETTING_INFO (OVS_INTERFACE,
         .valid_parts = NM_META_SETTING_VALID_PARTS (

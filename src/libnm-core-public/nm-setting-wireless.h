@@ -54,7 +54,7 @@ G_BEGIN_DECLS
  * Since: 1.12
  */
 /* clang-format off */
-typedef enum {                                                            /*< flags >*/
+typedef enum /*< flags >*/ {
     NM_SETTING_WIRELESS_WAKE_ON_WLAN_NONE                 = 0, /*< skip >*/
     NM_SETTING_WIRELESS_WAKE_ON_WLAN_ANY                  = 0x2,
     NM_SETTING_WIRELESS_WAKE_ON_WLAN_DISCONNECT           = 0x4,
@@ -153,6 +153,8 @@ typedef enum {                                                            /*< fl
  * @NM_SETTING_WIRELESS_POWERSAVE_ENABLE: enable powersave
  *
  * These flags indicate whether wireless powersave must be enabled.
+ *
+ * Since: 1.2
  **/
 typedef enum {
     NM_SETTING_WIRELESS_POWERSAVE_DEFAULT = 0,

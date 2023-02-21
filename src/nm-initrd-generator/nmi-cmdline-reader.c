@@ -12,7 +12,6 @@
 #include "libnm-log-core/nm-logging.h"
 #include "libnm-core-intern/nm-core-internal.h"
 #include "nm-initrd-generator.h"
-#include "libnm-systemd-shared/nm-sd-utils-shared.h"
 
 /*****************************************************************************/
 
@@ -100,6 +99,7 @@ reader_create_connection(Reader                  *reader,
                          const char              *ifname,
                          const char              *mac,
                          const char              *type_name,
+                         int                      autoconnect_priority,
                          NMConnectionMultiConnect multi_connect)
 {
     NMConnection *connection;
@@ -134,7 +134,7 @@ reader_create_connection(Reader                  *reader,
                  NM_SETTING_IP_CONFIG_MAY_FAIL,
                  TRUE,
                  NM_SETTING_IP6_CONFIG_ADDR_GEN_MODE,
-                 (int) NM_SETTING_IP6_CONFIG_ADDR_GEN_MODE_EUI64,
+                 (int) NM_SETTING_IP6_CONFIG_ADDR_GEN_MODE_DEFAULT_OR_EUI64,
                  NM_SETTING_IP_CONFIG_IGNORE_AUTO_DNS,
                  reader->ignore_auto_dns,
                  NM_SETTING_IP_CONFIG_DHCP_TIMEOUT,
@@ -156,6 +156,8 @@ reader_create_connection(Reader                  *reader,
                  multi_connect,
                  NM_SETTING_CONNECTION_AUTOCONNECT_RETRIES,
                  1,
+                 NM_SETTING_CONNECTION_AUTOCONNECT_PRIORITY,
+                 autoconnect_priority,
                  NULL);
 
     if (nm_streq0(type_name, NM_SETTING_INFINIBAND_SETTING_NAME)) {
@@ -190,6 +192,7 @@ reader_get_default_connection(Reader *reader)
                                        NULL,
                                        NULL,
                                        NM_SETTING_WIRED_SETTING_NAME,
+                                       NMI_AUTOCONNECT_PRIORITY_CMDLINE,
                                        NM_CONNECTION_MULTI_CONNECT_MULTIPLE);
         nm_connection_add_setting(con, nm_setting_wired_new());
         reader->default_connection = con;
@@ -265,6 +268,7 @@ reader_get_connection(Reader     *reader,
                                               ifname,
                                               mac,
                                               type_name,
+                                              NMI_AUTOCONNECT_PRIORITY_CMDLINE,
                                               NM_CONNECTION_MULTI_CONNECT_SINGLE);
     }
     setting = (NMSetting *) nm_connection_get_setting_connection(connection);
@@ -586,7 +590,7 @@ reader_parse_ip(Reader *reader, const char *sysfs_dir, char *argument)
             }
         }
 
-        if (client_hostname && !nm_sd_hostname_is_valid(client_hostname, FALSE))
+        if (client_hostname && !nm_hostname_is_valid(client_hostname, FALSE))
             client_hostname = NULL;
 
         if (client_hostname) {
@@ -633,8 +637,8 @@ reader_parse_ip(Reader *reader, const char *sysfs_dir, char *argument)
         gboolean is_ipv4 = client_ip_family == AF_INET;
         NMIPAddr addr;
 
-        if (is_ipv4 && nm_utils_parse_inaddr_bin(AF_INET, netmask, NULL, &addr))
-            client_ip_prefix = nm_utils_ip4_netmask_to_prefix(addr.addr4);
+        if (is_ipv4 && nm_inet_parse_bin(AF_INET, netmask, NULL, &addr))
+            client_ip_prefix = nm_ip4_addr_netmask_to_prefix(addr.addr4);
         else
             client_ip_prefix = _nm_utils_ascii_str_to_int64(netmask, 10, 0, is_ipv4 ? 32 : 128, -1);
 
@@ -647,15 +651,15 @@ reader_parse_ip(Reader *reader, const char *sysfs_dir, char *argument)
         NMIPAddress *address = NULL;
         NMIPAddr     addr;
 
-        if (nm_utils_parse_inaddr_prefix_bin(client_ip_family,
-                                             client_ip,
-                                             NULL,
-                                             &addr,
-                                             client_ip_prefix == -1 ? &client_ip_prefix : NULL)) {
+        if (nm_inet_parse_with_prefix_bin(client_ip_family,
+                                          client_ip,
+                                          NULL,
+                                          &addr,
+                                          client_ip_prefix == -1 ? &client_ip_prefix : NULL)) {
             if (client_ip_prefix == -1) {
                 switch (client_ip_family) {
                 case AF_INET:
-                    client_ip_prefix = _nm_utils_ip4_get_default_prefix(addr.addr4);
+                    client_ip_prefix = nm_ip4_addr_get_default_prefix(addr.addr4);
                     break;
                 case AF_INET6:
                     client_ip_prefix = 64;
@@ -843,7 +847,7 @@ reader_parse_ip(Reader *reader, const char *sysfs_dir, char *argument)
     for (i = 0; i < 2; i++) {
         if (dns_addr_family[i] == AF_UNSPEC)
             break;
-        nm_assert(nm_utils_ipaddr_is_valid(dns_addr_family[i], dns[i]));
+        nm_assert(nm_inet_is_valid(dns_addr_family[i], dns[i]));
         nm_setting_ip_config_add_dns(NM_IS_IPv4(dns_addr_family[i]) ? s_ip4 : s_ip6, dns[i]);
     }
 
@@ -965,14 +969,14 @@ reader_add_routes(Reader *reader, GPtrArray *array)
             connection = reader_get_default_connection(reader);
 
         if (net && *net) {
-            if (!nm_utils_parse_inaddr_prefix_bin(family, net, &family, &net_addr, &net_prefix)) {
+            if (!nm_inet_parse_with_prefix_bin(family, net, &family, &net_addr, &net_prefix)) {
                 _LOGW(LOGD_CORE, "Unrecognized address: %s", net);
                 continue;
             }
         }
 
         if (gateway && *gateway) {
-            if (!nm_utils_parse_inaddr_bin(family, gateway, &family, &gateway_addr)) {
+            if (!nm_inet_parse_bin(family, gateway, &family, &gateway_addr)) {
                 _LOGW(LOGD_CORE, "Unrecognized address: %s", gateway);
                 continue;
             }
@@ -1527,6 +1531,7 @@ nmi_cmdline_reader_parse(const char        *etc_connections_dir,
                                                   NULL,
                                                   bootif,
                                                   NM_SETTING_WIRED_SETTING_NAME,
+                                                  NMI_AUTOCONNECT_PRIORITY_FIRMWARE,
                                                   NM_CONNECTION_MULTI_CONNECT_SINGLE);
         } else {
             g_object_set(s_wired, NM_SETTING_WIRED_MAC_ADDRESS, bootif, NULL);

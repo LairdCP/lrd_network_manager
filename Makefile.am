@@ -110,11 +110,15 @@ include config-extra.h.mk
 
 DISTCLEANFILES += config-extra.h
 
-$(src_libnm_core_public_mkenums_h):                 config-extra.h
 $(src_libnm_core_public_mkenums_c):                 config-extra.h
-src/libnm-core-impl/.dirstamp:                      config-extra.h
-src/libnm-core-impl/.dirstamp:                      config-extra.h
+$(src_libnm_core_public_mkenums_h):                 config-extra.h
+src/core/dhcp/.dirstamp:                            config-extra.h
 src/libnm-base/.dirstamp:                           config-extra.h
+src/libnm-client-public/.dirstamp:                  config-extra.h
+src/libnm-client-public/.dirstamp:                  config-extra.h
+src/libnm-core-impl/.dirstamp:                      config-extra.h
+src/libnm-core-impl/.dirstamp:                      config-extra.h
+src/libnm-crypto/.dirstamp:                         config-extra.h
 src/libnm-glib-aux/.dirstamp:                       config-extra.h
 src/libnm-glib-aux/tests/.dirstamp:                 config-extra.h
 src/libnm-log-core/.dirstamp:                       config-extra.h
@@ -124,14 +128,11 @@ src/libnm-platform/tests/.dirstamp:                 config-extra.h
 src/libnm-platform/wifi/.dirstamp:                  config-extra.h
 src/libnm-platform/wpan/.dirstamp:                  config-extra.h
 src/libnm-std-aux/.dirstamp:                        config-extra.h
-src/libnm-udev-aux/.dirstamp:                       config-extra.h
 src/libnm-systemd-shared/.dirstamp:                 config-extra.h
 src/libnm-systemd-shared/src/basic/.dirstamp:       config-extra.h
 src/libnm-systemd-shared/src/fundamental/.dirstamp: config-extra.h
 src/libnm-systemd-shared/src/shared/.dirstamp:      config-extra.h
-src/libnm-client-public/.dirstamp:                  config-extra.h
-src/libnm-client-public/.dirstamp:                  config-extra.h
-src/core/dhcp/.dirstamp:                            config-extra.h
+src/libnm-udev-aux/.dirstamp:                       config-extra.h
 
 ###############################################################################
 
@@ -167,9 +168,24 @@ if !BUILD_DOCS
 dist_configure_check += dist-configure-check
 endif
 
-dist: $(dist_configure_check) $(dist_dependencies)
+# Gettext's Makefile has a race with parallel builds during dist.
+# Hack around that.
+# See also:
+#   https://gitlab.freedesktop.org/NetworkManager/NetworkManager/-/merge_requests/1094#note_1435313
+#   https://lists.gnu.org/archive/html/bug-gettext/2022-06/msg00022.html
+#   https://gitlab.freedesktop.org/NetworkManager/NetworkManager/-/merge_requests/1405
+po/.Makefile.patched:
+	sed -i \
+	    -e 's#^dist2: \$$(srcdir)/stamp-po \$$(DISTFILES)#dist2: \$$(srcdir)/stamp-po\n\t\$$(MAKE) \$$(DISTFILES)#' \
+	    -e 's#^dist2: stamp-po \$$(DISTFILES)#dist2: stamp-po\n\t\$$(MAKE) \$$(DISTFILES)#' \
+	    "$(builddir)/po/Makefile" && \
+	touch "$(builddir)/po/.Makefile.patched"
 
-DISTCLEANFILES += intltool-extract intltool-merge intltool-update
+DISTCLEANFILES += po/.Makefile.patched
+
+dist: po/.Makefile.patched
+
+dist: $(dist_configure_check) $(dist_dependencies)
 
 ###############################################################################
 
@@ -212,15 +228,21 @@ polkit_policydir = $(datadir)/polkit-1/actions
 dist_polkit_policy_in_in_files = \
 	data/org.freedesktop.NetworkManager.policy.in.in
 
-polkit_policy_DATA = $(dist_polkit_policy_in_in_files:.policy.in.in=.policy)
+dist_polkit_policy_in_files = $(dist_polkit_policy_in_in_files:.policy.in.in=.policy.in)
 
-@INTLTOOL_POLICY_RULE@
+polkit_policy_DATA = $(dist_polkit_policy_in_files:.policy.in=.policy)
+
+$(polkit_policy_DATA): $(dist_polkit_policy_in_files)
+	$(AM_V_GEN)$(MSGFMT) --xml --template $< -d $(top_srcdir)/po -o $@
 
 DISTCLEANFILES += $(polkit_policy_DATA)
 
 ###############################################################################
 
 EXTRA_DIST += \
+	src/c-stdaux/src/c-stdaux-generic.h \
+	src/c-stdaux/src/c-stdaux-gnuc.h \
+	src/c-stdaux/src/c-stdaux-unix.h \
 	src/c-stdaux/src/c-stdaux.h \
 	$(NULL)
 
@@ -421,6 +443,8 @@ src_libnm_glib_aux_libnm_glib_aux_la_SOURCES = \
 	src/libnm-glib-aux/nm-glib.h \
 	src/libnm-glib-aux/nm-hash-utils.c \
 	src/libnm-glib-aux/nm-hash-utils.h \
+	src/libnm-glib-aux/nm-inet-utils.c \
+	src/libnm-glib-aux/nm-inet-utils.h \
 	src/libnm-glib-aux/nm-io-utils.c \
 	src/libnm-glib-aux/nm-io-utils.h \
 	src/libnm-glib-aux/nm-jansson.h \
@@ -434,6 +458,8 @@ src_libnm_glib_aux_libnm_glib_aux_la_SOURCES = \
 	src/libnm-glib-aux/nm-logging-syslog.h \
 	src/libnm-glib-aux/nm-macros-internal.h \
 	src/libnm-glib-aux/nm-obj.h \
+	src/libnm-glib-aux/nm-prioq.c \
+	src/libnm-glib-aux/nm-prioq.h \
 	src/libnm-glib-aux/nm-random-utils.c \
 	src/libnm-glib-aux/nm-random-utils.h \
 	src/libnm-glib-aux/nm-ref-string.c \
@@ -490,6 +516,38 @@ EXTRA_DIST += src/libnm-udev-aux/meson.build
 
 ###############################################################################
 
+noinst_LTLIBRARIES += src/libnm-lldp/libnm-lldp.la
+
+src_libnm_lldp_libnm_lldp_la_CFLAGS = \
+	$(src_libnm_glib_aux_cppflags) \
+	-I$(srcdir)/src \
+	-I$(builddir)/src \
+	$(NULL)
+
+src_libnm_lldp_libnm_lldp_la_CPPFLAGS = \
+	$(CODE_COVERAGE_CFLAGS) \
+	$(SANITIZER_LIB_CFLAGS) \
+	$(NULL)
+
+src_libnm_lldp_libnm_lldp_la_LDFLAGS = \
+	$(SANITIZER_LIB_LDFLAGS) \
+	$(NULL)
+
+src_libnm_lldp_libnm_lldp_la_SOURCES = \
+	src/libnm-lldp/nm-lldp-neighbor.c \
+	src/libnm-lldp/nm-lldp-neighbor.h \
+	src/libnm-lldp/nm-lldp-network.c \
+	src/libnm-lldp/nm-lldp-network.h \
+	src/libnm-lldp/nm-lldp-rx-internal.h \
+	src/libnm-lldp/nm-lldp-rx.c \
+	src/libnm-lldp/nm-lldp-rx.h \
+	src/libnm-lldp/nm-lldp.h \
+	$(NULL)
+
+EXTRA_DIST += src/libnm-lldp/meson.build
+
+###############################################################################
+
 noinst_LTLIBRARIES += src/libnm-base/libnm-base.la
 
 src_libnm_base_libnm_base_la_CPPFLAGS = \
@@ -499,6 +557,7 @@ src_libnm_base_libnm_base_la_CPPFLAGS = \
 	$(NULL)
 
 src_libnm_base_libnm_base_la_SOURCES = \
+	src/libnm-base/nm-base.c \
 	src/libnm-base/nm-base.h \
 	src/libnm-base/nm-config-base.h \
 	src/libnm-base/nm-ethtool-base.c \
@@ -587,7 +646,11 @@ src_libnm_platform_libnm_platform_la_CPPFLAGS = \
 src_libnm_platform_libnm_platform_la_SOURCES = \
 	\
 	src/linux-headers/ethtool.h \
+	src/linux-headers/mptcp.h \
+	src/linux-headers/nl80211-vnd-intel.h \
 	src/linux-headers/nl802154.h \
+	\
+	src/nm-compat-headers/linux/if_addr.h \
 	\
 	src/libnm-platform/nm-linux-platform.c \
 	src/libnm-platform/nm-linux-platform.h \
@@ -598,13 +661,16 @@ src_libnm_platform_libnm_platform_la_SOURCES = \
 	src/libnm-platform/nm-platform-utils.h \
 	src/libnm-platform/nm-platform.c \
 	src/libnm-platform/nm-platform.h \
+	src/libnm-platform/nmp-base.c \
 	src/libnm-platform/nmp-base.h \
+	src/libnm-platform/nmp-global-tracker.c \
+	src/libnm-platform/nmp-global-tracker.h \
 	src/libnm-platform/nmp-netns.c \
 	src/libnm-platform/nmp-netns.h \
 	src/libnm-platform/nmp-object.c \
 	src/libnm-platform/nmp-object.h \
-	src/libnm-platform/nmp-route-manager.c \
-	src/libnm-platform/nmp-route-manager.h \
+	src/libnm-platform/nmp-plobj.c \
+	src/libnm-platform/nmp-plobj.h \
 	src/libnm-platform/wifi/nm-wifi-utils-nl80211.c \
 	src/libnm-platform/wifi/nm-wifi-utils-nl80211.h \
 	src/libnm-platform/wifi/nm-wifi-utils-private.h \
@@ -958,6 +1024,8 @@ introspection_sources = \
 	introspection/org.freedesktop.NetworkManager.Device.IPTunnel.h \
 	introspection/org.freedesktop.NetworkManager.Device.Infiniband.c \
 	introspection/org.freedesktop.NetworkManager.Device.Infiniband.h \
+	introspection/org.freedesktop.NetworkManager.Device.Loopback.c \
+	introspection/org.freedesktop.NetworkManager.Device.Loopback.h \
 	introspection/org.freedesktop.NetworkManager.Device.Lowpan.c \
 	introspection/org.freedesktop.NetworkManager.Device.Lowpan.h \
 	introspection/org.freedesktop.NetworkManager.Device.Macsec.c \
@@ -1045,6 +1113,7 @@ DBUS_INTERFACE_DOCS = \
 	docs/api/dbus-org.freedesktop.NetworkManager.Device.Generic.xml \
 	docs/api/dbus-org.freedesktop.NetworkManager.Device.IPTunnel.xml \
 	docs/api/dbus-org.freedesktop.NetworkManager.Device.Infiniband.xml \
+	docs/api/dbus-org.freedesktop.NetworkManager.Device.Loopback.xml \
 	docs/api/dbus-org.freedesktop.NetworkManager.Device.Lowpan.xml \
 	docs/api/dbus-org.freedesktop.NetworkManager.Device.Macsec.xml \
 	docs/api/dbus-org.freedesktop.NetworkManager.Device.Macvlan.xml \
@@ -1113,6 +1182,7 @@ dbusinterfaces_DATA = \
 	introspection/org.freedesktop.NetworkManager.Device.Generic.xml \
 	introspection/org.freedesktop.NetworkManager.Device.IPTunnel.xml \
 	introspection/org.freedesktop.NetworkManager.Device.Infiniband.xml \
+	introspection/org.freedesktop.NetworkManager.Device.Loopback.xml \
 	introspection/org.freedesktop.NetworkManager.Device.Lowpan.xml \
 	introspection/org.freedesktop.NetworkManager.Device.Macsec.xml \
 	introspection/org.freedesktop.NetworkManager.Device.Macvlan.xml \
@@ -1194,6 +1264,7 @@ src_libnm_core_impl_lib_h_pub_real = \
 	src/libnm-core-public/nm-setting-ip-tunnel.h \
 	src/libnm-core-public/nm-setting-ip4-config.h \
 	src/libnm-core-public/nm-setting-ip6-config.h \
+	src/libnm-core-public/nm-setting-loopback.h \
 	src/libnm-core-public/nm-setting-macsec.h \
 	src/libnm-core-public/nm-setting-macvlan.h \
 	src/libnm-core-public/nm-setting-match.h \
@@ -1202,6 +1273,7 @@ src_libnm_core_impl_lib_h_pub_real = \
 	src/libnm-core-public/nm-setting-ovs-dpdk.h \
 	src/libnm-core-public/nm-setting-ovs-external-ids.h \
 	src/libnm-core-public/nm-setting-ovs-interface.h \
+	src/libnm-core-public/nm-setting-ovs-other-config.h \
 	src/libnm-core-public/nm-setting-ovs-patch.h \
 	src/libnm-core-public/nm-setting-ovs-port.h \
 	src/libnm-core-public/nm-setting-ppp.h \
@@ -1240,8 +1312,6 @@ src_libnm_core_public_mkenums_h = \
 	$(NULL)
 src_libnm_core_impl_lib_h_priv = \
 	src/libnm-core-impl/nm-connection-private.h \
-	src/libnm-core-impl/nm-crypto-impl.h \
-	src/libnm-core-impl/nm-crypto.h \
 	src/libnm-core-impl/nm-default-libnm-core.h \
 	src/libnm-core-impl/nm-property-compare.h \
 	src/libnm-core-impl/nm-setting-private.h \
@@ -1275,6 +1345,7 @@ src_libnm_core_impl_lib_c_settings_real = \
 	src/libnm-core-impl/nm-setting-ip-tunnel.c \
 	src/libnm-core-impl/nm-setting-ip4-config.c \
 	src/libnm-core-impl/nm-setting-ip6-config.c \
+	src/libnm-core-impl/nm-setting-loopback.c \
 	src/libnm-core-impl/nm-setting-macsec.c \
 	src/libnm-core-impl/nm-setting-macvlan.c \
 	src/libnm-core-impl/nm-setting-match.c \
@@ -1283,6 +1354,7 @@ src_libnm_core_impl_lib_c_settings_real = \
 	src/libnm-core-impl/nm-setting-ovs-dpdk.c \
 	src/libnm-core-impl/nm-setting-ovs-external-ids.c \
 	src/libnm-core-impl/nm-setting-ovs-interface.c \
+	src/libnm-core-impl/nm-setting-ovs-other-config.c \
 	src/libnm-core-impl/nm-setting-ovs-patch.c \
 	src/libnm-core-impl/nm-setting-ovs-port.c \
 	src/libnm-core-impl/nm-setting-ppp.c \
@@ -1311,8 +1383,6 @@ src_libnm_core_impl_lib_c_settings_real = \
 src_libnm_core_impl_lib_c_real = \
 	$(src_libnm_core_impl_lib_c_settings_real) \
 	src/libnm-core-impl/nm-connection.c \
-	src/libnm-core-impl/nm-crypto.c \
-	src/libnm-core-impl/nm-dbus-utils.c \
 	src/libnm-core-impl/nm-errors.c \
 	src/libnm-core-impl/nm-keyfile-utils.c \
 	src/libnm-core-impl/nm-keyfile.c \
@@ -1412,8 +1482,6 @@ src_libnm_core_impl_libnm_core_impl_la_LDFLAGS = \
 	$(NULL)
 
 EXTRA_DIST += \
-	src/libnm-core-impl/nm-crypto-gnutls.c \
-	src/libnm-core-impl/nm-crypto-nss.c \
 	src/libnm-core-impl/meson.build \
 	$(NULL)
 
@@ -1435,43 +1503,92 @@ dist_dependencies += \
 
 ###############################################################################
 
+noinst_LTLIBRARIES += src/libnm-crypto/libnm-crypto.la
+
+src_libnm_crypto_libnm_crypto_la_SOURCES = \
+	src/libnm-crypto/nm-crypto-impl.h \
+	src/libnm-crypto/nm-crypto.c \
+	src/libnm-crypto/nm-crypto.h \
+	$(NULL)
+
+src_libnm_crypto_libnm_crypto_la_CPPFLAGS = \
+	$(dflt_cppflags_libnm_core) \
+	$(NULL)
+
+src_libnm_crypto_libnm_crypto_la_LIBADD = \
+	$(GLIB_LIBS) \
+	$(NULL)
+
+src_libnm_crypto_libnm_crypto_la_LDFLAGS = \
+	$(CODE_COVERAGE_LDFLAGS) \
+	$(SANITIZER_LIB_LDFLAGS) \
+	$(NULL)
+
 if HAVE_CRYPTO_GNUTLS
 if WITH_GNUTLS
-libnm_crypto_lib = src/libnm-core-impl/libnm-crypto-gnutls.la
+libnm_crypto_lib = src/libnm-crypto/libnm-crypto-gnutls.la
 else
-check_ltlibraries += src/libnm-core-impl/libnm-crypto-gnutls.la
+check_ltlibraries += src/libnm-crypto/libnm-crypto-gnutls.la
 endif
 
-src_libnm_core_impl_libnm_crypto_gnutls_la_SOURCES = src/libnm-core-impl/nm-crypto-gnutls.c
-src_libnm_core_impl_libnm_crypto_gnutls_la_CPPFLAGS = \
+src_libnm_crypto_libnm_crypto_gnutls_la_SOURCES = src/libnm-crypto/nm-crypto-gnutls.c
+src_libnm_crypto_libnm_crypto_gnutls_la_CPPFLAGS = \
 	$(src_libnm_core_impl_libnm_core_impl_la_CPPFLAGS) \
 	$(GNUTLS_CFLAGS)
-src_libnm_core_impl_libnm_crypto_gnutls_la_LDFLAGS = \
+src_libnm_crypto_libnm_crypto_gnutls_la_LDFLAGS = \
 	$(src_libnm_core_impl_libnm_core_impl_la_LDFLAGS)
-src_libnm_core_impl_libnm_crypto_gnutls_la_LIBADD = \
+src_libnm_crypto_libnm_crypto_gnutls_la_LIBADD = \
 	$(GLIB_LIBS) \
 	$(GNUTLS_LIBS)
 endif
 
 if HAVE_CRYPTO_NSS
 if WITH_NSS
-libnm_crypto_lib = src/libnm-core-impl/libnm-crypto-nss.la
+libnm_crypto_lib = src/libnm-crypto/libnm-crypto-nss.la
 else
-check_ltlibraries += src/libnm-core-impl/libnm-crypto-nss.la
+check_ltlibraries += src/libnm-crypto/libnm-crypto-nss.la
 endif
 
-src_libnm_core_impl_libnm_crypto_nss_la_SOURCES = src/libnm-core-impl/nm-crypto-nss.c
-src_libnm_core_impl_libnm_crypto_nss_la_CPPFLAGS = \
+src_libnm_crypto_libnm_crypto_nss_la_SOURCES = src/libnm-crypto/nm-crypto-nss.c
+src_libnm_crypto_libnm_crypto_nss_la_CPPFLAGS = \
 	$(src_libnm_core_impl_libnm_core_impl_la_CPPFLAGS) \
 	$(NSS_CFLAGS)
-src_libnm_core_impl_libnm_crypto_nss_la_LDFLAGS = \
+src_libnm_crypto_libnm_crypto_nss_la_LDFLAGS = \
 	$(src_libnm_core_impl_libnm_core_impl_la_LDFLAGS)
-src_libnm_core_impl_libnm_crypto_nss_la_LIBADD = \
+src_libnm_crypto_libnm_crypto_nss_la_LIBADD = \
 	$(GLIB_LIBS) \
 	$(NSS_LIBS)
 endif
 
+if !WITH_GNUTLS
+if !WITH_NSS
+libnm_crypto_lib = src/libnm-crypto/libnm-crypto-null.la
+else
+check_ltlibraries += src/libnm-crypto/libnm-crypto-null.la
+endif
+else
+check_ltlibraries += src/libnm-crypto/libnm-crypto-null.la
+endif
+
+src_libnm_crypto_libnm_crypto_null_la_SOURCES = src/libnm-crypto/nm-crypto-null.c
+src_libnm_crypto_libnm_crypto_null_la_CPPFLAGS = \
+	$(src_libnm_core_impl_libnm_core_impl_la_CPPFLAGS) \
+	$(NULL)
+src_libnm_crypto_libnm_crypto_null_la_LDFLAGS = \
+	$(src_libnm_core_impl_libnm_core_impl_la_LDFLAGS) \
+	$(NULL)
+src_libnm_crypto_libnm_crypto_null_la_LIBADD = \
+	$(GLIB_LIBS) \
+	$(NULL)
+
 noinst_LTLIBRARIES += $(libnm_crypto_lib)
+
+EXTRA_DIST += \
+	src/libnm-crypto/README.md \
+	src/libnm-crypto/meson.build \
+	src/libnm-crypto/nm-crypto-gnutls.c \
+	src/libnm-crypto/nm-crypto-nss.c \
+	$(NULL)
 
 ###############################################################################
 
@@ -1526,6 +1643,7 @@ nodist_src_libnm_core_impl_tests_test_general_SOURCES = \
 src_libnm_core_impl_tests_ldadd = \
 	src/libnm-core-aux-extern/libnm-core-aux-extern.la \
 	src/libnm-core-impl/libnm-core-impl.la \
+	src/libnm-crypto/libnm-crypto.la \
 	$(libnm_crypto_lib) \
 	src/libnm-core-aux-intern/libnm-core-aux-intern.la \
 	src/libnm-base/libnm-base.la \
@@ -1584,6 +1702,8 @@ EXTRA_DIST += \
 	src/libnm-core-impl/tests/certs/test2_key_and_cert.pem \
 	src/libnm-core-impl/tests/certs/test-aes-128-key.pem \
 	src/libnm-core-impl/tests/certs/test-aes-256-key.pem \
+	src/libnm-core-impl/tests/certs/test-aes-128-ec-key.pem \
+	src/libnm-core-impl/tests/certs/test-aes-256-ec-key.pem \
 	src/libnm-core-impl/tests/certs/test_ca_cert.der \
 	src/libnm-core-impl/tests/certs/test_ca_cert.pem \
 	src/libnm-core-impl/tests/certs/test-ca-cert.pem \
@@ -1592,6 +1712,8 @@ EXTRA_DIST += \
 	src/libnm-core-impl/tests/certs/test-key-and-cert.pem \
 	src/libnm-core-impl/tests/certs/test-key-only-decrypted.der \
 	src/libnm-core-impl/tests/certs/test-key-only-decrypted.pem \
+	src/libnm-core-impl/tests/certs/test-ec-key-only-decrypted.der \
+	src/libnm-core-impl/tests/certs/test-ec-key-only-decrypted.pem \
 	src/libnm-core-impl/tests/certs/test-key-only.pem \
 	src/libnm-core-impl/tests/certs/test-tpm2wrapped-key.pem \
 	src/libnm-core-impl/tests/nm-core-tests-enum-types.c.template \
@@ -1607,6 +1729,7 @@ libnm_lib_h_pub_real = \
 	src/libnm-client-public/nm-autoptr.h \
 	src/libnm-client-public/nm-checkpoint.h \
 	src/libnm-client-public/nm-client.h \
+	src/libnm-client-public/nm-conn-utils.h \
 	src/libnm-client-public/nm-device-6lowpan.h \
 	src/libnm-client-public/nm-device-adsl.h \
 	src/libnm-client-public/nm-device-bond.h \
@@ -1617,6 +1740,7 @@ libnm_lib_h_pub_real = \
 	src/libnm-client-public/nm-device-generic.h \
 	src/libnm-client-public/nm-device-infiniband.h \
 	src/libnm-client-public/nm-device-ip-tunnel.h \
+	src/libnm-client-public/nm-device-loopback.h \
 	src/libnm-client-public/nm-device-macsec.h \
 	src/libnm-client-public/nm-device-macvlan.h \
 	src/libnm-client-public/nm-device-modem.h \
@@ -1643,7 +1767,6 @@ libnm_lib_h_pub_real = \
 	src/libnm-client-public/nm-object.h \
 	src/libnm-client-public/nm-remote-connection.h \
 	src/libnm-client-public/nm-secret-agent-old.h \
-	src/libnm-client-public/nm-types.h \
 	src/libnm-client-public/nm-vpn-connection.h \
 	src/libnm-client-public/nm-vpn-editor.h \
 	src/libnm-client-public/nm-vpn-plugin-old.h \
@@ -1676,6 +1799,7 @@ libnm_lib_c_real = \
 	\
 	src/libnm-client-impl/nm-access-point.c \
 	src/libnm-client-impl/nm-checkpoint.c \
+	src/libnm-client-impl/nm-conn-utils.c \
 	src/libnm-client-impl/nm-dbus-helpers.c \
 	src/libnm-client-impl/nm-device-6lowpan.c \
 	src/libnm-client-impl/nm-device-adsl.c \
@@ -1687,6 +1811,7 @@ libnm_lib_c_real = \
 	src/libnm-client-impl/nm-device-generic.c \
 	src/libnm-client-impl/nm-device-infiniband.c \
 	src/libnm-client-impl/nm-device-ip-tunnel.c \
+	src/libnm-client-impl/nm-device-loopback.c \
 	src/libnm-client-impl/nm-device-macsec.c \
 	src/libnm-client-impl/nm-device-macvlan.c \
 	src/libnm-client-impl/nm-device-modem.c \
@@ -1737,6 +1862,39 @@ EXTRA_DIST += src/libnm-client-public/meson.build
 
 ###############################################################################
 
+noinst_PROGRAMS += src/libnm-core-impl/gen-metadata-nm-settings-libnm-core
+
+src_libnm_core_impl_gen_metadata_nm_settings_libnm_core_SOURCES = \
+	src/libnm-core-impl/gen-metadata-nm-settings-libnm-core.c \
+	$(NULL)
+
+src_libnm_core_impl_gen_metadata_nm_settings_libnm_core_CPPFLAGS = \
+	$(clients_cppflags) \
+	$(NULL)
+
+src_libnm_core_impl_gen_metadata_nm_settings_libnm_core_LDADD = \
+	src/libnm-core-impl/libnm-core-impl.la \
+	src/libnm-crypto/libnm-crypto.la \
+	$(libnm_crypto_lib) \
+	src/libnm-core-aux-intern/libnm-core-aux-intern.la \
+	src/libnm-base/libnm-base.la \
+	src/libnm-systemd-shared/libnm-systemd-shared.la \
+	src/libnm-log-null/libnm-log-null.la \
+	src/libnm-glib-aux/libnm-glib-aux.la \
+	src/libnm-std-aux/libnm-std-aux.la \
+	src/c-siphash/libc-siphash.la \
+	$(GLIB_LIBS) \
+	$(NULL)
+
+src_libnm_core_impl_gen_metadata_nm_settings_libnm_core_LDFLAGS = \
+	-Wl,--version-script="$(srcdir)/linker-script-binary.ver" \
+	$(SANITIZER_EXEC_LDFLAGS) \
+	$(NULL)
+
+$(src_libnm_core_impl_gen_metadata_nm_settings_libnm_core_OBJECTS): $(src_libnm_core_public_mkenums_h)
+
+###############################################################################
+
 noinst_LTLIBRARIES += src/libnm-client-impl/libnm-client-impl.la
 
 src_libnm_client_impl_libnm_client_impl_la_CPPFLAGS = \
@@ -1759,6 +1917,7 @@ nodist_src_libnm_client_impl_libnm_client_impl_la_SOURCES = \
 src_libnm_client_impl_libnm_client_impl_la_LIBADD = \
 	src/libnm-core-aux-extern/libnm-core-aux-extern.la \
 	src/libnm-core-impl/libnm-core-impl.la \
+	src/libnm-crypto/libnm-crypto.la \
 	$(libnm_crypto_lib) \
 	src/libnm-core-aux-intern/libnm-core-aux-intern.la \
 	src/libnm-base/libnm-base.la \
@@ -1839,17 +1998,14 @@ EXTRA_DIST += \
 	src/libnm-client-impl/libnm.pc.in \
 	src/libnm-client-impl/libnm.ver
 
-src_libnm_client_impl_NM_1_0_typelib =
-
-if HAVE_INTROSPECTION
-src_libnm_client_impl_NM_1_0_typelib += src/libnm-client-impl/NM-1.0.typelib
+###############################################################################
 
 src/libnm-client-impl/NM-1.0.gir: src/libnm-client-impl/libnm.la
 src_libnm_client_impl_NM_1_0_gir_INCLUDES = Gio-2.0
 src_libnm_client_impl_NM_1_0_gir_PACKAGES = gio-2.0
 src_libnm_client_impl_NM_1_0_gir_EXPORT_PACKAGES = libnm
 src_libnm_client_impl_NM_1_0_gir_CFLAGS = \
-	$(src_libnm_client_impl_libnm_la_CPPFLAGS) \
+	$(filter-out -DGLIB_VERSION_%, $(src_libnm_client_impl_libnm_la_CPPFLAGS)) \
 	-DNETWORKMANAGER_COMPILATION \
 	$(NULL)
 src_libnm_client_impl_NM_1_0_gir_LIBS = src/libnm-client-impl/libnm.la
@@ -1867,11 +2023,10 @@ src_libnm_client_impl_NM_1_0_gir_SCANNERFLAGS = --warn-all --identifier-prefix=N
 src/libnm-client-impl/libnm.typelib: src/libnm-client-impl/libnm.gir
 	$(INTROSPECTION_COMPILER) --includedir=$(srcdir)/src/libnm-core-public --includedir=$(builddir)/src/libnm-core-public --includedir=$(srcdir)/libnm-client-public --includedir=$(builddir)/libnm-client-public $< -o $@
 
-INTROSPECTION_GIRS += src/libnm-client-impl/NM-1.0.gir
 
-if BUILD_DOCS
 libnm_noinst_data = \
-	src/nmcli/generate-docs-nm-settings-nmcli.xml \
+	src/libnm-core-impl/gen-metadata-nm-settings-libnm-core.xml \
+	src/nmcli/gen-metadata-nm-settings-nmcli.xml \
 	man/nm-settings-docs-dbus.xml \
 	man/nm-settings-docs-nmcli.xml \
 	src/libnm-client-impl/nm-property-infos-dbus.xml \
@@ -1882,29 +2037,56 @@ libnm_noinst_data = \
 	src/libnmc-setting/settings-docs-input.xml \
 	$(NULL)
 
+if HAVE_INTROSPECTION
+INTROSPECTION_GIRS += src/libnm-client-impl/NM-1.0.gir
 noinst_DATA += $(libnm_noinst_data)
+DISTCLEANFILES += $(libnm_noinst_data)
+
+EXTRA_DIST += \
+	src/nmcli/gen-metadata-nm-settings-nmcli.xml.in \
+	src/libnm-core-impl/gen-metadata-nm-settings-libnm-core.xml.in
+
+src_libnm_client_impl_NM_1_0_typelib = src/libnm-client-impl/NM-1.0.typelib
+else
+src_libnm_client_impl_NM_1_0_typelib =
 endif
 
-EXTRA_DIST += src/nmcli/generate-docs-nm-settings-nmcli.xml.in
+###############################################################################
 
 if BUILD_DOCS
-src/nmcli/generate-docs-nm-settings-nmcli.xml: src/nmcli/generate-docs-nm-settings-nmcli
-	$(AM_V_GEN) src/nmcli/generate-docs-nm-settings-nmcli > "$@"
-check-local-generate-docs-nm-settings-nmcli: src/nmcli/generate-docs-nm-settings-nmcli.xml
-	$(srcdir)/tools/check-compare-generated.sh "$(srcdir)" "$(builddir)" "$<"
-check_local += check-local-generate-docs-nm-settings-nmcli
-DISTCLEANFILES += src/nmcli/generate-docs-nm-settings-nmcli.xml
+src/nmcli/gen-metadata-nm-settings-nmcli.xml: src/nmcli/gen-metadata-nm-settings-nmcli
+	$(AM_V_GEN) src/nmcli/gen-metadata-nm-settings-nmcli > "$@"
+check-local-gen-metadata-nm-settings-nmcli: src/nmcli/gen-metadata-nm-settings-nmcli.xml
+	$(srcdir)/tools/check-compare-generated.sh "$(srcdir)/src/nmcli/gen-metadata-nm-settings-nmcli.xml.in" "$(builddir)/src/nmcli/gen-metadata-nm-settings-nmcli.xml"
+check_local += check-local-gen-metadata-nm-settings-nmcli
+DISTCLEANFILES += src/nmcli/gen-metadata-nm-settings-nmcli.xml
+
+src/libnm-core-impl/gen-metadata-nm-settings-libnm-core.xml: src/libnm-core-impl/gen-metadata-nm-settings-libnm-core
+	$(AM_V_GEN) src/libnm-core-impl/gen-metadata-nm-settings-libnm-core > "$@"
+check-local-gen-metadata-nm-settings-libnm-core: src/libnm-core-impl/gen-metadata-nm-settings-libnm-core.xml
+	$(srcdir)/tools/check-compare-generated.sh "$(srcdir)/src/libnm-core-impl/gen-metadata-nm-settings-libnm-core.xml.in" "$(builddir)/src/libnm-core-impl/gen-metadata-nm-settings-libnm-core.xml"
+check_local += check-local-gen-metadata-nm-settings-libnm-core
+DISTCLEANFILES += src/libnm-core-impl/gen-metadata-nm-settings-libnm-core.xml
 else
-src/nmcli/generate-docs-nm-settings-nmcli.xml: src/nmcli/generate-docs-nm-settings-nmcli.xml.in
+src/nmcli/gen-metadata-nm-settings-nmcli.xml: src/nmcli/gen-metadata-nm-settings-nmcli.xml.in
 	$(AM_V_GEN) cp $^ $@
-check-local-generate-docs-nm-settings-nmcli:
+check-local-gen-metadata-nm-settings-nmcli:
+
+src/libnm-core-impl/gen-metadata-nm-settings-libnm-core.xml: src/libnm-core-impl/gen-metadata-nm-settings-libnm-core.xml.in
+	$(AM_V_GEN) cp $^ $@
+check-local-gen-metadata-nm-settings-libnm-core:
 endif
 
 if BUILD_DOCS
 libnm_docs_sources = $(src_libnm_core_impl_lib_c_settings_real)
 
-src/libnm-client-impl/nm-property-infos-%.xml: tools/generate-docs-nm-property-infos.py $(libnm_docs_sources)
-	$(AM_V_GEN) "$(PYTHON)" $(srcdir)/tools/generate-docs-nm-property-infos.py $(patsubst nm-property-infos-%.xml,%,$(notdir $@)) $@ $(filter-out $<,$^)
+src/libnm-client-impl/nm-property-infos-%.xml: tools/generate-docs-nm-property-infos.py src/libnm-core-impl/libnm-core-impl.la $(libnm_docs_sources)
+	$(AM_V_GEN) \
+		"$(PYTHON)" \
+		$(srcdir)/tools/generate-docs-nm-property-infos.py \
+		$(patsubst nm-property-infos-%.xml,%,$(notdir $@)) \
+		$@ \
+		$(wordlist 3,1000,$^)
 
 src/libnm-client-impl/nm-settings-docs-gir.xml: tools/generate-docs-nm-settings-docs-gir.py src/libnm-client-impl/NM-1.0.gir src/libnm-client-impl/NM-1.0.typelib src/libnm-client-impl/libnm.la $(libnm_docs_sources)
 	$(AM_V_GEN) \
@@ -1916,7 +2098,7 @@ src/libnm-client-impl/nm-settings-docs-gir.xml: tools/generate-docs-nm-settings-
 		--gir $(builddir)/src/libnm-client-impl/NM-1.0.gir \
 		--output $@
 
-man/nm-settings-docs-nmcli.xml: src/nmcli/generate-docs-nm-settings-nmcli.xml src/libnm-client-impl/nm-property-infos-nmcli.xml src/libnm-client-impl/nm-settings-docs-gir.xml tools/generate-docs-nm-settings-docs-merge.py man/common.ent
+man/nm-settings-docs-nmcli.xml: src/nmcli/gen-metadata-nm-settings-nmcli.xml src/libnm-client-impl/nm-property-infos-nmcli.xml src/libnm-client-impl/nm-settings-docs-gir.xml tools/generate-docs-nm-settings-docs-merge.py man/common.ent
 	$(AM_V_GEN) "$(PYTHON)" $(srcdir)/tools/generate-docs-nm-settings-docs-merge.py --only-from-first $@ $(wordlist 1,3,$^)
 
 src/libnmc-setting/settings-docs-input.xml: src/libnm-client-impl/nm-property-infos-nmcli.xml src/libnm-client-impl/nm-settings-docs-gir.xml tools/generate-docs-nm-settings-docs-merge.py
@@ -1924,10 +2106,6 @@ src/libnmc-setting/settings-docs-input.xml: src/libnm-client-impl/nm-property-in
 
 man/nm-settings-docs-%.xml: src/libnm-client-impl/nm-property-infos-%.xml src/libnm-client-impl/nm-settings-docs-gir.xml tools/generate-docs-nm-settings-docs-merge.py man/common.ent
 	$(AM_V_GEN) "$(PYTHON)" $(srcdir)/tools/generate-docs-nm-settings-docs-merge.py $@ $(wordlist 1,2,$^)
-
-EXTRA_DIST += $(libnm_noinst_data)
-DISTCLEANFILES += $(libnm_noinst_data)
-endif
 
 endif
 
@@ -1947,8 +2125,16 @@ src_libnm_client_impl_tests_programs_req_introspection = \
 	src/libnm-client-impl/tests/test-remote-settings-client \
 	src/libnm-client-impl/tests/test-secret-agent
 
+check-local-libnm-gir: $(builddir)/src/libnm-client-impl/NM-1.0.gir
+check-local-libnm-gir: $(srcdir)/src/libnm-client-impl/libnm.ver
+check-local-libnm-gir:
+	"$(PYTHON)" $(srcdir)/src/libnm-client-impl/tests/test-gir.py \
+		--gir $(builddir)/src/libnm-client-impl/NM-1.0.gir \
+		--ver $(srcdir)/src/libnm-client-impl/libnm.ver
+
 if HAVE_INTROSPECTION
 check_programs += $(src_libnm_client_impl_tests_programs_req_introspection)
+check_local += check-local-libnm-gir
 else
 check_programs_norun += $(src_libnm_client_impl_tests_programs_req_introspection)
 endif
@@ -2002,7 +2188,8 @@ $(src_libnm_client_impl_tests_test_remote_settings_client_OBJECTS): $(src_libnm_
 $(src_libnm_client_impl_tests_test_secret_agent_OBJECTS):           $(src_libnm_client_impl_NM_1_0_typelib)
 
 EXTRA_DIST += \
-	src/libnm-client-impl/tests/meson.build
+	src/libnm-client-impl/tests/meson.build \
+	src/libnm-client-impl/tests/test-gir.py
 
 ###############################################################################
 
@@ -2132,7 +2319,6 @@ src_libnm_systemd_shared_libnm_systemd_shared_la_SOURCES = \
 	src/libnm-systemd-shared/sd-adapt-shared/hmac.h \
 	src/libnm-systemd-shared/sd-adapt-shared/idn-util.h \
 	src/libnm-systemd-shared/sd-adapt-shared/ioprio.h \
-	src/libnm-systemd-shared/sd-adapt-shared/locale-util.h \
 	src/libnm-systemd-shared/sd-adapt-shared/memfd-util.h \
 	src/libnm-systemd-shared/sd-adapt-shared/missing_fs.h \
 	src/libnm-systemd-shared/sd-adapt-shared/missing_ioprio.h \
@@ -2154,7 +2340,6 @@ src_libnm_systemd_shared_libnm_systemd_shared_la_SOURCES = \
 	src/libnm-systemd-shared/sd-adapt-shared/sysctl-util.h \
 	src/libnm-systemd-shared/sd-adapt-shared/terminal-util.h \
 	src/libnm-systemd-shared/sd-adapt-shared/unaligned.h \
-	src/libnm-systemd-shared/sd-adapt-shared/user-util.h \
 	src/libnm-systemd-shared/sd-adapt-shared/virt.h \
 	src/libnm-systemd-shared/src/basic/alloc-util.c \
 	src/libnm-systemd-shared/src/basic/alloc-util.h \
@@ -2180,6 +2365,8 @@ src_libnm_systemd_shared_libnm_systemd_shared_la_SOURCES = \
 	src/libnm-systemd-shared/src/basic/format-util.h \
 	src/libnm-systemd-shared/src/basic/fs-util.c \
 	src/libnm-systemd-shared/src/basic/fs-util.h \
+	src/libnm-systemd-shared/src/basic/glyph-util.c \
+	src/libnm-systemd-shared/src/basic/glyph-util.h \
 	src/libnm-systemd-shared/src/basic/hash-funcs.c \
 	src/libnm-systemd-shared/src/basic/hash-funcs.h \
 	src/libnm-systemd-shared/src/basic/hashmap.c \
@@ -2195,6 +2382,8 @@ src_libnm_systemd_shared_libnm_systemd_shared_la_SOURCES = \
 	src/libnm-systemd-shared/src/basic/io-util.c \
 	src/libnm-systemd-shared/src/basic/io-util.h \
 	src/libnm-systemd-shared/src/basic/list.h \
+	src/libnm-systemd-shared/src/basic/locale-util.c \
+	src/libnm-systemd-shared/src/basic/locale-util.h \
 	src/libnm-systemd-shared/src/basic/log.h \
 	src/libnm-systemd-shared/src/basic/macro.h \
 	src/libnm-systemd-shared/src/basic/memory-util.c \
@@ -2245,14 +2434,16 @@ src_libnm_systemd_shared_libnm_systemd_shared_la_SOURCES = \
 	src/libnm-systemd-shared/src/basic/tmpfile-util.c \
 	src/libnm-systemd-shared/src/basic/tmpfile-util.h \
 	src/libnm-systemd-shared/src/basic/umask-util.h \
+	src/libnm-systemd-shared/src/basic/user-util.h \
 	src/libnm-systemd-shared/src/basic/utf8.c \
 	src/libnm-systemd-shared/src/basic/utf8.h \
 	src/libnm-systemd-shared/src/basic/util.c \
 	src/libnm-systemd-shared/src/basic/util.h \
 	src/libnm-systemd-shared/src/fundamental/macro-fundamental.h \
+	src/libnm-systemd-shared/src/fundamental/sha256.c \
+	src/libnm-systemd-shared/src/fundamental/sha256.h \
 	src/libnm-systemd-shared/src/fundamental/string-util-fundamental.c \
 	src/libnm-systemd-shared/src/fundamental/string-util-fundamental.h \
-	src/libnm-systemd-shared/src/fundamental/types-fundamental.h \
 	src/libnm-systemd-shared/src/shared/dns-domain.c \
 	src/libnm-systemd-shared/src/shared/dns-domain.h \
 	src/libnm-systemd-shared/src/shared/log-link.h \
@@ -2284,12 +2475,8 @@ src_libnm_systemd_core_libnm_systemd_core_la_libadd = \
 
 src_libnm_systemd_core_libnm_systemd_core_la_SOURCES = \
 	src/libnm-systemd-core/nm-default-systemd-core.h \
-	src/libnm-systemd-core/nm-sd-utils-core.c \
-	src/libnm-systemd-core/nm-sd-utils-core.h \
 	src/libnm-systemd-core/nm-sd.c \
 	src/libnm-systemd-core/nm-sd.h \
-	src/libnm-systemd-core/nm-sd-utils-dhcp.h \
-	src/libnm-systemd-core/nm-sd-utils-dhcp.c \
 	src/libnm-systemd-core/sd-adapt-core/condition.h \
 	src/libnm-systemd-core/sd-adapt-core/conf-parser.h \
 	src/libnm-systemd-core/sd-adapt-core/device-util.h \
@@ -2300,35 +2487,19 @@ src_libnm_systemd_core_libnm_systemd_core_la_SOURCES = \
 	src/libnm-systemd-core/sd-adapt-core/sd-daemon.h \
 	src/libnm-systemd-core/sd-adapt-core/sd-device.h \
 	src/libnm-systemd-core/sd-adapt-core/udev-util.h \
-	src/libnm-systemd-core/src/libsystemd-network/arp-util.c \
-	src/libnm-systemd-core/src/libsystemd-network/arp-util.h \
 	src/libnm-systemd-core/src/libsystemd-network/dhcp-identifier.c \
 	src/libnm-systemd-core/src/libsystemd-network/dhcp-identifier.h \
-	src/libnm-systemd-core/src/libsystemd-network/dhcp-internal.h \
-	src/libnm-systemd-core/src/libsystemd-network/dhcp-lease-internal.h \
-	src/libnm-systemd-core/src/libsystemd-network/dhcp-network.c \
-	src/libnm-systemd-core/src/libsystemd-network/dhcp-option.c \
-	src/libnm-systemd-core/src/libsystemd-network/dhcp-packet.c \
-	src/libnm-systemd-core/src/libsystemd-network/dhcp-protocol.h \
 	src/libnm-systemd-core/src/libsystemd-network/dhcp6-internal.h \
 	src/libnm-systemd-core/src/libsystemd-network/dhcp6-lease-internal.h \
 	src/libnm-systemd-core/src/libsystemd-network/dhcp6-network.c \
 	src/libnm-systemd-core/src/libsystemd-network/dhcp6-option.c \
+	src/libnm-systemd-core/src/libsystemd-network/dhcp6-option.h \
+	src/libnm-systemd-core/src/libsystemd-network/dhcp6-protocol.c \
 	src/libnm-systemd-core/src/libsystemd-network/dhcp6-protocol.h \
-	src/libnm-systemd-core/src/libsystemd-network/lldp-neighbor.c \
-	src/libnm-systemd-core/src/libsystemd-network/lldp-neighbor.h \
-	src/libnm-systemd-core/src/libsystemd-network/lldp-network.c \
-	src/libnm-systemd-core/src/libsystemd-network/lldp-network.h \
-	src/libnm-systemd-core/src/libsystemd-network/lldp-rx-internal.h \
 	src/libnm-systemd-core/src/libsystemd-network/network-common.c \
 	src/libnm-systemd-core/src/libsystemd-network/network-common.h \
-	src/libnm-systemd-core/src/libsystemd-network/network-internal.c \
-	src/libnm-systemd-core/src/libsystemd-network/network-internal.h \
-	src/libnm-systemd-core/src/libsystemd-network/sd-dhcp-client.c \
-	src/libnm-systemd-core/src/libsystemd-network/sd-dhcp-lease.c \
 	src/libnm-systemd-core/src/libsystemd-network/sd-dhcp6-client.c \
 	src/libnm-systemd-core/src/libsystemd-network/sd-dhcp6-lease.c \
-	src/libnm-systemd-core/src/libsystemd-network/sd-lldp-rx.c \
 	src/libnm-systemd-core/src/libsystemd/sd-event/event-source.h \
 	src/libnm-systemd-core/src/libsystemd/sd-event/event-util.c \
 	src/libnm-systemd-core/src/libsystemd/sd-event/event-util.h \
@@ -2337,16 +2508,11 @@ src_libnm_systemd_core_libnm_systemd_core_la_SOURCES = \
 	src/libnm-systemd-core/src/libsystemd/sd-id128/id128-util.h \
 	src/libnm-systemd-core/src/libsystemd/sd-id128/sd-id128.c \
 	src/libnm-systemd-core/src/systemd/_sd-common.h \
-	src/libnm-systemd-core/src/systemd/sd-dhcp-client.h \
-	src/libnm-systemd-core/src/systemd/sd-dhcp-lease.h \
-	src/libnm-systemd-core/src/systemd/sd-dhcp-option.h \
 	src/libnm-systemd-core/src/systemd/sd-dhcp6-client.h \
 	src/libnm-systemd-core/src/systemd/sd-dhcp6-lease.h \
 	src/libnm-systemd-core/src/systemd/sd-dhcp6-option.h \
 	src/libnm-systemd-core/src/systemd/sd-event.h \
 	src/libnm-systemd-core/src/systemd/sd-id128.h \
-	src/libnm-systemd-core/src/systemd/sd-lldp-rx.h \
-	src/libnm-systemd-core/src/systemd/sd-lldp.h \
 	src/libnm-systemd-core/src/systemd/sd-ndisc.h \
 	$(NULL)
 
@@ -2395,6 +2561,8 @@ src_core_libNetworkManagerBase_la_SOURCES = \
 	src/core/nm-l3cfg.h \
 	src/core/nm-ip-config.c \
 	src/core/nm-ip-config.h \
+	src/core/nm-bond-manager.c \
+	src/core/nm-bond-manager.h \
 	\
 	src/core/dhcp/nm-dhcp-client.c \
 	src/core/dhcp/nm-dhcp-client.h \
@@ -2462,6 +2630,8 @@ src_core_libNetworkManager_la_SOURCES = \
 	src/core/devices/nm-device-infiniband.h \
 	src/core/devices/nm-device-ip-tunnel.c \
 	src/core/devices/nm-device-ip-tunnel.h \
+	src/core/devices/nm-device-loopback.c \
+	src/core/devices/nm-device-loopback.h \
 	src/core/devices/nm-device-macsec.c \
 	src/core/devices/nm-device-macsec.h \
 	src/core/devices/nm-device-macvlan.c \
@@ -2500,8 +2670,6 @@ src_core_libNetworkManager_la_SOURCES = \
 	src/core/dns/nm-dns-dnsmasq.h \
 	src/core/dns/nm-dns-systemd-resolved.c \
 	src/core/dns/nm-dns-systemd-resolved.h \
-	src/core/dns/nm-dns-unbound.c \
-	src/core/dns/nm-dns-unbound.h \
 	\
 	src/core/dnsmasq/nm-dnsmasq-manager.c \
 	src/core/dnsmasq/nm-dnsmasq-manager.h \
@@ -2611,11 +2779,13 @@ src_core_libNetworkManager_la_LIBADD = \
 	src/core/libNetworkManagerBase.la \
 	src/libnm-core-aux-extern/libnm-core-aux-extern.la \
 	src/libnm-core-impl/libnm-core-impl.la \
+	src/libnm-crypto/libnm-crypto.la \
 	$(libnm_crypto_lib) \
 	src/libnm-core-aux-intern/libnm-core-aux-intern.la \
 	src/libnm-platform/libnm-platform.la \
 	src/libnm-base/libnm-base.la \
 	src/libnm-log-core/libnm-log-core.la \
+	src/libnm-lldp/libnm-lldp.la \
 	src/libnm-udev-aux/libnm-udev-aux.la \
 	src/libnm-glib-aux/libnm-glib-aux.la \
 	src/libnm-std-aux/libnm-std-aux.la \
@@ -2756,6 +2926,7 @@ src_nm_initrd_generator_nm_initrd_generator_CPPFLAGS = \
 src_nm_initrd_generator_nm_initrd_generator_LDADD = \
 	src/nm-initrd-generator/libnmi-core.la \
 	src/libnm-core-impl/libnm-core-impl.la \
+	src/libnm-crypto/libnm-crypto.la \
 	$(libnm_crypto_lib) \
 	src/libnm-core-aux-intern/libnm-core-aux-intern.la \
 	src/libnm-platform/libnm-platform.la \
@@ -3394,6 +3565,8 @@ EXTRA_DIST += \
 	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test-ibft \
 	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test-infiniband \
 	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test-ip6-disabled.cexpected \
+	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test-ipoib \
+	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test-link_local \
 	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test-minimal \
 	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test-misc-variables \
 	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test-nm-controlled \
@@ -3519,6 +3692,10 @@ EXTRA_DIST += \
 	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test_roundtrip_ethtool-3.cexpected \
 	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test_roundtrip_ethtool-4.cexpected \
 	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test_roundtrip_ethtool-5.cexpected \
+	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test_roundtrip_ethtool-6.cexpected \
+	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test_roundtrip_ethtool-7.cexpected \
+	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test_roundtrip_ethtool-8.cexpected \
+	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test_roundtrip_ethtool-9.cexpected \
 	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test_write_wired_auto_negotiate_on.cexpected \
 	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/keys-test-wifi-dynamic-wep-leap \
 	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/keys-test-wifi-leap \
@@ -4322,7 +4499,9 @@ EXTRA_DIST += \
 	src/core/tests/config/NetworkManager-warn.conf \
 	src/core/tests/config/NetworkManager.state \
 	src/core/tests/config/bad.conf \
+	src/core/tests/config/global-dns-good.conf \
 	src/core/tests/config/global-dns-invalid.conf \
+	src/core/tests/config/global-dns-options.conf \
 	src/core/tests/config/conf.d/00-overrides.conf \
 	src/core/tests/config/conf.d/10-more.conf \
 	src/core/tests/config/conf.d/20-config-enable-1.conf \
@@ -4731,11 +4910,11 @@ EXTRA_DIST += src/libnmc-base/meson.build
 
 libnmc_setting_settings_doc_h = src/libnmc-setting/settings-docs.h
 if BUILD_DOCS
-$(libnmc_setting_settings_doc_h): src/libnmc-setting/settings-docs.xsl src/libnmc-setting/settings-docs-input.xml src/libnmc-setting/.dirstamp
-	$(AM_V_GEN) $(XSLTPROC) --output $@ $< $(word 2,$^)
+$(libnmc_setting_settings_doc_h): src/libnmc-setting/settings-docs-input.xml src/libnmc-setting/.dirstamp tools/generate-docs-settings-docs.py
+	$(AM_V_GEN) "$(PYTHON)" $(srcdir)/tools/generate-docs-settings-docs.py --output $@ --xml $<
 DISTCLEANFILES += $(libnmc_setting_settings_doc_h)
 check-local-settings-docs: $(libnmc_setting_settings_doc_h)
-	$(srcdir)/tools/check-compare-generated.sh "$(srcdir)" "$(builddir)" "$(libnmc_setting_settings_doc_h)"
+	$(srcdir)/tools/check-compare-generated.sh "$(srcdir)/$(libnmc_setting_settings_doc_h).in" "$(builddir)/$(libnmc_setting_settings_doc_h)"
 check_local += check-local-settings-docs
 else
 $(libnmc_setting_settings_doc_h): $(libnmc_setting_settings_doc_h).in src/libnmc-setting/.dirstamp
@@ -4743,6 +4922,7 @@ $(libnmc_setting_settings_doc_h): $(libnmc_setting_settings_doc_h).in src/libnmc
 check-local-settings-docs:
 endif
 EXTRA_DIST += \
+	tools/generate-docs-settings-docs.py \
 	$(libnmc_setting_settings_doc_h) \
 	$(libnmc_setting_settings_doc_h).in
 
@@ -4875,17 +5055,17 @@ endif
 
 ###############################################################################
 
-noinst_PROGRAMS += src/nmcli/generate-docs-nm-settings-nmcli
+noinst_PROGRAMS += src/nmcli/gen-metadata-nm-settings-nmcli
 
-src_nmcli_generate_docs_nm_settings_nmcli_SOURCES = \
-	src/nmcli/generate-docs-nm-settings-nmcli.c \
+src_nmcli_gen_metadata_nm_settings_nmcli_SOURCES = \
+	src/nmcli/gen-metadata-nm-settings-nmcli.c \
 	$(NULL)
 
-src_nmcli_generate_docs_nm_settings_nmcli_CPPFLAGS = \
+src_nmcli_gen_metadata_nm_settings_nmcli_CPPFLAGS = \
 	$(clients_cppflags) \
 	$(NULL)
 
-src_nmcli_generate_docs_nm_settings_nmcli_LDADD = \
+src_nmcli_gen_metadata_nm_settings_nmcli_LDADD = \
 	src/libnmc-setting/libnmc-setting.la \
 	src/libnmc-base/libnmc-base.la \
 	src/libnm-client-aux-extern/libnm-client-aux-extern.la \
@@ -4900,20 +5080,19 @@ src_nmcli_generate_docs_nm_settings_nmcli_LDADD = \
 	$(GLIB_LIBS) \
 	$(NULL)
 
-src_nmcli_generate_docs_nm_settings_nmcli_LDFLAGS = \
+src_nmcli_gen_metadata_nm_settings_nmcli_LDFLAGS = \
 	-Wl,--version-script="$(srcdir)/linker-script-binary.ver" \
 	$(SANITIZER_EXEC_LDFLAGS) \
 	$(NULL)
 
-$(src_nmcli_generate_docs_nm_settings_nmcli_OBJECTS): $(src_libnm_core_public_mkenums_h)
-$(src_nmcli_generate_docs_nm_settings_nmcli_OBJECTS): $(src_libnm_client_public_mkenums_h)
+$(src_nmcli_gen_metadata_nm_settings_nmcli_OBJECTS): $(src_libnm_core_public_mkenums_h)
+$(src_nmcli_gen_metadata_nm_settings_nmcli_OBJECTS): $(src_libnm_client_public_mkenums_h)
 
 ###############################################################################
 
 EXTRA_DIST += \
 	src/nmcli/nmcli-completion \
 	src/nmcli/meson.build \
-	src/libnmc-setting/settings-docs.xsl \
 	src/libnmc-setting/meson.build \
 	src/libnmc-setting/tests/meson.build
 
@@ -5005,6 +5184,8 @@ src_nmtui_nmtui_SOURCES = \
 	src/nmtui/nm-editor-utils.c \
 	src/nmtui/nm-editor-utils.h \
 	\
+	src/nmtui/nmt-8021x-fields.c \
+	src/nmtui/nmt-8021x-fields.h \
 	src/nmtui/nmt-address-list.c \
 	src/nmtui/nmt-address-list.h \
 	src/nmtui/nmt-connect-connection-list.c \
@@ -5015,10 +5196,10 @@ src_nmtui_nmtui_SOURCES = \
 	src/nmtui/nmt-edit-connection-list.h \
 	src/nmtui/nmt-editor-grid.c \
 	src/nmtui/nmt-editor-grid.h \
-	src/nmtui/nmt-editor-page.c \
-	src/nmtui/nmt-editor-page.h \
 	src/nmtui/nmt-editor-page-device.c \
 	src/nmtui/nmt-editor-page-device.h \
+	src/nmtui/nmt-editor-page.c \
+	src/nmtui/nmt-editor-page.h \
 	src/nmtui/nmt-editor-section.c \
 	src/nmtui/nmt-editor-section.h \
 	src/nmtui/nmt-editor.c \
@@ -5049,6 +5230,8 @@ src_nmtui_nmtui_SOURCES = \
 	src/nmtui/nmt-page-ip4.h \
 	src/nmtui/nmt-page-ip6.c \
 	src/nmtui/nmt-page-ip6.h \
+	src/nmtui/nmt-page-macsec.c \
+	src/nmtui/nmt-page-macsec.h \
 	src/nmtui/nmt-page-ppp.c \
 	src/nmtui/nmt-page-ppp.h \
 	src/nmtui/nmt-page-team-port.c \
@@ -5075,12 +5258,12 @@ src_nmtui_nmtui_SOURCES = \
 	src/nmtui/nmt-slave-list.h \
 	src/nmtui/nmt-utils.c \
 	src/nmtui/nmt-utils.h \
+	src/nmtui/nmt-widget-list.c \
+	src/nmtui/nmt-widget-list.h \
 	src/nmtui/nmt-wireguard-peer-editor.c \
 	src/nmtui/nmt-wireguard-peer-editor.h \
 	src/nmtui/nmt-wireguard-peer-list.c \
 	src/nmtui/nmt-wireguard-peer-list.h \
-	src/nmtui/nmt-widget-list.c \
-	src/nmtui/nmt-widget-list.h \
 	$(NULL)
 
 src_nmtui_nmtui_CPPFLAGS = \
@@ -5275,7 +5458,7 @@ endif
 ###############################################################################
 
 check-local-tests-client: src/nmcli/nmcli src/tests/client/test-client.py
-	"$(srcdir)/src/tests/client/test-client.sh" "$(builddir)" "$(srcdir)" "$(PYTHON)"
+	LIBTOOL="$(LIBTOOL)" "$(srcdir)/src/tests/client/test-client.sh" "$(builddir)" "$(srcdir)" "$(PYTHON)" --
 
 check_local += check-local-tests-client
 
@@ -5288,6 +5471,7 @@ EXTRA_DIST += \
 	src/tests/client/test-client.check-on-disk/test_002.expected \
 	src/tests/client/test-client.check-on-disk/test_003.expected \
 	src/tests/client/test-client.check-on-disk/test_004.expected \
+	src/tests/client/test-client.check-on-disk/test_offline.expected \
 	\
 	src/tests/client/meson.build \
 	$(NULL)
@@ -5420,11 +5604,12 @@ CLEANFILES += $(man_nm_settings_xml)
 endif
 
 man_pages += \
-	man/NetworkManager.8 \
 	man/NetworkManager-dispatcher.8 \
+	man/NetworkManager-wait-online.service.8 \
+	man/NetworkManager.8 \
 	man/NetworkManager.conf.5 \
-	man/nm-online.1 \
 	man/nm-initrd-generator.8 \
+	man/nm-online.1 \
 	man/nmcli-examples.7 \
 	man/nmcli.1 \
 	man/nmtui.1 \
@@ -5515,7 +5700,11 @@ if ENABLE_VAPIGEN
 VAPIGEN_VAPIS += \
 	vapi/libnm.vapi
 
-vapi/libnm.vapi:      $(builddir)/src/libnm-client-impl/NM-1.0.gir                   vapi/libnm.deps      vapi/NM-1.0.metadata
+vapi/libnm.vapi: \
+	$(builddir)/src/libnm-client-impl/NM-1.0.gir \
+	vapi/libnm.deps \
+	vapi/NM-1.0.metadata \
+	$(NULL)
 
 vapi_libnm_vapi_METADATADIRS = $(srcdir)/vapi
 vapi_libnm_vapi_FILES = $(builddir)/src/libnm-client-impl/NM-1.0.gir
@@ -5562,13 +5751,17 @@ plugin_LTLIBRARIES += $(core_plugins)
 TESTS += $(check_programs)
 
 EXTRA_DIST += \
+	\
+	AUTHORS \
+	COPYING \
+	ChangeLog \
+	NEWS \
+	README.md \
+	\
 	CONTRIBUTING.md \
 	COPYING.LGPL \
 	COPYING.GFDL \
 	\
-	intltool-extract.in \
-	intltool-merge.in \
-	intltool-update.in \
 	linker-script-binary.ver \
 	linker-script-devices.ver \
 	linker-script-settings.ver \
@@ -5624,12 +5817,6 @@ CLEANFILES += \
 
 include Makefile.examples
 
-if WITH_PYTHON_BLACK
-check-python-black:
-	test "$$NMTST_SKIP_PYTHON_BLACK" == 1 || $(BLACK) --check $(top_srcdir) $(top_srcdir)/examples/python/gi/nm-wg-set
-check_local += check-python-black
-endif
-
 ###############################################################################
 
 check-tree:
@@ -5666,7 +5853,7 @@ uninstall-hook: $(uninstall_hook)
 ###############################################################################
 
 cscope:
-	cscope -b -q -R -sshared -ssrc -slibnm -sclients;
+	cscope -b -q -R -ssrc
 
 ###############################################################################
 

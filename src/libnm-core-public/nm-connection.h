@@ -13,7 +13,6 @@
 
 #include "nm-core-types.h"
 #include "nm-setting.h"
-#include "nm-errors.h"
 
 G_BEGIN_DECLS
 
@@ -122,15 +121,15 @@ NMSetting *nm_connection_get_setting_by_name(NMConnection *connection, const cha
  * These flags determine which properties are serialized when calling
  * nm_connection_to_dbus().
  **/
-typedef enum { /*< flags >*/
-               NM_CONNECTION_SERIALIZE_ALL                       = 0x00000000,
-               NM_CONNECTION_SERIALIZE_WITH_NON_SECRET           = 0x00000001,
-               NM_CONNECTION_SERIALIZE_NO_SECRETS                = 0x00000001,
-               NM_CONNECTION_SERIALIZE_WITH_SECRETS              = 0x00000002,
-               NM_CONNECTION_SERIALIZE_ONLY_SECRETS              = 0x00000002,
-               NM_CONNECTION_SERIALIZE_WITH_SECRETS_AGENT_OWNED  = 0x00000004,
-               NM_CONNECTION_SERIALIZE_WITH_SECRETS_SYSTEM_OWNED = 0x00000008,
-               NM_CONNECTION_SERIALIZE_WITH_SECRETS_NOT_SAVED    = 0x00000010,
+typedef enum /*< flags >*/ {
+    NM_CONNECTION_SERIALIZE_ALL                       = 0x00000000,
+    NM_CONNECTION_SERIALIZE_WITH_NON_SECRET           = 0x00000001,
+    NM_CONNECTION_SERIALIZE_NO_SECRETS                = 0x00000001,
+    NM_CONNECTION_SERIALIZE_WITH_SECRETS              = 0x00000002,
+    NM_CONNECTION_SERIALIZE_ONLY_SECRETS              = 0x00000002,
+    NM_CONNECTION_SERIALIZE_WITH_SECRETS_AGENT_OWNED  = 0x00000004,
+    NM_CONNECTION_SERIALIZE_WITH_SECRETS_SYSTEM_OWNED = 0x00000008,
+    NM_CONNECTION_SERIALIZE_WITH_SECRETS_NOT_SAVED    = 0x00000010,
 } NMConnectionSerializationFlags;
 
 GVariant *nm_connection_to_dbus(NMConnection *connection, NMConnectionSerializationFlags flags);
@@ -220,12 +219,13 @@ NMSettingMacsec *nm_connection_get_setting_macsec(NMConnection *connection);
 NM_AVAILABLE_IN_1_2
 NMSettingMacvlan  *nm_connection_get_setting_macvlan(NMConnection *connection);
 NMSettingOlpcMesh *nm_connection_get_setting_olpc_mesh(NMConnection *connection);
-NM_AVAILABLE_IN_1_10
+NM_AVAILABLE_IN_1_14
 NMSettingOvsBridge *nm_connection_get_setting_ovs_bridge(NMConnection *connection);
-NM_AVAILABLE_IN_1_10
+NM_AVAILABLE_IN_1_14
 NMSettingOvsInterface *nm_connection_get_setting_ovs_interface(NMConnection *connection);
-NMSettingOvsPatch     *nm_connection_get_setting_ovs_patch(NMConnection *connection);
-NM_AVAILABLE_IN_1_10
+NM_AVAILABLE_IN_1_14
+NMSettingOvsPatch *nm_connection_get_setting_ovs_patch(NMConnection *connection);
+NM_AVAILABLE_IN_1_14
 NMSettingOvsPort *nm_connection_get_setting_ovs_port(NMConnection *connection);
 NMSettingPpp     *nm_connection_get_setting_ppp(NMConnection *connection);
 NMSettingPppoe   *nm_connection_get_setting_pppoe(NMConnection *connection);
@@ -234,7 +234,7 @@ NMSettingProxy  *nm_connection_get_setting_proxy(NMConnection *connection);
 NMSettingSerial *nm_connection_get_setting_serial(NMConnection *connection);
 NM_AVAILABLE_IN_1_12
 NMSettingTCConfig *nm_connection_get_setting_tc_config(NMConnection *connection);
-NM_AVAILABLE_IN_1_2
+NM_AVAILABLE_IN_1_14
 NMSettingTun              *nm_connection_get_setting_tun(NMConnection *connection);
 NMSettingVpn              *nm_connection_get_setting_vpn(NMConnection *connection);
 NMSettingWimax            *nm_connection_get_setting_wimax(NMConnection *connection);

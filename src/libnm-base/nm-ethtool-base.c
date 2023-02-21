@@ -271,12 +271,12 @@ nm_ethtool_data_get_by_optname(const char *optname)
 
     _ASSERT_data();
 
-    idx = nm_utils_array_find_binary_search((gconstpointer *) _by_name,
-                                            sizeof(_by_name[0]),
-                                            _NM_ETHTOOL_ID_NUM,
-                                            optname,
-                                            _by_name_cmp,
-                                            NULL);
+    idx = nm_array_find_bsearch(_by_name,
+                                _NM_ETHTOOL_ID_NUM,
+                                sizeof(_by_name[0]),
+                                optname,
+                                _by_name_cmp,
+                                NULL);
     return (idx < 0) ? NULL : nm_ethtool_data[_by_name[idx]];
 }
 
@@ -293,4 +293,16 @@ nm_ethtool_id_to_type(NMEthtoolID id)
         return NM_ETHTOOL_TYPE_PAUSE;
 
     return NM_ETHTOOL_TYPE_UNKNOWN;
+}
+
+const GVariantType *
+nm_ethtool_id_get_variant_type(NMEthtoolID ethtool_id)
+{
+    if (nm_ethtool_id_is_feature(ethtool_id) || nm_ethtool_id_is_pause(ethtool_id))
+        return G_VARIANT_TYPE_BOOLEAN;
+
+    if (nm_ethtool_id_is_coalesce(ethtool_id) || nm_ethtool_id_is_ring(ethtool_id))
+        return G_VARIANT_TYPE_UINT32;
+
+    return NULL;
 }

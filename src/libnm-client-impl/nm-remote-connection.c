@@ -125,6 +125,8 @@ nm_remote_connection_update2(NMRemoteConnection    *connection,
  *
  * Returns: (transfer full): on success, a #GVariant of type "a{sv}" with the result. On failure,
  *   %NULL.
+ *
+ * Since: 1.12
  **/
 GVariant *
 nm_remote_connection_update2_finish(NMRemoteConnection *connection,
@@ -443,7 +445,11 @@ nm_remote_connection_delete_finish(NMRemoteConnection *connection,
  * Returns: (transfer full): a #GVariant of type %NM_VARIANT_TYPE_CONNECTION containing
  * @connection's secrets, or %NULL on error.
  *
- * Deprecated: 1.22: Use nm_remote_connection_get_secrets_async() or GDBusConnection.
+ * Warning: NMClient contains a cache of objects on D-Bus. This cache gets updated
+ *   with D-Bus signals when iterating the GMainContext. This function performs a
+ *   (pseudo) blocking D-Bus call. Aside blocking, the result will not be in sync
+ *   and not be ordered with the content of the NMClient cache.
+ *   This function used to be deprecated between 1.22 and 1.38 releases.
  **/
 GVariant *
 nm_remote_connection_get_secrets(NMRemoteConnection *connection,
@@ -692,7 +698,7 @@ static void
 register_client(NMObject *nmobj, NMClient *client, NMLDBusObject *dbobj)
 {
     NM_OBJECT_CLASS(nm_remote_connection_parent_class)->register_client(nmobj, client, dbobj);
-    nm_connection_set_path(NM_CONNECTION(nmobj), dbobj->dbus_path->str);
+    _nm_connection_set_path_rstr(NM_CONNECTION(nmobj), dbobj->dbus_path);
     _nm_client_get_settings_call(client, dbobj);
 }
 

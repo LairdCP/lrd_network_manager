@@ -29,8 +29,17 @@ AC_DEFUN([NM_COMPILER_FLAG], [
 	], [$4])
 ])
 
+dnl Check whether a particular warning is supported. If yes, the flag
+dnl is appended to [ENV-VAR].
+dnl NM_COMPILER_WARNING_FLAG([ENV-VAR], [WARNING])
+AC_DEFUN([NM_COMPILER_WARNING_FLAG], [
+        dnl "-Wno-*" requires special handling, see https://gcc.gnu.org/wiki/FAQ#wnowarning.
+        _NM_COMPILER_FLAG([-Wall $(printf '%s' "$2" | sed -e 's/^-W\(no-\|no-error=\)/-W/')], [], [eval "AS_TR_SH([$1])='$$1 $2'"], [])
+])
+
 dnl Check whether a particular warning is not emitted with code provided,
 dnl append an option to disable the warning to a specified variable if the check fails.
+dnl Note that this always either adds -W$2 or -Wno-$2, depending on whether it's supported.
 dnl NM_COMPILER_WARNING([ENV-VAR], [WARNING], [C-SNIPPET])
 AC_DEFUN([NM_COMPILER_WARNING], [
         _NM_COMPILER_FLAG([-W$2], [$3], [eval "AS_TR_SH([$1])='$$1 -W$2'"], [eval "AS_TR_SH([$1])='$$1 -Wno-$2'"])
@@ -79,26 +88,35 @@ if test "$GCC" = "yes" -a "$set_more_warnings" != "no"; then
 
 	for option in \
 		      $_CFLAGS_MORE_WARNINGS_DISABLE_LTO \
+		      -Wall \
 		      -Wextra \
+		      -Wcast-align=strict \
 		      -Wdeclaration-after-statement \
 		      -Wfloat-equal \
 		      -Wformat-nonliteral \
 		      -Wformat-security \
 		      -Wimplicit-function-declaration \
+		      -Wimplicit-int \
 		      -Winit-self \
+		      -Wint-conversion \
 		      -Wlogical-op \
 		      -Wmissing-declarations \
 		      -Wmissing-include-dirs \
 		      -Wmissing-prototypes \
+		      -Wold-style-definition \
+		      -Wparentheses-equality \
 		      -Wpointer-arith \
 		      -Wshadow \
 		      -Wshift-negative-value \
 		      -Wstrict-prototypes \
+		      -Wtypedef-redefinition \
 		      -Wundef \
+		      -Wunknown-attributes \
 		      -Wvla \
 		      -Wno-duplicate-decl-specifier \
 		      -Wno-format-truncation \
 		      -Wno-format-y2k \
+		      -Wno-gnu-variable-sized-type-not-at-end \
 		      -Wno-missing-field-initializers \
 		      -Wno-pragmas \
 		      -Wno-sign-compare \

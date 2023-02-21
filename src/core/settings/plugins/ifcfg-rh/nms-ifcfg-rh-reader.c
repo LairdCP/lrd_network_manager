@@ -393,7 +393,9 @@ make_connection_setting(const char *file,
     const char             *v;
     gs_free char           *stable_id = NULL;
     const char *const      *iter;
-    int                     vint64, i_val;
+    gint32                  vint32;
+    gint64                  vint64;
+    int                     i_val;
 
     ifcfg_name = utils_get_ifcfg_name(file, TRUE);
     if (!ifcfg_name)
@@ -586,8 +588,8 @@ make_connection_setting(const char *file,
         break;
     }
 
-    vint64 = svGetValueInt64(ifcfg, "AUTH_RETRIES", 10, -1, G_MAXINT32, -1);
-    g_object_set(s_con, NM_SETTING_CONNECTION_AUTH_RETRIES, (int) vint64, NULL);
+    vint32 = svGetValueInt64(ifcfg, "AUTH_RETRIES", 10, -1, G_MAXINT32, -1);
+    g_object_set(s_con, NM_SETTING_CONNECTION_AUTH_RETRIES, (int) vint32, NULL);
 
     nm_clear_g_free(&value);
     v = svGetValue(ifcfg, "DEVTIMEOUT", &value);
@@ -642,6 +644,14 @@ make_connection_setting(const char *file,
                         NULL))
         PARSE_WARNING("invalid DNS_OVER_TLS setting");
     g_object_set(s_con, NM_SETTING_CONNECTION_DNS_OVER_TLS, i_val, NULL);
+
+    i_val = NM_MPTCP_FLAGS_NONE;
+    if (!svGetValueEnum(ifcfg, "MPTCP_FLAGS", nm_mptcp_flags_get_type(), &i_val, NULL))
+        PARSE_WARNING("invalid MPTCP_FLAGS setting");
+    g_object_set(s_con, NM_SETTING_CONNECTION_MPTCP_FLAGS, (guint) i_val, NULL);
+
+    vint32 = svGetValueInt64(ifcfg, "WAIT_ACTIVATION_DELAY", 10, -1, G_MAXINT32, -1);
+    g_object_set(s_con, NM_SETTING_CONNECTION_WAIT_ACTIVATION_DELAY, (int) vint32, NULL);
 
     return NM_SETTING(s_con);
 }
@@ -729,7 +739,7 @@ read_full_ip4_address(shvarFile    *ifcfg,
     int           prefix = 0;
     gboolean      has_key;
     guint32       a;
-    char          inet_buf[NM_UTILS_INET_ADDRSTRLEN];
+    char          inet_buf[NM_INET_ADDRSTRLEN];
 
     g_return_val_if_fail(which >= -1, FALSE);
     g_return_val_if_fail(ifcfg != NULL, FALSE);
@@ -751,7 +761,7 @@ read_full_ip4_address(shvarFile    *ifcfg,
         if (!read_ip4_address(ifcfg, numbered_tag(tag, "GATEWAY", which), &has_key, &a, error))
             return FALSE;
         if (has_key)
-            *out_gateway = nm_utils_inet4_ntop_dup(a);
+            *out_gateway = nm_inet4_ntop_dup(a);
     }
 
     /* Prefix */
@@ -772,16 +782,16 @@ read_full_ip4_address(shvarFile    *ifcfg,
         if (!read_ip4_address(ifcfg, numbered_tag(tag, "NETMASK", which), &has_key, &a, error))
             return FALSE;
         if (has_key)
-            prefix = nm_utils_ip4_netmask_to_prefix(a);
+            prefix = nm_ip4_addr_netmask_to_prefix(a);
         else {
             if (base_addr)
                 prefix = nm_ip_address_get_prefix(base_addr);
             else {
                 /* Try to autodetermine the prefix for the address' class */
-                prefix = _nm_utils_ip4_get_default_prefix(ipaddr);
+                prefix = nm_ip4_addr_get_default_prefix(ipaddr);
                 PARSE_WARNING("missing %s, assuming %s/%d",
                               prefix_tag,
-                              _nm_utils_inet4_ntop(ipaddr, inet_buf),
+                              nm_inet4_ntop(ipaddr, inet_buf),
                               prefix);
             }
         }
@@ -845,6 +855,7 @@ typedef struct {
     union {
         guint8      uint8;
         guint32     uint32;
+        gboolean    boolean;
         const char *str;
         struct {
             guint32 uint32;
@@ -873,6 +884,10 @@ enum {
     PARSE_LINE_ATTR_ROUTE_INITCWND,
     PARSE_LINE_ATTR_ROUTE_INITRWND,
     PARSE_LINE_ATTR_ROUTE_MTU,
+    PARSE_LINE_ATTR_ROUTE_ADVMSS,
+    PARSE_LINE_ATTR_ROUTE_RTO_MIN,
+    PARSE_LINE_ATTR_ROUTE_QUICKACK,
+    PARSE_LINE_ATTR_ROUTE_WEIGHT,
 
     /* iproute2 arguments that only matter when parsing the file. */
     PARSE_LINE_ATTR_ROUTE_TO,
@@ -886,6 +901,7 @@ enum {
 #define PARSE_LINE_TYPE_UINT8            '8'
 #define PARSE_LINE_TYPE_UINT32           'u'
 #define PARSE_LINE_TYPE_UINT32_WITH_LOCK 'l'
+#define PARSE_LINE_TYPE_BOOL             'b'
 #define PARSE_LINE_TYPE_ADDR             'a'
 #define PARSE_LINE_TYPE_ADDR_WITH_PREFIX 'p'
 #define PARSE_LINE_TYPE_IFNAME           'i'
@@ -951,6 +967,12 @@ parse_route_line(const char *line,
                 .int_base_16 = TRUE,
                 .ignore      = PARSE_LINE_AF_FLAG_FOR_IPV6,
             },
+        [PARSE_LINE_ATTR_ROUTE_WEIGHT] =
+            {
+                .key      = NM_IP_ROUTE_ATTRIBUTE_WEIGHT,
+                .type     = PARSE_LINE_TYPE_UINT32,
+                .disabled = PARSE_LINE_AF_FLAG_FOR_IPV6,
+            },
         [PARSE_LINE_ATTR_ROUTE_SCOPE] =
             {
                 .key    = NM_IP_ROUTE_ATTRIBUTE_SCOPE,
@@ -972,6 +994,11 @@ parse_route_line(const char *line,
                 .key  = NM_IP_ROUTE_ATTRIBUTE_CWND,
                 .type = PARSE_LINE_TYPE_UINT32_WITH_LOCK,
             },
+        [PARSE_LINE_ATTR_ROUTE_ADVMSS] =
+            {
+                .key  = NM_IP_ROUTE_ATTRIBUTE_ADVMSS,
+                .type = PARSE_LINE_TYPE_UINT32_WITH_LOCK,
+            },
         [PARSE_LINE_ATTR_ROUTE_INITCWND] =
             {
                 .key  = NM_IP_ROUTE_ATTRIBUTE_INITCWND,
@@ -987,7 +1014,16 @@ parse_route_line(const char *line,
                 .key  = NM_IP_ROUTE_ATTRIBUTE_MTU,
                 .type = PARSE_LINE_TYPE_UINT32_WITH_LOCK,
             },
-
+        [PARSE_LINE_ATTR_ROUTE_QUICKACK] =
+            {
+                .key  = NM_IP_ROUTE_ATTRIBUTE_QUICKACK,
+                .type = PARSE_LINE_TYPE_BOOL,
+            },
+        [PARSE_LINE_ATTR_ROUTE_RTO_MIN] =
+            {
+                .key  = NM_IP_ROUTE_ATTRIBUTE_RTO_MIN,
+                .type = PARSE_LINE_TYPE_UINT32,
+            },
         [PARSE_LINE_ATTR_ROUTE_TO] =
             {
                 .key                         = "to",
@@ -1090,6 +1126,9 @@ parse_route_line(const char *line,
             case PARSE_LINE_TYPE_UINT32_WITH_LOCK:
                 i_words++;
                 goto parse_line_type_uint32_with_lock;
+            case PARSE_LINE_TYPE_BOOL:
+                i_words++;
+                goto parse_line_type_bool;
             case PARSE_LINE_TYPE_ADDR:
                 i_words++;
                 goto parse_line_type_addr;
@@ -1218,6 +1257,22 @@ parse_line_type_uint32_with_lock:
         i_words++;
         goto next;
 
+parse_line_type_bool:
+        s = words[i_words];
+        if (!s)
+            goto err_word_missing_argument;
+        p_data->v.boolean = !!_nm_utils_ascii_str_to_int64(s, 10, 0, 1, 0);
+        if (errno) {
+            g_set_error(error,
+                        NM_SETTINGS_ERROR,
+                        NM_SETTINGS_ERROR_INVALID_CONNECTION,
+                        "Argument for \"%s\" is not a valid boolean number",
+                        w);
+            return -EINVAL;
+        }
+        i_words++;
+        goto next;
+
 parse_line_type_ifname:
         s = words[i_words];
         if (!s)
@@ -1234,7 +1289,7 @@ parse_line_type_addr_with_prefix:
             int prefix = -1;
 
             if (p_info->type == PARSE_LINE_TYPE_ADDR) {
-                if (!nm_utils_parse_inaddr_bin(addr_family, s, NULL, &p_data->v.addr.addr)) {
+                if (!nm_inet_parse_bin(addr_family, s, NULL, &p_data->v.addr.addr)) {
                     if (p_info == &parse_infos[PARSE_LINE_ATTR_ROUTE_VIA]
                         && nm_streq(s, "(null)")) {
                         /* Due to a bug, would older versions of NM write "via (null)"
@@ -1265,11 +1320,11 @@ parse_line_type_addr_with_prefix:
                 if (p_info == &parse_infos[PARSE_LINE_ATTR_ROUTE_TO] && nm_streq(s, "default")) {
                     memset(&p_data->v.addr.addr, 0, sizeof(p_data->v.addr.addr));
                     prefix = 0;
-                } else if (!nm_utils_parse_inaddr_prefix_bin(addr_family,
-                                                             s,
-                                                             NULL,
-                                                             &p_data->v.addr.addr,
-                                                             &prefix)) {
+                } else if (!nm_inet_parse_with_prefix_bin(addr_family,
+                                                          s,
+                                                          NULL,
+                                                          &p_data->v.addr.addr,
+                                                          &prefix)) {
                     g_set_error(error,
                                 NM_SETTINGS_ERROR,
                                 NM_SETTINGS_ERROR_INVALID_CONNECTION,
@@ -1370,6 +1425,9 @@ next:;
                                       p_info->key,
                                       g_variant_new_uint32(p_data->v.uint32_with_lock.uint32));
             break;
+        case PARSE_LINE_TYPE_BOOL:
+            nm_ip_route_set_attribute(route, p_info->key, g_variant_new_boolean(p_data->v.boolean));
+            break;
         case PARSE_LINE_TYPE_ADDR:
         case PARSE_LINE_TYPE_ADDR_WITH_PREFIX:
             nm_ip_route_set_attribute(
@@ -1417,7 +1475,7 @@ read_one_ip4_route(shvarFile *ifcfg, guint32 which, NMIPRoute **out_route, GErro
     const char   *v;
     gs_free char *value = NULL;
     gint64        prefix, metric;
-    char          inet_buf[NM_UTILS_INET_ADDRSTRLEN];
+    char          inet_buf[NM_INET_ADDRSTRLEN];
 
     g_return_val_if_fail(ifcfg != NULL, FALSE);
     g_return_val_if_fail(out_route && !*out_route, FALSE);
@@ -1445,14 +1503,14 @@ read_one_ip4_route(shvarFile *ifcfg, guint32 which, NMIPRoute **out_route, GErro
                           error))
         return FALSE;
     if (has_key) {
-        prefix = nm_utils_ip4_netmask_to_prefix(netmask);
-        if (netmask != _nm_utils_ip4_prefix_to_netmask(prefix)) {
+        prefix = nm_ip4_addr_netmask_to_prefix(netmask);
+        if (netmask != nm_ip4_addr_netmask_from_prefix(prefix)) {
             g_set_error(error,
                         NM_SETTINGS_ERROR,
                         NM_SETTINGS_ERROR_INVALID_CONNECTION,
                         "Invalid IP4 netmask '%s' \"%s\"",
                         netmask_tag,
-                        _nm_utils_inet4_ntop(netmask, inet_buf));
+                        nm_inet4_ntop(netmask, inet_buf));
             return FALSE;
         }
     } else {
@@ -1616,7 +1674,7 @@ parse_full_ip6_address(shvarFile    *ifcfg,
     nm_assert(out_address && !*out_address);
     nm_assert(!error || !*error);
 
-    if (!nm_utils_parse_inaddr_prefix_bin(AF_INET6, addr_str, NULL, &addr_bin, &prefix)) {
+    if (!nm_inet_parse_with_prefix_bin(AF_INET6, addr_str, NULL, &addr_bin, &prefix)) {
         g_set_error(error,
                     NM_SETTINGS_ERROR,
                     NM_SETTINGS_ERROR_INVALID_CONNECTION,
@@ -1786,6 +1844,7 @@ make_ip4_setting(shvarFile *ifcfg,
     int                                priority;
     const char *const                 *item;
     guint32                            route_table;
+    int                                ipv4_link_local;
 
     nm_assert(out_has_defroute && !*out_has_defroute);
 
@@ -1858,6 +1917,14 @@ make_ip4_setting(shvarFile *ifcfg,
         route_table = 0;
     }
 
+    ipv4_link_local = NM_SETTING_IP4_LL_DEFAULT;
+    if (!svGetValueEnum(ifcfg,
+                        "IPV4_LINK_LOCAL",
+                        nm_setting_ip4_link_local_get_type(),
+                        &ipv4_link_local,
+                        NULL))
+        PARSE_WARNING("invalid IPV4_LINK_LOCAL setting");
+
     g_object_set(s_ip4,
                  NM_SETTING_IP_CONFIG_METHOD,
                  method,
@@ -1873,6 +1940,10 @@ make_ip4_setting(shvarFile *ifcfg,
                  svGetValueInt64(ifcfg, "IPV4_ROUTE_METRIC", 10, -1, G_MAXUINT32, -1),
                  NM_SETTING_IP_CONFIG_ROUTE_TABLE,
                  (guint) route_table,
+                 NM_SETTING_IP4_CONFIG_LINK_LOCAL,
+                 ipv4_link_local,
+                 NM_SETTING_IP_CONFIG_AUTO_ROUTE_EXT_GW,
+                 svGetValueTernary(ifcfg, "IPV4_AUTO_ROUTE_EXT_GW"),
                  NULL);
 
     if (nm_streq(method, NM_SETTING_IP4_CONFIG_METHOD_DISABLED))
@@ -1965,7 +2036,7 @@ make_ip4_setting(shvarFile *ifcfg,
                                   "because the connection has no static addresses",
                                   f);
                 } else
-                    gateway = nm_utils_inet4_ntop_dup(a);
+                    gateway = nm_inet4_ntop_dup(a);
             }
         }
     }
@@ -1985,7 +2056,9 @@ make_ip4_setting(shvarFile *ifcfg,
          * Pick up just IPv4 addresses (IPv6 addresses are taken by make_ip6_setting())
          */
         for (i = 1; i < 10000; i++) {
-            char tag[256];
+            int      af;
+            NMIPAddr ip;
+            char     tag[256];
 
             numbered_tag(tag, "DNS", i);
             nm_clear_g_free(&value);
@@ -1993,18 +2066,18 @@ make_ip4_setting(shvarFile *ifcfg,
             if (!v)
                 break;
 
-            if (nm_utils_ipaddr_is_valid(AF_INET, v)) {
-                if (!nm_setting_ip_config_add_dns(s_ip4, v))
-                    PARSE_WARNING("duplicate DNS server %s", tag);
-            } else if (nm_utils_ipaddr_is_valid(AF_INET6, v)) {
-                /* Ignore IPv6 addresses */
-            } else {
+            if (!nm_utils_dnsname_parse(AF_UNSPEC, v, &af, &ip, NULL)) {
                 g_set_error(error,
                             NM_SETTINGS_ERROR,
                             NM_SETTINGS_ERROR_INVALID_CONNECTION,
                             "Invalid DNS server address '%s'",
                             v);
                 return NULL;
+            } else if (af == AF_INET) {
+                if (!nm_setting_ip_config_add_dns(s_ip4, v))
+                    PARSE_WARNING("duplicate DNS server %s", tag);
+            } else {
+                /* Ignore IPv6 addresses */
             }
         }
 
@@ -2384,6 +2457,8 @@ make_ip6_setting(shvarFile *ifcfg, shvarFile *network_ifcfg, gboolean routes_rea
                  (guint) route_table,
                  NM_SETTING_IP6_CONFIG_IP6_PRIVACY,
                  ip6_privacy_val,
+                 NM_SETTING_IP_CONFIG_AUTO_ROUTE_EXT_GW,
+                 svGetValueTernary(ifcfg, "IPV6_AUTO_ROUTE_EXT_GW"),
                  NULL);
 
     /* Don't bother to read IP, DNS and routes when IPv6 is disabled */
@@ -2484,7 +2559,7 @@ make_ip6_setting(shvarFile *ifcfg, shvarFile *network_ifcfg, gboolean routes_rea
 
             if ((ptr = strchr(v, '%')) != NULL)
                 *ptr = '\0'; /* remove %interface prefix if present */
-            if (!nm_utils_ipaddr_is_valid(AF_INET6, v)) {
+            if (!nm_inet_is_valid(AF_INET6, v)) {
                 if (!is_disabled) {
                     g_set_error(error,
                                 NM_SETTINGS_ERROR,
@@ -2498,7 +2573,13 @@ make_ip6_setting(shvarFile *ifcfg, shvarFile *network_ifcfg, gboolean routes_rea
         }
     }
 
-    i_val = NM_SETTING_IP6_CONFIG_ADDR_GEN_MODE_EUI64;
+    /* IPv6 tokenized interface identifier */
+    nm_clear_g_free(&value);
+    v = svGetValueStr(ifcfg, "IPV6_TOKEN", &value);
+    if (v)
+        g_object_set(s_ip6, NM_SETTING_IP6_CONFIG_TOKEN, v, NULL);
+
+    i_val = NM_SETTING_IP6_CONFIG_ADDR_GEN_MODE_DEFAULT_OR_EUI64;
     if (!svGetValueEnum(ifcfg,
                         "IPV6_ADDR_GEN_MODE",
                         nm_setting_ip6_config_addr_gen_mode_get_type(),
@@ -2506,20 +2587,21 @@ make_ip6_setting(shvarFile *ifcfg, shvarFile *network_ifcfg, gboolean routes_rea
                         &local)) {
         PARSE_WARNING("%s", local->message);
         g_clear_error(&local);
+    } else if (errno == ENOENT) {
+        /* The key is not specified. If "v" (IPV6_TOKEN) is set,
+         * we default to EUI64. Otherwise, the connection would not verify. */
+        if (v)
+            i_val = NM_SETTING_IP6_CONFIG_ADDR_GEN_MODE_EUI64;
     }
     g_object_set(s_ip6, NM_SETTING_IP6_CONFIG_ADDR_GEN_MODE, i_val, NULL);
-
-    /* IPv6 tokenized interface identifier */
-    nm_clear_g_free(&value);
-    v = svGetValueStr(ifcfg, "IPV6_TOKEN", &value);
-    if (v)
-        g_object_set(s_ip6, NM_SETTING_IP6_CONFIG_TOKEN, v, NULL);
 
     /* DNS servers
      * Pick up just IPv6 addresses (IPv4 addresses are taken by make_ip4_setting())
      */
     for (i = 1; i < 10000; i++) {
-        char tag[256];
+        int      af;
+        NMIPAddr ip;
+        char     tag[256];
 
         numbered_tag(tag, "DNS", i);
         nm_clear_g_free(&value);
@@ -2527,16 +2609,7 @@ make_ip6_setting(shvarFile *ifcfg, shvarFile *network_ifcfg, gboolean routes_rea
         if (!v)
             break;
 
-        if (nm_utils_ipaddr_is_valid(AF_INET6, v)) {
-            if (is_disabled) {
-                PARSE_WARNING("ignore DNS server addresses with method disabled/ignore");
-                break;
-            }
-            if (!nm_setting_ip_config_add_dns(s_ip6, v))
-                PARSE_WARNING("duplicate DNS server %s", tag);
-        } else if (nm_utils_ipaddr_is_valid(AF_INET, v)) {
-            /* Ignore IPv4 addresses */
-        } else {
+        if (!nm_utils_dnsname_parse(AF_UNSPEC, v, &af, &ip, NULL)) {
             if (is_disabled)
                 continue;
             g_set_error(error,
@@ -2545,6 +2618,15 @@ make_ip6_setting(shvarFile *ifcfg, shvarFile *network_ifcfg, gboolean routes_rea
                         "Invalid DNS server address '%s'",
                         v);
             return NULL;
+        } else if (af == AF_INET6) {
+            if (is_disabled) {
+                PARSE_WARNING("ignore DNS server addresses with method disabled/ignore");
+                break;
+            }
+            if (!nm_setting_ip_config_add_dns(s_ip6, v))
+                PARSE_WARNING("duplicate DNS server %s", tag);
+        } else {
+            /* Ignore IPv4 addresses */
         }
     }
 
@@ -4061,11 +4143,12 @@ make_wpa_setting(shvarFile       *ifcfg,
     wpa_psk   = nm_streq0(v, "WPA-PSK");
     wpa_sae   = nm_streq0(v, "SAE");
     wpa_owe   = nm_streq0(v, "OWE");
+    wpa_eap   = nm_streq0(v, "WPA-EAP");
     wpa3_eap  = nm_streq0(v, "WPA-EAP-SUITE-B-192");
     ieee8021x = nm_streq0(v, "IEEE8021X");
 
-    wpa_eap = nm_streq0(v, "WPA-EAP") || nm_streq0(v, "WPA-EAP-SUITE-B")
-              || nm_streq0(v, "WPA-EAP-SUITE-B-192");
+    wpa_eap = wpa_eap || wpa3_eap || nm_streq0(v, "WPA-EAP-SUITE-B");
+
     if (!wpa_psk && !wpa_sae && !wpa_owe && !wpa_eap && !wpa3_eap && !ieee8021x)
         return NULL; /* Not WPA or Dynamic WEP */
 
@@ -5311,59 +5394,41 @@ wired_connection_from_ifcfg(const char *file, shvarFile *ifcfg, GError **error)
 static gboolean
 parse_infiniband_p_key(shvarFile *ifcfg, int *out_p_key, char **out_parent, GError **error)
 {
-    char    *device = NULL, *physdev = NULL, *pkey_id = NULL;
-    char    *ifname = NULL;
-    int      id;
-    gboolean ret = FALSE;
-
-    device = svGetValueStr_cp(ifcfg, "DEVICE");
-    if (!device) {
-        PARSE_WARNING("InfiniBand connection specified PKEY but not DEVICE");
-        goto done;
-    }
+    gs_free char *physdev = NULL;
+    gs_free char *pkey_id = NULL;
+    int           id;
 
     physdev = svGetValueStr_cp(ifcfg, "PHYSDEV");
     if (!physdev) {
-        PARSE_WARNING("InfiniBand connection specified PKEY but not PHYSDEV");
-        goto done;
+        g_set_error(error,
+                    NM_SETTINGS_ERROR,
+                    NM_SETTINGS_ERROR_INVALID_CONNECTION,
+                    "infiniband connection specified PKEY but not PHYSDEV");
+        return FALSE;
     }
 
     pkey_id = svGetValueStr_cp(ifcfg, "PKEY_ID");
     if (!pkey_id) {
-        PARSE_WARNING("InfiniBand connection specified PKEY but not PKEY_ID");
-        goto done;
+        g_set_error(error,
+                    NM_SETTINGS_ERROR,
+                    NM_SETTINGS_ERROR_INVALID_CONNECTION,
+                    "infiniband connection specified PKEY but not PKEY_ID");
+        return FALSE;
     }
 
     id = _nm_utils_ascii_str_to_int64(pkey_id, 0, 0, 0xFFFF, -1);
     if (id == -1) {
-        PARSE_WARNING("invalid InfiniBand PKEY_ID '%s'", pkey_id);
-        goto done;
-    }
-    id = (id | 0x8000);
-
-    ifname = g_strdup_printf("%s.%04x", physdev, (unsigned) id);
-    if (strcmp(device, ifname) != 0) {
-        PARSE_WARNING("InfiniBand DEVICE (%s) does not match PHYSDEV+PKEY_ID (%s)", device, ifname);
-        goto done;
-    }
-
-    *out_p_key  = id;
-    *out_parent = g_strdup(physdev);
-    ret         = TRUE;
-
-done:
-    g_free(device);
-    g_free(physdev);
-    g_free(pkey_id);
-    g_free(ifname);
-
-    if (!ret) {
         g_set_error(error,
                     NM_SETTINGS_ERROR,
                     NM_SETTINGS_ERROR_INVALID_CONNECTION,
-                    "Failed to create InfiniBand setting");
+                    "invalid infiniband PKEY_ID '%s'",
+                    pkey_id);
+        return FALSE;
     }
-    return ret;
+
+    *out_p_key  = id;
+    *out_parent = g_steal_pointer(&physdev);
+    return TRUE;
 }
 
 static NMSetting *
@@ -6200,6 +6265,11 @@ make_vlan_setting(shvarFile *ifcfg, const char *file, GError **error)
         return NULL;
     }
     g_object_set(s_vlan, NM_SETTING_VLAN_PARENT, parent, NULL);
+
+    v = svGetValueStr(ifcfg, "VLAN_PROTOCOL", &value);
+    if (v) {
+        g_object_set(s_vlan, NM_SETTING_VLAN_PROTOCOL, v, NULL);
+    }
 
     vlan_flags |= NM_VLAN_FLAG_REORDER_HEADERS;
 

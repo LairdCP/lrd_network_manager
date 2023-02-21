@@ -160,7 +160,7 @@ has_proto_only(NMSettingWirelessSecurity *s_wsec, const char *proto)
 }
 
 static gboolean
-has_ap_flags_valid_set(NM80211ApFlags ap_flags, NM80211ApFlags mask, NM80211ApFlags valid)
+has_ap_flags_valid_set(NM80211ApSecurityFlags ap_flags, NM80211ApSecurityFlags mask, NM80211ApSecurityFlags valid)
 {
     if (0 == (ap_flags & valid))
         return FALSE; /* must have one of valid bits set */
@@ -172,14 +172,14 @@ has_ap_flags_valid_set(NM80211ApFlags ap_flags, NM80211ApFlags mask, NM80211ApFl
 
 /* only allow key_mgmt values in valid */
 static gboolean
-has_ap_flags_valid_key_mgmt(NM80211ApFlags ap_flags, NM80211ApFlags valid)
+has_ap_flags_valid_key_mgmt(NM80211ApSecurityFlags ap_flags, NM80211ApSecurityFlags valid)
 {
     return has_ap_flags_valid_set(ap_flags, NM_802_11_AP_SEC_KEY_MGMT_MASK, valid);
 }
 
 /* only allow pairwise values in valid */
 static gboolean
-has_ap_flags_valid_pair(NM80211ApFlags ap_flags, NM80211ApFlags valid)
+has_ap_flags_valid_pair(NM80211ApSecurityFlags ap_flags, NM80211ApSecurityFlags valid)
 {
     return has_ap_flags_valid_set(ap_flags, NM_802_11_AP_SEC_PAIR_MASK, valid);
 }
@@ -263,6 +263,10 @@ nm_setting_wireless_ap_security_compatible2(NMSettingWireless         *s_wireles
     g_return_val_if_fail(NM_IS_SETTING_WIRELESS(s_wireless), FALSE);
 
     if (!s_wireless_sec) {
+        /* A OWE-TM network can be used w/o security */
+        if (ap_wpa == NM_802_11_AP_SEC_KEY_MGMT_OWE_TM
+            || (ap_rsn == NM_802_11_AP_SEC_KEY_MGMT_OWE_TM))
+            return TRUE;
         if ((ap_flags & NM_802_11_AP_FLAGS_PRIVACY) || (ap_wpa != NM_802_11_AP_SEC_NONE)
             || (ap_rsn != NM_802_11_AP_SEC_NONE))
             return FALSE;
@@ -440,9 +444,8 @@ nm_setting_wireless_ap_security_compatible2(NMSettingWireless         *s_wireles
                     return FALSE;
             } else {
                 /* pairwise may have gcmp-256 or ccmp-256 */
-                if (!has_ap_flags_valid_pair(ap_rsn,
-                                             NM_802_11_AP_SEC_PAIR_GCMP_256
-                                                 | NM_802_11_AP_SEC_PAIR_CCMP_256))
+                if (!has_ap_flags_valid_pair(ap_rsn, NM_802_11_AP_SEC_PAIR_GCMP_256
+                                             | NM_802_11_AP_SEC_PAIR_CCMP_256))
                     return FALSE;
                 if (!(ap_rsn & (NM_802_11_AP_SEC_GROUP_GCMP_256 | NM_802_11_AP_SEC_GROUP_CCMP_256)))
                     return FALSE;
@@ -518,6 +521,7 @@ nm_setting_wireless_ap_security_compatible2(NMSettingWireless         *s_wireles
                         cfg_flags |= NM_802_11_AP_SEC_PAIR_GCMP_256;
                 }
             }
+
             num = nm_setting_wireless_security_get_num_groups(s_wireless_sec);
             if (num != 0) {
                 cfg_flags &= ~NM_802_11_AP_SEC_GROUP_MASK;
@@ -539,6 +543,7 @@ nm_setting_wireless_ap_security_compatible2(NMSettingWireless         *s_wireles
                         cfg_flags |= NM_802_11_AP_SEC_GROUP_GCMP_256;
                 }
             }
+
             if (dev_caps) {
                 if (dev_caps & NM_WIFI_DEVICE_CAP_CIPHER_WEP40)
                     dev_flags |= NM_802_11_AP_SEC_GROUP_WEP40;
@@ -550,10 +555,12 @@ nm_setting_wireless_ap_security_compatible2(NMSettingWireless         *s_wireles
                     dev_flags |= NM_802_11_AP_SEC_PAIR_CCMP | NM_802_11_AP_SEC_GROUP_CCMP;
                 if (dev_caps & NM_WIFI_DEVICE_CAP_CIPHER_CCMP_256)
                     dev_flags |= NM_802_11_AP_SEC_PAIR_CCMP_256 | NM_802_11_AP_SEC_GROUP_CCMP_256;
-                if (dev_caps & NM_WIFI_DEVICE_CAP_CIPHER_GCMP_256)
+                if (dev_caps & NM_WIFI_DEVICE_CAP_CIPHER_GCMP_128)
                     dev_flags |= NM_802_11_AP_SEC_PAIR_GCMP_128 | NM_802_11_AP_SEC_GROUP_GCMP_128;
                 if (dev_caps & NM_WIFI_DEVICE_CAP_CIPHER_GCMP_256)
                     dev_flags |= NM_802_11_AP_SEC_PAIR_GCMP_256 | NM_802_11_AP_SEC_GROUP_GCMP_256;
+
+                cfg_flags &= dev_flags;
             }
 
             if (wpa3_only) {
@@ -570,10 +577,7 @@ nm_setting_wireless_ap_security_compatible2(NMSettingWireless         *s_wireles
 
             ap_wpa &= cfg_flags;
             ap_rsn &= cfg_flags;
-            if (dev_caps) {
-                ap_wpa &= dev_flags;
-                ap_rsn &= dev_flags;
-            }
+
             found = 0;
             if (check_wpa) {
                 if ((ap_wpa & NM_802_11_AP_SEC_PAIR_MASK)
@@ -777,7 +781,7 @@ nm_setting_wireless_get_mac_address_blacklist(NMSettingWireless *setting)
     g_return_val_if_fail(NM_IS_SETTING_WIRELESS(setting), NULL);
 
     priv = NM_SETTING_WIRELESS_GET_PRIVATE(setting);
-    return (const char *const *) priv->mac_address_blacklist->data;
+    return nm_g_array_data(priv->mac_address_blacklist);
 }
 
 /**
@@ -812,7 +816,7 @@ nm_setting_wireless_get_mac_blacklist_item(NMSettingWireless *setting, guint32 i
     priv = NM_SETTING_WIRELESS_GET_PRIVATE(setting);
     g_return_val_if_fail(idx <= priv->mac_address_blacklist->len, NULL);
 
-    return g_array_index(priv->mac_address_blacklist, const char *, idx);
+    return nm_g_array_index(priv->mac_address_blacklist, const char *, idx);
 }
 
 /**
@@ -840,7 +844,7 @@ nm_setting_wireless_add_mac_blacklist_item(NMSettingWireless *setting, const cha
 
     priv = NM_SETTING_WIRELESS_GET_PRIVATE(setting);
     for (i = 0; i < priv->mac_address_blacklist->len; i++) {
-        candidate = g_array_index(priv->mac_address_blacklist, char *, i);
+        candidate = nm_g_array_index(priv->mac_address_blacklist, char *, i);
         if (nm_utils_hwaddr_matches(mac, -1, candidate, -1))
             return FALSE;
     }
@@ -894,7 +898,7 @@ nm_setting_wireless_remove_mac_blacklist_item_by_value(NMSettingWireless *settin
 
     priv = NM_SETTING_WIRELESS_GET_PRIVATE(setting);
     for (i = 0; i < priv->mac_address_blacklist->len; i++) {
-        candidate = g_array_index(priv->mac_address_blacklist, char *, i);
+        candidate = nm_g_array_index(priv->mac_address_blacklist, char *, i);
         if (!nm_utils_hwaddr_matches(mac, -1, candidate, -1)) {
             g_array_remove_index(priv->mac_address_blacklist, i);
             _notify(setting, PROP_MAC_ADDRESS_BLACKLIST);
@@ -1353,10 +1357,10 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
 {
     NMSettingWirelessPrivate *priv          = NM_SETTING_WIRELESS_GET_PRIVATE(setting);
     const char               *valid_modes[] = {NM_SETTING_WIRELESS_MODE_INFRA,
-                                 NM_SETTING_WIRELESS_MODE_ADHOC,
-                                 NM_SETTING_WIRELESS_MODE_AP,
-                                 NM_SETTING_WIRELESS_MODE_MESH,
-                                 NULL};
+                                               NM_SETTING_WIRELESS_MODE_ADHOC,
+                                               NM_SETTING_WIRELESS_MODE_AP,
+                                               NM_SETTING_WIRELESS_MODE_MESH,
+                                               NULL};
     const char               *valid_bands[] = {"a", "bg", NULL};
     guint                     i;
     gsize                     length;
@@ -1530,7 +1534,7 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
     }
 
     for (i = 0; i < priv->mac_address_blacklist->len; i++) {
-        const char *mac = g_array_index(priv->mac_address_blacklist, const char *, i);
+        const char *mac = nm_g_array_index(priv->mac_address_blacklist, const char *, i);
 
         if (!nm_utils_hwaddr_valid(mac, ETH_ALEN)) {
             g_set_error(error,
@@ -1691,7 +1695,7 @@ compare_fcn_seen_bssids(_NM_SETT_INFO_PROP_COMPARE_FCN_ARGS _nm_nil)
 /*****************************************************************************/
 
 static GVariant *
-nm_setting_wireless_get_security(_NM_SETT_INFO_PROP_TO_DBUS_FCN_ARGS _nm_nil)
+security_to_dbus(_NM_SETT_INFO_PROP_TO_DBUS_FCN_ARGS _nm_nil)
 {
     if (!_nm_connection_serialize_non_secret(flags))
         return NULL;
@@ -1742,7 +1746,7 @@ get_property(GObject *object, guint prop_id, GValue *value, GParamSpec *pspec)
         g_value_set_string(value, nm_setting_wireless_get_cloned_mac_address(setting));
         break;
     case PROP_MAC_ADDRESS_BLACKLIST:
-        g_value_set_boxed(value, (char **) priv->mac_address_blacklist->data);
+        g_value_set_boxed(value, nm_g_array_data(priv->mac_address_blacklist));
         break;
     case PROP_SEEN_BSSIDS:
         g_value_take_boxed(
@@ -1879,7 +1883,8 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
      * description: SSID of Wi-Fi network.
      * example: ssid=Quick Net
      * ---end---
-     * ---ifcfg-rh---
+     */
+    /* ---ifcfg-rh---
      * property: ssid
      * variable: ESSID
      * description: SSID of Wi-Fi network.
@@ -1998,6 +2003,10 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
      * point.  This capability is highly driver dependent and not supported by
      * all devices.  Note: this property does not control the BSSID used when
      * creating an Ad-Hoc network and is unlikely to in the future.
+     *
+     * Locking a client profile to a certain BSSID will prevent roaming and also
+     * disable background scanning. That can be useful, if there is only one access
+     * point for the SSID.
      **/
     /* ---ifcfg-rh---
      * property: bssid
@@ -2078,7 +2087,8 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
      *   (e.g. 00:22:68:12:79:A2), or semicolon separated list of 6 bytes (obsolete)
      *   (e.g. 0;34;104;18;121;162).
      * ---end---
-     * ---ifcfg-rh---
+     */
+    /* ---ifcfg-rh---
      * property: mac-address
      * variable: HWADDR
      * description: Hardware address of the device in traditional hex-digits-and-colons
@@ -2125,13 +2135,15 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
      *   (e.g. 00:22:68:12:79:B2), or semicolon separated list of 6 bytes (obsolete)
      *   (e.g. 0;34;104;18;121;178).
      * ---end---
-     * ---ifcfg-rh---
+     */
+    /* ---ifcfg-rh---
      * property: cloned-mac-address
      * variable: MACADDR
      * description: Cloned (spoofed) MAC address in traditional hex-digits-and-colons
      *    notation (e.g. 00:22:68:14:5A:99).
      * ---end---
-     * ---dbus---
+     */
+    /* ---dbus---
      * property: cloned-mac-address
      * format: byte array
      * description: This D-Bus field is deprecated in favor of "assigned-mac-address"
@@ -2148,11 +2160,13 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
     _nm_properties_override_gobj(
         properties_override,
         obj_properties[PROP_CLONED_MAC_ADDRESS],
-        NM_SETT_INFO_PROPERT_TYPE_DBUS(G_VARIANT_TYPE_BYTESTRING,
-                                       .compare_fcn           = compare_fcn_cloned_mac_address,
-                                       .to_dbus_fcn           = _nm_utils_hwaddr_cloned_get,
-                                       .from_dbus_fcn         = _nm_utils_hwaddr_cloned_set,
-                                       .missing_from_dbus_fcn = _nm_utils_hwaddr_cloned_not_set, ));
+        NM_SETT_INFO_PROPERT_TYPE_DBUS(
+            G_VARIANT_TYPE_BYTESTRING,
+            .compare_fcn           = compare_fcn_cloned_mac_address,
+            .to_dbus_fcn           = _nm_sett_info_prop_to_dbus_fcn_cloned_mac_address,
+            .from_dbus_fcn         = _nm_sett_info_prop_from_dbus_fcn_cloned_mac_address,
+            .missing_from_dbus_fcn = _nm_sett_info_prop_missing_from_dbus_fcn_cloned_mac_address, ),
+        .dbus_deprecated = TRUE, );
 
     /* ---dbus---
      * property: assigned-mac-address
@@ -2230,7 +2244,8 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
      * description: MAC address blacklist.
      * example: mac-address-blacklist= 00:22:68:12:79:A6;00:22:68:12:79:78
      * ---end---
-     * ---ifcfg-rh---
+     */
+    /* ---ifcfg-rh---
      * property: mac-address-blacklist
      * variable: HWADDR_BLACKLIST(+)
      * description: It denies usage of the connection for any device whose address
@@ -2367,11 +2382,10 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
      * the user has set a global default to randomize and the supplicant
      * supports randomization),  %NM_SETTING_MAC_RANDOMIZATION_NEVER (never
      * randomize the MAC address), or %NM_SETTING_MAC_RANDOMIZATION_ALWAYS
-     * (always randomize the MAC address). This property is deprecated for
-     * 'cloned-mac-address'.
+     * (always randomize the MAC address).
      *
      * Since: 1.2
-     * Deprecated: 1.4: Deprecated by NMSettingWireless:cloned-mac-address property.
+     * Deprecated: 1.4: Use the #NMSettingWireless:cloned-mac-address property instead.
      **/
     /* ---ifcfg-rh---
      * property: mac-address-randomization
@@ -2390,7 +2404,8 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
                                               NM_SETTING_MAC_RANDOMIZATION_DEFAULT,
                                               NM_SETTING_PARAM_NONE,
                                               NMSettingWirelessPrivate,
-                                              mac_address_randomization);
+                                              mac_address_randomization,
+                                              .is_deprecated = TRUE, );
 
     /**
      * NMSettingWireless:ccx:
@@ -2673,7 +2688,8 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
      * variable: (none)
      * description: This property is deprecated and not handled by ifcfg-rh-plugin.
      * ---end---
-     * ---dbus---
+     */
+    /* ---dbus---
      * property: security
      * description: This property is deprecated, but can be set to the value
      *   '802-11-wireless-security' when a wireless security setting is also
@@ -2685,8 +2701,9 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
         properties_override,
         "security",
         NM_SETT_INFO_PROPERT_TYPE_DBUS(G_VARIANT_TYPE_STRING,
-                                       .to_dbus_fcn = nm_setting_wireless_get_security,
-                                       .compare_fcn = _nm_setting_property_compare_fcn_ignore, ));
+                                       .to_dbus_fcn = security_to_dbus,
+                                       .compare_fcn = _nm_setting_property_compare_fcn_ignore, ),
+        .dbus_deprecated = TRUE, );
 
     /**
      * NMSettingWireless:wake-on-wlan:

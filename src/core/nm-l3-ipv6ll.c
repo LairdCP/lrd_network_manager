@@ -4,7 +4,7 @@
 
 #include "nm-l3-ipv6ll.h"
 
-#include <linux/if_addr.h>
+#include "nm-compat-headers/linux/if_addr.h"
 
 #include "nm-core-utils.h"
 
@@ -216,7 +216,7 @@ _emit_changed_on_idle_cb(gpointer user_data)
     _LOGT("emit changed signal (state=%s%s%s)",
           nm_l3_ipv6ll_state_to_string(state),
           lladdr ? ", " : "",
-          lladdr ? _nm_utils_inet6_ntop(lladdr, sbuf) : "");
+          lladdr ? nm_inet6_ntop(lladdr, sbuf) : "");
 
     self->notify_fcn(self, state, lladdr, self->user_data);
 
@@ -343,7 +343,9 @@ _pladdr_find_ll(NML3IPv6LL *self, gboolean *out_cur_addr_failed)
     if (!NM_IN_SET(self->state, NM_L3_IPV6LL_STATE_DAD_IN_PROGRESS, NM_L3_IPV6LL_STATE_READY))
         cur_addr_check = FALSE;
 
-    nmp_lookup_init_object(&lookup, NMP_OBJECT_TYPE_IP6_ADDRESS, nm_l3_ipv6ll_get_ifindex(self));
+    nmp_lookup_init_object_by_ifindex(&lookup,
+                                      NMP_OBJECT_TYPE_IP6_ADDRESS,
+                                      nm_l3_ipv6ll_get_ifindex(self));
 
     nm_platform_iter_obj_for_each (&iter, nm_l3_ipv6ll_get_platform(self), &lookup, &obj) {
         const NMPlatformIP6Address *pladdr = NMP_OBJECT_CAST_IP6_ADDRESS(obj);
@@ -398,10 +400,7 @@ _lladdr_handle_changed(NML3IPv6LL *self)
      * NML3IPv4LL, where we use NM_L3_CONFIG_MERGE_FLAGS_ONLY_FOR_ACD. The difference
      * is that for IPv6 we let kernel do DAD, so we need to actually configure the
      * address. For IPv4, we can run ACD without configuring anything in kernel,
-     * and let the user decide how to proceed.
-     *
-     * Also in this case, we use the most graceful commit-type (NM_L3_CFG_COMMIT_TYPE_ASSUME),
-     * but for that to work, we also need NM_L3CFG_CONFIG_FLAGS_ASSUME_CONFIG_ONCE flag. */
+     * and let the user decide how to proceed. */
 
     l3cd = nm_l3_ipv6ll_get_l3cd(self);
 
@@ -421,7 +420,7 @@ _lladdr_handle_changed(NML3IPv6LL *self)
                                 NM_DNS_PRIORITY_DEFAULT_NORMAL,
                                 NM_L3_ACD_DEFEND_TYPE_ALWAYS,
                                 0,
-                                NM_L3CFG_CONFIG_FLAGS_ASSUME_CONFIG_ONCE,
+                                NM_L3CFG_CONFIG_FLAGS_NONE,
                                 NM_L3_CONFIG_MERGE_FLAGS_NONE))
             changed = TRUE;
     } else {
@@ -430,7 +429,7 @@ _lladdr_handle_changed(NML3IPv6LL *self)
     }
 
     self->l3cfg_commit_handle = nm_l3cfg_commit_type_register(self->l3cfg,
-                                                              l3cd ? NM_L3_CFG_COMMIT_TYPE_ASSUME
+                                                              l3cd ? NM_L3_CFG_COMMIT_TYPE_UPDATE
                                                                    : NM_L3_CFG_COMMIT_TYPE_NONE,
                                                               self->l3cfg_commit_handle,
                                                               "ipv6ll");
@@ -526,14 +525,14 @@ _check(NML3IPv6LL *self)
         if (_pladdr_is_ll_tentative(pladdr)) {
             if (_set_cur_lladdr_obj(self, NM_L3_IPV6LL_STATE_DAD_IN_PROGRESS, pladdr)) {
                 _LOGT("changed: waiting for address %s to complete DAD",
-                      _nm_utils_inet6_ntop(&self->cur_lladdr, sbuf));
+                      nm_inet6_ntop(&self->cur_lladdr, sbuf));
                 _lladdr_handle_changed(self);
             }
             return;
         }
 
         if (_set_cur_lladdr_obj(self, NM_L3_IPV6LL_STATE_READY, pladdr)) {
-            _LOGT("changed: address %s is ready", _nm_utils_inet6_ntop(&self->cur_lladdr, sbuf));
+            _LOGT("changed: address %s is ready", nm_inet6_ntop(&self->cur_lladdr, sbuf));
             _lladdr_handle_changed(self);
         }
         return;
@@ -546,9 +545,9 @@ _check(NML3IPv6LL *self)
             NM_IN_SET(self->state, NM_L3_IPV6LL_STATE_DAD_IN_PROGRESS, NM_L3_IPV6LL_STATE_READY));
         if (self->state == NM_L3_IPV6LL_STATE_DAD_IN_PROGRESS)
             _LOGT("changed: address %s did not complete DAD",
-                  _nm_utils_inet6_ntop(&self->cur_lladdr, sbuf));
+                  nm_inet6_ntop(&self->cur_lladdr, sbuf));
         else {
-            _LOGT("changed: address %s is gone", _nm_utils_inet6_ntop(&self->cur_lladdr, sbuf));
+            _LOGT("changed: address %s is gone", nm_inet6_ntop(&self->cur_lladdr, sbuf));
         }
 
         /* reset the state here, so that we are sure that the following
@@ -580,8 +579,7 @@ _check(NML3IPv6LL *self)
      * If that does not happen within timeout, we assume that this address failed DAD. */
     self->wait_for_addr_source = nm_g_timeout_add_source(2000, _wait_for_addr_timeout_cb, self);
     if (_set_cur_lladdr_bin(self, NM_L3_IPV6LL_STATE_DAD_IN_PROGRESS, &lladdr)) {
-        _LOGT("changed: starting DAD for address %s",
-              _nm_utils_inet6_ntop(&self->cur_lladdr, sbuf));
+        _LOGT("changed: starting DAD for address %s", nm_inet6_ntop(&self->cur_lladdr, sbuf));
         _lladdr_handle_changed(self);
     }
     return;

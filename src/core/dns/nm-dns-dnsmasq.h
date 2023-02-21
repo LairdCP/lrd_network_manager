@@ -10,7 +10,8 @@
 #include "nm-dns-manager.h"
 
 #define NM_TYPE_DNS_DNSMASQ (nm_dns_dnsmasq_get_type())
-#define NM_DNS_DNSMASQ(obj) (G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_DNS_DNSMASQ, NMDnsDnsmasq))
+#define NM_DNS_DNSMASQ(obj) \
+    (_NM_G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_DNS_DNSMASQ, NMDnsDnsmasq))
 #define NM_DNS_DNSMASQ_CLASS(klass) \
     (G_TYPE_CHECK_CLASS_CAST((klass), NM_TYPE_DNS_DNSMASQ, NMDnsDnsmasqClass))
 #define NM_IS_DNS_DNSMASQ(obj)         (G_TYPE_CHECK_INSTANCE_TYPE((obj), NM_TYPE_DNS_DNSMASQ))
@@ -24,5 +25,7 @@ typedef struct _NMDnsDnsmasqClass NMDnsDnsmasqClass;
 GType nm_dns_dnsmasq_get_type(void);
 
 NMDnsPlugin *nm_dns_dnsmasq_new(void);
+
+void nm_dnsmasq_kill_external(void);
 
 #endif /* __NETWORKMANAGER_DNS_DNSMASQ_H__ */

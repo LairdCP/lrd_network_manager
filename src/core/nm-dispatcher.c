@@ -8,6 +8,7 @@
 
 #include "nm-dispatcher.h"
 
+#include "libnm-glib-aux/nm-dbus-aux.h"
 #include "libnm-core-aux-extern/nm-dispatcher-api.h"
 #include "NetworkManagerUtils.h"
 #include "nm-utils.h"
@@ -56,6 +57,7 @@ struct NMDispatcherCallId {
     gpointer           user_data;
     const char        *log_ifname;
     const char        *log_con_uuid;
+    gint64             start_at_msec;
     NMDispatcherAction action;
     guint              idle_id;
     guint32            request_id;
@@ -82,6 +84,7 @@ static struct {
 
 static NMDispatcherCallId *
 dispatcher_call_id_new(guint32            request_id,
+                       gint64             start_at_msec,
                        NMDispatcherAction action,
                        NMDispatcherFunc   callback,
                        gpointer           user_data,
@@ -98,11 +101,12 @@ dispatcher_call_id_new(guint32            request_id,
 
     call_id = g_malloc(sizeof(NMDispatcherCallId) + l_log_ifname + l_log_con_uuid);
 
-    call_id->action     = action;
-    call_id->request_id = request_id;
-    call_id->callback   = callback;
-    call_id->user_data  = user_data;
-    call_id->idle_id    = 0;
+    call_id->action        = action;
+    call_id->start_at_msec = start_at_msec;
+    call_id->request_id    = request_id;
+    call_id->callback      = callback;
+    call_id->user_data     = user_data;
+    call_id->idle_id       = 0;
 
     extra_strings = &call_id->extra_strings[0];
 
@@ -176,7 +180,6 @@ dump_ip_to_props(const NML3ConfigData *l3cd, int addr_family, GVariantBuilder *b
     const NMPObject   *default_route;
     const char *const *strarr;
     const in_addr_t   *ip4arr;
-    gconstpointer      iparr;
 
     if (IS_IPv4)
         g_variant_builder_init(&int_builder, G_VARIANT_TYPE("aau"));
@@ -220,14 +223,17 @@ dump_ip_to_props(const NML3ConfigData *l3cd, int addr_family, GVariantBuilder *b
         g_variant_builder_init(&int_builder, G_VARIANT_TYPE("au"));
     else
         g_variant_builder_init(&int_builder, G_VARIANT_TYPE("aay"));
-    iparr = nm_l3_config_data_get_nameservers(l3cd, addr_family, &n);
+    strarr = nm_l3_config_data_get_nameservers(l3cd, addr_family, &n);
     for (i = 0; i < n; i++) {
+        NMIPAddr a;
+
+        if (!nm_utils_dnsname_parse_assert(addr_family, strarr[i], NULL, &a, NULL))
+            continue;
+
         if (IS_IPv4)
-            g_variant_builder_add(&int_builder, "u", ((const in_addr_t *) iparr)[i]);
-        else {
-            var1 = nm_g_variant_new_ay_in6addr(&(((const struct in6_addr *) iparr)[i]));
-            g_variant_builder_add(&int_builder, "@ay", var1);
-        }
+            g_variant_builder_add(&int_builder, "u", &a);
+        else
+            g_variant_builder_add(&int_builder, "@ay", nm_g_variant_new_ay_in6addr(&a.addr6));
     }
     g_variant_builder_add(builder, "{sv}", "nameservers", g_variant_builder_end(&int_builder));
 
@@ -366,6 +372,8 @@ dispatch_result_to_string(DispatchResult result)
 
 static void
 dispatcher_results_process(guint32     request_id,
+                           gint64      start_at_msec,
+                           gint64      now_msec,
                            const char *log_ifname,
                            const char *log_con_uuid,
                            GVariant   *v_results)
@@ -373,13 +381,22 @@ dispatcher_results_process(guint32     request_id,
     nm_auto_free_variant_iter GVariantIter *results = NULL;
     const char                             *script, *err;
     guint32                                 result;
+    gsize                                   n_children;
 
     g_variant_get(v_results, "(a(sus))", &results);
 
-    if (g_variant_iter_n_children(results) == 0) {
-        _LOG2D(request_id, log_ifname, log_con_uuid, "succeeded but no scripts invoked");
+    n_children = g_variant_iter_n_children(results);
+
+    _LOG2D(request_id,
+           log_ifname,
+           log_con_uuid,
+           "succeeded (after %ld.%03d sec, %zu scripts invoked)",
+           (long int) ((now_msec - start_at_msec) / 1000),
+           (int) ((now_msec - start_at_msec) % 1000),
+           n_children);
+
+    if (n_children == 0)
         return;
-    }
 
     while (g_variant_iter_next(results, "(&su&s)", &script, &result, &err)) {
         if (result == DISPATCH_RESULT_SUCCESS) {
@@ -402,19 +419,30 @@ dispatcher_done_cb(GObject *source, GAsyncResult *result, gpointer user_data)
     gs_unref_variant GVariant *ret     = NULL;
     gs_free_error GError      *error   = NULL;
     NMDispatcherCallId        *call_id = user_data;
+    gint64                     now_msec;
 
     nm_assert((gpointer) source == gl.dbus_connection);
 
+    now_msec = nm_utils_get_monotonic_timestamp_msec();
+
     ret = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
     if (!ret) {
-        if (_nm_dbus_error_has_name(error, "org.freedesktop.systemd1.LoadFailed")) {
+        NMLogLevel log_level = LOGL_DEBUG;
+
+        if (nm_dbus_error_is(error, "org.freedesktop.systemd1.LoadFailed")) {
             g_dbus_error_strip_remote_error(error);
-            _LOG3W(call_id, "failed to call dispatcher scripts: %s", error->message);
-        } else {
-            _LOG3D(call_id, "failed to call dispatcher scripts: %s", error->message);
+            log_level = LOGL_WARN;
         }
+        _NMLOG3(log_level,
+                call_id,
+                "failed to call dispatcher scripts (after %ld.%03d sec): %s",
+                (long int) ((now_msec - call_id->start_at_msec) / 1000),
+                (int) ((now_msec - call_id->start_at_msec) % 1000),
+                error->message);
     } else {
         dispatcher_results_process(call_id->request_id,
+                                   call_id->start_at_msec,
+                                   now_msec,
                                    call_id->log_ifname,
                                    call_id->log_con_uuid,
                                    ret);
@@ -440,7 +468,8 @@ static const char *action_table[] = {[NM_DISPATCHER_ACTION_HOSTNAME]      = NMD_
                                      [NM_DISPATCHER_ACTION_DHCP_CHANGE_4] = NMD_ACTION_DHCP4_CHANGE,
                                      [NM_DISPATCHER_ACTION_DHCP_CHANGE_6] = NMD_ACTION_DHCP6_CHANGE,
                                      [NM_DISPATCHER_ACTION_CONNECTIVITY_CHANGE] =
-                                         NMD_ACTION_CONNECTIVITY_CHANGE};
+                                         NMD_ACTION_CONNECTIVITY_CHANGE,
+                                     [NM_DISPATCHER_ACTION_REAPPLY] = NMD_ACTION_REAPPLY};
 
 static const char *
 action_to_string(NMDispatcherAction action)
@@ -481,6 +510,8 @@ _dispatcher_call(NMDispatcherAction    action,
     const char                *connectivity_state_string = "UNKNOWN";
     const char                *log_ifname;
     const char                *log_con_uuid;
+    gint64                     start_at_msec;
+    gint64                     now_msec;
 
     g_return_val_if_fail(!blocking || (!callback && !user_data), FALSE);
 
@@ -596,6 +627,8 @@ _dispatcher_call(NMDispatcherAction    action,
                       &vpn_ip6_props,
                       nm_logging_enabled(LOGL_DEBUG, LOGD_DISPATCH));
 
+    start_at_msec = nm_utils_get_monotonic_timestamp_msec();
+
     /* Send the action to the dispatcher */
     if (blocking) {
         gs_unref_variant GVariant *ret   = NULL;
@@ -612,17 +645,36 @@ _dispatcher_call(NMDispatcherAction    action,
                                           CALL_TIMEOUT,
                                           NULL,
                                           &error);
+
+        now_msec = nm_utils_get_monotonic_timestamp_msec();
+
         if (!ret) {
             g_dbus_error_strip_remote_error(error);
-            _LOG2W(request_id, log_ifname, log_con_uuid, "failed: %s", error->message);
+            _LOG2W(request_id,
+                   log_ifname,
+                   log_con_uuid,
+                   "failed (after %ld.%03d sec): %s",
+                   (long int) ((now_msec - start_at_msec) / 1000),
+                   (int) ((now_msec - start_at_msec) % 1000),
+                   error->message);
             return FALSE;
         }
-        dispatcher_results_process(request_id, log_ifname, log_con_uuid, ret);
+        dispatcher_results_process(request_id,
+                                   start_at_msec,
+                                   now_msec,
+                                   log_ifname,
+                                   log_con_uuid,
+                                   ret);
         return TRUE;
     }
 
-    call_id =
-        dispatcher_call_id_new(request_id, action, callback, user_data, log_ifname, log_con_uuid);
+    call_id = dispatcher_call_id_new(request_id,
+                                     start_at_msec,
+                                     action,
+                                     callback,
+                                     user_data,
+                                     log_ifname,
+                                     log_con_uuid);
 
     g_dbus_connection_call(gl.dbus_connection,
                            NM_DISPATCHER_DBUS_SERVICE,

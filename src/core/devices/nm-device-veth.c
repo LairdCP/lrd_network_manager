@@ -81,9 +81,13 @@ create_and_realize(NMDevice              *device,
                    const NMPlatformLink **out_plink,
                    GError               **error)
 {
-    const char    *iface = nm_device_get_iface(device);
-    NMSettingVeth *s_veth;
-    int            r;
+    NMPlatform           *platform = nm_device_get_platform(device);
+    const char           *iface    = nm_device_get_iface(device);
+    NMSettingVeth        *s_veth;
+    const NMPlatformLink *plink;
+    const NMPlatformLink *peer_plink;
+    int                   peer_ifindex;
+    int                   r;
 
     s_veth = _nm_connection_get_setting(connection, NM_TYPE_SETTING_VETH);
     if (!s_veth) {
@@ -94,6 +98,19 @@ create_and_realize(NMDevice              *device,
                     nm_connection_get_id(connection),
                     nm_connection_get_uuid(connection));
         return FALSE;
+    }
+
+    /* For veths, users can define two connection profiles referencing each
+     * other as 'veth.peer'. Only the first to be activated will actually
+     * create the veth pair; the other must detect that interfaces already
+     * exist and proceed. */
+    plink = nm_platform_link_get_by_ifname(platform, iface);
+    if (plink && nm_platform_link_veth_get_properties(platform, plink->ifindex, &peer_ifindex)) {
+        peer_plink = nm_platform_link_get(platform, peer_ifindex);
+        if (peer_plink && peer_plink->type == NM_LINK_TYPE_VETH
+            && nm_streq0(peer_plink->name, nm_setting_veth_get_peer(s_veth))) {
+            return TRUE;
+        }
     }
 
     r = nm_platform_link_veth_add(nm_device_get_platform(device),
@@ -198,7 +215,7 @@ nm_device_veth_class_init(NMDeviceVethClass *klass)
 
 #define NM_TYPE_VETH_DEVICE_FACTORY (nm_veth_device_factory_get_type())
 #define NM_VETH_DEVICE_FACTORY(obj) \
-    (G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_VETH_DEVICE_FACTORY, NMVethDeviceFactory))
+    (_NM_G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_VETH_DEVICE_FACTORY, NMVethDeviceFactory))
 
 static NMDevice *
 create_device(NMDeviceFactory      *factory,

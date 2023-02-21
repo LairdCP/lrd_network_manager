@@ -293,6 +293,7 @@ main(int argc, char *argv[])
     GError                 *error_invalid_logging_config = NULL;
     const char *const      *warnings;
     int                     errsv;
+    gboolean                has_logging = FALSE;
 
     _nm_utils_is_manager_process = TRUE;
 
@@ -301,8 +302,6 @@ main(int argc, char *argv[])
     g_type_ensure(G_TYPE_SOCKET);
     g_type_ensure(G_TYPE_DBUS_CONNECTION);
     g_type_ensure(NM_TYPE_DBUS_MANAGER);
-
-    main_loop = g_main_loop_new(NULL, FALSE);
 
     /* we determine a first-start (contrary to a restart during the same boot)
      * based on the existence of NM_CONFIG_DEVICE_STATE_DIR directory. */
@@ -356,10 +355,14 @@ main(int argc, char *argv[])
         g_free(path);
     }
 
-    if (!nm_logging_setup(global_opt.opt_log_level,
-                          global_opt.opt_log_domains,
-                          &bad_domains,
-                          &error)) {
+    if (nm_config_kernel_command_line_nm_debug()) {
+        /* we honor kernel command line. If "nm.debug" is set, we always enable trace logging. */
+        nm_logging_setup("TRACE", "ALL", NULL, NULL);
+        has_logging = TRUE;
+    } else if (!nm_logging_setup(global_opt.opt_log_level,
+                                 global_opt.opt_log_domains,
+                                 &bad_domains,
+                                 &error)) {
         fprintf(stderr,
                 _("%s.  Please use --help to see a list of valid options.\n"),
                 error->message);
@@ -381,7 +384,7 @@ main(int argc, char *argv[])
     /* Initialize logging from config file *only* if not explicitly
      * specified by commandline.
      */
-    if (global_opt.opt_log_level == NULL && global_opt.opt_log_domains == NULL) {
+    if (!has_logging && !global_opt.opt_log_level && !global_opt.opt_log_domains) {
         if (!nm_logging_setup(nm_config_get_log_level(config),
                               nm_config_get_log_domains(config),
                               &bad_domains,
@@ -403,6 +406,8 @@ main(int argc, char *argv[])
         wrote_pidfile = nm_main_utils_write_pidfile(global_opt.pidfile);
     }
 
+    main_loop = g_main_loop_new(NULL, FALSE);
+
     /* Set up unix signal handling - before creating threads, but after daemonizing! */
     nm_main_utils_setup_signals(main_loop);
 
@@ -417,9 +422,10 @@ main(int argc, char *argv[])
     }
 
     nm_log_info(LOGD_CORE,
-                "NetworkManager (version " NM_DIST_VERSION ") is starting... (%s%s)",
-                nm_config_get_first_start(config) ? "for the first time" : "after a restart",
-                NM_MORE_ASSERTS != 0 ? ", asserts:" G_STRINGIFY(NM_MORE_ASSERTS) : "");
+                "NetworkManager (version " NM_DIST_VERSION ") is starting... (%s%sboot:%s)",
+                nm_config_get_first_start(config) ? "" : "after a restart, ",
+                NM_MORE_ASSERTS != 0 ? "asserts:" G_STRINGIFY(NM_MORE_ASSERTS) ", " : "",
+                nm_utils_boot_id_str());
 
     nm_log_info(LOGD_CORE,
                 "Read config: %s",

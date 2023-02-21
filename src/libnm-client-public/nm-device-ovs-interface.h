@@ -28,7 +28,10 @@ G_BEGIN_DECLS
 
 /**
  * NMDeviceOvsInterface:
+ *
+ * Since: 1.10
  */
+typedef struct _NMDeviceOvsInterface      NMDeviceOvsInterface;
 typedef struct _NMDeviceOvsInterfaceClass NMDeviceOvsInterfaceClass;
 
 NM_AVAILABLE_IN_1_10

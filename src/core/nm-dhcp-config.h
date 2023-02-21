@@ -9,7 +9,8 @@
 /*****************************************************************************/
 
 #define NM_TYPE_DHCP_CONFIG (nm_dhcp_config_get_type())
-#define NM_DHCP_CONFIG(obj) (G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_DHCP_CONFIG, NMDhcpConfig))
+#define NM_DHCP_CONFIG(obj) \
+    (_NM_G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_DHCP_CONFIG, NMDhcpConfig))
 #define NM_DHCP_CONFIG_CLASS(klass) \
     (G_TYPE_CHECK_CLASS_CAST((klass), NM_TYPE_DHCP_CONFIG, NMDhcpConfigClass))
 #define NM_IS_DHCP_CONFIG(obj)         (G_TYPE_CHECK_INSTANCE_TYPE((obj), NM_TYPE_DHCP_CONFIG))
@@ -30,7 +31,8 @@ int nm_dhcp_config_get_addr_family(NMDhcpConfig *self);
 
 void nm_dhcp_config_set_lease(NMDhcpConfig *self, const NML3ConfigData *l3cd);
 
-const char *nm_dhcp_config_get_option(NMDhcpConfig *self, const char *option);
+NMUtilsNamedValue *nm_dhcp_config_get_option_values(NMDhcpConfig *self, guint *num);
+const char        *nm_dhcp_config_get_option(NMDhcpConfig *self, const char *option);
 
 GVariant *nm_dhcp_config_get_options(NMDhcpConfig *self);
 

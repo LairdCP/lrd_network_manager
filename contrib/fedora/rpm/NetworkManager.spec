@@ -13,18 +13,19 @@
 %global glib2_version %(pkg-config --modversion glib-2.0 2>/dev/null || echo bad)
 
 %global epoch_version 1
-%global rpm_version __VERSION__
 %global real_version __VERSION__
+%global rpm_version %{real_version}
 %global release_version __RELEASE_VERSION__
 %global snapshot __SNAPSHOT__
 %global git_sha __COMMIT__
+%global bcond_default_debug __BCOND_DEFAULT_DEBUG__
+%global bcond_default_test __BCOND_DEFAULT_TEST__
 
 %global obsoletes_device_plugins     1:0.9.9.95-1
 %global obsoletes_ppp_plugin         1:1.5.3
 %global obsoletes_initscripts_updown 1:1.35.4
+%global obsoletes_ifcfg_rh           1:1.37.1
 
-%global systemd_dir %{_prefix}/lib/systemd/system
-%global sysctl_dir %{_prefix}/lib/sysctl.d
 %global nmlibdir %{_prefix}/lib/%{name}
 %global nmplugindir %{_libdir}/%{name}/%{version}-%{release}
 
@@ -46,18 +47,6 @@
 %global systemd_units_cloud_setup nm-cloud-setup.service nm-cloud-setup.timer
 
 ###############################################################################
-
-%if "x__BCOND_DEFAULT_DEBUG__" == "x1" || "x__BCOND_DEFAULT_DEBUG__" == "x0"
-%global bcond_default_debug __BCOND_DEFAULT_DEBUG__
-%else
-%global bcond_default_debug 0
-%endif
-
-%if "x__BCOND_DEFAULT_TEST__" == "x1" || "x__BCOND_DEFAULT_TEST__" == "x0"
-%global bcond_default_test __BCOND_DEFAULT_TEST__
-%else
-%global bcond_default_test 0
-%endif
 
 %bcond_with meson
 %bcond_without adsl
@@ -91,12 +80,12 @@
 %else
 %bcond_with connectivity_fedora
 %endif
-%if 0%{?rhel} && 0%{?rhel} > 7
+%if 0%{?rhel} && 0%{?rhel} >= 8
 %bcond_without connectivity_redhat
 %else
 %bcond_with connectivity_redhat
 %endif
-%if 0%{?fedora} > 28 || 0%{?rhel} > 7
+%if 0%{?fedora} >= 29 || 0%{?rhel} >= 8
 %bcond_without crypto_gnutls
 %else
 %bcond_with crypto_gnutls
@@ -106,7 +95,7 @@
 %else
 %bcond_without iwd
 %endif
-%if 0%{?fedora} > 31 || 0%{?rhel} > 7
+%if 0%{?fedora} >= 32 || 0%{?rhel} >= 8
 %bcond_without firewalld_zone
 %else
 %bcond_with firewalld_zone
@@ -114,7 +103,7 @@
 
 ###############################################################################
 
-%if 0%{?fedora} || 0%{?rhel} > 7
+%if 0%{?fedora} || 0%{?rhel} >= 8
 %global dbus_version 1.9.18
 %global dbus_sys_dir %{_datadir}/dbus-1/system.d
 %else
@@ -136,15 +125,15 @@
 %global with_modem_manager_1 0
 %endif
 
-%if 0%{?fedora} >= 31 || 0%{?rhel} > 7
+%if 0%{?fedora} >= 31 || 0%{?rhel} >= 8
 %global dhcp_default internal
 %else
 %global dhcp_default dhclient
 %endif
 
-%if 0%{?fedora} || 0%{?rhel} > 7
+%if 0%{?fedora} || 0%{?rhel} >= 8
 %global logging_backend_default journal
-%if 0%{?fedora} || 0%{?rhel} > 8
+%if 0%{?fedora} || 0%{?rhel} >= 9
 %global dns_rc_manager_default auto
 %else
 %global dns_rc_manager_default symlink
@@ -154,10 +143,22 @@
 %global dns_rc_manager_default file
 %endif
 
-%if 0%{?rhel} > 8 || 0%{?fedora} > 32
-%global config_plugins_default keyfile,ifcfg-rh
+%if 0%{?fedora} >= 33 || 0%{?rhel} >= 9
+%global config_plugins_default_ifcfg_rh 0
 %else
-%global config_plugins_default ifcfg-rh
+%global config_plugins_default_ifcfg_rh 1
+%endif
+
+%if 0%{?fedora} >= 36 || 0%{?rhel} >= 10
+%global split_ifcfg_rh 1
+%else
+%global split_ifcfg_rh 0
+%endif
+
+%if 0%{?fedora} >= 36 || 0%{?rhel} >= 9
+%global ifcfg_warning 1
+%else
+%global ifcfg_warning 0
 %endif
 
 %if 0%{?fedora}
@@ -194,11 +195,12 @@ Source2: 00-server.conf
 Source4: 20-connectivity-fedora.conf
 Source5: 20-connectivity-redhat.conf
 Source6: 70-nm-connectivity.conf
+Source7: readme-ifcfg-rh.txt
 
 #Patch1: 0001-some.patch
 
 Requires(post): systemd
-%if 0%{?fedora} || 0%{?rhel} > 7
+%if 0%{?fedora} || 0%{?rhel} >= 8
 Requires(post): systemd-udev
 %endif
 Requires(post): /usr/sbin/update-alternatives
@@ -219,6 +221,9 @@ Obsoletes: NetworkManager-wimax < 1.2
 Suggests: NetworkManager-initscripts-updown
 %endif
 Obsoletes: NetworkManager < %{obsoletes_initscripts_updown}
+%if 0%{?split_ifcfg_rh}
+Obsoletes: NetworkManager < %{obsoletes_ifcfg_rh}
+%endif
 
 %if 0%{?rhel} && 0%{?rhel} <= 7
 # Kept for RHEL to ensure that wired 802.1x works out of the box
@@ -241,8 +246,7 @@ BuildRequires: meson
 BuildRequires: automake
 BuildRequires: autoconf
 %endif
-BuildRequires: intltool
-BuildRequires: gettext-devel
+BuildRequires: gettext-devel >= 0.19.8
 
 BuildRequires: dbus-devel >= %{dbus_version}
 BuildRequires: glib2-devel >= 2.40.0
@@ -255,7 +259,6 @@ BuildRequires: gnutls-devel >= 2.12
 %else
 BuildRequires: nss-devel >= 3.11.7
 %endif
-BuildRequires: dhclient
 BuildRequires: readline-devel
 BuildRequires: audit-libs-devel
 %if %{with regen_docs}
@@ -284,14 +287,16 @@ BuildRequires: mobile-broadband-provider-info-devel
 BuildRequires: newt-devel
 %endif
 BuildRequires: /usr/bin/dbus-launch
-%if 0%{?fedora} > 27 || 0%{?rhel} > 7
+%if 0%{?fedora} >= 28 || 0%{?rhel} >= 8
 BuildRequires: python3
 BuildRequires: python3-gobject-base
 BuildRequires: python3-dbus
+BuildRequires: python3-pexpect
 %else
 BuildRequires: python2
 BuildRequires: pygobject3-base
 BuildRequires: dbus-python
+BuildRequires: pexpect
 %endif
 BuildRequires: libselinux-devel
 BuildRequires: polkit-devel
@@ -306,7 +311,7 @@ BuildRequires: libubsan
 BuildRequires: firewalld-filesystem
 %endif
 BuildRequires: iproute
-%if 0%{?fedora} || 0%{?rhel} > 7
+%if 0%{?fedora} || 0%{?rhel} >= 8
 BuildRequires: iproute-tc
 %endif
 
@@ -395,7 +400,7 @@ Requires: wireless-regdb
 Requires: crda
 %endif
 
-%if %{with iwd} && (0%{?fedora} > 24 || 0%{?rhel} > 7)
+%if %{with iwd} && (0%{?fedora} >= 25 || 0%{?rhel} >= 8)
 Requires: (wpa_supplicant >= %{wpa_supplicant_version} or iwd)
 Suggests: wpa_supplicant
 %else
@@ -528,6 +533,9 @@ deployments.
 %package dispatcher-routing-rules
 Summary: NetworkManager dispatcher file for advanced routing rules
 Group: System Environment/Base
+%if 0%{?split_ifcfg_rh}
+Requires: %{name}-initscripts-ifcfg-rh
+%endif
 BuildArch: noarch
 Provides: %{name}-config-routing-rules = %{epoch}:%{version}-%{release}
 Obsoletes: %{name}-config-routing-rules < 1:1.31.0
@@ -549,6 +557,19 @@ Requires: %{name}-libnm%{?_isa} = %{epoch}:%{version}-%{release}
 This adds a curses-based "TUI" (Text User Interface) to
 NetworkManager, to allow performing some of the operations supported
 by nm-connection-editor and nm-applet in a non-graphical environment.
+%endif
+
+
+%if 0%{?split_ifcfg_rh}
+%package initscripts-ifcfg-rh
+Summary: NetworkManager plugin for reading and writing connections in ifcfg-rh format
+Group: System Environment/Base
+Requires: %{name} = %{epoch}:%{version}-%{release}
+Obsoletes: NetworkManager < %{obsoletes_ifcfg_rh}
+
+%description initscripts-ifcfg-rh
+Installs a plugin for reading and writing connection profiles using
+the Red Hat ifcfg format in /etc/sysconfig/network-scripts/.
 %endif
 
 
@@ -592,8 +613,9 @@ Preferably use nmcli instead.
 %if %{with test}
 	--werror \
 %endif
-	-Dnft=/usr/sbin/nft \
-	-Diptables=/usr/sbin/iptables \
+	-Dnft=%{_sbindir}/nft \
+	-Diptables=%{_sbindir}/iptables \
+	-Ddhclient=%{_sbindir}/dhclient \
 	-Ddhcpcanon=no \
 	-Ddhcpcd=no \
 	-Dconfig_dhcp_default=%{dhcp_default} \
@@ -685,7 +707,6 @@ Preferably use nmcli instead.
 %endif
 	-Dsession_tracking=systemd \
 	-Dsuspend_resume=systemd \
-	-Dsystemdsystemunitdir=%{systemd_dir} \
 	-Dsystem_ca_path=/etc/pki/tls/cert.pem \
 	-Ddbus_conf_dir=%{dbus_sys_dir} \
 	-Dtests=yes \
@@ -702,7 +723,9 @@ Preferably use nmcli instead.
 	-Dfirewalld_zone=false \
 %endif
 	-Ddist_version=%{version}-%{release} \
-	-Dconfig_plugins_default=%{config_plugins_default} \
+%if %{?config_plugins_default_ifcfg_rh}
+	-Dconfig_plugins_default=ifcfg-rh \
+%endif
 	-Dresolvconf=no \
 	-Dnetconfig=no \
 	-Dconfig_dns_rc_manager_default=%{dns_rc_manager_default} \
@@ -716,14 +739,13 @@ Preferably use nmcli instead.
 gtkdocize
 %endif
 autoreconf --install --force
-intltoolize --automake --copy --force
 %configure \
 	--with-runstatedir=%{_rundir} \
-	--disable-silent-rules \
-	--disable-static \
-	--with-nft=/usr/sbin/nft \
-	--with-iptables=/usr/sbin/iptables \
-	--with-dhclient=yes \
+	--enable-silent-rules=no \
+	--enable-static=no \
+	--with-nft=%{_sbindir}/nft \
+	--with-iptables=%{_sbindir}/iptables \
+	--with-dhclient=%{_sbindir}/dhclient \
 	--with-dhcpcd=no \
 	--with-dhcpcanon=no \
 	--with-config-dhcp-default=%{dhcp_default} \
@@ -735,26 +757,26 @@ intltoolize --automake --copy --force
 %if %{with sanitizer}
 	--with-address-sanitizer=exec \
 %if 0%{?fedora} || 0%{?rhel} >= 8
-	--enable-undefined-sanitizer \
+	--enable-undefined-sanitizer=yes \
 %else
-	--disable-undefined-sanitizer \
+	--enable-undefined-sanitizer=no \
 %endif
 %else
 	--with-address-sanitizer=no \
-	--disable-undefined-sanitizer \
+	--enable-undefined-sanitizer=no \
 %endif
 %if %{with debug}
-	--enable-more-logging \
+	--enable-more-logging=yes \
 	--with-more-asserts=10000 \
 %else
-	--disable-more-logging \
-	--without-more-asserts \
+	--enable-more-logging=no \
+	--with-more-asserts=0 \
 %endif
-	--enable-ld-gc \
+	--enable-ld-gc=yes \
 %if %{with lto}
-	--enable-lto \
+	--enable-lto=yes \
 %else
-	--disable-lto \
+	--enable-lto=no \
 %endif
 	--with-libaudit=yes-disabled-by-default \
 %if 0%{?with_modem_manager_1}
@@ -793,11 +815,11 @@ intltoolize --automake --copy --force
 	--with-nm-cloud-setup=no \
 %endif
 	--enable-vala=yes \
-	--enable-introspection \
+	--enable-introspection=yes \
 %if %{with regen_docs}
-	--enable-gtk-doc \
+	--enable-gtk-doc=yes \
 %else
-	--disable-gtk-doc \
+	--enable-gtk-doc=no \
 %endif
 %if %{with team}
 	--enable-teamdctl=yes \
@@ -812,16 +834,15 @@ intltoolize --automake --copy --force
 	--with-selinux=yes \
 	--enable-polkit=yes \
 	--enable-modify-system=yes \
-	--enable-concheck \
+	--enable-concheck=yes \
 %if 0%{?fedora}
-	--with-libpsl \
+	--with-libpsl=yes \
 %else
-	--without-libpsl \
+	--with-libpsl=no \
 %endif
 	--with-ebpf=%{ebpf_enabled} \
 	--with-session-tracking=systemd \
 	--with-suspend-resume=systemd \
-	--with-systemdsystemunitdir=%{systemd_dir} \
 	--with-system-ca-path=/etc/pki/tls/cert.pem \
 	--with-dbus-sys-dir=%{dbus_sys_dir} \
 	--with-tests=yes \
@@ -838,12 +859,14 @@ intltoolize --automake --copy --force
 	--enable-ppp=yes \
 %endif
 %if %{with firewalld_zone}
-	--enable-firewalld-zone \
+	--enable-firewalld-zone=yes \
 %else
-	--disable-firewalld-zone \
+	--enable-firewalld-zone=no \
 %endif
 	--with-dist-version=%{version}-%{release} \
-	--with-config-plugins-default=%{config_plugins_default} \
+%if %{?config_plugins_default_ifcfg_rh}
+	--with-config-plugins-default=ifcfg-rh \
+%endif
 	--with-resolvconf=no \
 	--with-netconfig=no \
 	--with-config-dns-rc-manager-default=%{dns_rc_manager_default} \
@@ -872,6 +895,10 @@ cp %{SOURCE4} %{buildroot}%{nmlibdir}/conf.d/
 cp %{SOURCE5} %{buildroot}%{nmlibdir}/conf.d/
 mkdir -p %{buildroot}%{_sysctldir}
 cp %{SOURCE6} %{buildroot}%{_sysctldir}
+%endif
+
+%if 0%{?ifcfg_warning}
+cp %{SOURCE7} %{buildroot}%{_sysconfdir}/sysconfig/network-scripts
 %endif
 
 cp examples/dispatcher/10-ifcfg-rh-routes.sh %{buildroot}%{nmlibdir}/dispatcher.d/
@@ -914,7 +941,7 @@ make -k %{?_smp_mflags} check || :
 
 
 %pre
-if [ -f "%{systemd_dir}/network-online.target.wants/NetworkManager-wait-online.service" ] ; then
+if [ -f "%{_unitdir}/network-online.target.wants/NetworkManager-wait-online.service" ] ; then
     # older versions used to install this file, effectively always enabling
     # NetworkManager-wait-online.service. We no longer do that and rely on
     # preset.
@@ -1002,7 +1029,9 @@ fi
 %{dbus_sys_dir}/org.freedesktop.NetworkManager.conf
 %{dbus_sys_dir}/nm-dispatcher.conf
 %{dbus_sys_dir}/nm-priv-helper.conf
+%if 0%{?split_ifcfg_rh} == 0
 %{dbus_sys_dir}/nm-ifcfg-rh.conf
+%endif
 %{_sbindir}/%{name}
 %{_bindir}/nmcli
 %{_datadir}/bash-completion/completions/nmcli
@@ -1025,7 +1054,9 @@ fi
 %{_libexecdir}/nm-priv-helper
 %dir %{_libdir}/%{name}
 %dir %{nmplugindir}
-%{nmplugindir}/libnm-settings-plugin*.so
+%if 0%{?split_ifcfg_rh} == 0
+%{nmplugindir}/libnm-settings-plugin-ifcfg-rh.so
+%endif
 %if %{with nmtui}
 %exclude %{_mandir}/man1/nmtui*
 %endif
@@ -1043,6 +1074,7 @@ fi
 %{_mandir}/man8/nm-initrd-generator.8.gz
 %{_mandir}/man8/NetworkManager.8.gz
 %{_mandir}/man8/NetworkManager-dispatcher.8.gz
+%{_mandir}/man8/NetworkManager-wait-online.service.8.gz
 %dir %{_localstatedir}/lib/NetworkManager
 %dir %{_sysconfdir}/sysconfig/network-scripts
 %{_datadir}/dbus-1/system-services/org.freedesktop.nm_dispatcher.service
@@ -1053,13 +1085,16 @@ fi
 %{_prefix}/lib/firewalld/zones/nm-shared.xml
 %endif
 # systemd stuff
-%{systemd_dir}/NetworkManager.service
-%{systemd_dir}/NetworkManager-wait-online.service
-%{systemd_dir}/NetworkManager-dispatcher.service
-%{systemd_dir}/nm-priv-helper.service
+%{_unitdir}/NetworkManager.service
+%{_unitdir}/NetworkManager-wait-online.service
+%{_unitdir}/NetworkManager-dispatcher.service
+%{_unitdir}/nm-priv-helper.service
 %dir %{_datadir}/doc/NetworkManager/examples
 %{_datadir}/doc/NetworkManager/examples/server.conf
-%doc NEWS AUTHORS README CONTRIBUTING.md TODO
+%if 0%{?ifcfg_warning}
+%{_sysconfdir}/sysconfig/network-scripts/readme-ifcfg-rh.txt
+%endif
+%doc NEWS AUTHORS README.md CONTRIBUTING.md
 %license COPYING
 %license COPYING.LGPL
 %license COPYING.GFDL
@@ -1101,7 +1136,7 @@ fi
 %if %{with ovs}
 %files ovs
 %{nmplugindir}/libnm-device-plugin-ovs.so
-%{systemd_dir}/NetworkManager.service.d/NetworkManager-ovs.conf
+%{_unitdir}/NetworkManager.service.d/NetworkManager-ovs.conf
 %{_mandir}/man7/nm-openvswitch.7*
 %endif
 
@@ -1172,11 +1207,18 @@ fi
 %endif
 
 
+%if 0%{?split_ifcfg_rh}
+%files initscripts-ifcfg-rh
+%{nmplugindir}/libnm-settings-plugin-ifcfg-rh.so
+%{dbus_sys_dir}/nm-ifcfg-rh.conf
+%endif
+
+
 %if %{with nm_cloud_setup}
 %files cloud-setup
 %{_libexecdir}/nm-cloud-setup
-%{systemd_dir}/nm-cloud-setup.service
-%{systemd_dir}/nm-cloud-setup.timer
+%{_unitdir}/nm-cloud-setup.service
+%{_unitdir}/nm-cloud-setup.timer
 %{nmlibdir}/dispatcher.d/90-nm-cloud-setup.sh
 %{nmlibdir}/dispatcher.d/no-wait.d/90-nm-cloud-setup.sh
 %{_mandir}/man8/nm-cloud-setup.8*

@@ -89,7 +89,7 @@ act_stage1_prepare(NMDevice *device, NMDeviceStateReason *out_failure_reason)
     ok = nm_platform_sysctl_set(nm_device_get_platform(device),
                                 NMP_SYSCTL_PATHID_NETDIR(dirfd, ifname_verified, "mode"),
                                 transport_mode);
-    nm_device_bring_up(device, TRUE, NULL);
+    nm_device_bring_up(device);
 
     if (!ok) {
         NM_SET_OUT(out_failure_reason, NM_DEVICE_STATE_REASON_CONFIG_FAILED);
@@ -403,10 +403,10 @@ nm_device_infiniband_class_init(NMDeviceInfinibandClass *klass)
 /*****************************************************************************/
 
 #define NM_TYPE_INFINIBAND_DEVICE_FACTORY (nm_infiniband_device_factory_get_type())
-#define NM_INFINIBAND_DEVICE_FACTORY(obj)                          \
-    (G_TYPE_CHECK_INSTANCE_CAST((obj),                             \
-                                NM_TYPE_INFINIBAND_DEVICE_FACTORY, \
-                                NMInfinibandDeviceFactory))
+#define NM_INFINIBAND_DEVICE_FACTORY(obj)                              \
+    (_NM_G_TYPE_CHECK_INSTANCE_CAST((obj),                             \
+                                    NM_TYPE_INFINIBAND_DEVICE_FACTORY, \
+                                    NMInfinibandDeviceFactory))
 
 static NMDevice *
 create_device(NMDeviceFactory      *factory,

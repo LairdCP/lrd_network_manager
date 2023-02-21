@@ -13,6 +13,7 @@
 #endif
 
 typedef void (*free_func_t)(void *p);
+typedef void* (*mfree_func_t)(void *p);
 
 /* If for some reason more than 4M are allocated on the stack, let's abort immediately. It's better than
  * proceeding and smashing the stack limits. Note that by default RLIMIT_STACK is 8M on Linux. */
@@ -49,14 +50,28 @@ typedef void (*free_func_t)(void *p);
 
 #define malloc0(n) (calloc(1, (n) ?: 1))
 
-#define free_and_replace(a, b)                  \
+#define free_and_replace_full(a, b, free_func)  \
         ({                                      \
                 typeof(a)* _a = &(a);           \
                 typeof(b)* _b = &(b);           \
-                free(*_a);                      \
-                (*_a) = (*_b);                  \
-                (*_b) = NULL;                   \
+                free_func(*_a);                 \
+                *_a = *_b;                      \
+                *_b = NULL;                     \
                 0;                              \
+        })
+
+#define free_and_replace(a, b)                  \
+        free_and_replace_full(a, b, free)
+
+/* This is similar to free_and_replace_full(), but NULL is not assigned to 'b', and its reference counter is
+ * increased. */
+#define unref_and_replace_full(a, b, ref_func, unref_func)      \
+        ({                                       \
+                typeof(a)* _a = &(a);            \
+                typeof(b) _b = ref_func(b);      \
+                unref_func(*_a);                 \
+                *_a = _b;                        \
+                0;                               \
         })
 
 void* memdup(const void *p, size_t l) _alloc_(2);

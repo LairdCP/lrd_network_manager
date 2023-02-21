@@ -30,7 +30,11 @@
 #include "libnm-platform/nm-linux-platform.h"
 #include "libnm-platform/nm-platform-utils.h"
 #include "nm-auth-utils.h"
-#include "libnm-systemd-shared/nm-sd-utils-shared.h"
+
+/*****************************************************************************/
+
+G_STATIC_ASSERT(NM_SHUTDOWN_TIMEOUT_1500_MSEC <= NM_SHUTDOWN_TIMEOUT_MAX_MSEC);
+G_STATIC_ASSERT(NM_SHUTDOWN_TIMEOUT_5000_MSEC <= NM_SHUTDOWN_TIMEOUT_MAX_MSEC);
 
 /*****************************************************************************/
 
@@ -415,8 +419,8 @@ route_compare(NMIPRoute *route1, NMIPRoute *route2, gint64 default_metric)
         nm_assert_not_reached();
     if (!inet_pton(family, nm_ip_route_get_dest(route2), &a2))
         nm_assert_not_reached();
-    nm_utils_ipx_address_clear_host_address(family, &a1, NULL, plen);
-    nm_utils_ipx_address_clear_host_address(family, &a2, NULL, plen);
+    nm_ip_addr_clear_host_address(family, &a1, NULL, plen);
+    nm_ip_addr_clear_host_address(family, &a2, NULL, plen);
     NM_CMP_DIRECT_MEMCMP(&a1, &a2, nm_utils_addr_family_to_size(family));
 
     return 0;
@@ -974,6 +978,7 @@ nm_ip_routing_rule_to_platform(const NMIPRoutingRule *rule, NMPlatformRoutingRul
                 .start = uid_range_start,
                 .end   = uid_range_end,
             },
+        .protocol = RTPROT_STATIC,
     };
 
     nm_ip_routing_rule_get_xifname_bin(rule, TRUE, out_pl->iifname);
@@ -1037,7 +1042,7 @@ _shutdown_waitobj_cb(gpointer user_data, GObject *where_the_object_was)
  * is still used.
  *
  * If @wait_type is %NM_SHUTDOWN_WAIT_TYPE_CANCELLABLE, then during shutdown
- * (after %NM_SHUTDOWN_TIMEOUT_MS), the cancellable will be cancelled to notify
+ * (after %NM_SHUTDOWN_TIMEOUT_MAX_MSEC), the cancellable will be cancelled to notify
  * the source of the shutdown. Note that otherwise, in this mode also @watched_obj
  * is only tracked with a weak-pointer. Especially, it does not register to the
  * "cancelled" signal to automatically unregister (otherwise, you would never
@@ -1046,7 +1051,7 @@ _shutdown_waitobj_cb(gpointer user_data, GObject *where_the_object_was)
  * FIXME(shutdown): proper shutdown is not yet implemented, and registering
  *   an object (currently) has no effect.
  *
- * FIXME(shutdown): during shutdown, after %NM_SHUTDOWN_TIMEOUT_MS timeout, cancel
+ * FIXME(shutdown): during shutdown, after %NM_SHUTDOWN_TIMEOUT_MAX_MSEC timeout, cancel
  *   all remaining %NM_SHUTDOWN_WAIT_TYPE_CANCELLABLE instances. Also, when somebody
  *   enqueues a cancellable after that point, cancel it right away on an idle handler.
  *
@@ -1150,7 +1155,7 @@ nm_utils_file_is_in_path(const char *abs_filename, const char *abs_path)
     g_return_val_if_fail(abs_filename && abs_filename[0] == '/', NULL);
     g_return_val_if_fail(abs_path && abs_path[0] == '/', NULL);
 
-    path = nm_sd_utils_path_startswith(abs_filename, abs_path);
+    path = nm_path_startswith(abs_filename, abs_path);
     if (!path)
         return NULL;
 
@@ -1347,8 +1352,13 @@ nm_utils_ip_route_attribute_to_platform(int                addr_family,
         int type;
 
         type = nm_net_aux_rtnl_rtntype_a2n(g_variant_get_string(variant, NULL));
-        nm_assert(
-            NM_IN_SET(type, RTN_UNICAST, RTN_LOCAL, RTN_BLACKHOLE, RTN_UNREACHABLE, RTN_PROHIBIT));
+        nm_assert(NM_IN_SET(type,
+                            RTN_UNICAST,
+                            RTN_LOCAL,
+                            RTN_BLACKHOLE,
+                            RTN_UNREACHABLE,
+                            RTN_PROHIBIT,
+                            RTN_THROW));
 
         r->type_coerced = nm_platform_route_type_coerce(type);
     } else
@@ -1372,23 +1382,32 @@ nm_utils_ip_route_attribute_to_platform(int                addr_family,
 
         GET_ATTR(NM_IP_ROUTE_ATTRIBUTE_TOS, r4->tos, BYTE, byte, 0);
         GET_ATTR(NM_IP_ROUTE_ATTRIBUTE_SCOPE, scope, BYTE, byte, RT_SCOPE_NOWHERE);
+        GET_ATTR(NM_IP_ROUTE_ATTRIBUTE_WEIGHT, r4->weight, UINT32, uint32, 0);
         r4->scope_inv = nm_platform_route_scope_inv(scope);
     }
 
+    /* Note that for IPv4 routes in kernel, the onlink flag can be set for
+     * each next hop separately (rtnh_flags). Not for NetworkManager. We can
+     * only merge routes as ECMP routes (when setting a weight) if they all
+     * share the same onlink flag. See NM_PLATFORM_IP_ROUTE_CMP_TYPE_ECMP_ID.
+     * That simplifies the code. */
     GET_ATTR(NM_IP_ROUTE_ATTRIBUTE_ONLINK, onlink, BOOLEAN, boolean, FALSE);
-
     r->r_rtm_flags = ((onlink) ? (unsigned) RTNH_F_ONLINK : 0u);
 
+    GET_ATTR(NM_IP_ROUTE_ATTRIBUTE_ADVMSS, r->mss, UINT32, uint32, 0);
     GET_ATTR(NM_IP_ROUTE_ATTRIBUTE_WINDOW, r->window, UINT32, uint32, 0);
     GET_ATTR(NM_IP_ROUTE_ATTRIBUTE_CWND, r->cwnd, UINT32, uint32, 0);
     GET_ATTR(NM_IP_ROUTE_ATTRIBUTE_INITCWND, r->initcwnd, UINT32, uint32, 0);
     GET_ATTR(NM_IP_ROUTE_ATTRIBUTE_INITRWND, r->initrwnd, UINT32, uint32, 0);
     GET_ATTR(NM_IP_ROUTE_ATTRIBUTE_MTU, r->mtu, UINT32, uint32, 0);
+    GET_ATTR(NM_IP_ROUTE_ATTRIBUTE_RTO_MIN, r->rto_min, UINT32, uint32, 0);
+    GET_ATTR(NM_IP_ROUTE_ATTRIBUTE_QUICKACK, r->quickack, BOOLEAN, boolean, FALSE);
     GET_ATTR(NM_IP_ROUTE_ATTRIBUTE_LOCK_WINDOW, r->lock_window, BOOLEAN, boolean, FALSE);
     GET_ATTR(NM_IP_ROUTE_ATTRIBUTE_LOCK_CWND, r->lock_cwnd, BOOLEAN, boolean, FALSE);
     GET_ATTR(NM_IP_ROUTE_ATTRIBUTE_LOCK_INITCWND, r->lock_initcwnd, BOOLEAN, boolean, FALSE);
     GET_ATTR(NM_IP_ROUTE_ATTRIBUTE_LOCK_INITRWND, r->lock_initrwnd, BOOLEAN, boolean, FALSE);
     GET_ATTR(NM_IP_ROUTE_ATTRIBUTE_LOCK_MTU, r->lock_mtu, BOOLEAN, boolean, FALSE);
+    GET_ATTR(NM_IP_ROUTE_ATTRIBUTE_LOCK_ADVMSS, r->lock_mss, BOOLEAN, boolean, FALSE);
 
     if ((variant = nm_ip_route_get_attribute(s_route, NM_IP_ROUTE_ATTRIBUTE_SRC))
         && g_variant_is_of_type(variant, G_VARIANT_TYPE_STRING)) {
@@ -1404,11 +1423,11 @@ nm_utils_ip_route_attribute_to_platform(int                addr_family,
         && g_variant_is_of_type(variant, G_VARIANT_TYPE_STRING)) {
         int prefix;
 
-        if (nm_utils_parse_inaddr_prefix_bin(addr_family,
-                                             g_variant_get_string(variant, NULL),
-                                             NULL,
-                                             &addr,
-                                             &prefix)) {
+        if (nm_inet_parse_with_prefix_bin(addr_family,
+                                          g_variant_get_string(variant, NULL),
+                                          NULL,
+                                          &addr,
+                                          &prefix)) {
             if (prefix < 0)
                 prefix = 128;
             r6->src      = addr.addr6;
@@ -1430,7 +1449,7 @@ nm_utils_ip_addresses_to_dbus(int                          addr_family,
     const int        IS_IPv4 = NM_IS_IPv4(addr_family);
     GVariantBuilder  builder_data;
     GVariantBuilder  builder_legacy;
-    char             addr_str[NM_UTILS_INET_ADDRSTRLEN];
+    char             addr_str[NM_INET_ADDRSTRLEN];
     NMDedupMultiIter iter;
     const NMPObject *obj;
     guint            i;
@@ -1465,8 +1484,7 @@ nm_utils_ip_addresses_to_dbus(int                          addr_family,
                 &addr_builder,
                 "{sv}",
                 "address",
-                g_variant_new_string(
-                    nm_utils_inet_ntop(addr_family, address->ax.address_ptr, addr_str)));
+                g_variant_new_string(nm_inet_ntop(addr_family, address->ax.address_ptr, addr_str)));
 
             g_variant_builder_add(&addr_builder,
                                   "{sv}",
@@ -1483,11 +1501,10 @@ nm_utils_ip_addresses_to_dbus(int                          addr_family,
                     p = &address->a6.peer_address;
             }
             if (p) {
-                g_variant_builder_add(
-                    &addr_builder,
-                    "{sv}",
-                    "peer",
-                    g_variant_new_string(nm_utils_inet_ntop(addr_family, p, addr_str)));
+                g_variant_builder_add(&addr_builder,
+                                      "{sv}",
+                                      "peer",
+                                      g_variant_new_string(nm_inet_ntop(addr_family, p, addr_str)));
             }
 
             if (IS_IPv4) {
@@ -1545,7 +1562,7 @@ nm_utils_ip_routes_to_dbus(int                          addr_family,
     const NMPObject *obj;
     GVariantBuilder  builder_data;
     GVariantBuilder  builder_legacy;
-    char             addr_str[NM_UTILS_INET_ADDRSTRLEN];
+    char             addr_str[NM_INET_ADDRSTRLEN];
 
     nm_assert_addr_family(addr_family);
 
@@ -1566,14 +1583,12 @@ nm_utils_ip_routes_to_dbus(int                          addr_family,
         nm_assert(r);
         nm_assert(r->rx.plen <= 8u * nm_utils_addr_family_to_size(addr_family));
         nm_assert(!IS_IPv4
-                  || r->r4.network
-                         == nm_utils_ip4_address_clear_host_address(r->r4.network, r->r4.plen));
-        nm_assert(
-            IS_IPv4
-            || (memcmp(&r->r6.network,
-                       nm_utils_ip6_address_clear_host_address(&n, &r->r6.network, r->r6.plen),
-                       sizeof(n))
-                == 0));
+                  || r->r4.network == nm_ip4_addr_clear_host_address(r->r4.network, r->r4.plen));
+        nm_assert(IS_IPv4
+                  || (memcmp(&r->r6.network,
+                             nm_ip6_addr_clear_host_address(&n, &r->r6.network, r->r6.plen),
+                             sizeof(n))
+                      == 0));
 
         if (r->rx.type_coerced != nm_platform_route_type_coerce(RTN_UNICAST))
             continue;
@@ -1588,7 +1603,7 @@ nm_utils_ip_routes_to_dbus(int                          addr_family,
                 &route_builder,
                 "{sv}",
                 "dest",
-                g_variant_new_string(nm_utils_inet_ntop(addr_family, r->rx.network_ptr, addr_str)));
+                g_variant_new_string(nm_inet_ntop(addr_family, r->rx.network_ptr, addr_str)));
 
             g_variant_builder_add(&route_builder,
                                   "{sv}",
@@ -1601,7 +1616,7 @@ nm_utils_ip_routes_to_dbus(int                          addr_family,
                     &route_builder,
                     "{sv}",
                     "next-hop",
-                    g_variant_new_string(nm_utils_inet_ntop(addr_family, gateway, addr_str)));
+                    g_variant_new_string(nm_inet_ntop(addr_family, gateway, addr_str)));
             }
 
             g_variant_builder_add(&route_builder,
@@ -1666,7 +1681,7 @@ nm_utils_platform_capture_ip_setting(NMPlatform *platform,
     NMDedupMultiIter                   iter;
     const NMPObject                   *obj;
     const char                        *method = NULL;
-    char                               sbuf[NM_UTILS_INET_ADDRSTRLEN];
+    char                               sbuf[NM_INET_ADDRSTRLEN];
     const NMPlatformIPXRoute          *best_default_route = NULL;
 
     s_ip =
@@ -1681,7 +1696,7 @@ nm_utils_platform_capture_ip_setting(NMPlatform *platform,
         return NM_SETTING(g_steal_pointer(&s_ip));
     }
 
-    nmp_lookup_init_object(&lookup, NMP_OBJECT_TYPE_IP_ADDRESS(IS_IPv4), ifindex);
+    nmp_lookup_init_object_by_ifindex(&lookup, NMP_OBJECT_TYPE_IP_ADDRESS(IS_IPv4), ifindex);
     nm_platform_iter_obj_for_each (&iter, platform, &lookup, &obj) {
         const NMPlatformIPXAddress           *address = NMP_OBJECT_CAST_IPX_ADDRESS(obj);
         nm_auto_unref_ip_address NMIPAddress *s_addr  = NULL;
@@ -1735,7 +1750,7 @@ nm_utils_platform_capture_ip_setting(NMPlatform *platform,
     }
     g_object_set(s_ip, NM_SETTING_IP_CONFIG_METHOD, method, NULL);
 
-    nmp_lookup_init_object(&lookup, NMP_OBJECT_TYPE_IP_ROUTE(IS_IPv4), ifindex);
+    nmp_lookup_init_object_by_ifindex(&lookup, NMP_OBJECT_TYPE_IP_ROUTE(IS_IPv4), ifindex);
     nm_platform_iter_obj_for_each (&iter, platform, &lookup, &obj) {
         const NMPlatformIPXRoute         *route   = NMP_OBJECT_CAST_IPX_ROUTE(obj);
         nm_auto_unref_ip_route NMIPRoute *s_route = NULL;
@@ -1768,13 +1783,13 @@ nm_utils_platform_capture_ip_setting(NMPlatform *platform,
     }
 
     if (best_default_route && nm_setting_ip_config_get_num_addresses(s_ip) > 0) {
-        g_object_set(s_ip,
-                     NM_SETTING_IP_CONFIG_GATEWAY,
-                     nm_utils_inet_ntop(
-                         addr_family,
+        g_object_set(
+            s_ip,
+            NM_SETTING_IP_CONFIG_GATEWAY,
+            nm_inet_ntop(addr_family,
                          nm_platform_ip_route_get_gateway(addr_family, &best_default_route->rx),
                          sbuf),
-                     NULL);
+            NULL);
     }
 
     return NM_SETTING(g_steal_pointer(&s_ip));
@@ -1825,7 +1840,7 @@ nm_platform_setup(NMPlatform *instance)
  * Returns: (transfer none): The #NMPlatform singleton reference.
  */
 NMPlatform *
-nm_platform_get()
+nm_platform_get(void)
 {
     g_assert(singleton_instance);
 
@@ -1837,11 +1852,11 @@ nm_platform_get()
 void
 nm_linux_platform_setup(void)
 {
-    nm_platform_setup(nm_linux_platform_new(FALSE, FALSE, FALSE));
+    nm_platform_setup(nm_linux_platform_new(NULL, FALSE, FALSE, FALSE));
 }
 
 void
 nm_linux_platform_setup_with_tc_cache(void)
 {
-    nm_platform_setup(nm_linux_platform_new(FALSE, FALSE, TRUE));
+    nm_platform_setup(nm_linux_platform_new(NULL, FALSE, FALSE, TRUE));
 }

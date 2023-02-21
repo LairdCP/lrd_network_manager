@@ -30,10 +30,11 @@ qdiscs_lookup(int ifindex)
 {
     NMPLookup lookup;
 
-    return nm_platform_lookup_clone(NM_PLATFORM_GET,
-                                    nmp_lookup_init_object(&lookup, NMP_OBJECT_TYPE_QDISC, ifindex),
-                                    NULL,
-                                    NULL);
+    return nm_platform_lookup_clone(
+        NM_PLATFORM_GET,
+        nmp_lookup_init_object_by_ifindex(&lookup, NMP_OBJECT_TYPE_QDISC, ifindex),
+        NULL,
+        NULL);
 }
 
 static void
@@ -213,8 +214,8 @@ _nmtstp_init_tests(int *argc, char ***argv)
 void
 _nmtstp_setup_tests(void)
 {
-    nmtstp_env1_add_test_func("/link/qdisc/1", test_qdisc1, TRUE);
-    nmtstp_env1_add_test_func("/link/qdisc/fq_codel", test_qdisc_fq_codel, TRUE);
-    nmtstp_env1_add_test_func("/link/qdisc/sfq", test_qdisc_sfq, TRUE);
-    nmtstp_env1_add_test_func("/link/qdisc/tbf", test_qdisc_tbf, TRUE);
+    nmtstp_env1_add_test_func("/link/qdisc/1", test_qdisc1, 1, TRUE);
+    nmtstp_env1_add_test_func("/link/qdisc/fq_codel", test_qdisc_fq_codel, 1, TRUE);
+    nmtstp_env1_add_test_func("/link/qdisc/sfq", test_qdisc_sfq, 1, TRUE);
+    nmtstp_env1_add_test_func("/link/qdisc/tbf", test_qdisc_tbf, 1, TRUE);
 }

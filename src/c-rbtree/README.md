@@ -12,6 +12,7 @@ as well as the docbook comments for each function.
 ### Project
 
  * **Website**: <https://c-util.github.io/c-rbtree>
+ * **Documentation**: <https://c-rbtree.readthedocs.io>
  * **Bug Tracker**: <https://github.com/c-util/c-rbtree/issues>
 
 ### Requirements
@@ -22,7 +23,7 @@ The requirements for this project are:
 
 At build-time, the following software is required:
 
- * `meson >= 0.41`
+ * `meson >= 0.60`
  * `pkg-config >= 0.29`
 
 ### Build

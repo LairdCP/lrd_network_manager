@@ -63,9 +63,14 @@ typedef enum { /*< underscore_name=nm_setting_802_1x_ck_scheme >*/
  * NMSetting8021xAuthFlags:
  * @NM_SETTING_802_1X_AUTH_FLAGS_NONE: No flags
  * @NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_0_DISABLE: Disable TLSv1.0
+ * @NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_0_ENABLE: Enable TLSv1.0. Since 1.42.
  * @NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_1_DISABLE: Disable TLSv1.1
+ * @NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_1_ENABLE: Enable TLSv1.1. Since 1.42.
  * @NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_2_DISABLE: Disable TLSv1.2
- * @NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_3_ENABLE: Enable TLSv1.3
+ * @NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_2_ENABLE: Enable TLSv1.2. Since 1.42.
+ * @NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_3_DISABLE: Disable TLSv1.3. Since 1.42.
+ * @NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_3_ENABLE: Enable TLSv1.3. Since 1.42.
+ * @NM_SETTING_802_1X_AUTH_FLAGS_TLS_DISABLE_TIME_CHECKS: Disable TLS time checks. Since 1.42.
  * @NM_SETTING_802_1X_AUTH_FLAGS_SAFE_RENEGOTIATION: Allow only safe renegotiation (RFC5746)
  * @NM_SETTING_802_1X_AUTH_FLAGS_ALL: All supported flags
  *
@@ -77,15 +82,20 @@ typedef enum { /*< underscore_name=nm_setting_802_1x_ck_scheme >*/
  *
  * Since: 1.8
  */
-typedef enum { /*< flags, underscore_name=nm_setting_802_1x_auth_flags >*/
-               NM_SETTING_802_1X_AUTH_FLAGS_NONE            = 0,
-               NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_0_DISABLE = 0x1,
-               NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_1_DISABLE = 0x2,
-               NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_2_DISABLE = 0x4,
-               NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_3_ENABLE  = 0x8,
-               NM_SETTING_802_1X_AUTH_FLAGS_SAFE_RENEGOTIATION  = 0x10,
+typedef enum /*< underscore_name=nm_setting_802_1x_auth_flags, flags >*/ {
+    NM_SETTING_802_1X_AUTH_FLAGS_NONE                    = 0,
+    NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_0_DISABLE         = 0x1,
+    NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_1_DISABLE         = 0x2,
+    NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_2_DISABLE         = 0x4,
+    NM_SETTING_802_1X_AUTH_FLAGS_TLS_DISABLE_TIME_CHECKS = 0x8,
+    NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_3_DISABLE         = 0x10,
+    NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_0_ENABLE          = 0x20,
+    NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_1_ENABLE          = 0x40,
+    NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_2_ENABLE          = 0x80,
+    NM_SETTING_802_1X_AUTH_FLAGS_TLS_1_3_ENABLE          = 0x100,
+    NM_SETTING_802_1X_AUTH_FLAGS_SAFE_RENEGOTIATION      = 0x200,
 
-               NM_SETTING_802_1X_AUTH_FLAGS_ALL = 0x1f,
+    NM_SETTING_802_1X_AUTH_FLAGS_ALL = 0x3FF,
 } NMSetting8021xAuthFlags;
 
 #define NM_TYPE_SETTING_802_1X (nm_setting_802_1x_get_type())
@@ -147,7 +157,6 @@ typedef enum { /*< flags, underscore_name=nm_setting_802_1x_auth_flags >*/
 #define NM_SETTING_802_1X_SYSTEM_CA_CERTS                   "system-ca-certs"
 #define NM_SETTING_802_1X_AUTH_TIMEOUT                      "auth-timeout"
 #define NM_SETTING_802_1X_OPTIONAL                          "optional"
-#define NM_SETTING_802_1X_TLS_DISABLE_TIME_CHECKS           "tls-disable-time-checks"
 #define NM_SETTING_802_1X_PAC_FILE_PASSWORD                 "pac-file-password"
 #define NM_SETTING_802_1X_PAC_FILE_PASSWORD_FLAGS           "pac-file-password-flags"
 
@@ -358,7 +367,6 @@ int nm_setting_802_1x_get_auth_timeout(NMSetting8021x *setting);
 NM_AVAILABLE_IN_1_22
 gboolean nm_setting_802_1x_get_optional(NMSetting8021x *setting);
 
-const char *nm_setting_802_1x_get_tls_disable_time_checks(NMSetting8021x *setting);
 const char *nm_setting_802_1x_get_pac_file_password(NMSetting8021x *setting);
 
 gboolean nm_setting_802_1x_remove_phase2_auth_by_value(NMSetting8021x *setting,

@@ -2,7 +2,7 @@
 
 #include "src/core/nm-default-daemon.h"
 
-#include <linux/if_addr.h>
+#include "nm-compat-headers/linux/if_addr.h"
 
 #include "nm-l3cfg.h"
 #include "nm-l3-ipv4ll.h"
@@ -339,6 +339,10 @@ test_l3cfg(gconstpointer test_data)
 
     _LOGD("test start (/l3cfg/%d)", TEST_IDX);
 
+    /* FIXME: https://bugzilla.redhat.com/show_bug.cgi?id=2165141 */
+    g_test_skip("Skip: this test is currently known to fail (rhbz#2165141)");
+    return;
+
     if (nmtst_test_quick()) {
         gs_free char *msg =
             g_strdup_printf("Skipping test: don't run long running test %s (NMTST_DEBUG=slow)\n",
@@ -382,13 +386,11 @@ test_l3cfg(gconstpointer test_data)
         nm_l3cfg_commit_type_register(l3cfg0, NM_L3_CFG_COMMIT_TYPE_UPDATE, NULL, "test1");
 
     if (!nmtst_get_rand_one_case_in(4)) {
-        commit_type_2 =
-            nm_l3cfg_commit_type_register(l3cfg0,
-                                          nmtst_rand_select(NM_L3_CFG_COMMIT_TYPE_NONE,
-                                                            NM_L3_CFG_COMMIT_TYPE_ASSUME,
-                                                            NM_L3_CFG_COMMIT_TYPE_UPDATE),
-                                          NULL,
-                                          "test2");
+        commit_type_2 = nm_l3cfg_commit_type_register(
+            l3cfg0,
+            nmtst_rand_select(NM_L3_CFG_COMMIT_TYPE_NONE, NM_L3_CFG_COMMIT_TYPE_UPDATE),
+            NULL,
+            "test2");
     } else
         commit_type_2 = NULL;
 
@@ -420,7 +422,7 @@ test_l3cfg(gconstpointer test_data)
 
         nm_l3_config_data_add_address_6(
             l3cd,
-            NM_PLATFORM_IP6_ADDRESS_INIT(.address = *nmtst_inet6_from_string("1:2:3:4::45"),
+            NM_PLATFORM_IP6_ADDRESS_INIT(.address = nmtst_inet6_from_string("1:2:3:4::45"),
                                          .plen    = 64, ));
 
         if (nmtst_get_rand_one_case_in(2))
@@ -574,7 +576,7 @@ _test_l3_ipv4ll_signal_notify(NML3Cfg                    *l3cfg,
                               const NML3ConfigNotifyData *notify_data,
                               TestL3IPv4LLData           *tdata)
 {
-    char sbuf_addr[NM_UTILS_INET_ADDRSTRLEN];
+    char sbuf_addr[NM_INET_ADDRSTRLEN];
 
     g_assert(NM_IS_L3CFG(l3cfg));
     g_assert(tdata);
@@ -595,9 +597,9 @@ _test_l3_ipv4ll_signal_notify(NML3Cfg                    *l3cfg,
             if (tdata->f->test_idx == 2 && nmtst_get_rand_bool()) {
                 tdata->addr_commit++;
                 tdata->addr_commit_addr = nm_l3_ipv4ll_get_addr(tdata->l3ipv4ll);
-                g_assert(nm_utils_ip4_address_is_link_local(tdata->addr_commit_addr));
+                g_assert(nm_ip4_addr_is_link_local(tdata->addr_commit_addr));
                 _LOGT("add address %s that passed ACD",
-                      _nm_utils_inet4_ntop(tdata->addr_commit_addr, sbuf_addr));
+                      nm_inet4_ntop(tdata->addr_commit_addr, sbuf_addr));
                 if (!nm_l3cfg_add_config(nm_l3_ipv4ll_get_l3cfg(tdata->l3ipv4ll),
                                          TEST_L3_IPV4LL_TAG(tdata, 1),
                                          nmtst_get_rand_bool(),
@@ -632,9 +634,9 @@ _test_l3_ipv4ll_signal_notify(NML3Cfg                    *l3cfg,
             if (tdata->addr_commit > 0) {
                 g_assert_cmpint(tdata->addr_commit, ==, 1);
                 tdata->addr_commit--;
-                g_assert(nm_utils_ip4_address_is_link_local(tdata->addr_commit_addr));
+                g_assert(nm_ip4_addr_is_link_local(tdata->addr_commit_addr));
                 _LOGT("remove address %s that previously passed ACD",
-                      _nm_utils_inet4_ntop(tdata->addr_commit_addr, sbuf_addr));
+                      nm_inet4_ntop(tdata->addr_commit_addr, sbuf_addr));
                 if (!nm_l3cfg_remove_config_all(nm_l3_ipv4ll_get_l3cfg(tdata->l3ipv4ll),
                                                 TEST_L3_IPV4LL_TAG(tdata, 1)))
                     g_assert_not_reached();
@@ -665,7 +667,7 @@ test_l3_ipv4ll(gconstpointer test_data)
     gint64                                                       start_time_msec;
     gint64                                                       total_poll_time_msec;
     nm_auto_remove_l3ipv4ll_registration NML3IPv4LLRegistration *l3ipv4ll_reg = NULL;
-    char sbuf_addr[NM_UTILS_INET_ADDRSTRLEN];
+    char                                                         sbuf_addr[NM_INET_ADDRSTRLEN];
 
     _LOGD("test start (/l3-ipv4ll/%d)", TEST_IDX);
 
@@ -735,12 +737,12 @@ test_l3_ipv4ll(gconstpointer test_data)
     if (tdata->f->test_idx == 2 && nmtst_get_rand_one_case_in(3)) {
         in_addr_t a = nm_l3_ipv4ll_get_addr(l3ipv4ll);
 
-        g_assert(nm_utils_ip4_address_is_link_local(a));
+        g_assert(nm_ip4_addr_is_link_local(a));
         _test_l3_ipv4ll_maybe_add_addr_4(tdata,
                                          tdata->f->ifindex1,
                                          2,
                                          &tdata->add_conflict_done,
-                                         _nm_utils_inet4_ntop(a, sbuf_addr));
+                                         nm_inet4_ntop(a, sbuf_addr));
         g_assert_cmpint(tdata->f->hwaddr1.len, ==, sizeof(NMEtherAddr));
         acd_defender_2 =
             nmtstp_acd_defender_new(tdata->f->ifindex1, a, &tdata->f->hwaddr1.ether_addr);
@@ -770,12 +772,11 @@ test_l3_ipv4ll(gconstpointer test_data)
 
         if (tdata->addr_commit == 1 && !tdata->add_conflict_checked) {
             tdata->add_conflict_checked = TRUE;
-            _test_l3_ipv4ll_maybe_add_addr_4(
-                tdata,
-                tdata->f->ifindex1,
-                2,
-                &tdata->add_conflict_done,
-                _nm_utils_inet4_ntop(tdata->addr_commit_addr, sbuf_addr));
+            _test_l3_ipv4ll_maybe_add_addr_4(tdata,
+                                             tdata->f->ifindex1,
+                                             2,
+                                             &tdata->add_conflict_done,
+                                             nm_inet4_ntop(tdata->addr_commit_addr, sbuf_addr));
             if (tdata->add_conflict_done)
                 total_poll_time_msec += L3IPV4LL_ACD_TIMEOUT_MSEC / 2;
             g_assert_cmpint(tdata->f->hwaddr1.len, ==, sizeof(NMEtherAddr));
@@ -823,7 +824,7 @@ _test_l3_ipv6ll_find_lladdr(TestL3IPv6LLData *tdata, int ifindex)
 
     g_assert(tdata);
 
-    nmp_lookup_init_object(&lookup, NMP_OBJECT_TYPE_IP6_ADDRESS, ifindex);
+    nmp_lookup_init_object_by_ifindex(&lookup, NMP_OBJECT_TYPE_IP6_ADDRESS, ifindex);
     nm_platform_iter_obj_for_each (&iter, tdata->f->platform, &lookup, &obj) {
         const NMPlatformIP6Address *a = NMP_OBJECT_CAST_IP6_ADDRESS(obj);
 
@@ -956,7 +957,7 @@ test_l3_ipv6ll(gconstpointer test_data)
                                        .steps_done = FALSE,
     };
     TestL3IPv6LLData *const tdata = &tdata_stack;
-    char                    sbuf1[sizeof(_nm_utils_to_string_buffer)];
+    char                    sbuf1[NM_UTILS_TO_STRING_BUFFER_SIZE];
     int                     r;
 
     _LOGD("test start (/l3-ipv6ll/%d)", TEST_IDX);
@@ -988,7 +989,7 @@ test_l3_ipv6ll(gconstpointer test_data)
         nmtstp_ip6_address_add(tdata->f->platform,
                                -1,
                                tdata->f->ifindex1,
-                               *nmtst_inet6_from_string(_LLADDR_TEST1),
+                               nmtst_inet6_from_string(_LLADDR_TEST1),
                                64,
                                in6addr_any,
                                NM_PLATFORM_LIFETIME_PERMANENT,

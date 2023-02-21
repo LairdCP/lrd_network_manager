@@ -11,8 +11,6 @@
 #error "Only <NetworkManager.h> can be included directly."
 #endif
 
-#include "nm-types.h"
-
 G_BEGIN_DECLS
 
 /**
@@ -24,12 +22,21 @@ G_BEGIN_DECLS
  *   can be disabled. You can toggle this flag to enable and disable automatic
  *   fetching of the permissions. Watch also nm_client_get_permissions_state()
  *   to know whether the permissions are up to date.
+ * @NM_CLIENT_INSTANCE_FLAGS_INITIALIZED_GOOD: as #NMClient is an GInitable
+ *   and GAsyncInitable, nm_client_get_instance_flags() returns this flag
+ *   once initialization completed with success. This flag cannot be set
+ *   as NM_CLIENT_INSTANCE_FLAGS property. Since: 1.42.
+ * @NM_CLIENT_INSTANCE_FLAGS_INITIALIZED_BAD: like @NM_CLIENT_INSTANCE_FLAGS_INITIALIZED_GOOD
+ *   indicates that the instance completed initialization with failure. In that
+ *   case the instance is unusable. Since: 1.42.
  *
  * Since: 1.24
  */
-typedef enum { /*< flags >*/
-               NM_CLIENT_INSTANCE_FLAGS_NONE                      = 0,
-               NM_CLIENT_INSTANCE_FLAGS_NO_AUTO_FETCH_PERMISSIONS = 1,
+typedef enum /*< flags >*/ {
+    NM_CLIENT_INSTANCE_FLAGS_NONE                      = 0,
+    NM_CLIENT_INSTANCE_FLAGS_NO_AUTO_FETCH_PERMISSIONS = 0x1,
+    NM_CLIENT_INSTANCE_FLAGS_INITIALIZED_GOOD          = 0x2,
+    NM_CLIENT_INSTANCE_FLAGS_INITIALIZED_BAD           = 0x4,
 } NMClientInstanceFlags;
 
 #define NM_TYPE_CLIENT            (nm_client_get_type())
@@ -40,6 +47,7 @@ typedef enum { /*< flags >*/
 #define NM_CLIENT_GET_CLASS(obj)  (G_TYPE_INSTANCE_GET_CLASS((obj), NM_TYPE_CLIENT, NMClientClass))
 
 #define NM_CLIENT_VERSION         "version"
+#define NM_CLIENT_VERSION_INFO    "version-info"
 #define NM_CLIENT_STATE           "state"
 #define NM_CLIENT_STARTUP         "startup"
 #define NM_CLIENT_NM_RUNNING      "nm-running"
@@ -60,6 +68,8 @@ _NM_DEPRECATED_SYNC_WRITABLE_PROPERTY
 #define NM_CLIENT_WIRELESS_HARDWARE_ENABLED "wireless-hardware-enabled"
 #define NM_CLIENT_WWAN_HARDWARE_ENABLED     "wwan-hardware-enabled"
 #define NM_CLIENT_WIMAX_HARDWARE_ENABLED    "wimax-hardware-enabled"
+
+#define NM_CLIENT_RADIO_FLAGS "radio-flags"
 
 #define NM_CLIENT_ACTIVE_CONNECTIONS           "active-connections"
 #define NM_CLIENT_CONNECTIVITY                 "connectivity"
@@ -120,7 +130,12 @@ GQuark nm_client_error_quark(void);
 
 /* DNS stuff */
 
-typedef struct NMDnsEntry NMDnsEntry;
+/**
+ * NMDnsEntry:
+ *
+ * Since: 1.6
+ */
+typedef struct _NMDnsEntry NMDnsEntry;
 
 NM_AVAILABLE_IN_1_6
 GType nm_dns_entry_get_type(void);
@@ -146,6 +161,7 @@ gboolean nm_dns_entry_get_vpn(NMDnsEntry *entry);
  * D-Bus signals gets processed and the #NMClient instance updates and
  * emits #GObject signals.
  */
+typedef struct _NMClient      NMClient;
 typedef struct _NMClientClass NMClientClass;
 
 GType nm_client_get_type(void);
@@ -172,9 +188,13 @@ NM_AVAILABLE_IN_1_22
 const char *nm_client_get_dbus_name_owner(NMClient *client);
 
 const char *nm_client_get_version(NMClient *client);
-NMState     nm_client_get_state(NMClient *client);
-gboolean    nm_client_get_startup(NMClient *client);
-gboolean    nm_client_get_nm_running(NMClient *client);
+
+NM_AVAILABLE_IN_1_42
+const guint32 *nm_client_get_version_info(NMClient *client, gsize *length);
+
+NMState  nm_client_get_state(NMClient *client);
+gboolean nm_client_get_startup(NMClient *client);
+gboolean nm_client_get_nm_running(NMClient *client);
 
 NMObject *nm_client_get_object_by_path(NMClient *client, const char *dbus_path);
 
@@ -212,6 +232,9 @@ void nm_client_wimax_set_enabled(NMClient *client, gboolean enabled);
 
 NM_DEPRECATED_IN_1_22
 gboolean nm_client_wimax_hardware_get_enabled(NMClient *client);
+
+NM_AVAILABLE_IN_1_38
+NMRadioFlags nm_client_get_radio_flags(NMClient *client);
 
 NM_AVAILABLE_IN_1_10
 gboolean nm_client_connectivity_check_get_available(NMClient *client);
@@ -490,6 +513,22 @@ gboolean nm_client_dbus_set_property_finish(NMClient *client, GAsyncResult *resu
 
 NM_AVAILABLE_IN_1_30
 void nm_utils_print(int output_mode, const char *msg);
+
+gboolean nm_utils_file_is_certificate(const char *filename);
+gboolean nm_utils_file_is_private_key(const char *filename, gboolean *out_encrypted);
+gboolean nm_utils_file_is_pkcs12(const char *filename);
+
+/*****************************************************************************/
+
+NM_AVAILABLE_IN_1_42
+void nm_client_wait_shutdown(NMClient           *client,
+                             gboolean            integrate_maincontext,
+                             GCancellable       *cancellable,
+                             GAsyncReadyCallback callback,
+                             gpointer            user_data);
+
+NM_AVAILABLE_IN_1_42
+gboolean nm_client_wait_shutdown_finish(GAsyncResult *result, GError **error);
 
 G_END_DECLS
 

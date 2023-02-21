@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <linux/oom.h>
+#include <pthread.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -220,7 +221,6 @@ int get_process_cmdline(pid_t pid, size_t max_columns, ProcessCmdlineFlags flags
                 assert(!(flags & PROCESS_CMDLINE_USE_LOCALE));
 
                 _cleanup_strv_free_ char **args = NULL;
-                char **p;
 
                 args = strv_parse_nulstr(t, k);
                 if (!args)
@@ -478,37 +478,33 @@ int get_process_capeff(pid_t pid, char **ret) {
         return r;
 }
 
-static int get_process_link_contents(const char *proc_file, char **ret) {
+static int get_process_link_contents(pid_t pid, const char *proc_file, char **ret) {
+        const char *p;
         int r;
 
         assert(proc_file);
-        assert(ret);
 
-        r = readlink_malloc(proc_file, ret);
-        if (r == -ENOENT)
-                return -ESRCH;
-        if (r < 0)
-                return r;
+        p = procfs_file_alloca(pid, proc_file);
 
-        return 0;
+        r = readlink_malloc(p, ret);
+        return r == -ENOENT ? -ESRCH : r;
 }
 
 int get_process_exe(pid_t pid, char **ret) {
-        const char *p;
         char *d;
         int r;
 
         assert(pid >= 0);
-        assert(ret);
 
-        p = procfs_file_alloca(pid, "exe");
-        r = get_process_link_contents(p, ret);
+        r = get_process_link_contents(pid, "exe", ret);
         if (r < 0)
                 return r;
 
-        d = endswith(*ret, " (deleted)");
-        if (d)
-                *d = '\0';
+        if (ret) {
+                d = endswith(*ret, " (deleted)");
+                if (d)
+                        *d = '\0';
+        }
 
         return 0;
 }
@@ -578,28 +574,17 @@ int get_process_gid(pid_t pid, gid_t *ret) {
 }
 
 int get_process_cwd(pid_t pid, char **ret) {
-        const char *p;
-
         assert(pid >= 0);
-        assert(ret);
 
         if (pid == 0 || pid == getpid_cached())
                 return safe_getcwd(ret);
 
-        p = procfs_file_alloca(pid, "cwd");
-
-        return get_process_link_contents(p, ret);
+        return get_process_link_contents(pid, "cwd", ret);
 }
 
 int get_process_root(pid_t pid, char **ret) {
-        const char *p;
-
         assert(pid >= 0);
-        assert(ret);
-
-        p = procfs_file_alloca(pid, "root");
-
-        return get_process_link_contents(p, ret);
+        return get_process_link_contents(pid, "root", ret);
 }
 
 #define ENVIRONMENT_BLOCK_MAX (5U*1024U*1024U)
@@ -651,7 +636,7 @@ int get_process_environ(pid_t pid, char **ret) {
 
 int get_process_ppid(pid_t pid, pid_t *ret) {
         _cleanup_free_ char *line = NULL;
-        long unsigned ppid;
+        unsigned long ppid;
         const char *p;
         int r;
 
@@ -694,7 +679,7 @@ int get_process_ppid(pid_t pid, pid_t *ret) {
         if (ppid == 0)
                 return -EADDRNOTAVAIL;
 
-        if ((pid_t) ppid < 0 || (long unsigned) (pid_t) ppid != ppid)
+        if ((pid_t) ppid < 0 || (unsigned long) (pid_t) ppid != ppid)
                 return -ERANGE;
 
         if (ret)
@@ -825,19 +810,18 @@ int wait_for_terminate_with_timeout(pid_t pid, usec_t timeout) {
         for (;;) {
                 usec_t n;
                 siginfo_t status = {};
-                struct timespec ts;
 
                 n = now(CLOCK_MONOTONIC);
                 if (n >= until)
                         break;
 
-                r = RET_NERRNO(sigtimedwait(&mask, NULL, timespec_store(&ts, until - n)));
+                r = RET_NERRNO(sigtimedwait(&mask, NULL, TIMESPEC_STORE(until - n)));
                 /* Assuming we woke due to the child exiting. */
                 if (waitid(P_PID, pid, &status, WEXITED|WNOHANG) == 0) {
                         if (status.si_pid == pid) {
                                 /* This is the correct child. */
                                 if (status.si_code == CLD_EXITED)
-                                        return (status.si_status == 0) ? 0 : -EPROTO;
+                                        return status.si_status == 0 ? 0 : -EPROTO;
                                 else
                                         return -EPROTO;
                         }
@@ -1050,7 +1034,7 @@ bool oom_score_adjust_is_valid(int oa) {
 }
 
 unsigned long personality_from_string(const char *p) {
-        int architecture;
+        Architecture architecture;
 
         if (!p)
                 return PERSONALITY_INVALID;
@@ -1074,7 +1058,7 @@ unsigned long personality_from_string(const char *p) {
 }
 
 const char* personality_to_string(unsigned long p) {
-        int architecture = _ARCHITECTURE_INVALID;
+        Architecture architecture = _ARCHITECTURE_INVALID;
 
         if (p == PER_LINUX)
                 architecture = native_architecture();
@@ -1170,15 +1154,9 @@ void reset_cached_pid(void) {
         cached_pid = CACHED_PID_UNSET;
 }
 
-/* We use glibc __register_atfork() + __dso_handle directly here, as they are not included in the glibc
- * headers. __register_atfork() is mostly equivalent to pthread_atfork(), but doesn't require us to link against
- * libpthread, as it is part of glibc anyway. */
-extern int __register_atfork(void (*prepare) (void), void (*parent) (void), void (*child) (void), void *dso_handle);
-extern void* __dso_handle _weak_;
-
 pid_t getpid_cached(void) {
         static bool installed = false;
-        pid_t current_value;
+        pid_t current_value = CACHED_PID_UNSET;
 
         /* getpid_cached() is much like getpid(), but caches the value in local memory, to avoid having to invoke a
          * system call each time. This restores glibc behaviour from before 2.24, when getpid() was unconditionally
@@ -1189,7 +1167,13 @@ pid_t getpid_cached(void) {
          * https://sourceware.org/git/gitweb.cgi?p=glibc.git;h=c579f48edba88380635ab98cb612030e3ed8691e
          */
 
-        current_value = __sync_val_compare_and_swap(&cached_pid, CACHED_PID_UNSET, CACHED_PID_BUSY);
+        __atomic_compare_exchange_n(
+                        &cached_pid,
+                        &current_value,
+                        CACHED_PID_BUSY,
+                        false,
+                        __ATOMIC_SEQ_CST,
+                        __ATOMIC_SEQ_CST);
 
         switch (current_value) {
 
@@ -1203,7 +1187,7 @@ pid_t getpid_cached(void) {
                          * only half-documented (glibc doesn't document it but LSB does — though only superficially)
                          * we'll check for errors only in the most generic fashion possible. */
 
-                        if (__register_atfork(NULL, NULL, reset_cached_pid, __dso_handle) != 0) {
+                        if (pthread_atfork(NULL, NULL, reset_cached_pid) != 0) {
                                 /* OOM? Let's try again later */
                                 cached_pid = CACHED_PID_UNSET;
                                 return new_pid;
@@ -1611,6 +1595,30 @@ bool invoked_as(char *argv[], const char *token) {
         return strstr(last_path_component(argv[0]), token);
 }
 
+bool invoked_by_systemd(void) {
+        int r;
+
+        /* If the process is directly executed by PID1 (e.g. ExecStart= or generator), systemd-importd,
+         * or systemd-homed, then $SYSTEMD_EXEC_PID= is set, and read the command line. */
+        const char *e = getenv("SYSTEMD_EXEC_PID");
+        if (!e)
+                return false;
+
+        if (streq(e, "*"))
+                /* For testing. */
+                return true;
+
+        pid_t p;
+        r = parse_pid(e, &p);
+        if (r < 0) {
+                /* We know that systemd sets the variable correctly. Something else must have set it. */
+                log_debug_errno(r, "Failed to parse \"SYSTEMD_EXEC_PID=%s\", ignoring: %m", e);
+                return false;
+        }
+
+        return getpid_cached() == p;
+}
+
 _noreturn_ void freeze(void) {
         log_close();
 
@@ -1632,6 +1640,30 @@ _noreturn_ void freeze(void) {
                 pause();
 }
 
+bool argv_looks_like_help(int argc, char **argv) {
+        char **l;
+
+        /* Scans the command line for indications the user asks for help. This is supposed to be called by
+         * tools that do not implement getopt() style command line parsing because they are not primarily
+         * user-facing. Detects four ways of asking for help:
+         *
+         * 1. Passing zero arguments
+         * 2. Passing "help" as first argument
+         * 3. Passing --help as any argument
+         * 4. Passing -h as any argument
+         */
+
+        if (argc <= 1)
+                return true;
+
+        if (streq_ptr(argv[1], "help"))
+                return true;
+
+        l = strv_skip(argv, 1);
+
+        return strv_contains(l, "--help") ||
+                strv_contains(l, "-h");
+}
 
 static const char *const sigchld_code_table[] = {
         [CLD_EXITED] = "exited",

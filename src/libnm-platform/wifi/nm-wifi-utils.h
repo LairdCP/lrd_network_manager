@@ -7,15 +7,13 @@
 #ifndef __WIFI_UTILS_H__
 #define __WIFI_UTILS_H__
 
-#include <net/ethernet.h>
-
 #include "libnm-platform/nm-netlink.h"
 #include "libnm-base/nm-base.h"
 
 typedef struct NMWifiUtils NMWifiUtils;
 
 #define NM_TYPE_WIFI_UTILS (nm_wifi_utils_get_type())
-#define NM_WIFI_UTILS(obj) (G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_WIFI_UTILS, NMWifiUtils))
+#define NM_WIFI_UTILS(obj) (_NM_G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_WIFI_UTILS, NMWifiUtils))
 #define NM_WIFI_UTILS_CLASS(klass) \
     (G_TYPE_CHECK_CLASS_CAST((klass), NM_TYPE_WIFI_UTILS, NMWifiUtilsClass))
 #define NM_IS_WIFI_UTILS(obj)         (G_TYPE_CHECK_INSTANCE_TYPE((obj), NM_TYPE_WIFI_UTILS))
@@ -27,7 +25,8 @@ GType nm_wifi_utils_get_type(void);
 
 gboolean nm_wifi_utils_is_wifi(int dirfd, const char *ifname);
 
-NMWifiUtils *nm_wifi_utils_new(int ifindex, struct nl_sock *genl, gboolean check_scan);
+NMWifiUtils *
+nm_wifi_utils_new(struct nl_sock *genl, guint16 genl_family_id, int ifindex, gboolean check_scan);
 
 _NMDeviceWifiCapabilities nm_wifi_utils_get_caps(NMWifiUtils *data);
 
@@ -62,6 +61,12 @@ gboolean nm_wifi_utils_set_powersave(NMWifiUtils *data, guint32 powersave);
 _NMSettingWirelessWakeOnWLan nm_wifi_utils_get_wake_on_wlan(NMWifiUtils *data);
 
 gboolean nm_wifi_utils_set_wake_on_wlan(NMWifiUtils *data, _NMSettingWirelessWakeOnWLan wowl);
+
+struct _NMPlatformCsmeConnInfo;
+gboolean nm_wifi_utils_get_csme_conn_info(NMWifiUtils                    *data,
+                                          struct _NMPlatformCsmeConnInfo *out_conn_info);
+
+gboolean nm_wifi_utils_get_device_from_csme(NMWifiUtils *data);
 
 gboolean nm_wifi_utils_get_can_apscan(NMWifiUtils *data);
 

@@ -21,6 +21,7 @@
 #include "nm-supplicant-manager.h"
 
 #define DBUS_TIMEOUT_MSEC 20000
+#define PMK_LIFETIME_SEC  (3600 * 24 * 7)
 
 /*****************************************************************************/
 
@@ -1265,8 +1266,10 @@ parse_capabilities(NMSupplicantInterface *self, GVariant *capabilities)
     const guint32                 old_max_scan_ssids   = priv->max_scan_ssids;
     gboolean                      have_ft              = FALSE;
     gboolean                      have_sae             = FALSE;
+    gboolean                      have_bip             = FALSE;
     gint32                        max_scan_ssids;
     const char                  **array;
+    guint                         i;
 
     nm_assert(capabilities && g_variant_is_of_type(capabilities, G_VARIANT_TYPE_VARDICT));
 
@@ -1276,12 +1279,29 @@ parse_capabilities(NMSupplicantInterface *self, GVariant *capabilities)
         g_free(array);
     }
 
+    if (g_variant_lookup(capabilities, "GroupMgmt", "^a&s", &array)) {
+        for (i = 0; array[i]; i++) {
+            if (NM_IN_STRSET(array[i],
+                             "aes-128-cmac",
+                             "bip-gmac-128",
+                             "bip-gmac-256",
+                             "bip-cmac-256")) {
+                have_bip = TRUE;
+                break;
+            }
+        }
+        g_free(array);
+    }
+
     priv->iface_capabilities = NM_SUPPL_CAP_MASK_SET(priv->iface_capabilities,
                                                      NM_SUPPL_CAP_TYPE_FT,
                                                      have_ft ? NM_TERNARY_TRUE : NM_TERNARY_FALSE);
     priv->iface_capabilities = NM_SUPPL_CAP_MASK_SET(priv->iface_capabilities,
                                                      NM_SUPPL_CAP_TYPE_SAE,
                                                      have_sae ? NM_TERNARY_TRUE : NM_TERNARY_FALSE);
+    priv->iface_capabilities = NM_SUPPL_CAP_MASK_SET(priv->iface_capabilities,
+                                                     NM_SUPPL_CAP_TYPE_BIP,
+                                                     have_bip ? NM_TERNARY_TRUE : NM_TERNARY_FALSE);
 
     if (g_variant_lookup(capabilities, "Modes", "^a&s", &array)) {
         /* Setting p2p_capable might toggle _prop_p2p_available_get(). However,
@@ -1357,10 +1377,12 @@ _starting_check_ready(NMSupplicantInterface *self)
           " AP%c"
           " FT%c"
           " SAE%c"
+          " BIP%c"
           "",
           NM_SUPPL_CAP_TO_CHAR(priv->iface_capabilities, NM_SUPPL_CAP_TYPE_AP),
           NM_SUPPL_CAP_TO_CHAR(priv->iface_capabilities, NM_SUPPL_CAP_TYPE_FT),
-          NM_SUPPL_CAP_TO_CHAR(priv->iface_capabilities, NM_SUPPL_CAP_TYPE_SAE));
+          NM_SUPPL_CAP_TO_CHAR(priv->iface_capabilities, NM_SUPPL_CAP_TYPE_SAE),
+          NM_SUPPL_CAP_TO_CHAR(priv->iface_capabilities, NM_SUPPL_CAP_TYPE_BIP));
 
     /* Other global properties are set in constructed() because they don't
      * depend on interface capabilities. */
@@ -1402,6 +1424,7 @@ _get_capability(NMSupplicantInterfacePrivate *priv, NMSupplCapType type)
         }
         break;
     case NM_SUPPL_CAP_TYPE_SAE:
+    case NM_SUPPL_CAP_TYPE_BIP:
         nm_assert(NM_SUPPL_CAP_MASK_GET(priv->global_capabilities, type) == NM_TERNARY_DEFAULT);
         value = NM_SUPPL_CAP_MASK_GET(priv->iface_capabilities, type);
         break;
@@ -1441,10 +1464,13 @@ nm_supplicant_interface_get_capabilities(NMSupplicantInterface *self)
     caps = NM_SUPPL_CAP_MASK_SET(caps,
                                  NM_SUPPL_CAP_TYPE_SAE,
                                  _get_capability(priv, NM_SUPPL_CAP_TYPE_SAE));
+    caps = NM_SUPPL_CAP_MASK_SET(caps,
+                                 NM_SUPPL_CAP_TYPE_BIP,
+                                 _get_capability(priv, NM_SUPPL_CAP_TYPE_BIP));
 
     nm_assert(!NM_FLAGS_ANY(priv->iface_capabilities,
                             ~(NM_SUPPL_CAP_MASK_T_AP_MASK | NM_SUPPL_CAP_MASK_T_FT_MASK
-                              | NM_SUPPL_CAP_MASK_T_SAE_MASK)));
+                              | NM_SUPPL_CAP_MASK_T_SAE_MASK | NM_SUPPL_CAP_MASK_T_BIP_MASK)));
 
 #if NM_MORE_ASSERTS > 10
     {
@@ -2473,6 +2499,32 @@ assoc_set_ap_scan_cb(GVariant *ret, GError *error, gpointer user_data)
         add_network(self);
 }
 
+static void
+assoc_set_pmk_lifetime(GVariant *ret, GError *error, gpointer user_data)
+{
+    NMSupplicantInterface        *self;
+    NMSupplicantInterfacePrivate *priv;
+
+    if (nm_utils_error_is_cancelled(error))
+        return;
+
+    self = NM_SUPPLICANT_INTERFACE(user_data);
+    priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE(self);
+
+    if (error) {
+        assoc_return(self, error, "failure to set PMK lifetime");
+        return;
+    }
+
+    _LOGT("assoc[" NM_HASH_OBFUSCATE_PTR_FMT "]: interface PMK lifetime set to %u",
+          NM_HASH_OBFUSCATE_PTR(priv->assoc_data),
+          PMK_LIFETIME_SEC);
+
+    nm_assert(priv->assoc_data->calls_left > 0);
+    if (--priv->assoc_data->calls_left == 0)
+        add_network(self);
+}
+
 static gboolean
 assoc_fail_on_idle_cb(gpointer user_data)
 {
@@ -2502,7 +2554,7 @@ set_ccx_cb(GVariant *ret, GError *error, gpointer user_data)
     priv = NM_SUPPLICANT_INTERFACE_GET_PRIVATE(self);
 
     if (error) {
-        if (_nm_dbus_error_has_name(error, "org.freedesktop.DBus.Error.InvalidArgs")) {
+        if (nm_dbus_error_is(error, "org.freedesktop.DBus.Error.InvalidArgs")) {
             _LOGD("CCX mode is not supported");
         } else {
             assoc_return(self, error, "failure to set CCX mode");
@@ -2524,7 +2576,7 @@ laird_set_global_cb(GVariant *ret, GError *error, gpointer user_data, const char
     self = NM_SUPPLICANT_INTERFACE(user_data);
 
     if (error) {
-        if (_nm_dbus_error_has_name(error, "org.freedesktop.DBus.Error.InvalidArgs")) {
+        if (nm_dbus_error_is(error, "org.freedesktop.DBus.Error.InvalidArgs")) {
             _LOGD("%s is not supported", key);
             return;
         }
@@ -2754,6 +2806,21 @@ nm_supplicant_interface_assoc(NMSupplicantInterface       *self,
         assoc_set_ap_scan_cb,
         self);
 
+    /* Set the PMK lifetime to a longer interval (1 week) instead of
+     * the default one (12 hours) that would trigger a WPA-EAP
+     * reauthentication after only 8:24 hours (70% of the lifetime). */
+    assoc_data->calls_left++;
+    nm_dbus_connection_call_set(priv->dbus_connection,
+                                priv->name_owner->str,
+                                priv->object_path->str,
+                                NM_WPAS_DBUS_IFACE_INTERFACE,
+                                "Dot11RSNAConfigPMKLifetime",
+                                g_variant_new_take_string(g_strdup_printf("%u", PMK_LIFETIME_SEC)),
+                                DBUS_TIMEOUT_MSEC,
+                                assoc_data->cancellable,
+                                assoc_set_pmk_lifetime,
+                                self);
+
     ap_isolation = nm_supplicant_config_get_ap_isolation(priv->assoc_data->cfg);
     if (!priv->ap_isolate_supported) {
         if (ap_isolation) {
@@ -2824,7 +2891,7 @@ scan_request_cb(GObject *source, GAsyncResult *result, gpointer user_data)
         _LOGD("request-scan: request cancelled");
     else {
         if (error) {
-            if (_nm_dbus_error_has_name(error, "fi.w1.wpa_supplicant1.Interface.ScanError"))
+            if (nm_dbus_error_is(error, "fi.w1.wpa_supplicant1.Interface.ScanError"))
                 _LOGD("request-scan: could not get scan request result: %s", error->message);
             else {
                 g_dbus_error_strip_remote_error(error);
@@ -3434,7 +3501,7 @@ _signal_handle(NMSupplicantInterface *self,
 
                         _set_p2p_assigned_addr(iface,
                                                addr_data,
-                                               nm_utils_ip4_netmask_to_prefix(netmask));
+                                               nm_ip4_addr_netmask_to_prefix(netmask));
                     } else {
                         _LOGW("P2P: GroupStarted signaled invalid IP Address information");
                     }

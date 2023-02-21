@@ -23,7 +23,8 @@
 /*****************************************************************************/
 
 #define NM_TYPE_DHCP_DHCPCD (nm_dhcp_dhcpcd_get_type())
-#define NM_DHCP_DHCPCD(obj) (G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_DHCP_DHCPCD, NMDhcpDhcpcd))
+#define NM_DHCP_DHCPCD(obj) \
+    (_NM_G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_DHCP_DHCPCD, NMDhcpDhcpcd))
 #define NM_DHCP_DHCPCD_CLASS(klass) \
     (G_TYPE_CHECK_CLASS_CAST((klass), NM_TYPE_DHCP_DHCPCD, NMDhcpDhcpcdClass))
 #define NM_IS_DHCP_DHCPCD(obj)         (G_TYPE_CHECK_INSTANCE_TYPE((obj), NM_TYPE_DHCP_DHCPCD))
@@ -70,7 +71,7 @@ ip4_start(NMDhcpClient *client, GError **error)
     const NMDhcpClientConfig    *client_config;
     gs_unref_ptrarray GPtrArray *argv = NULL;
     pid_t                        pid;
-    GError                      *local;
+    gs_free_error GError        *local   = NULL;
     gs_free char                *cmd_str = NULL;
     const char                  *dhcpcd_path;
 
@@ -143,7 +144,6 @@ ip4_start(NMDhcpClient *client, GError **error)
                            NM_UTILS_ERROR_UNKNOWN,
                            "dhcpcd failed to start: %s",
                            local->message);
-        g_error_free(local);
         return FALSE;
     }
 

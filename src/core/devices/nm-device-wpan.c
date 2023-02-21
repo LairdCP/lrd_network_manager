@@ -176,10 +176,10 @@ act_stage1_prepare(NMDevice *device, NMDeviceStateReason *out_failure_reason)
     ret = NM_ACT_STAGE_RETURN_SUCCESS;
 
 out:
-    nm_device_bring_up(device, TRUE, NULL);
+    nm_device_bring_up(device);
 
     if (lowpan_device)
-        nm_device_bring_up(lowpan_device, TRUE, NULL);
+        nm_device_bring_up(lowpan_device);
 
     return ret;
 }
@@ -221,7 +221,7 @@ nm_device_wpan_class_init(NMDeviceWpanClass *klass)
 
 #define NM_TYPE_WPAN_DEVICE_FACTORY (nm_wpan_device_factory_get_type())
 #define NM_WPAN_DEVICE_FACTORY(obj) \
-    (G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_WPAN_DEVICE_FACTORY, NMWpanDeviceFactory))
+    (_NM_G_TYPE_CHECK_INSTANCE_CAST((obj), NM_TYPE_WPAN_DEVICE_FACTORY, NMWpanDeviceFactory))
 
 static NMDevice *
 create_device(NMDeviceFactory      *factory,

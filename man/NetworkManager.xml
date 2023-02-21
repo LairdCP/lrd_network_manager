@@ -166,9 +166,17 @@
       </varlistentry>
       <varlistentry>
         <term><option>--print-config</option></term>
-        <listitem><para>
-          Print the NetworkManager configuration to stdout and exit.
-        </para></listitem>
+        <listitem>
+        <para>
+          Print the NetworkManager configuration to stdout and exit. See
+          <link linkend='NetworkManager.conf'><citerefentry><refentrytitle>NetworkManager.conf</refentrytitle><manvolnum>5</manvolnum></citerefentry></link>.
+          This does not include connection profiles. View them with <command>nmcli connection</command>.
+        </para>
+        <para>
+          This reads configuration files from disk. If NetworkManager is currently running,
+          make sure that it has the same configuration loaded.
+        </para>
+        </listitem>
       </varlistentry>
     </variablelist>
   </refsect1>
@@ -287,6 +295,11 @@
       <literal>RateLimitBurst</literal> options of journald (see
       <link linkend='journald.conf'><citerefentry><refentrytitle>journald.conf</refentrytitle><manvolnum>5</manvolnum></citerefentry></link> manual).
     </para>
+    <para>
+      NetworkManager does not log any secrets. However, you are advised to check whether anything
+      private sensitive gets logged before posting. When reporting an issue, provide complete
+      logs and avoid modifications (for privacy) that distort the meaning.
+    </para>
   </refsect1>
 
   <refsect1>
@@ -340,6 +353,7 @@
       <ulink url="https://networkmanager.dev">NetworkManager home page</ulink>,
       <link linkend='NetworkManager.conf'><citerefentry><refentrytitle>NetworkManager.conf</refentrytitle><manvolnum>5</manvolnum></citerefentry></link>,
       <link linkend='NetworkManager-dispatcher'><citerefentry><refentrytitle>NetworkManager-dispatcher</refentrytitle><manvolnum>8</manvolnum></citerefentry></link>,
+      <link linkend='NetworkManager-wait-online.service'><citerefentry><refentrytitle>NetworkManager-wait-online.service</refentrytitle><manvolnum>8</manvolnum></citerefentry></link>,
       <link linkend='nmcli'><citerefentry><refentrytitle>nmcli</refentrytitle><manvolnum>1</manvolnum></citerefentry></link>,
       <link linkend='nmcli-examples'><citerefentry><refentrytitle>nmcli-examples</refentrytitle><manvolnum>7</manvolnum></citerefentry></link>,
       <link linkend='nm-online'><citerefentry><refentrytitle>nm-online</refentrytitle><manvolnum>1</manvolnum></citerefentry></link>,
