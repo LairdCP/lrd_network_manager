@@ -979,8 +979,8 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
     const char *_valid_groups[] =
         {"wep40", "wep104", "tkip", "ccmp", "ccmp-256", "gcmp", "gcmp-256", NULL};
 
-    const char *wpa3_valid_key_mgmt[] = {"wpa-psk" /* wpa3-sae transition mode */,
-                                         "wpa-eap",
+    const char *wpa3_valid_key_mgmt[] = {"wpa-psk" /* wpa3-personal-transition mode */,
+                                         "wpa-eap", /* wpa3-enterprise-transition, or wpa3-enterprise (pmf required) */
                                          "sae",
                                          /* ?? "cckm",*/
                                          "wpa-eap-suite-b",
@@ -1240,7 +1240,7 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
 
     if (wpa3_only) {
         // wpa3: do not allow pmf disabled
-        // wpa3: do not allow pmf optional (except wpa3-sae transition mode)
+        // wpa3: do not allow pmf optional (except wpa3-personal/enterprise-transition mode)
         if (priv->pmf == NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE) {
             g_set_error(error,
                         NM_CONNECTION_ERROR,
@@ -1252,11 +1252,11 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
                            NM_SETTING_WIRELESS_SECURITY_PMF);
             return FALSE;
         } else if (priv->pmf == NM_SETTING_WIRELESS_SECURITY_PMF_OPTIONAL) {
-            if (strcmp(priv->key_mgmt, "wpa-psk") != 0) {
+            if (!NM_IN_STRSET(priv->key_mgmt, "wpa-psk", "wpa-eap")) {
                 g_set_error(error,
                             NM_CONNECTION_ERROR,
                             NM_CONNECTION_ERROR_INVALID_PROPERTY,
-                            _("wpa3 only allows optional for wpa3-psk (wpa3-sae transition mode)"));
+                            _("wpa3 only allows optional for wpa-psk and wpa-eap (transition modes)"));
                 g_prefix_error(error,
                                "%s.%s: ",
                                NM_SETTING_WIRELESS_SECURITY_SETTING_NAME,

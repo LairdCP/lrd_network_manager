@@ -259,6 +259,7 @@ nm_setting_wireless_ap_security_compatible2(NMSettingWireless         *s_wireles
     gboolean    found = FALSE;
     gboolean    wpa3_only;
     gboolean    pmf_check = FALSE;
+    NMSettingWirelessSecurityPmf pmf;
 
     g_return_val_if_fail(NM_IS_SETTING_WIRELESS(s_wireless), FALSE);
 
@@ -281,6 +282,7 @@ nm_setting_wireless_ap_security_compatible2(NMSettingWireless         *s_wireles
     key_mgmt = nm_setting_wireless_security_get_key_mgmt(s_wireless_sec);
     if (!key_mgmt)
         return FALSE;
+    pmf = nm_setting_wireless_security_get_pmf(s_wireless_sec);
 
     /* Static WEP */
     if (!strcmp(key_mgmt, "none")) {
@@ -386,16 +388,22 @@ nm_setting_wireless_ap_security_compatible2(NMSettingWireless         *s_wireles
         || !strcmp(key_mgmt, "owe-only") || !strcmp(key_mgmt, "sae") || !strcmp(key_mgmt, "owe")) {
         if (!strcmp(key_mgmt, "wpa-psk")) {
             if (wpa3_only) {
-                // wpa3-sae transition mode (psk or sae)
+                // wpa3-personal-transition mode (psk or sae)
                 if (!(ap_rsn & (NM_802_11_AP_SEC_KEY_MGMT_PSK | NM_802_11_AP_SEC_KEY_MGMT_SAE)))
                     return FALSE;
                 if (!(ap_rsn & NM_802_11_AP_SEC_KEY_MGMT_SAE))
-                    /* wpa3-sae transition: psk only AP, allow non-PMF */
+                    /* wpa3-personal-transition: psk only AP, allow non-PMF */
                     pmf_check = FALSE;
             } else if (!(ap_wpa & NM_802_11_AP_SEC_KEY_MGMT_PSK)
                        && !(ap_rsn & NM_802_11_AP_SEC_KEY_MGMT_PSK))
                 return FALSE;
         } else if (!strcmp(key_mgmt, "wpa-eap")) {
+            if (wpa3_only) {
+                if (pmf != NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED) {
+                    /* wpa3-enterprise-transition: allow non-PMF */
+                    pmf_check = FALSE;
+                }
+            }
             if (!(ap_wpa & NM_802_11_AP_SEC_KEY_MGMT_802_1X)
                 && !(ap_rsn & NM_802_11_AP_SEC_KEY_MGMT_802_1X))
                 return FALSE;

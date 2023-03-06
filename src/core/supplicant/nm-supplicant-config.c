@@ -1260,10 +1260,10 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig           
         // pmf required for suite-b and sae
         pmf = NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED;
     } else if (wpa3_only) {
-        /* wpa3/wpa-psk (wpa3-sae transition): default to pmf optional */
+        /* wpa3-personal/enterprise-transition : default to pmf optional */
         /* wpa3/other: pmf required */
-        if (NM_IN_STRSET(key_mgmt, "wpa-psk")) {
-            // wpa3-sae transition mode: default to pmf optional
+        if (NM_IN_STRSET(key_mgmt, "wpa-psk", "wpa-eap")) {
+            // wpa3-personal/enterprise-transition mode: default to pmf optional
             if (pmf != NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED)
                 pmf = NM_SETTING_WIRELESS_SECURITY_PMF_OPTIONAL;
         } else {
@@ -1347,9 +1347,11 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig           
             g_string_append(key_mgmt_conf, " FT-SAE");
     } else if (nm_streq(key_mgmt, "wpa-eap")) {
         bool add_ft = true, add_fils = true, add_fils_ft = true;
-        // Laird - Allow wpa-eap regardless of PMF
-        // if (pmf != NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED)
-        g_string_append(key_mgmt_conf, "WPA-EAP");
+        // Laird - only remove wpa-eap for wpa3-enterprise (non-transition)
+        if (wpa3_only && (pmf == NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED))
+            ; // wpa3-enterprise(non-transition) -- no WPA-EAP
+        else
+            g_string_append(key_mgmt_conf, "WPA-EAP");
         if (pmf != NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE) {
             g_string_append(key_mgmt_conf, " WPA-EAP-SHA256");
 #if 0
@@ -1512,7 +1514,7 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig           
                 _group      = "CCMP CCMP-256 GCMP GCMP-256";
                 _group_mgmt = "AES-128-CMAC BIP-CMAC-256 BIP-GMAC-128 BIP-GMAC-256";
             }
-            // use "WPA3" so sae-transition will use pmf for sae
+            // use "WPA3" so wpa3-personal-transition will use pmf for sae
             if (!nm_supplicant_config_add_option(self, "proto", "WPA3", -1, NULL, error))
                 return FALSE;
         } else {
