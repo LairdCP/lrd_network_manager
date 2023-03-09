@@ -26,7 +26,7 @@
  * view. That is mainly, because such objects are themselves tied to an ifindex.
  *
  * However, for certain objects that's not the case. For example, policy routing
- * rules, certain route types (blackhole, unavailable, prohibit, throw) and MPTCP
+ * rules, certain route types (blackhole, unreachable, prohibit, throw) and MPTCP
  * endpoints require a holistic view of the system. That is, because rules and
  * these route types have no ifindex. For MPTCP endpoints, they have an ifindex,
  * however we can only configure a small number of them at a time, so we need a
@@ -1155,17 +1155,7 @@ nmp_global_tracker_track_rule_default(NMPGlobalTracker *self,
     /* track the default rules. See also `man ip-rule`. */
 
     if (NM_IN_SET(addr_family, AF_UNSPEC, AF_INET)) {
-        nmp_global_tracker_track_rule(self,
-                                      &((NMPlatformRoutingRule){
-                                          .addr_family = AF_INET,
-                                          .priority    = 0,
-                                          .table       = RT_TABLE_LOCAL,
-                                          .action      = FR_ACT_TO_TBL,
-                                          .protocol    = RTPROT_KERNEL,
-                                      }),
-                                      track_priority,
-                                      user_tag,
-                                      NULL);
+        nmp_global_tracker_track_local_rule(self, addr_family, track_priority, user_tag, NULL);
         nmp_global_tracker_track_rule(self,
                                       &((NMPlatformRoutingRule){
                                           .addr_family = AF_INET,
@@ -1190,17 +1180,7 @@ nmp_global_tracker_track_rule_default(NMPGlobalTracker *self,
                                       NULL);
     }
     if (NM_IN_SET(addr_family, AF_UNSPEC, AF_INET6)) {
-        nmp_global_tracker_track_rule(self,
-                                      &((NMPlatformRoutingRule){
-                                          .addr_family = AF_INET6,
-                                          .priority    = 0,
-                                          .table       = RT_TABLE_LOCAL,
-                                          .action      = FR_ACT_TO_TBL,
-                                          .protocol    = RTPROT_KERNEL,
-                                      }),
-                                      track_priority,
-                                      user_tag,
-                                      NULL);
+        nmp_global_tracker_track_local_rule(self, addr_family, track_priority, user_tag, NULL);
         nmp_global_tracker_track_rule(self,
                                       &((NMPlatformRoutingRule){
                                           .addr_family = AF_INET6,
@@ -1212,6 +1192,45 @@ nmp_global_tracker_track_rule_default(NMPGlobalTracker *self,
                                       track_priority,
                                       user_tag,
                                       NULL);
+    }
+}
+
+void
+nmp_global_tracker_track_local_rule(NMPGlobalTracker *self,
+                                    int               addr_family,
+                                    gint32            track_priority,
+                                    gconstpointer     user_tag,
+                                    gconstpointer     user_tag_untrack)
+{
+    g_return_if_fail(NMP_IS_GLOBAL_TRACKER(self));
+
+    nm_assert(NM_IN_SET(addr_family, AF_UNSPEC, AF_INET, AF_INET6));
+
+    if (NM_IN_SET(addr_family, AF_UNSPEC, AF_INET)) {
+        nmp_global_tracker_track_rule(self,
+                                      &((NMPlatformRoutingRule){
+                                          .addr_family = AF_INET,
+                                          .priority    = 0,
+                                          .table       = RT_TABLE_LOCAL,
+                                          .action      = FR_ACT_TO_TBL,
+                                          .protocol    = RTPROT_KERNEL,
+                                      }),
+                                      track_priority,
+                                      user_tag,
+                                      user_tag_untrack);
+    }
+    if (NM_IN_SET(addr_family, AF_UNSPEC, AF_INET6)) {
+        nmp_global_tracker_track_rule(self,
+                                      &((NMPlatformRoutingRule){
+                                          .addr_family = AF_INET6,
+                                          .priority    = 0,
+                                          .table       = RT_TABLE_LOCAL,
+                                          .action      = FR_ACT_TO_TBL,
+                                          .protocol    = RTPROT_KERNEL,
+                                      }),
+                                      track_priority,
+                                      user_tag,
+                                      user_tag_untrack);
     }
 }
 

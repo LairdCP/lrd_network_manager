@@ -87,6 +87,11 @@ static void dhcp4_event_pop_all_events_on_idle(NMDhcpNettools *self);
 
 /*****************************************************************************/
 
+#define _add_option(options, option, str) \
+    nm_dhcp_option_add_option((options), TRUE, AF_INET, (option), (str))
+
+/*****************************************************************************/
+
 static void
 set_error_nettools(GError **error, int r, const char *message)
 {
@@ -269,26 +274,34 @@ lease_parse_address(NMDhcpNettools    *self /* for logging context only */,
     }
 
     nm_dhcp_option_add_option_in_addr(options,
+                                      TRUE,
                                       AF_INET,
                                       NM_DHCP_OPTION_DHCP4_NM_IP_ADDRESS,
                                       a_address.s_addr);
     nm_dhcp_option_add_option_in_addr(options,
+                                      TRUE,
                                       AF_INET,
                                       NM_DHCP_OPTION_DHCP4_SUBNET_MASK,
                                       a_netmask);
 
     nm_dhcp_option_add_option_u64(options,
+                                  TRUE,
                                   AF_INET,
                                   NM_DHCP_OPTION_DHCP4_IP_ADDRESS_LEASE_TIME,
                                   (guint64) a_lifetime);
 
     if (a_expiry != G_MAXUINT64) {
-        nm_dhcp_option_add_option_u64(options, AF_INET, NM_DHCP_OPTION_DHCP4_NM_EXPIRY, a_expiry);
+        nm_dhcp_option_add_option_u64(options,
+                                      TRUE,
+                                      AF_INET,
+                                      NM_DHCP_OPTION_DHCP4_NM_EXPIRY,
+                                      a_expiry);
     }
 
     n_dhcp4_client_lease_get_siaddr(lease, &a_next_server);
     if (a_next_server.s_addr != INADDR_ANY) {
         nm_dhcp_option_add_option_in_addr(options,
+                                          TRUE,
                                           AF_INET,
                                           NM_DHCP_OPTION_DHCP4_NM_NEXT_SERVER,
                                           a_next_server.s_addr);
@@ -371,7 +384,7 @@ lease_parse_address_list(NDhcp4ClientLease       *lease,
         }
     }
 
-    nm_dhcp_option_add_option(options, AF_INET, option, nm_str_buf_get_str(sbuf));
+    _add_option(options, option, nm_str_buf_get_str(sbuf));
 }
 
 static void
@@ -449,7 +462,7 @@ lease_parse_routes(NDhcp4ClientLease *lease,
         }
 
         has_classless = TRUE;
-        nm_dhcp_option_add_option(options, AF_INET, option_code, nm_str_buf_get_str(sbuf));
+        _add_option(options, option_code, nm_str_buf_get_str(sbuf));
     }
 
     r = _client_lease_query(lease, NM_DHCP_OPTION_DHCP4_STATIC_ROUTE, &l_data, &l_data_len);
@@ -492,10 +505,7 @@ lease_parse_routes(NDhcp4ClientLease *lease,
                                           }));
         }
 
-        nm_dhcp_option_add_option(options,
-                                  AF_INET,
-                                  NM_DHCP_OPTION_DHCP4_STATIC_ROUTE,
-                                  nm_str_buf_get_str(sbuf));
+        _add_option(options, NM_DHCP_OPTION_DHCP4_STATIC_ROUTE, nm_str_buf_get_str(sbuf));
     }
 
     r = _client_lease_query(lease, NM_DHCP_OPTION_DHCP4_ROUTER, &l_data, &l_data_len);
@@ -537,10 +547,7 @@ lease_parse_routes(NDhcp4ClientLease *lease,
                                           }));
         }
 
-        nm_dhcp_option_add_option(options,
-                                  AF_INET,
-                                  NM_DHCP_OPTION_DHCP4_ROUTER,
-                                  nm_str_buf_get_str(sbuf));
+        _add_option(options, NM_DHCP_OPTION_DHCP4_ROUTER, nm_str_buf_get_str(sbuf));
     }
 }
 
@@ -573,6 +580,7 @@ lease_parse_search_domains(NDhcp4ClientLease *lease,
         nm_l3_config_data_add_search(l3cd, AF_INET, domains[i]);
 
     nm_dhcp_option_take_option(options,
+                               TRUE,
                                AF_INET,
                                NM_DHCP_OPTION_DHCP4_DOMAIN_SEARCH_LIST,
                                g_strjoinv(" ", domains));
@@ -601,7 +609,7 @@ lease_parse_private_options(NDhcp4ClientLease *lease, GHashTable *options)
             continue;
 
         option_string = nm_utils_bin2hexstr_full(l_data, l_data_len, ':', FALSE, NULL);
-        nm_dhcp_option_take_option(options, AF_INET, i, g_steal_pointer(&option_string));
+        nm_dhcp_option_take_option(options, TRUE, AF_INET, i, g_steal_pointer(&option_string));
     }
 }
 
@@ -635,6 +643,7 @@ lease_to_ip4_config(NMDhcpNettools *self, NDhcp4ClientLease *lease, GError **err
     r = n_dhcp4_client_lease_get_server_identifier(lease, &v_inaddr_s);
     if (r == 0) {
         nm_dhcp_option_add_option_in_addr(options,
+                                          TRUE,
                                           AF_INET,
                                           NM_DHCP_OPTION_DHCP4_SERVER_ID,
                                           v_inaddr_s.s_addr);
@@ -648,6 +657,7 @@ lease_to_ip4_config(NMDhcpNettools *self, NDhcp4ClientLease *lease, GError **err
                                             iface,
                                             NM_DHCP_OPTION_DHCP4_BROADCAST)) {
         nm_dhcp_option_add_option_in_addr(options,
+                                          TRUE,
                                           AF_INET,
                                           NM_DHCP_OPTION_DHCP4_BROADCAST,
                                           v_inaddr);
@@ -699,10 +709,7 @@ lease_to_ip4_config(NMDhcpNettools *self, NDhcp4ClientLease *lease, GError **err
         }
 
         if (sbuf.len > 0) {
-            nm_dhcp_option_add_option(options,
-                                      AF_INET,
-                                      NM_DHCP_OPTION_DHCP4_DOMAIN_NAME,
-                                      nm_str_buf_get_str(&sbuf));
+            _add_option(options, NM_DHCP_OPTION_DHCP4_DOMAIN_NAME, nm_str_buf_get_str(&sbuf));
         }
     }
 
@@ -716,7 +723,11 @@ lease_to_ip4_config(NMDhcpNettools *self, NDhcp4ClientLease *lease, GError **err
                                         iface,
                                         AF_INET,
                                         NM_DHCP_OPTION_DHCP4_INTERFACE_MTU)) {
-        nm_dhcp_option_add_option_u64(options, AF_INET, NM_DHCP_OPTION_DHCP4_INTERFACE_MTU, v_u16);
+        nm_dhcp_option_add_option_u64(options,
+                                      TRUE,
+                                      AF_INET,
+                                      NM_DHCP_OPTION_DHCP4_INTERFACE_MTU,
+                                      v_u16);
         nm_l3_config_data_set_mtu(l3cd, v_u16);
     }
 
@@ -746,7 +757,7 @@ lease_to_ip4_config(NMDhcpNettools *self, NDhcp4ClientLease *lease, GError **err
                                             iface,
                                             AF_INET,
                                             NM_DHCP_OPTION_DHCP4_HOST_NAME)) {
-            nm_dhcp_option_add_option(options, AF_INET, NM_DHCP_OPTION_DHCP4_HOST_NAME, s);
+            _add_option(options, NM_DHCP_OPTION_DHCP4_HOST_NAME, s);
         }
     }
 
@@ -770,6 +781,7 @@ lease_to_ip4_config(NMDhcpNettools *self, NDhcp4ClientLease *lease, GError **err
             /* "Its minimum length is 1." */
         } else {
             nm_dhcp_option_add_option_utf8safe_escape(options,
+                                                      TRUE,
                                                       AF_INET,
                                                       NM_DHCP_OPTION_DHCP4_ROOT_PATH,
                                                       l_data,
@@ -797,10 +809,7 @@ lease_to_ip4_config(NMDhcpNettools *self, NDhcp4ClientLease *lease, GError **err
         const char   *escaped;
 
         escaped = nm_utils_buf_utf8safe_escape((char *) l_data, l_data_len, 0, &to_free);
-        nm_dhcp_option_add_option(options,
-                                  AF_INET,
-                                  NM_DHCP_OPTION_DHCP4_PRIVATE_PROXY_AUTODISCOVERY,
-                                  escaped ?: "");
+        _add_option(options, NM_DHCP_OPTION_DHCP4_PRIVATE_PROXY_AUTODISCOVERY, escaped ?: "");
 
         nm_l3_config_data_set_proxy_method(l3cd, NM_PROXY_CONFIG_METHOD_AUTO);
         nm_l3_config_data_set_proxy_pac_url(l3cd, escaped ?: "");
@@ -823,7 +832,7 @@ lease_to_ip4_config(NMDhcpNettools *self, NDhcp4ClientLease *lease, GError **err
                                              NM_UTILS_STR_UTF8_SAFE_FLAG_ESCAPE_CTRL,
                                              &to_free);
 
-        nm_dhcp_option_add_option(options, AF_INET, NM_DHCP_OPTION_DHCP4_NIS_DOMAIN, v_str ?: "");
+        _add_option(options, NM_DHCP_OPTION_DHCP4_NIS_DOMAIN, v_str ?: "");
         nm_l3_config_data_set_nis_domain(l3cd, v_str ?: "");
     }
 
@@ -835,7 +844,7 @@ lease_to_ip4_config(NMDhcpNettools *self, NDhcp4ClientLease *lease, GError **err
                                              -1,
                                              NM_UTILS_STR_UTF8_SAFE_FLAG_ESCAPE_CTRL,
                                              &to_free);
-        nm_dhcp_option_add_option(options, AF_INET, NM_DHCP_OPTION_DHCP4_NM_FILENAME, v_str ?: "");
+        _add_option(options, NM_DHCP_OPTION_DHCP4_NM_FILENAME, v_str ?: "");
     }
 
     r = _client_lease_query(lease, NM_DHCP_OPTION_DHCP4_BOOTFILE_NAME, &l_data, &l_data_len);
@@ -852,10 +861,7 @@ lease_to_ip4_config(NMDhcpNettools *self, NDhcp4ClientLease *lease, GError **err
                                              l_data_len,
                                              NM_UTILS_STR_UTF8_SAFE_FLAG_ESCAPE_CTRL,
                                              &to_free);
-        nm_dhcp_option_add_option(options,
-                                  AF_INET,
-                                  NM_DHCP_OPTION_DHCP4_BOOTFILE_NAME,
-                                  v_str ?: "");
+        _add_option(options, NM_DHCP_OPTION_DHCP4_BOOTFILE_NAME, v_str ?: "");
     }
 
     lease_parse_address_list(lease, l3cd, iface, NM_DHCP_OPTION_DHCP4_NIS_SERVERS, options, &sbuf);
