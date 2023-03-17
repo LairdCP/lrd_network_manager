@@ -733,14 +733,9 @@ lease_to_ip4_config(NMDhcpNettools *self, NDhcp4ClientLease *lease, GError **err
 
     r = _client_lease_query(lease, NM_DHCP_OPTION_DHCP4_VENDOR_SPECIFIC, &l_data, &l_data_len);
     if (r == 0) {
-        gs_free char *option_hex = NULL;
-
-        option_hex = hexmem(l_data, l_data_len);
+        gs_free char *option_hex = hexmem(l_data, l_data_len);
         if (option_hex) {
-            nm_dhcp_option_add_option(options,
-                                      AF_INET,
-                                      NM_DHCP_OPTION_DHCP4_VENDOR_SPECIFIC,
-                                      option_hex);
+            _add_option(options, NM_DHCP_OPTION_DHCP4_VENDOR_SPECIFIC, option_hex);
         }
 
         if (memmem(l_data, l_data_len, "ANDROID_METERED", NM_STRLEN("ANDROID_METERED")))
