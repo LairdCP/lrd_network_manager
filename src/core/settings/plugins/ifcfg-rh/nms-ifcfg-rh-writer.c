@@ -630,7 +630,7 @@ write_wireless_security_setting(NMConnection *connection,
     } else if (!strcmp(key_mgmt, "wpa-eap-suite-b-192")) {
         svSetValueStr(ifcfg, "KEY_MGMT", "WPA-EAP-SUITE-B-192");
         wpa = TRUE;
-    } else if (!strcmp(key_mgmt, "owe") || !strcmp(key_mgmt, "owe-only")) {
+    } else if (!strcmp(key_mgmt, "owe")) {
         svSetValueStr(ifcfg, "KEY_MGMT", "OWE");
         wpa = TRUE;
     }
@@ -827,6 +827,15 @@ write_wireless_security_setting(NMConnection *connection,
                        "FT",
                        nm_setting_wireless_security_ft_get_type(),
                        nm_setting_wireless_security_get_ft(s_wsec));
+    }
+
+    if (nm_setting_wireless_security_get_owe_only(s_wsec) == NM_SETTING_WIRELESS_SECURITY_OWE_ONLY_DEFAULT)
+        svUnsetValue(ifcfg, "OWE_ONLY");
+    else {
+        svSetValueEnum(ifcfg,
+                       "OWE_ONLY",
+                       nm_setting_wireless_security_owe_only_get_type(),
+                       nm_setting_wireless_security_get_owe_only(s_wsec));
     }
 
     return TRUE;

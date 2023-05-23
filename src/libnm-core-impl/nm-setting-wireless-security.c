@@ -61,7 +61,8 @@ NM_GOBJECT_PROPERTIES_DEFINE(NMSettingWirelessSecurity,
                              PROP_WPS_METHOD,
                              PROP_FILS,
                              PROP_PROACTIVE_KEY_CACHING,
-                             PROP_FT, );
+                             PROP_FT,
+                             PROP_OWE_ONLY, );
 
 typedef struct {
     GSList      *proto;    /* GSList of strings */
@@ -89,6 +90,7 @@ typedef struct {
 
     /* FT */
     int ft;
+    int owe_only;
 } NMSettingWirelessSecurityPrivate;
 
 /**
@@ -851,6 +853,22 @@ nm_setting_wireless_security_get_ft(NMSettingWirelessSecurity *setting)
     return NM_SETTING_WIRELESS_SECURITY_GET_PRIVATE(setting)->ft;
 }
 
+/*
+ * nm_setting_wireless_security_get_owe_only:
+ * @setting: the #NMSettingWirelessSecurity
+ *
+ * Returns: the #NMSettingWirelessSecurity:owe_only property of the setting
+ *
+ * Since: 1.42
+ **/
+NMSettingWirelessSecurityOweOnly
+nm_setting_wireless_security_get_owe_only(NMSettingWirelessSecurity *setting)
+{
+    g_return_val_if_fail(NM_IS_SETTING_WIRELESS_SECURITY(setting), 0);
+
+    return NM_SETTING_WIRELESS_SECURITY_GET_PRIVATE(setting)->owe_only;
+}
+
 static GPtrArray *
 need_secrets(NMSetting *setting, gboolean check_rerequest)
 {
@@ -921,7 +939,6 @@ need_secrets(NMSetting *setting, gboolean check_rerequest)
                      "wpa-eap-suite-b-192",
                      "wpa-eap-suite-b",
                      "cckm",
-                     "owe-only",
                      "owe")) {
         /* Let caller check the 802.1x setting for secrets */
         goto no_secrets;
@@ -971,7 +988,6 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
                                      "cckm",
                                      "wpa-eap-suite-b",
                                      "wpa-eap-suite-b-192",
-                                     "owe-only",
                                      NULL};
     const char                       *valid_auth_algs[] = {"open", "shared", "leap", NULL};
     const char                       *_valid_protos[]   = {"wpa", "rsn", NULL};
@@ -986,7 +1002,6 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
                                          "wpa-eap-suite-b",
                                          "wpa-eap-suite-b-192",
                                          "owe",
-                                         "owe-only",
                                          NULL};
     const char *wpa3_valid_protos[]   = {"wpa3", NULL};
     const char *wpa3_valid_ciphers[]  = {"ccmp", "ccmp-256", "gcmp", "gcmp-256", NULL};
@@ -2126,6 +2141,37 @@ nm_setting_wireless_security_class_init(NMSettingWirelessSecurityClass *klass)
                                              NM_SETTING_PARAM_FUZZY_IGNORE,
                                              NMSettingWirelessSecurityPrivate,
                                              ft);
+
+    /**
+     * NMSettingWirelessSecurity:owe-only:
+     *
+     * Indicates whether owe_only must be enabled for an OWE connection.
+     * One of %NM_SETTING_WIRELESS_SECURITY_OWE_ONLY_DEFAULT (use
+     * global default value), %NM_SETTING_WIRELESS_SECURITY_OWE_ONLY_NO
+     * (disable owe_only), %NM_SETTING_WIRELESS_SECURITY_OWE_ONLY_YES
+     * (enable owe_only).  When set to %NM_SETTING_WIRELESS_SECURITY_FT_DEFAULT
+     * and no global default is set, owe_only will be enabled.
+     *
+     * Since: 1.42
+     **/
+    /* ---ifcfg-rh---
+     * property: owe-only
+     * variable: OWE_ONLY(+)
+     * values: default, no, yes
+     * description: Enables or disables owe_only
+     * example: OWE_ONLY=yes
+     * ---end---
+     */
+    _nm_setting_property_define_direct_int32(properties_override,
+                                             obj_properties,
+                                             NM_SETTING_WIRELESS_SECURITY_OWE_ONLY,
+                                             PROP_OWE_ONLY,
+                                             -1,
+                                             NM_SETTING_WIRELESS_SECURITY_OWE_ONLY_LAST,
+                                             NM_SETTING_WIRELESS_SECURITY_OWE_ONLY_DEFAULT,
+                                             NM_SETTING_PARAM_FUZZY_IGNORE,
+                                             NMSettingWirelessSecurityPrivate,
+                                             owe_only);
 
     g_object_class_install_properties(object_class, _PROPERTY_ENUMS_LAST, obj_properties);
 

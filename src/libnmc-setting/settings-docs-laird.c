@@ -41,6 +41,8 @@
 
 #define DESCRIBE_DOC_NM_SETTING_WIRELESS_SECURITY_FT N_("Indicates whether Fast BSS Transition (FT/802.11r) must be enabled for the connection.  One of NM_SETTING_WIRELESS_SECURITY_FT_DEFAULT (0) (use global default value), NM_SETTING_WIRELESS_SECURITY_FT_DISABLE (1) (disable FT), NM_SETTING_WIRELESS_SECURITY_FT_OPTIONAL (2) (enable FT if the supplicant and the access point support it) or NM_SETTING_WIRELESS_SECURITY_FT_REQUIRED (3) (enable FT and fail if not supported).  When set to NM_SETTING_WIRELESS_SECURITY_FT_DEFAULT (0) and no global default is set, FT will be optionally enabled.")
 
+#define DESCRIBE_DOC_NM_SETTING_WIRELESS_SECURITY_OWE_ONLY N_("Indicates whether owe_only must be enabled for an OWE connection.  One of NM_SETTING_WIRELESS_SECURITY_OWE_ONLY_DEFAULT (-1) (use global default value), NM_SETTING_WIRELESS_SECURITY_OWE_ONLY_NO (0) (disable owe_only), NM_SETTING_WIRELESS_SECURITY_OWE_ONLY_YES (1) (enable owe_only).  When set to NM_SETTING_WIRELESS_SECURITY_FT_DEFAULT and no global default is set, owe_only will be enabled.")
+
 #define DESCRIBE_DOC_NM_SETTING_WIRELESS_CHANNEL_WIDTH	\
 	N_("Selects channel width used when creating a network (AP/Ahoc).  Valid values are 20, 40, 40-, 40+, and 80.")
 

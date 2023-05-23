@@ -155,6 +155,26 @@ typedef enum {
     NM_SETTING_WIRELESS_SECURITY_FT_LAST = _NM_SETTING_WIRELESS_SECURITY_FT_NUM - 1, /*< skip >*/
 } NMSettingWirelessSecurityFt;
 
+/**
+ * NMSettingWirelessSecurityOweOnly:
+ * @NM_SETTING_WIRELESS_SECURITY_OWE_ONLY_DEFAULT: use the default value
+ * @NM_SETTING_WIRELESS_SECURITY_OWE_ONLY_NO: Owe_Only is off/no
+ * @NM_SETTING_WIRELESS_SECURITY_OWE_ONLY_YES: Owe_Only is on/yes
+ * @_NM_SETTING_WIRELESS_SECURITY_OWE_NUM: placeholder value for bounds-checking
+ * @NM_SETTING_WIRELESS_SECURITY_OWE_LAST: placeholder value for bounds-checking
+ *
+ * These flags indicate whether owe_only must be enabled.
+ *
+ * Since: 1.42
+ **/
+typedef enum {
+    NM_SETTING_WIRELESS_SECURITY_OWE_ONLY_DEFAULT  = -1,
+    NM_SETTING_WIRELESS_SECURITY_OWE_ONLY_NO  = 0,
+    NM_SETTING_WIRELESS_SECURITY_OWE_ONLY_YES = 1,
+    _NM_SETTING_WIRELESS_SECURITY_OWE_ONLY_NUM,                                            /*< skip >*/
+    NM_SETTING_WIRELESS_SECURITY_OWE_ONLY_LAST = _NM_SETTING_WIRELESS_SECURITY_OWE_ONLY_NUM - 1, /*< skip >*/
+} NMSettingWirelessSecurityOweOnly;
+
 #define NM_SETTING_WIRELESS_SECURITY_KEY_MGMT            "key-mgmt"
 #define NM_SETTING_WIRELESS_SECURITY_WEP_TX_KEYIDX       "wep-tx-keyidx"
 #define NM_SETTING_WIRELESS_SECURITY_AUTH_ALG            "auth-alg"
@@ -178,6 +198,7 @@ typedef enum {
 
 #define NM_SETTING_WIRELESS_SECURITY_PROACTIVE_KEY_CACHING "proactive-key-caching"
 #define NM_SETTING_WIRELESS_SECURITY_FT                    "ft"
+#define NM_SETTING_WIRELESS_SECURITY_OWE_ONLY              "owe-only"
 
 typedef struct _NMSettingWirelessSecurityClass NMSettingWirelessSecurityClass;
 
@@ -251,6 +272,9 @@ nm_setting_wireless_security_get_proactive_key_caching(NMSettingWirelessSecurity
 
 NM_AVAILABLE_IN_1_16
 NMSettingWirelessSecurityFt nm_setting_wireless_security_get_ft(NMSettingWirelessSecurity *setting);
+
+NM_AVAILABLE_IN_1_42
+NMSettingWirelessSecurityOweOnly nm_setting_wireless_security_get_owe_only(NMSettingWirelessSecurity *setting);
 
 G_END_DECLS
 

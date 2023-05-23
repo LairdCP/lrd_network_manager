@@ -293,15 +293,20 @@ nm_setting_wireless_ap_security_compatible2(NMSettingWireless         *s_wireles
     }
 
     if (!strcmp(key_mgmt, "owe")) {
+        NMSettingWirelessSecurityOweOnly owe_only;
+        owe_only = nm_setting_wireless_security_get_owe_only(s_wireless_sec);
+        if (owe_only == NM_SETTING_WIRELESS_SECURITY_OWE_ONLY_DEFAULT)
+            owe_only = NM_SETTING_WIRELESS_SECURITY_OWE_ONLY_YES;
         if ((ap_flags & NM_802_11_AP_FLAGS_PRIVACY) == 0 && (ap_wpa == NM_802_11_AP_SEC_NONE)
             && (ap_rsn == NM_802_11_AP_SEC_NONE))
+        {
+            if (owe_only == NM_SETTING_WIRELESS_SECURITY_OWE_ONLY_YES)
+                return FALSE;
             return TRUE;
-    }
-
-    if (!strcmp(key_mgmt, "owe-only")) {
-        // accept an open AP, only if it has the OWE IE
-        if ((ap_flags & NM_802_11_AP_FLAGS_PRIVACY) == 0 && (ap_flags & NM_802_11_AP_FLAGS_OWE_IE)
-            && (ap_wpa == NM_802_11_AP_SEC_NONE) && (ap_rsn == NM_802_11_AP_SEC_NONE))
+        }
+        if ((ap_flags & NM_802_11_AP_FLAGS_PRIVACY) == 0 &&
+            ((ap_wpa == NM_802_11_AP_SEC_KEY_MGMT_OWE_TM)
+             || (ap_rsn == NM_802_11_AP_SEC_KEY_MGMT_OWE_TM)))
             return TRUE;
     }
 
@@ -385,7 +390,7 @@ nm_setting_wireless_ap_security_compatible2(NMSettingWireless         *s_wireles
     /* and WPA3 */
     if (!strcmp(key_mgmt, "wpa-psk") || !strcmp(key_mgmt, "cckm") || !strcmp(key_mgmt, "wpa-eap")
         || !strcmp(key_mgmt, "wpa-eap-suite-b") || !strcmp(key_mgmt, "wpa-eap-suite-b-192")
-        || !strcmp(key_mgmt, "owe-only") || !strcmp(key_mgmt, "sae") || !strcmp(key_mgmt, "owe")) {
+        || !strcmp(key_mgmt, "sae") || !strcmp(key_mgmt, "owe")) {
         if (!strcmp(key_mgmt, "wpa-psk")) {
             if (wpa3_only) {
                 // wpa3-personal-transition mode (psk or sae)
@@ -415,7 +420,7 @@ nm_setting_wireless_ap_security_compatible2(NMSettingWireless         *s_wireles
             } else if (!(ap_wpa & NM_802_11_AP_SEC_KEY_MGMT_SAE)
                        && !(ap_rsn & NM_802_11_AP_SEC_KEY_MGMT_SAE))
                 return FALSE;
-        } else if (!strcmp(key_mgmt, "owe") || !strcmp(key_mgmt, "owe-only")) {
+        } else if (!strcmp(key_mgmt, "owe")) {
             if (!NM_FLAGS_ANY(ap_wpa,
                               NM_802_11_AP_SEC_KEY_MGMT_OWE | NM_802_11_AP_SEC_KEY_MGMT_OWE_TM)
                 && !NM_FLAGS_ANY(ap_rsn,

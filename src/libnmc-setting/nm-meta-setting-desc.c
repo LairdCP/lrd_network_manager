@@ -8206,7 +8206,7 @@ static const NMMetaPropertyInfo *const property_infos_WIRELESS_SECURITY[] = {
         .property_type =                &_pt_gobject_string,
         .property_typ_data = DEFINE_PROPERTY_TYP_DATA (
             .values_static =            NM_MAKE_STRV ("none", "ieee8021x", "wpa-psk", "wpa-eap", "wpa-eap-suite-b-192", "sae", "owe",
-                                                              "wpa-eap-suite-b", "owe-only", "cckm"),
+                                                              "wpa-eap-suite-b", "cckm"),
         ),
     ),
     PROPERTY_INFO_WITH_DESC (NM_SETTING_WIRELESS_SECURITY_WEP_TX_KEYIDX,
@@ -8357,6 +8357,14 @@ static const NMMetaPropertyInfo *const property_infos_WIRELESS_SECURITY[] = {
         .property_typ_data = DEFINE_PROPERTY_TYP_DATA (
             PROPERTY_TYP_DATA_SUBTYPE (gobject_enum,
                 .get_gtype =            nm_setting_wireless_security_ft_get_type,
+            ),
+        ),
+    ),
+    PROPERTY_INFO_WITH_DESC (NM_SETTING_WIRELESS_SECURITY_OWE_ONLY,
+        .property_type =                &_pt_gobject_enum,
+        .property_typ_data = DEFINE_PROPERTY_TYP_DATA (
+            PROPERTY_TYP_DATA_SUBTYPE (gobject_enum,
+                .get_gtype =            nm_setting_wireless_security_owe_only_get_type,
             ),
         ),
     ),

@@ -1275,7 +1275,7 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig           
         }
     } else
         /* Don't try to enable PMF on non-WPA/SAE networks */
-        if (!NM_IN_STRSET(key_mgmt, "wpa-eap", "wpa-psk", "sae", "owe", "owe-only"))
+        if (!NM_IN_STRSET(key_mgmt, "wpa-eap", "wpa-psk", "sae", "owe"))
             pmf = NM_SETTING_WIRELESS_SECURITY_PMF_DISABLE;
 
     /* Check if we actually support PMF */
@@ -1315,7 +1315,7 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig           
     } else if (nm_streq(key_mgmt, "ieee8021x")) {
         g_string_append(key_mgmt_conf, "IEEE8021X");
 
-    } else if (NM_IN_STRSET(key_mgmt, "owe", "owe-only")) {
+    } else if (NM_IN_STRSET(key_mgmt, "owe")) {
         pmf = NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED;
 
         g_string_append(key_mgmt_conf, "OWE");
@@ -1417,11 +1417,6 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig           
     if (!add_string_val(self, key_mgmt_conf->str, "key_mgmt", TRUE, NULL, error))
         return FALSE;
 
-    if (nm_streq(key_mgmt, "owe-only")) {
-        if (!add_string_val(self, "1", "owe_only", TRUE, NULL, error))
-            return FALSE;
-    }
-
     auth_alg = nm_setting_wireless_security_get_auth_alg(setting);
     if (!add_string_val(self, auth_alg, "auth_alg", TRUE, NULL, error))
         return FALSE;
@@ -1493,8 +1488,7 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig           
                      "wpa-eap-suite-b-192",
                      "cckm",
                      "sae",
-                     "owe",
-                     "owe-only")
+                     "owe")
         || wpa3_only) {
         const char *_pairwise   = NULL;
         const char *_group      = NULL;
@@ -1613,8 +1607,14 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig           
          * unencrypted downgrade
          */
         if (nm_streq(key_mgmt, "owe")) {
-            if (!nm_supplicant_config_add_option(self, "owe_only", "1", -1, NULL, error))
-                return FALSE;
+            NMSettingWirelessSecurityOweOnly owe_only;
+            owe_only = nm_setting_wireless_security_get_owe_only(setting);
+            if (owe_only == NM_SETTING_WIRELESS_SECURITY_OWE_ONLY_DEFAULT)
+                owe_only = NM_SETTING_WIRELESS_SECURITY_OWE_ONLY_YES;
+            if (owe_only == NM_SETTING_WIRELESS_SECURITY_OWE_ONLY_YES) {
+                if (!nm_supplicant_config_add_option(self, "owe_only", "1", -1, NULL, error))
+                    return FALSE;
+            }
         }
     }
 

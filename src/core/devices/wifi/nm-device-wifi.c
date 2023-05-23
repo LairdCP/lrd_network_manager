@@ -1164,7 +1164,7 @@ check_connection_compatible(NMDevice *device, NMConnection *connection, GError *
         if (!g_strcmp0(key_mgmt, "wpa-psk") || !g_strcmp0(key_mgmt, "sae")
             || !g_strcmp0(key_mgmt, "wpa-eap-suite-b")
             || !g_strcmp0(key_mgmt, "wpa-eap-suite-b-192") || !g_strcmp0(key_mgmt, "owe")
-            || !g_strcmp0(key_mgmt, "owe-only") || !g_strcmp0(key_mgmt, "wpa-eap")) {
+            || !g_strcmp0(key_mgmt, "wpa-eap")) {
             wifi_caps = priv->capabilities;
 
             /* Is device only WEP capable? */
