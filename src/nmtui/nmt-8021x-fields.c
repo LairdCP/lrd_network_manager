@@ -160,11 +160,11 @@ phase2_auth_setting_changed(GObject *object, GParamSpec *pspec, gpointer user_da
     gs_free char   *active_id = NULL;
     const char     *auth;
 
-    auth = nm_setting_802_1x_get_phase2_auth(setting);
+    auth = nm_setting_802_1x_get_phase2_auth(setting, 0);
     if (auth) {
         active_id = g_strdup(auth);
     } else {
-        auth = nm_setting_802_1x_get_phase2_autheap(setting);
+        auth = nm_setting_802_1x_get_phase2_autheap(setting, 0);
         if (auth)
             active_id = g_strdup_printf("eap-%s", auth);
     }
