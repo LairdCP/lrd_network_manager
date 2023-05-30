@@ -146,9 +146,9 @@ phase2_auth_widget_changed(GObject *object, GParamSpec *pspec, gpointer user_dat
         auth     = active_id;
     }
 
-    if (!nm_streq0(auth, nm_setting_802_1x_get_phase2_auth(setting)))
+    if (!nm_streq0(auth, nm_setting_802_1x_get_phase2_auth(setting, 0)))
         g_object_set(setting, NM_SETTING_802_1X_PHASE2_AUTH, auth, NULL);
-    if (!nm_streq0(auth_eap, nm_setting_802_1x_get_phase2_autheap(setting)))
+    if (!nm_streq0(auth_eap, nm_setting_802_1x_get_phase2_autheap(setting, 0)))
         g_object_set(setting, NM_SETTING_802_1X_PHASE2_AUTHEAP, auth_eap, NULL);
 }
 
