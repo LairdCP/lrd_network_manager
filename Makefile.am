@@ -3287,9 +3287,13 @@ src_core_ppp_nm_pppd_plugin_la_CPPFLAGS = \
 	-I$(builddir)/src \
 	-I$(builddir)/src/libnm-core-public \
 	-I$(srcdir)/src/libnm-core-public \
-	$(GLIB_CFLAGS)
+	$(GLIB_CFLAGS) \
+	$(PPPD_CFLAGS) \
+	$(NULL)
 
 src_core_ppp_nm_pppd_plugin_la_SOURCES = \
+	src/core/ppp/nm-pppd-compat.c \
+	src/core/ppp/nm-pppd-compat.h \
 	src/core/ppp/nm-pppd-plugin.c \
 	src/core/ppp/nm-pppd-plugin.h \
 	src/core/ppp/nm-ppp-status.h
@@ -3328,6 +3332,12 @@ src_core_ppp_libnm_ppp_plugin_la_LIBADD = \
 	$(NULL)
 
 $(src_core_ppp_libnm_ppp_plugin_la_OBJECTS): $(src_libnm_core_public_mkenums_h)
+
+check-local-ppp-plugin: src/core/NetworkManager src/core/ppp/libnm-ppp-plugin.la
+	$(srcdir)/tools/check-exports.sh $(builddir)/src/core/ppp/.libs/libnm-ppp-plugin.so "$(srcdir)/src/core/ppp/nm-ppp-plugin.ver"
+	$(call check_so_symbols,$(builddir)/src/core/ppp/.libs/libnm-ppp-plugin.so)
+
+check_local += check-local-ppp-plugin
 
 endif
 
@@ -3563,7 +3573,9 @@ EXTRA_DIST += \
 	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test-fcoe-fabric \
 	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test-fcoe-vn2vn \
 	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test-ibft \
-	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test-infiniband \
+	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test-infiniband0 \
+	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test-infiniband1 \
+	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test-infiniband2 \
 	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test-ip6-disabled.cexpected \
 	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test-ipoib \
 	src/core/settings/plugins/ifcfg-rh/tests/network-scripts/ifcfg-test-link_local \
