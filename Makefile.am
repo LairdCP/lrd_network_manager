@@ -2023,7 +2023,7 @@ src_libnm_client_impl_NM_1_0_gir_SCANNERFLAGS = --warn-all --identifier-prefix=N
 src/libnm-client-impl/libnm.typelib: src/libnm-client-impl/libnm.gir
 	$(INTROSPECTION_COMPILER) --includedir=$(srcdir)/src/libnm-core-public --includedir=$(builddir)/src/libnm-core-public --includedir=$(srcdir)/libnm-client-public --includedir=$(builddir)/libnm-client-public $< -o $@
 
-
+if BUILD_DOCS
 libnm_noinst_data = \
 	src/libnm-core-impl/gen-metadata-nm-settings-libnm-core.xml \
 	src/nmcli/gen-metadata-nm-settings-nmcli.xml \
@@ -2037,10 +2037,12 @@ libnm_noinst_data = \
 	src/libnmc-setting/settings-docs-input.xml \
 	$(NULL)
 
-if HAVE_INTROSPECTION
-INTROSPECTION_GIRS += src/libnm-client-impl/NM-1.0.gir
 noinst_DATA += $(libnm_noinst_data)
 DISTCLEANFILES += $(libnm_noinst_data)
+endif
+
+if HAVE_INTROSPECTION
+INTROSPECTION_GIRS += src/libnm-client-impl/NM-1.0.gir
 
 EXTRA_DIST += \
 	src/nmcli/gen-metadata-nm-settings-nmcli.xml.in \
