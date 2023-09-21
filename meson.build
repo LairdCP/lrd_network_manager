@@ -15,7 +15,7 @@ project(
   meson_version: '>= 0.47.2',
 )
 
-SUMMIT_BUILD_NUMBER = '10.229.0.1'
+SUMMIT_BUILD_NUMBER = '10.229.0.2'
 
 nm_name = meson.project_name()
 
