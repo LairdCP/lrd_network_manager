@@ -223,6 +223,7 @@ data_edit = sed \
 
 ###############################################################################
 
+if WITH_POLKIT
 polkit_policydir = $(datadir)/polkit-1/actions
 
 dist_polkit_policy_in_in_files = \
@@ -236,6 +237,7 @@ $(polkit_policy_DATA): $(dist_polkit_policy_in_files)
 	$(AM_V_GEN)$(MSGFMT) --xml --template $< -d $(top_srcdir)/po -o $@
 
 DISTCLEANFILES += $(polkit_policy_DATA)
+endif
 
 ###############################################################################
 

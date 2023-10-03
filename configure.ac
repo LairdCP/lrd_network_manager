@@ -664,6 +664,7 @@ else
 fi
 AC_DEFINE_UNQUOTED(NM_CONFIG_DEFAULT_MAIN_AUTH_POLKIT, "$enable_polkit", [The default value of the auth-polkit configuration option])
 AC_SUBST(NM_CONFIG_DEFAULT_MAIN_AUTH_POLKIT_TEXT, "$enable_polkit")
+AM_CONDITIONAL(WITH_POLKIT, test "${enable_polkit}" != "false")
 
 AC_ARG_WITH([polkit-agent-helper-1],
             AS_HELP_STRING([--with-polkit-agent-helper-1=/path/to/polkit-agent-helper-1],
