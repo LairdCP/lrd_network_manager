@@ -297,7 +297,10 @@ create_gsm_connect_properties(NMConnection *connection,
 
     properties = mm_simple_connect_properties_new();
 
-    mm_simple_connect_properties_set_apn(properties, apn ?: "");
+    if (!apn || !apn[0] || !g_strcmp0(apn, "internet"))
+        mm_simple_connect_properties_set_profile_id(properties, 1);
+    else
+        mm_simple_connect_properties_set_apn(properties, apn ?: "");
     if (username)
         mm_simple_connect_properties_set_user(properties, username);
     if (password)
@@ -632,6 +635,21 @@ connect_context_step(NMModemBroadband *self)
     case CONNECT_STEP_CONNECT:
         if (!ctx->connect_properties)
             break;
+
+        {
+            const char* apn = mm_simple_connect_properties_get_apn(ctx->connect_properties);
+            if (!apn || !apn[0] || !g_strcmp0(apn, "internet")) {
+                _LOGD("launching connection with profile 1 (try %d)",
+                    ctx->ip_type_tries + 1);
+
+                mm_modem_simple_connect(self->_priv.simple_iface,
+                                        ctx->connect_properties,
+                                        ctx->cancellable,
+                                        (GAsyncReadyCallback) connect_ready,
+                                        self);
+                break;
+            }
+        }
 
         if (ctx->ip_types_i < ctx->ip_types->len) {
             NMModemIPType current;
