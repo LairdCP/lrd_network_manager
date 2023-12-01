@@ -787,6 +787,10 @@ if enable_nm_cloud_setup
 endif
 
 enable_docs = get_option('docs')
+if enable_docs
+  perl = find_program('perl')
+  xsltproc = find_program('xsltproc')
+endif
 
 more_asserts = get_option('more_asserts')
 if more_asserts == 'auto'
@@ -924,9 +928,6 @@ if test -n "$INTROSPECTION_MAKEFILE"; then
     if ! "$PYTHON" -c 'from gi.repository import GObject' >& /dev/null; then
       AC_MSG_ERROR(["--enable-introspection aims to build the settings documentation. This requires GObject introspection for python (pygobject)])
     fi
-
-    perl = find_program('perl')
-    xsltproc = find_program('xsltproc')
 
     AC_PATH_PROG(PERL, perl)
     if test -z "$PERL"; then

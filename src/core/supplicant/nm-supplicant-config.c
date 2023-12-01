@@ -1676,9 +1676,9 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig           
                          "wpa-eap-suite-b",
                          "wpa-eap-suite-b-192")) {
             if (is_ap && _get_capability_laird(priv)) {
-                ;  // ap mode: summit supplicant support with ap-config-file
+                ;  /* ap mode: summit supplicant support with ap-config-file */
                 if (!strcmp(key_mgmt, "cckm")) {
-                    // ap mode: cckm is not allowed
+                    /* ap mode: cckm is not allowed */
                     g_set_error(error,
                                 NM_SUPPLICANT_ERROR,
                                 NM_SUPPLICANT_ERROR_CONFIG,
@@ -1871,7 +1871,7 @@ nm_supplicant_config_add_setting_8021x(NMSupplicantConfig *self,
         const char *method = nm_setting_802_1x_get_eap_method(setting, i);
 
         if (priv->flags1x.suiteb) {
-            // suiteb, 802-1x.eap must be only tls
+            /* suiteb, 802-1x.eap must be only tls */
             if (!nm_streq(method, "tls")) {
                 g_set_error(error,
                             NM_SUPPLICANT_ERROR,
@@ -1908,7 +1908,7 @@ nm_supplicant_config_add_setting_8021x(NMSupplicantConfig *self,
     }
 
     if (priv->flags1x.suiteb && num_eap != 1) {
-        // suiteb, 802-1x.eap must be only tls
+        /* suiteb, 802-1x.eap must be only tls */
         g_set_error(error,
                     NM_SUPPLICANT_ERROR,
                     NM_SUPPLICANT_ERROR_CONFIG,

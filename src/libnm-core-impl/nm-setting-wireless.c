@@ -2446,7 +2446,7 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
                                               ccx);
 
     /**
-     * NMSettingWireless:client_name:
+     * NMSettingWireless:client-name:
      *
      * The device name assigned to the radio and the client device that uses
      * it. If CCX features are on then the client name is relayed and used for
@@ -2463,7 +2463,7 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
                                               client_name);
 
     /**
-     * NMSettingWireless:scan_delay:
+     * NMSettingWireless:scan-delay:
      *
      * For active scanning, the time to wait after tuning to a new channel
      * before transmitting a probe request.
@@ -2482,7 +2482,7 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
                                               scan_delay);
 
     /**
-     * NMSettingWireless:scan_dwell:
+     * NMSettingWireless:scan-dwell:
      *
      * For active scanning, the time to wait for probe responses after
      * transmitting a probe request.
@@ -2501,7 +2501,7 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
                                               scan_dwell);
 
     /**
-     * NMSettingWireless:scan_passive_dwell:
+     * NMSettingWireless:scan-passive-dwell:
      *
      * For passive scanning, the time to wait for probe responses.
      *
@@ -2519,7 +2519,7 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
                                               scan_passive_dwell);
 
     /**
-     * NMSettingWireless:scan_suspend_time:
+     * NMSettingWireless:scan-suspend-time:
      *
      * For background scanning, the duration to periodically suspend
      * background scanning to service the active connection.
@@ -2538,7 +2538,7 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
                                               scan_suspend_time);
 
     /**
-     * NMSettingWireless:scan_roam_delta:
+     * NMSettingWireless:scan-roam-delta:
      *
      * For roaming, limits the number of dB better required for
      * a roam.
@@ -2573,10 +2573,10 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
                                               bgscan);
 
     /**
-     * NMSettingWireless:auth_timeout:
+     * NMSettingWireless:auth-timeout:
      *
      * Will restart association if authentication does not complete
-     * within the configured auth_timeout.
+     * within the configured auth-timeout.
      *
      * Since: 1.8
      **/
@@ -2592,7 +2592,7 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
                                               auth_timeout);
 
     /**
-     * NMSettingWireless:frequency_list:
+     * NMSettingWireless:frequency-list:
      *
      * The allowed frequencies for connecting.  A space separated list of frequencies.
      *
@@ -2607,7 +2607,7 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
                                               frequency_list);
 
     /**
-     * NMSettingWireless:frequency_dfs:
+     * NMSettingWireless:frequency-dfs:
      *
      * Enables/disables DFS/RADAR frequencies.
      *
@@ -2625,7 +2625,7 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
                                               frequency_dfs);
 
     /**
-     * NMSettingWireless:max_scan_interval:
+     * NMSettingWireless:max-scan-interval:
      *
      * The maximum scan interval to use for NM scanning for this profile.
      *
@@ -2681,11 +2681,12 @@ nm_setting_wireless_class_init(NMSettingWirelessClass *klass)
                                               acs);
 
     /**
-     * NMSettingWireless:ap_config_file:
+     * NMSettingWireless:ap-config-file:
      *
-     * Hostap configuration template file used for 802.1x AP modes with Summit supplicant.
+     * Hostap configuration template file used for 802.1x AP modes with
+     * Summit Supplicant.
      *
-     * Since: 1.xx
+     * Since: 1.12.0
      **/
     _nm_setting_property_define_direct_string(properties_override,
                                               obj_properties,

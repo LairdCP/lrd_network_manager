@@ -110,8 +110,7 @@ typedef enum /*< flags >*/ {
 #define NM_SETTING_WIRELESS_MAX_SCAN_INTERVAL     "max-scan-interval"
 #define NM_SETTING_WIRELESS_DMS                   "dms"
 #define NM_SETTING_WIRELESS_ACS                   "acs"
-
-#define NM_SETTING_WIRELESS_AP_CONFIG_FILE "ap-config-file"
+#define NM_SETTING_WIRELESS_AP_CONFIG_FILE        "ap-config-file"
 
 /**
  * NM_SETTING_WIRELESS_MODE_ADHOC:

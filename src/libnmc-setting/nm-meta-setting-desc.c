@@ -4820,7 +4820,6 @@ static const NMMetaPropertyType _pt_objlist = {
 /*****************************************************************************/
 
 #include "libnmc-setting/settings-docs.h"
-#include "settings-docs-laird.c"
 
 /*****************************************************************************/
 

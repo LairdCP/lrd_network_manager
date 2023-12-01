@@ -1134,7 +1134,7 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
             || nm_streq(priv->key_mgmt, "wpa-eap-suite-b-192")) {
             /* Need an 802.1x setting too */
             if (g_strcmp0(wifi_mode, NM_SETTING_WIRELESS_MODE_AP) == 0) {
-                // AP mode -- 802.1x settings set via ap-config-file
+                /* AP mode -- 802.1x settings set via ap-config-file */
             } else if (connection && !nm_connection_get_setting_802_1x(connection)) {
                 g_set_error(error,
                             NM_CONNECTION_ERROR,
@@ -2092,6 +2092,8 @@ nm_setting_wireless_security_class_init(NMSettingWirelessSecurityClass *klass)
      * Key management used for the connection.  One of "0" (Standard key caching), or "1"
      * (Opportunistic Key Caching). This property must be set for
      * any Wi-Fi connection that uses wpa-eap key-mgmt.
+     *
+     * Since: 1.30
      **/
     /* ---ifcfg-rh---
      * property: proactive-key-caching
@@ -2121,7 +2123,7 @@ nm_setting_wireless_security_class_init(NMSettingWirelessSecurityClass *klass)
      * supported).  When set to %NM_SETTING_WIRELESS_SECURITY_FT_DEFAULT and
      * no global default is set, FT will be disabled.
      *
-     * Since: 1.16
+     * Since: 1.30
      **/
     /* ---ifcfg-rh---
      * property: ft

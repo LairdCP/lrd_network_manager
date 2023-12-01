@@ -4638,6 +4638,7 @@ nm_setting_802_1x_class_init(NMSetting8021xClass *klass)
      * NMSetting8021x:pac-file-password:
      *
      * The password used to decrypt a manually provisioned PAC file.
+     *
      **/
     /* ---ifcfg-rh---
      * property: pac-file-password
@@ -4659,9 +4660,6 @@ nm_setting_802_1x_class_init(NMSetting8021xClass *klass)
      * Flags indicating how to handle the #NMSetting8021x:pac-file-password property.
      *
      **/
-    /* ---ifcfg-rh---
-     * ---end---
-     */
     _nm_setting_property_define_direct_secret_flags(properties_override,
                                                     obj_properties,
                                                     NM_SETTING_802_1X_PAC_FILE_PASSWORD_FLAGS,

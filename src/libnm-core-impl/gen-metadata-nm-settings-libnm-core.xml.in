@@ -66,6 +66,14 @@
     <setting name="802-11-wireless"
              gtype="NMSettingWireless"
              >
+        <property name="acs"
+                  dbus-type="u"
+                  gprop-type="guint"
+                  />
+        <property name="ap-config-file"
+                  dbus-type="s"
+                  gprop-type="gchararray"
+                  />
         <property name="ap-isolation"
                   dbus-type="i"
                   gprop-type="NMTernary"
@@ -73,7 +81,15 @@
         <property name="assigned-mac-address"
                   dbus-type="s"
                   />
+        <property name="auth-timeout"
+                  dbus-type="u"
+                  gprop-type="guint"
+                  />
         <property name="band"
+                  dbus-type="s"
+                  gprop-type="gchararray"
+                  />
+        <property name="bgscan"
                   dbus-type="s"
                   gprop-type="gchararray"
                   />
@@ -81,13 +97,37 @@
                   dbus-type="ay"
                   gprop-type="gchararray"
                   />
+        <property name="ccx"
+                  dbus-type="u"
+                  gprop-type="guint"
+                  />
         <property name="channel"
                   dbus-type="u"
                   gprop-type="guint"
                   />
+        <property name="channel-width"
+                  dbus-type="s"
+                  gprop-type="gchararray"
+                  />
+        <property name="client-name"
+                  dbus-type="s"
+                  gprop-type="gchararray"
+                  />
         <property name="cloned-mac-address"
                   dbus-type="ay"
                   dbus-deprecated="1"
+                  gprop-type="gchararray"
+                  />
+        <property name="dms"
+                  dbus-type="u"
+                  gprop-type="guint"
+                  />
+        <property name="frequency-dfs"
+                  dbus-type="u"
+                  gprop-type="guint"
+                  />
+        <property name="frequency-list"
+                  dbus-type="s"
                   gprop-type="gchararray"
                   />
         <property name="generate-mac-address-mask"
@@ -111,6 +151,10 @@
                   dbus-type="u"
                   gprop-type="guint"
                   />
+        <property name="max-scan-interval"
+                  dbus-type="u"
+                  gprop-type="guint"
+                  />
         <property name="mode"
                   dbus-type="s"
                   gprop-type="gchararray"
@@ -124,6 +168,26 @@
                   gprop-type="guint"
                   />
         <property name="rate"
+                  dbus-type="u"
+                  gprop-type="guint"
+                  />
+        <property name="scan-delay"
+                  dbus-type="u"
+                  gprop-type="guint"
+                  />
+        <property name="scan-dwell"
+                  dbus-type="u"
+                  gprop-type="guint"
+                  />
+        <property name="scan-passive-dwell"
+                  dbus-type="u"
+                  gprop-type="guint"
+                  />
+        <property name="scan-roam-delta"
+                  dbus-type="u"
+                  gprop-type="guint"
+                  />
+        <property name="scan-suspend-time"
                   dbus-type="u"
                   gprop-type="guint"
                   />
@@ -159,6 +223,10 @@
                   dbus-type="i"
                   gprop-type="gint"
                   />
+        <property name="ft"
+                  dbus-type="i"
+                  gprop-type="gint"
+                  />
         <property name="group"
                   dbus-type="as"
                   gprop-type="GStrv"
@@ -181,6 +249,10 @@
                   dbus-type="s"
                   gprop-type="gchararray"
                   />
+        <property name="owe-only"
+                  dbus-type="i"
+                  gprop-type="gint"
+                  />
         <property name="pairwise"
                   dbus-type="as"
                   gprop-type="GStrv"
@@ -188,6 +260,10 @@
         <property name="pmf"
                   dbus-type="i"
                   gprop-type="gint"
+                  />
+        <property name="proactive-key-caching"
+                  dbus-type="s"
+                  gprop-type="gchararray"
                   />
         <property name="proto"
                   dbus-type="as"
@@ -312,6 +388,16 @@
                   dbus-type="s"
                   gprop-type="gchararray"
                   />
+        <property name="pac-file-password"
+                  is-secret="1"
+                  dbus-type="s"
+                  gprop-type="gchararray"
+                  />
+        <property name="pac-file-password-flags"
+                  is-secret-flags="1"
+                  dbus-type="u"
+                  gprop-type="NMSettingSecretFlags"
+                  />
         <property name="password"
                   is-secret="1"
                   dbus-type="s"
@@ -353,12 +439,12 @@
                   gprop-type="GStrv"
                   />
         <property name="phase2-auth"
-                  dbus-type="s"
-                  gprop-type="gchararray"
+                  dbus-type="as"
+                  gprop-type="GStrv"
                   />
         <property name="phase2-autheap"
-                  dbus-type="s"
-                  gprop-type="gchararray"
+                  dbus-type="as"
+                  gprop-type="GStrv"
                   />
         <property name="phase2-ca-cert"
                   dbus-type="ay"
@@ -2409,7 +2495,19 @@
     <setting name="wifi-p2p"
              gtype="NMSettingWifiP2P"
              >
+        <property name="device-name"
+                  dbus-type="s"
+                  gprop-type="gchararray"
+                  />
+        <property name="frequency"
+                  dbus-type="i"
+                  gprop-type="gint"
+                  />
         <property name="peer"
+                  dbus-type="s"
+                  gprop-type="gchararray"
+                  />
+        <property name="peer-device-name"
                   dbus-type="s"
                   gprop-type="gchararray"
                   />
