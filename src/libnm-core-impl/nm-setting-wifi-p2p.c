@@ -125,7 +125,7 @@ nm_setting_wifi_p2p_get_peer_device_name(NMSettingWifiP2P *setting)
 int
 nm_setting_wifi_p2p_get_frequency(NMSettingWifiP2P *setting)
 {
-    g_return_val_if_fail(NM_IS_SETTING_WIFI_P2P(setting), (int) NULL);
+    g_return_val_if_fail(NM_IS_SETTING_WIFI_P2P(setting), 0);
 
     return NM_SETTING_WIFI_P2P_GET_PRIVATE(setting)->frequency;
 }
