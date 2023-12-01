@@ -30,6 +30,21 @@ if crypto_gnutls_dep.found()
   )
 endif
 
+if crypto_openssl_dep.found()
+  libnm_crypto_openssl = static_library(
+    'nm-crypto-openssl',
+    sources: 'nm-crypto-openssl.c',
+    include_directories: [
+      top_inc,
+      src_inc,
+    ],
+    dependencies: [
+      glib_dep,
+      crypto_openssl_dep,
+    ],
+  )
+endif
+
 libnm_crypto_null = static_library(
   'nm-crypto-null',
   sources: 'nm-crypto-null.c',
@@ -46,6 +61,8 @@ if crypto == 'nss'
   libnm_crypto_impl = libnm_crypto_nss
 elif crypto == 'gnutls'
   libnm_crypto_impl = libnm_crypto_gnutls
+elif crypto == 'openssl'
+  libnm_crypto_impl = libnm_crypto_openssl
 else
   assert(crypto == 'null', 'Unexpected setting "crypto=' + crypto + '"')
   libnm_crypto_impl = libnm_crypto_null

@@ -1544,6 +1544,24 @@ src_libnm_crypto_libnm_crypto_gnutls_la_LIBADD = \
 	$(GNUTLS_LIBS)
 endif
 
+if HAVE_CRYPTO_OPENSSL
+if WITH_OPENSSL
+libnm_crypto_lib = src/libnm-crypto/libnm-crypto-openssl.la
+else
+check_ltlibraries += src/libnm-crypto/libnm-crypto-openssl.la
+endif
+
+src_libnm_crypto_libnm_crypto_openssl_la_SOURCES = src/libnm-crypto/nm-crypto-openssl.c
+src_libnm_crypto_libnm_crypto_openssl_la_CPPFLAGS = \
+	$(src_libnm_core_impl_libnm_core_impl_la_CPPFLAGS) \
+	$(OPENSSL_CFLAGS)
+src_libnm_crypto_libnm_crypto_openssl_la_LDFLAGS = \
+	$(src_libnm_core_impl_libnm_core_impl_la_LDFLAGS)
+src_libnm_crypto_libnm_crypto_openssl_la_LIBADD = \
+	$(GLIB_LIBS) \
+	$(OPENSSL_LIBS)
+endif
+
 if HAVE_CRYPTO_NSS
 if WITH_NSS
 libnm_crypto_lib = src/libnm-crypto/libnm-crypto-nss.la
@@ -1563,8 +1581,12 @@ src_libnm_crypto_libnm_crypto_nss_la_LIBADD = \
 endif
 
 if !WITH_GNUTLS
+if !WITH_OPENSSL
 if !WITH_NSS
 libnm_crypto_lib = src/libnm-crypto/libnm-crypto-null.la
+else
+check_ltlibraries += src/libnm-crypto/libnm-crypto-null.la
+endif
 else
 check_ltlibraries += src/libnm-crypto/libnm-crypto-null.la
 endif
@@ -1589,6 +1611,7 @@ EXTRA_DIST += \
 	src/libnm-crypto/README.md \
 	src/libnm-crypto/meson.build \
 	src/libnm-crypto/nm-crypto-gnutls.c \
+	src/libnm-crypto/nm-crypto-openssl.c \
 	src/libnm-crypto/nm-crypto-nss.c \
 	$(NULL)
 

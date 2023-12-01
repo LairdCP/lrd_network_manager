@@ -534,6 +534,11 @@ crypto_gnutls_dep = dependency(
   version: '>= 2.12',
   required: false,
 )
+crypto_openssl_dep = dependency(
+  'openssl',
+  version: '>= 1.0.2',
+  required: false,
+)
 crypto = get_option('crypto')
 if crypto == 'nss'
     assert(crypto_nss_dep.found(), 'Requires nss crypto support')
@@ -541,6 +546,9 @@ if crypto == 'nss'
 elif crypto == 'gnutls'
     assert(crypto_gnutls_dep.found(), 'Requires gnutls crypto support')
     crypto_dep = crypto_gnutls_dep
+elif crypto == 'openssl'
+    assert(crypto_openssl_dep.found(), 'Requires openssl crypto support')
+    crypto_dep = crypto_openssl_dep
 else
     assert(crypto == 'null', 'Unexpected setting "crypto=' + crypto + '"')
 endif
@@ -1105,6 +1113,7 @@ output += '  code coverage: ' + get_option('b_coverage').to_string() + '\n'
 output += '  LTO: ' + enable_lto.to_string() + '\n'
 output += '  Linker garbage collection: ' + enable_ld_gc.to_string() + '\n'
 output += '  crypto: ' + crypto + ' ('
+output +=      'have-openssl: ' + crypto_openssl_dep.found().to_string() + ', '
 output +=      'have-gnutls: ' + crypto_gnutls_dep.found().to_string() + ', '
 output +=      'have-nss: ' + crypto_nss_dep.found().to_string() + ')\n'
 output += '  sanitizers: ' + get_option('b_sanitize') + '\n'

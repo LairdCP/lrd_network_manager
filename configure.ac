@@ -710,6 +710,7 @@ fi
 AM_CONDITIONAL(WITH_FIREWALLD_ZONE, test "${enable_firewalld_zone}" = "yes")
 
 PKG_CHECK_MODULES(GNUTLS, [gnutls >= 2.12], [have_crypto_gnutls=yes], [have_crypto_gnutls=no])
+PKG_CHECK_MODULES(OPENSSL, [openssl >= 1.0.2], [have_crypto_openssl=yes], [have_crypto_openssl=no])
 PKG_CHECK_MODULES(NSS, [nss], [have_crypto_nss=yes], [have_crypto_nss=yes])
 if test "${have_crypto_nss}" = "yes"; then
 	# Work around a pkg-config bug (fdo #29801) where exists != usable
@@ -719,10 +720,11 @@ if test "${have_crypto_nss}" = "yes"; then
 	fi
 fi
 AM_CONDITIONAL(HAVE_CRYPTO_GNUTLS, test "${have_crypto_gnutls}" = 'yes')
+AM_CONDITIONAL(HAVE_CRYPTO_OPENSSL, test "${have_crypto_openssl}" = 'yes')
 AM_CONDITIONAL(HAVE_CRYPTO_NSS, test "${have_crypto_nss}" = 'yes')
 
 AC_ARG_WITH(crypto,
-            AS_HELP_STRING([--with-crypto=nss|gnutls|null],
+            AS_HELP_STRING([--with-crypto=nss|gnutls|openssl|null],
                            [Cryptography library to use for certificate and key operations]),
             with_crypto=$withval,
             with_crypto=nss)
@@ -734,13 +736,18 @@ elif test "$with_crypto" = 'gnutls'; then
 	if test "${have_crypto_gnutls}" != "yes"; then
 		AC_MSG_ERROR([No usable gnutls found for --with-crypto=gnutls])
 	fi
+elif test "$with_crypto" = 'openssl'; then
+	if test "${have_crypto_openssl}" != "yes"; then
+		AC_MSG_ERROR([No usable openssl found for --with-crypto=openssl])
+	fi
 elif test "$with_crypto" = 'null'; then
 	:
 else
-	AC_MSG_ERROR([Please choose either 'nss', 'gnutls' or 'null' for certificate and crypto operations])
+	AC_MSG_ERROR([Please choose either 'nss', 'gnutls', 'openssl' or 'null' for certificate and crypto operations])
 fi
 AM_CONDITIONAL(WITH_NSS, test "$with_crypto" = 'nss')
 AM_CONDITIONAL(WITH_GNUTLS, test "$with_crypto" = 'gnutls')
+AM_CONDITIONAL(WITH_OPENSSL, test "$with_crypto" = 'openssl')
 
 GLIB_MAKEFILE='$(top_srcdir)/Makefile.glib'
 AC_SUBST(GLIB_MAKEFILE)
