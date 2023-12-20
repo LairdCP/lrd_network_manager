@@ -369,9 +369,11 @@ _nm_crypto_verify_pkcs8(const guint8 *data,
 
     bio = BIO_new_mem_buf(data, data_len);
 
-    pkey = d2i_PKCS8PrivateKey_bio(bio, NULL,
-        is_encrypted ? password_cb : NULL, (void *)password);
-
+    if (is_encrypted) {
+        pkey = d2i_PKCS8PrivateKey_bio(bio, NULL, password_cb, password);
+    } else {
+        pkey = d2i_PrivateKey_bio(bio, NULL);
+    }
     BIO_free(bio);
 
     if (pkey == NULL) {
