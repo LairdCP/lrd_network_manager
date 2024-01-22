@@ -2092,6 +2092,8 @@ nm_setting_wireless_security_class_init(NMSettingWirelessSecurityClass *klass)
      * Key management used for the connection.  One of "0" (Standard key caching), or "1"
      * (Opportunistic Key Caching). This property must be set for
      * any Wi-Fi connection that uses wpa-eap key-mgmt.
+     * This property may also be applied to non wpa-eap key-mgmt profiles.
+     * In particular SAE with some controller AP use OKC.
      *
      * Since: 1.30
      **/
