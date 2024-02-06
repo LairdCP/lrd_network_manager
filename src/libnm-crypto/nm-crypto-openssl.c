@@ -311,21 +311,10 @@ _nm_crypto_verify_pkcs12(const guint8 *data,
     }
 
     if (1 != PKCS12_parse(p12, password ?: "", NULL, NULL, NULL)) {
-        switch (ERR_GET_REASON(ERR_peek_last_error())) {
-            case PKCS12_R_MAC_VERIFY_FAILURE:
-            case PKCS12_R_PKCS12_CIPHERFINAL_ERROR:
-                g_set_error(error,
-                            _NM_CRYPTO_ERROR,
-                            _NM_CRYPTO_ERROR_DECRYPTION_FAILED,
-                            _("Couldn't decode PKCS#12 file: wrong password."));
-                break;
-            default:
-                g_set_error(error,
-                            _NM_CRYPTO_ERROR,
-                            _NM_CRYPTO_ERROR_INVALID_DATA,
-                            _("Couldn't decode PKCS#12 file."));
-                break;
-        }
+        g_set_error(error,
+                    _NM_CRYPTO_ERROR,
+                    _NM_CRYPTO_ERROR_DECRYPTION_FAILED,
+                    _("Couldn't decode PKCS#12 file: wrong password."));
         PKCS12_free(p12);
         return FALSE;
     }
