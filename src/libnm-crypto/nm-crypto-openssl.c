@@ -310,21 +310,22 @@ _nm_crypto_verify_pkcs12(const guint8 *data,
         return FALSE;
     }
 
-    if (1 != PKCS12_verify_mac(p12, password, 
-                               password ? strlen(password) : 0)) {
-        g_set_error(error,
-                    _NM_CRYPTO_ERROR,
-                    _NM_CRYPTO_ERROR_DECRYPTION_FAILED,
-                    _("Couldn't verify PKCS#12 file."));
-        PKCS12_free(p12);
-        return FALSE;
-    }
-
-    if (1 != PKCS12_parse(p12, password, NULL, NULL, NULL)) {
-        g_set_error(error,
-                    _NM_CRYPTO_ERROR,
-                    _NM_CRYPTO_ERROR_INVALID_DATA,
-                    _("Couldn't decode PKCS#12 file."));
+    if (1 != PKCS12_parse(p12, password ?: "", NULL, NULL, NULL)) {
+        switch (ERR_GET_REASON(ERR_peek_last_error())) {
+            case PKCS12_R_MAC_VERIFY_FAILURE:
+            case PKCS12_R_PKCS12_CIPHERFINAL_ERROR:
+                g_set_error(error,
+                            _NM_CRYPTO_ERROR,
+                            _NM_CRYPTO_ERROR_DECRYPTION_FAILED,
+                            _("Couldn't decode PKCS#12 file: wrong password."));
+                break;
+            default:
+                g_set_error(error,
+                            _NM_CRYPTO_ERROR,
+                            _NM_CRYPTO_ERROR_INVALID_DATA,
+                            _("Couldn't decode PKCS#12 file."));
+                break;
+        }
         PKCS12_free(p12);
         return FALSE;
     }
@@ -370,7 +371,7 @@ _nm_crypto_verify_pkcs8(const guint8 *data,
     bio = BIO_new_mem_buf(data, data_len);
 
     if (is_encrypted) {
-        pkey = d2i_PKCS8PrivateKey_bio(bio, NULL, password_cb, password);
+        pkey = d2i_PKCS8PrivateKey_bio(bio, NULL, password_cb, (void*)password);
     } else {
         pkey = d2i_PrivateKey_bio(bio, NULL);
     }
