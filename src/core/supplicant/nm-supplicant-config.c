@@ -1668,6 +1668,8 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig           
             return FALSE;
         }
     } else {
+        const char *proactive_key_caching;
+
         /* 802.1x for Dynamic WEP and WPA-Enterprise */
         if (NM_IN_STRSET(key_mgmt,
                          "ieee8021x",
@@ -1715,11 +1717,11 @@ nm_supplicant_config_add_setting_wireless_security(NMSupplicantConfig           
                 return FALSE;
         }
 
-        const char *proactive_key_caching =
+        proactive_key_caching =
             nm_setting_wireless_security_get_proactive_key_caching(setting);
         if (NM_IN_STRSET(key_mgmt, "wpa-eap", "cckm", "wpa-eap-suite-b", "wpa-eap-suite-b-192") ||
             /* PROD-5493: allow force of proactive_key_caching for SAE with Cisco controller AP */
-            (proactive_key_caching && (0==strcmp(proactive_key_caching, "1"))) )
+            !g_strcmp0(proactive_key_caching, "1"))
         {
             /* When using WPA-Enterprise, we want to use Proactive Key Caching (also
              * called Opportunistic Key Caching) to avoid full EAP exchanges when
