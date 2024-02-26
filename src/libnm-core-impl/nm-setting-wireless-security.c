@@ -1316,6 +1316,27 @@ verify(NMSetting *setting, NMConnection *connection, GError **error)
         return FALSE;
     }
 
+    if (wpa3_only && NM_IN_STRSET(priv->key_mgmt,"wpa-eap-suite-b-192"))
+    {
+        switch (priv->ft) {
+        case NM_SETTING_WIRELESS_SECURITY_FT_OPTIONAL:
+        case NM_SETTING_WIRELESS_SECURITY_FT_REQUIRED:
+            g_set_error(error,
+                        NM_CONNECTION_ERROR,
+                        NM_CONNECTION_ERROR_INVALID_PROPERTY,
+                        _("'%s' cannot be used with wpa3 'wpa-eap-suite-b-192' key management"),
+                        priv->ft == NM_SETTING_WIRELESS_SECURITY_FT_OPTIONAL ? "optional"
+                                                                           : "required");
+            g_prefix_error(error,
+                           "%s.%s: ",
+                           NM_SETTING_WIRELESS_SECURITY_SETTING_NAME,
+                           NM_SETTING_WIRELESS_SECURITY_FT);
+            return FALSE;
+        default:
+            break;
+        }
+    }
+
     if (NM_IN_STRSET(priv->key_mgmt, "owe", "sae", "wpa-eap-suite-b-192")
         && !NM_IN_SET(priv->pmf,
                       NM_SETTING_WIRELESS_SECURITY_PMF_DEFAULT,
