@@ -1777,6 +1777,7 @@ int_list_add_aint(int_list *plist, const int *v)
 typedef struct {
     const char       *ifname;              // ifname for filtering connections
     int               profile_count;       // count of profiles
+    int               avoid_bcast_ssid;    // avoid use of broadcast ssid
     int               require_bcast_ssid;  // set if any profile has hidden==0
     int               require_all_freq;    // set if any profile does not have a frequency_list
     int               require_dfs;         // set if any profile has dfs channels enabled
@@ -1954,6 +1955,10 @@ hidden_filter_func(NMSettings *settings, NMSettingsConnection *set_con, gpointer
     if (user_data) {
         build_laird_scan(s_wifi, user_data);
     }
+    if (((BuildLSS *)user_data)->avoid_bcast_ssid) {
+        // avoid broadcast ssid: treat all connections as hidden
+        return TRUE;
+    }
     return nm_setting_wireless_get_hidden(s_wifi);
 }
 
@@ -1971,8 +1976,16 @@ _scan_request_ssids_build_hidden(NMDeviceWifi *self,
     guint                          connections_len;
     guint                          n_hidden;
     guint                          i;
+    NMDevice                      *device = (NMDevice *) self;
 
     NM_SET_OUT(out_has_hidden_profiles, FALSE);
+
+    blss->avoid_bcast_ssid = nm_config_data_get_device_config_boolean(
+        NM_CONFIG_GET_DATA,
+        NM_CONFIG_KEYFILE_KEY_DEVICE_WIFI_SCAN_AVOID_BCAST_SSID,
+        device,
+        FALSE,
+        FALSE);
 
     /* collect all pending explicit SSIDs. */
     ssids = _scan_request_ssids_fetch(priv, now_msec);
@@ -1984,6 +1997,9 @@ _scan_request_ssids_build_hidden(NMDeviceWifi *self,
     }
 
     if (ssids) {
+        if (blss->avoid_bcast_ssid) {
+            ; /* do not add wildcard SSID */
+        } else
         if (ssids->len < max_scan_ssids) {
             /* Add wildcard SSID using a static wildcard SSID used for every scan */
             g_ptr_array_insert(ssids, 0, g_bytes_ref(nm_g_bytes_get_empty()));
@@ -2008,7 +2024,7 @@ _scan_request_ssids_build_hidden(NMDeviceWifi *self,
         ssids = g_ptr_array_new_full(max_scan_ssids, (GDestroyNotify) g_bytes_unref);
         /* Add wildcard SSID using a static wildcard SSID used for every scan */
         /* Laird: only add wildcard SSID if non-hidden connections exist */
-        if (blss->require_bcast_ssid) {
+        if (!blss->avoid_bcast_ssid && blss->require_bcast_ssid) {
             g_ptr_array_insert(ssids, 0, g_bytes_ref(nm_g_bytes_get_empty()));
         }
     }
